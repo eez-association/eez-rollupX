@@ -620,6 +620,39 @@ fn validates_the_golden_block_through_stateless() {
 }
 
 #[test]
+fn history_import_requires_the_authenticated_implementation_code() {
+    let input = fixture_input();
+    let implementation = eez_protocol::l1_history::HISTORY_IMPLEMENTATION_RUNTIME;
+    let position = input
+        .witness
+        .codes
+        .iter()
+        .position(|code| code.as_ref() == implementation)
+        .expect("captured import must witness delegated implementation code");
+    Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS)
+        .validate(std::slice::from_ref(&input))
+        .unwrap();
+    for replace in [false, true] {
+        let mut invalid = input.clone();
+        invalid.witness.codes.remove(position);
+        if replace {
+            // Plausible executable bytes with a different hash cannot satisfy
+            // the code hash authenticated by the implementation account proof.
+            let mut changed = implementation.to_vec();
+            changed[0] ^= 1;
+            invalid.witness.codes.push(changed.into());
+        }
+        let error = Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS)
+            .validate(&[invalid])
+            .unwrap_err();
+        assert!(
+            matches!(&error, ValidationError::Rejected(reason) if reason.contains("bytecode")),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
 fn selected_checkpoints_flow_through_the_stateless_adapter() {
     let (mut input, chain_config, expected) = checkpoint_fixture();
     let expected_hash = input.claimed_hash;

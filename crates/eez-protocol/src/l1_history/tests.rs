@@ -12,30 +12,40 @@ const RULES: HeaderRules = HeaderRules {
 fn recorded_import_limits_delay_regression_and_exact_abi_are_enforced() {
     let evidence = chain(&(0..=70).collect::<Vec<_>>());
     let schedule = HistorySchedule::new(120, 2, 6, 2).unwrap();
-    let prior = state(&evidence, 99, 120);
+    let prior = state(&evidence, 99);
     let valid = schedule
-        .execution(126, prior, &evidence, Some(163))
+        .execution(126, prior, &evidence, Some(&blocks(&evidence, 100..=163)))
         .unwrap();
     let raw = valid.import.unwrap();
-    assert_eq!(decode_import(&raw).unwrap().hashes.len(), 64);
+    assert_eq!(decode_import(&raw).unwrap().blocks.len(), 64);
     assert!(
         schedule
-            .execution(126, prior, &evidence, Some(164))
+            .execution(126, prior, &evidence, Some(&blocks(&evidence, 100..=164)))
             .unwrap_err()
             .to_string()
             .contains("bound")
     );
     assert!(
         schedule
-            .execution(126, state(&evidence, 100, 120), &evidence, Some(99))
+            .execution(
+                126,
+                state(&evidence, 100),
+                &evidence,
+                Some(&blocks(&evidence, [99]))
+            )
             .unwrap_err()
             .to_string()
-            .contains("regresses")
+            .contains("increase")
     );
     let future = chain(&[108, 121]);
     assert!(
         schedule
-            .execution(126, state(&future, 99, 120), &future, Some(100))
+            .execution(
+                126,
+                state(&future, 99),
+                &future,
+                Some(&blocks(&future, [100]))
+            )
             .unwrap_err()
             .to_string()
             .contains("newer")
@@ -44,8 +54,8 @@ fn recorded_import_limits_delay_regression_and_exact_abi_are_enforced() {
         let mut bad = raw.to_vec();
         match mutation {
             0 => bad.push(0),
-            1 => bad[67] = 96,
-            2 => bad[68..100].fill(0xff),
+            1 => bad[35] = 96,
+            2 => bad[36..68].fill(0xff),
             3 => bad[4] = 1,
             _ => bad[0] ^= 1,
         }
@@ -78,12 +88,11 @@ fn chain(times: &[u64]) -> HeaderChain {
     chain
 }
 
-fn state(chain: &HeaderChain, endpoint: u64, first_cutoff: u64) -> HistoryState {
+fn state(chain: &HeaderChain, endpoint: u64) -> HistoryState {
     HistoryState {
-        first_number: 99,
+        imported: true,
         endpoint,
         endpoint_hash: chain.at(endpoint).unwrap().hash(),
-        first_cutoff,
     }
 }
 
@@ -91,34 +100,48 @@ fn state(chain: &HeaderChain, endpoint: u64, first_cutoff: u64) -> HistoryState 
 fn delay_retains_origin_and_randao_across_sync_then_updates_together() {
     let schedule = HistorySchedule::new(120, 2, 6, 2).unwrap();
     let chain = chain(&[108, 120, 121, 132, 144]);
-    let before = state(&chain, 99, 120);
+    let before = state(&chain, 99);
     for time in [122, 124] {
         let e = schedule.execution(time, before, &chain, None).unwrap();
         assert_eq!(e.origin_number, 99);
         assert_eq!(e.prev_randao, B256::with_last_byte(1));
         assert!(e.import.is_none());
     }
-    let update = schedule.execution(126, before, &chain, Some(100)).unwrap();
+    let update = schedule
+        .execution(126, before, &chain, Some(&blocks(&chain, [100])))
+        .unwrap();
     assert_eq!(update.origin_number, 100);
     assert_eq!(update.prev_randao, B256::with_last_byte(2));
-    let call = IL1BlockhashContract::importHistoryCall::abi_decode(update.import.as_ref().unwrap())
-        .unwrap();
-    assert_eq!(call.cutoff, 120);
-    assert_eq!(call.hashes, vec![chain.at(100).unwrap().hash()]);
-    let after = state(&chain, 100, 120);
+    let call =
+        IL1BlockhashContract::importL1BlocksCall::abi_decode(update.import.as_ref().unwrap())
+            .unwrap();
+    assert_eq!(
+        call.blocks
+            .iter()
+            .map(|block| block.blockHash)
+            .collect::<Vec<_>>(),
+        vec![chain.at(100).unwrap().hash()]
+    );
+    let after = state(&chain, 100);
     for time in [128, 130, 132, 134, 136] {
         let e = schedule.execution(time, after, &chain, None).unwrap();
         assert_eq!(e.origin_number, 100);
         assert_eq!(e.prev_randao, B256::with_last_byte(2));
         assert!(e.import.is_none());
     }
-    let update = schedule.execution(138, after, &chain, Some(102)).unwrap();
+    let update = schedule
+        .execution(138, after, &chain, Some(&blocks(&chain, [101, 102])))
+        .unwrap();
     assert_eq!(update.origin_number, 102);
     assert_eq!(update.prev_randao, B256::with_last_byte(4));
-    let call = IL1BlockhashContract::importHistoryCall::abi_decode(update.import.as_ref().unwrap())
-        .unwrap();
+    let call =
+        IL1BlockhashContract::importL1BlocksCall::abi_decode(update.import.as_ref().unwrap())
+            .unwrap();
     assert_eq!(
-        call.hashes,
+        call.blocks
+            .iter()
+            .map(|block| block.blockHash)
+            .collect::<Vec<_>>(),
         vec![chain.at(101).unwrap().hash(), chain.at(102).unwrap().hash()]
     );
 }
@@ -133,7 +156,12 @@ fn every_offset_and_exact_cutoff_equality() {
         assert_eq!(schedule.source_cutoff(update).unwrap(), 120);
         assert_eq!(
             schedule
-                .execution(update, state(&chain, 99, 120), &chain, Some(100))
+                .execution(
+                    update,
+                    state(&chain, 99),
+                    &chain,
+                    Some(&blocks(&chain, [100]))
+                )
                 .unwrap()
                 .origin_number,
             100
@@ -147,7 +175,7 @@ fn every_offset_and_exact_cutoff_equality() {
 fn missed_slots_inherit_without_imports_or_schedule_state_mutation() {
     let schedule = HistorySchedule::new(120, 2, 6, 2).unwrap();
     let chain = chain(&[108, 144]);
-    let parent = state(&chain, 99, 120);
+    let parent = state(&chain, 99);
     for timestamp in [126, 138, 150, 120 + 4 * 86400 + 6] {
         let e = schedule.execution(timestamp, parent, &chain, None).unwrap();
         assert_eq!(e.origin_number, 99);
@@ -155,16 +183,18 @@ fn missed_slots_inherit_without_imports_or_schedule_state_mutation() {
         assert!(e.import.is_none());
         assert!(
             schedule
-                .execution(timestamp, parent, &chain, Some(99))
+                .execution(timestamp, parent, &chain, Some(&blocks(&chain, [99])))
                 .is_err()
         );
     }
-    let e = schedule.execution(150, parent, &chain, Some(100)).unwrap();
+    let e = schedule
+        .execution(150, parent, &chain, Some(&blocks(&chain, [100])))
+        .unwrap();
     assert_eq!(e.origin_number, 100);
     assert_eq!(
         decode_import(e.import.as_ref().unwrap())
             .unwrap()
-            .hashes
+            .blocks
             .len(),
         1
     );
@@ -276,14 +306,19 @@ fn header_layout_changes_are_checked_at_exact_fork_boundaries() {
 fn repeated_inherited_source_is_valid_but_wrong_parent_state_rejects() {
     let schedule = HistorySchedule::new(120, 2, 6, 2).unwrap();
     let chain = chain(&[108, 120, 132]);
-    let mut invalid = state(&chain, 99, 120);
+    let mut invalid = state(&chain, 99);
     assert!(schedule.execution(134, invalid, &chain, None).is_ok());
-    invalid = state(&chain, 100, 120);
+    invalid = state(&chain, 100);
     invalid.endpoint_hash = B256::repeat_byte(9);
     assert!(schedule.execution(134, invalid, &chain, None).is_err());
     assert!(
         schedule
-            .execution(138, state(&chain, 100, 120), &chain, Some(100))
+            .execution(
+                138,
+                state(&chain, 100),
+                &chain,
+                Some(&blocks(&chain, [100]))
+            )
             .is_err()
     );
 }
@@ -304,4 +339,75 @@ fn checked_integer_boundaries_and_unscheduled_timestamps() {
     assert!(schedule.source_cutoff(119).is_err());
     assert!(schedule.source_cutoff(123).is_err());
     assert!(schedule.source_cutoff(u64::MAX).is_err());
+}
+
+fn blocks(
+    chain: &HeaderChain,
+    numbers: impl IntoIterator<Item = u64>,
+) -> Vec<eez_primitives::HistoryBlock> {
+    numbers
+        .into_iter()
+        .map(|number| eez_primitives::HistoryBlock {
+            number,
+            block_hash: chain.at(number).unwrap().hash(),
+        })
+        .collect()
+}
+
+#[test]
+fn empty_history_uses_bootstrap_and_can_publish_it_without_regressing() {
+    let schedule = HistorySchedule::new(120, 2, 6, 2).unwrap();
+    let chain = chain(&[108, 110, 115, 116, 119]);
+    let mut prior = state(&chain, 99);
+    prior.imported = false;
+    let inherited = schedule.execution(126, prior, &chain, None).unwrap();
+    assert_eq!(inherited.origin_hash, prior.endpoint_hash);
+    let first = schedule
+        .execution(126, prior, &chain, Some(&blocks(&chain, [99])))
+        .unwrap();
+    assert_eq!(first.origin_number, 99);
+    assert_eq!(first.prev_randao, inherited.prev_randao);
+    prior.imported = true;
+    assert!(
+        schedule
+            .execution(138, prior, &chain, Some(&blocks(&chain, [99])))
+            .is_err()
+    );
+}
+
+#[test]
+fn sparse_pairs_require_each_exact_hash_and_complete_ancestry() {
+    let schedule = HistorySchedule::new(120, 2, 6, 2).unwrap();
+    let chain = chain(&[108, 110, 115, 116, 119]);
+    let prior = state(&chain, 99);
+    let pairs = blocks(&chain, [100, 103]);
+    let update = schedule
+        .execution(126, prior, &chain, Some(&pairs))
+        .unwrap();
+    assert_eq!(update.origin_number, 103);
+    assert_eq!(update.prev_randao, chain.at(103).unwrap().header().mix_hash);
+    let call = decode_import(update.import.as_ref().unwrap()).unwrap();
+    assert_eq!(
+        call.blocks.iter().map(|b| b.number).collect::<Vec<_>>(),
+        [100, 103]
+    );
+    for mutation in 0..4 {
+        let mut bad = pairs.clone();
+        match mutation {
+            0 => bad[0].block_hash = chain.at(101).unwrap().hash(),
+            1 => bad[0].number = 101,
+            2 => bad.swap(0, 1),
+            _ => bad[0].block_hash = B256::ZERO,
+        }
+        assert!(schedule.execution(126, prior, &chain, Some(&bad)).is_err());
+    }
+    let raw = chain.raw_headers().collect::<Vec<_>>();
+    let mut missing_bridge = HeaderChain::default();
+    missing_bridge.append(&raw[..2], &RULES, 10).unwrap();
+    assert!(missing_bridge.append(&raw[4..], &RULES, 10).is_err());
+    assert!(
+        schedule
+            .execution(126, prior, &missing_bridge, Some(&pairs))
+            .is_err()
+    );
 }

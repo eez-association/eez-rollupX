@@ -429,22 +429,19 @@ where
         parent: &alloy_consensus::Header,
         through: eez_l1::L1BlockRef,
     ) -> DeriverResult<()> {
-        use eez_protocol::l1_history::{ENDPOINT_SLOT, HISTORY_ADDRESS};
-        let state = self
-            .inner
-            .l2_provider
-            .state_by_block_hash(parent.hash_slow())
-            .map_err(DeriverError::l2_provider)?;
-        let first_number = u64::try_from(
-            state
-                .storage(
-                    HISTORY_ADDRESS,
-                    alloy_primitives::U256::from(ENDPOINT_SLOT).into(),
-                )
+        let first_number = {
+            let state = self
+                .inner
+                .l2_provider
+                .state_by_block_hash(parent.hash_slow())
+                .map_err(DeriverError::l2_provider)?;
+            let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state.as_ref()));
+            self.inner
+                .evm_config
+                .history_state(&mut db)
                 .map_err(DeriverError::l2_provider)?
-                .unwrap_or_default(),
-        )
-        .map_err(DeriverError::l2_provider)?;
+                .endpoint
+        };
         self.prepare_history_from_endpoint(first_number, through)
             .await
     }
@@ -488,8 +485,6 @@ where
         &self,
         block: &SealedHeader<alloy_consensus::Header>,
     ) -> DeriverResult<bool> {
-        use alloy_primitives::U256;
-        use eez_protocol::l1_history::{ENDPOINT_SLOT, HISTORY_ADDRESS, hash_storage_key};
         let chain = self
             .inner
             .evm_config
@@ -500,17 +495,16 @@ where
             .l2_provider
             .state_by_block_hash(block.hash())
             .map_err(DeriverError::l2_provider)?;
-        let number = state
-            .storage(HISTORY_ADDRESS, B256::from(U256::from(ENDPOINT_SLOT)))
-            .map_err(DeriverError::l2_provider)?
-            .unwrap_or_default();
-        let number = u64::try_from(number).map_err(DeriverError::l2_provider)?;
-        let selected = chain.at(number).map_err(DeriverError::l2_provider)?;
-        let hash = state
-            .storage(HISTORY_ADDRESS, hash_storage_key(number).into())
-            .map_err(DeriverError::l2_provider)?
-            .unwrap_or_default();
-        Ok(B256::from(hash) == selected.hash() && block.mix_hash == selected.header().mix_hash)
+        let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state.as_ref()));
+        let origin = self
+            .inner
+            .evm_config
+            .history_state(&mut db)
+            .map_err(DeriverError::l2_provider)?;
+        let selected = chain
+            .at(origin.endpoint)
+            .map_err(DeriverError::l2_provider)?;
+        Ok(origin.endpoint_hash == selected.hash() && block.mix_hash == selected.header().mix_hash)
     }
 
     /// Current cursor — highest L2 block confirmed by any L1-landed
@@ -2247,32 +2241,14 @@ where
                 .map(TransactionSigned::decode_2718_exact)
                 .transpose()
                 .map_err(DeriverError::l2_provider)?;
-            let hashes = match &first {
-                Some(TransactionSigned::History(tx)) => Some(&tx.hashes),
+            let blocks = match &first {
+                Some(TransactionSigned::History(tx)) => Some(tx.blocks.as_slice()),
                 _ => None,
             };
-            let selected = hashes
-                .map(|hashes| {
-                    inherited
-                        .endpoint
-                        .checked_add(hashes.len() as u64)
-                        .ok_or_else(|| DeriverError::l2_provider("history endpoint overflow"))
-                })
-                .transpose()?;
             let transition = history_schedule
-                .execution(timestamp, inherited, &bridge, selected)
+                .execution(timestamp, inherited, &bridge, blocks)
                 .map_err(DeriverError::l2_provider)?;
-            let expected = transition
-                .import
-                .as_ref()
-                .map(|input| eez_protocol::l1_history::decode_import(input).map(|call| call.hashes))
-                .transpose()
-                .map_err(DeriverError::l2_provider)?;
-            if expected.as_ref() != hashes {
-                return Err(DeriverError::l2_provider(
-                    "published history update differs from anchored ancestry",
-                ));
-            }
+            inherited.imported |= blocks.is_some();
             inherited.endpoint = transition.origin_number;
             inherited.endpoint_hash = transition.origin_hash;
         }

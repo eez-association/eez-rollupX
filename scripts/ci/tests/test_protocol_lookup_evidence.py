@@ -158,7 +158,7 @@ if pathlib.Path(sys.argv[0]).name == "blob":
     assert args[0] == "--prefixes", args
     if f.get("prefix_failure"): sys.exit(1)
     request = json.loads(pathlib.Path(args[1]).read_text())
-    assert request["genesis"] == {"config": {}, "timestamp": "0x1234"}, request
+    assert request["genesis"] == f.get("expected_genesis", {"config": {}, "timestamp": "0x1234"}), request
     assert request["genesis_hash"] == "0x" + "8"*64, request
     assert request["chain_config"] == {}, request
     assert request["l1_chain_config"] == f.get("l1_chain_config", {"config": {"chainId": 7331}, "timestamp": "0x1230"}), request
@@ -231,7 +231,7 @@ elif command == "rpc":
         value = (dict(hash="0x" + "8"*64, number="0x63") if args[2] == "0x" + "8"*64
                  else dict(hash=f["l2_hash"], number=hex(f["l2_head"]), parentHash="0x" + "8"*64))
     elif rpc == "eth_getStorageAt":
-        assert args[2:4] == ["0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077", "0x2"], args
+        assert args[2:4] == ["0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077", "0x1"], args
         value = f.get("history_first" if args[4] == "0x" + "8"*64 else "history_last", "0x" + f"{1:064x}")
     elif rpc == "debug_getRawHeader":
         value = f.get("raw_l1_headers", {}).get(args[2], "0xc0" + f"{int(args[2], 16):02x}")
@@ -808,8 +808,28 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                             if any(method in call for method in ("debug_getRawHeader", "protocolConfigHash()(bytes32)")):
                                 self.assertEqual(call[call.index("--rpc-url") + 1], self.env["L1_RPC"])
 
+    def test_empty_history_uses_the_configured_positive_bootstrap_for_ancestry(self):
+        genesis = {"config": {"rollupX": {"l1Reference": {"number": 100}}}, "timestamp": "0x1234"}
+        self.genesis.write_text(json.dumps(genesis))
+        for latest in (0, 103):
+            with self.subTest(latest=latest):
+                self.calls.unlink(missing_ok=True)
+                data = fixture("revertCounter")
+                data["blob"]["settlement_claim"]["post_block_hash"] = ZERO
+                data["l2_hash"] = ZERO
+                data["prefixes"] = [dict(hash=ROOT, transaction_index=3, transaction_count=4)]
+                data["expected_genesis"] = genesis
+                data["history_first"] = f"0x{0:064x}"
+                data["history_last"] = f"0x{latest:064x}"
+                data["expected_l1_headers"] = [f"0xc0{n:02x}" for n in range(100, (latest or 100) + 1)]
+                result = self.run_fixture("revertCounter", data)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+                fetched = [call for call in calls if call[1] == "rpc" and call[2] == "debug_getRawHeader"]
+                self.assertEqual(len(fetched), (latest or 100) - 100 + 1)
+
     def test_prefix_history_collection_is_bounded_and_preserves_replay_inputs(self):
-        for first, last, expected in ((1, 3, True), (1, 65, True), (1, 66, False),
+        for first, last, expected in ((1, 3, True), (1, 65, True), (1, 66, True), (1, 131073, False),
                                       (2, 1, False), (2**64, 2**64, False), ("0x1", 1, False)):
             with self.subTest(first=first, last=last):
                 self.calls.unlink(missing_ok=True)

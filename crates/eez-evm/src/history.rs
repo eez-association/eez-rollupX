@@ -4,11 +4,10 @@ use alloy_evm::{
     block::{BlockExecutionError, StateDB},
 };
 use alloy_primitives::{B256, U256, keccak256};
-use eez_primitives::{EezTxEnvelope, HISTORY_TX_VERSION, HistoryTransaction};
+use eez_primitives::{EezTxEnvelope, HISTORY_TX_VERSION, HistoryBlock, HistoryTransaction};
 use eez_protocol::l1_history::{
-    ENDPOINT_SLOT, FIRST_CUTOFF_SLOT, FIRST_NUMBER_SLOT, HISTORY_ADDRESS, HISTORY_RUNTIME,
-    HistoryExecution, HistorySchedule, HistoryState, INTERVAL_SLOT, MAX_IMPORT_HEADERS,
-    MAX_IMPORT_SLOT, UPDATE_DELAY_SLOT, decode_import, hash_storage_key,
+    ENDPOINT_SLOT, HISTORY_ADDRESS, HISTORY_RUNTIME, HistoryExecution, HistorySchedule,
+    HistoryState, MAX_IMPORT_HEADERS, hash_storage_key,
 };
 use revm::{Database, context::Block as _};
 use std::sync::Arc;
@@ -18,7 +17,7 @@ pub use eez_protocol::l1_history::{L1HistorySource, WitnessHistory};
 #[derive(Debug, Clone)]
 pub(crate) struct HistoryConfig {
     pub schedule: HistorySchedule,
-    pub first_number: u64,
+    pub bootstrap: eez_protocol::l2::GenesisL1Reference,
     pub source: Arc<dyn L1HistorySource>,
     pub l2_chain_id: u64,
 }
@@ -41,7 +40,10 @@ pub(crate) fn state<DB: Database>(
         .basic(HISTORY_ADDRESS)
         .map_err(|_| error("cannot load L1 history account"))?
         .ok_or_else(|| error("missing L1 history account"))?;
-    if info.code_hash != keccak256(HISTORY_RUNTIME) || info.nonce != 1 {
+    // Pin the proxy and its immutable admin, not the genesis implementation.
+    // The EVM resolves upgrades from authenticated state and witnesses their code.
+    // CREATE during a compatible upgrade may advance the proxy's contract nonce.
+    if info.code_hash != keccak256(HISTORY_RUNTIME) || info.nonce < 2 {
         return Err(error("incorrect L1 history runtime or nonce"));
     }
     let code = db
@@ -50,25 +52,28 @@ pub(crate) fn state<DB: Database>(
     if code.original_bytes().as_ref() != HISTORY_RUNTIME {
         return Err(error("incorrect L1 history runtime bytes"));
     }
-    let first_number = scalar(db, FIRST_NUMBER_SLOT)?;
     let endpoint = scalar(db, ENDPOINT_SLOT)?;
-    let first_cutoff = scalar(db, FIRST_CUTOFF_SLOT)?;
-    if first_number != config.first_number
-        || scalar(db, INTERVAL_SLOT)? != config.schedule.interval()
-        || scalar(db, UPDATE_DELAY_SLOT)? != config.schedule.delay()
-        || scalar(db, MAX_IMPORT_SLOT)? != MAX_IMPORT_HEADERS as u64
-    {
-        return Err(error("L1 history storage differs from fixed profile"));
-    }
     let endpoint_hash = B256::from(
         db.storage(HISTORY_ADDRESS, hash_storage_key(endpoint))
             .map_err(|_| error("missing L1 history endpoint witness"))?,
     );
+    if endpoint == 0 {
+        if !endpoint_hash.is_zero() {
+            return Err(error("block zero cannot be imported into L1 history"));
+        }
+        return Ok(HistoryState {
+            imported: false,
+            endpoint: config.bootstrap.number,
+            endpoint_hash: config.bootstrap.hash,
+        });
+    }
+    if endpoint < config.bootstrap.number || endpoint_hash.is_zero() {
+        return Err(error("invalid L1 history endpoint"));
+    }
     Ok(HistoryState {
-        first_number,
+        imported: true,
         endpoint,
         endpoint_hash,
-        first_cutoff,
     })
 }
 
@@ -89,37 +94,48 @@ pub(crate) fn prepare<DB: Database>(
         .headers(cutoff)
         .map_err(BlockExecutionError::other)?;
     let updating = cutoff.checked_add(config.schedule.delay()) == Some(timestamp);
-    let selected = if updating {
-        Some(
-            chain
-                .select(cutoff)
-                .map_err(BlockExecutionError::other)?
-                .header()
-                .number
-                .min(state.endpoint.saturating_add(MAX_IMPORT_HEADERS as u64)),
-        )
-        .filter(|number| *number > state.endpoint)
+    // Producer policy fills consecutive available records. Replay accepts
+    // authenticated gaps but never reselects what a producer recorded.
+    let first = if state.imported {
+        state.endpoint.checked_add(1)
+    } else {
+        Some(state.endpoint.max(1))
+    };
+    let blocks = if let Some(first) = first.filter(|_| updating) {
+        let last = chain
+            .select(cutoff)
+            .map_err(BlockExecutionError::other)?
+            .header()
+            .number
+            .min(first.saturating_add(MAX_IMPORT_HEADERS as u64 - 1));
+        (first <= last)
+            .then(|| {
+                (first..=last)
+                    .map(|number| {
+                        Ok(HistoryBlock {
+                            number,
+                            block_hash: chain.at(number)?.hash(),
+                        })
+                    })
+                    .collect::<Result<Vec<_>, eez_protocol::l2::ProfileError>>()
+            })
+            .transpose()
+            .map_err(BlockExecutionError::other)?
     } else {
         None
     };
     let execution = config
         .schedule
-        .execution(timestamp, state, &chain, selected)
+        .execution(timestamp, state, &chain, blocks.as_deref())
         .map_err(BlockExecutionError::other)?;
-    let transaction = if let Some(input) = &execution.import {
-        Some(
-            HistoryTransaction {
-                version: HISTORY_TX_VERSION,
-                chain_id: config.l2_chain_id,
-                hashes: decode_import(input)
-                    .map_err(BlockExecutionError::other)?
-                    .hashes,
-            }
-            .into(),
-        )
-    } else {
-        None
-    };
+    let transaction = blocks.map(|blocks| {
+        HistoryTransaction {
+            version: HISTORY_TX_VERSION,
+            chain_id: config.l2_chain_id,
+            blocks,
+        }
+        .into()
+    });
     Ok((execution, transaction))
 }
 
@@ -149,25 +165,17 @@ pub(crate) fn transition<DB: Database>(
 ) -> Result<HistoryExecution, BlockExecutionError> {
     let prior = state(db, config)?;
     let tx = tx.filter(|tx| tx.is_history());
-    let hashes = match tx {
+    let blocks = match tx {
         Some(EezTxEnvelope::History(tx)) => {
             tx.validate().map_err(BlockExecutionError::other)?;
             if tx.chain_id != config.l2_chain_id {
                 return Err(error("history chain ID differs from configured L2"));
             }
-            Some(&tx.hashes)
+            Some(tx.blocks.as_slice())
         }
         Some(_) => return Err(error("invalid history transaction type")),
         None => None,
     };
-    let selected = hashes
-        .map(|hashes| {
-            prior
-                .endpoint
-                .checked_add(hashes.len() as u64)
-                .ok_or_else(|| error("history endpoint overflow"))
-        })
-        .transpose()?;
     let cutoff = config
         .schedule
         .source_cutoff(timestamp)
@@ -176,26 +184,10 @@ pub(crate) fn transition<DB: Database>(
         .source
         .headers(cutoff)
         .map_err(BlockExecutionError::other)?;
-    let execution = config
+    config
         .schedule
-        .execution(timestamp, prior, &chain, selected)
-        .map_err(BlockExecutionError::other)?;
-    if let Some(hashes) = hashes {
-        let expected = execution
-            .import
-            .as_ref()
-            .ok_or_else(|| error("missing history execution"))?;
-        if decode_import(expected)
-            .map_err(BlockExecutionError::other)?
-            .hashes
-            != *hashes
-        {
-            return Err(error(
-                "history transaction differs from authenticated headers",
-            ));
-        }
-    }
-    Ok(execution)
+        .execution(timestamp, prior, &chain, blocks)
+        .map_err(BlockExecutionError::other)
 }
 
 pub(crate) fn validate<E: Evm<DB: StateDB>>(

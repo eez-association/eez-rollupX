@@ -131,29 +131,69 @@ pub fn chain_spec(genesis: Genesis) -> Result<ChainSpec, ProfileError> {
     }
     let mut spec = ChainSpec::from_genesis(genesis);
     validate_header(spec.genesis_header())?;
-    let schedule = schedule(&spec)?;
-    let reference = schedule.config().l1_reference;
-    let expected_storage = eez_protocol::l1_history::bootstrap_storage(
-        reference.number,
-        reference.hash,
-        schedule.history()?,
-    )?;
+    schedule(&spec)?.history()?;
+    let expected_storage = eez_protocol::l1_history::genesis_storage();
     let history = spec
         .genesis()
         .alloc
         .get(&eez_protocol::l1_history::HISTORY_ADDRESS)
         .ok_or(ProfileError("missing L1 history predeploy"))?;
     if history.code.as_ref().map(AsRef::as_ref) != Some(eez_protocol::l1_history::HISTORY_RUNTIME)
-        || history.nonce != Some(1)
+        || history.nonce != Some(2)
         || !history.balance.is_zero()
         || history.storage.as_ref() != Some(&expected_storage)
     {
         return Err(ProfileError(
-            "L1 history genesis code, account or bootstrap storage",
+            "L1 history genesis code, account or empty storage",
         ));
     }
+    validate_history_implementation_and_admin(spec.genesis())?;
     spec.base_fee_params = BASE_FEE_PARAMS.into();
     Ok(spec)
+}
+
+fn validate_history_implementation_and_admin(genesis: &Genesis) -> Result<(), ProfileError> {
+    use alloy_primitives::{B256, U256};
+    use eez_protocol::l1_history::{
+        HISTORY_ADMIN_ADDRESS, HISTORY_ADMIN_RUNTIME, HISTORY_IMPLEMENTATION_ADDRESS,
+        HISTORY_IMPLEMENTATION_RUNTIME,
+    };
+    let implementation = genesis
+        .alloc
+        .get(&HISTORY_IMPLEMENTATION_ADDRESS)
+        .ok_or(ProfileError("missing L1 history implementation"))?;
+    if implementation.code.as_ref().map(AsRef::as_ref) != Some(HISTORY_IMPLEMENTATION_RUNTIME)
+        || implementation.nonce != Some(1)
+        || !implementation.balance.is_zero()
+        || implementation
+            .storage
+            .as_ref()
+            .is_some_and(|s| !s.is_empty())
+    {
+        return Err(ProfileError("invalid L1 history genesis implementation"));
+    }
+    let admin = genesis
+        .alloc
+        .get(&HISTORY_ADMIN_ADDRESS)
+        .ok_or(ProfileError("missing L1 history ProxyAdmin"))?;
+    let storage = admin
+        .storage
+        .as_ref()
+        .ok_or(ProfileError("missing L1 history upgrade owner"))?;
+    let owner = storage.get(&B256::ZERO).copied().unwrap_or_default();
+    if admin.code.as_ref().map(AsRef::as_ref) != Some(HISTORY_ADMIN_RUNTIME)
+        || admin.nonce != Some(1)
+        || !admin.balance.is_zero()
+        || storage.len() != 1
+        || owner.is_zero()
+        || U256::from_be_bytes(owner.0) >> 160 != U256::ZERO
+        || owner == eez_primitives::SYSTEM_ADDRESS.into_word()
+    {
+        return Err(ProfileError(
+            "invalid L1 history genesis ProxyAdmin or owner",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -226,5 +266,101 @@ mod tests {
             mutation(&mut invalid);
             assert!(chain_spec(invalid).is_err());
         }
+    }
+
+    #[test]
+    fn history_genesis_binds_empty_proxy_implementation_and_upgrade_authority() {
+        use alloy_primitives::{B256, U256};
+        use eez_protocol::l1_history::{
+            ENDPOINT_SLOT, HISTORY_ADDRESS, HISTORY_ADMIN_ADDRESS, HISTORY_IMPLEMENTATION_ADDRESS,
+            IMPLEMENTATION_SLOT,
+        };
+        let mutations: &[fn(&mut Genesis)] = &[
+            |g| {
+                g.alloc.remove(&HISTORY_IMPLEMENTATION_ADDRESS);
+            },
+            |g| {
+                g.alloc.remove(&HISTORY_ADMIN_ADDRESS);
+            },
+            |g| g.alloc.get_mut(&HISTORY_ADDRESS).unwrap().nonce = Some(1),
+            |g| g.alloc.get_mut(&HISTORY_ADDRESS).unwrap().balance = U256::from(1),
+            |g| g.alloc.get_mut(&HISTORY_ADDRESS).unwrap().code = Some(Default::default()),
+            |g| {
+                g.alloc
+                    .get_mut(&HISTORY_ADDRESS)
+                    .unwrap()
+                    .storage
+                    .as_mut()
+                    .unwrap()
+                    .insert(IMPLEMENTATION_SLOT, B256::ZERO);
+            },
+            |g| {
+                g.alloc
+                    .get_mut(&HISTORY_ADDRESS)
+                    .unwrap()
+                    .storage
+                    .as_mut()
+                    .unwrap()
+                    .insert(U256::from(ENDPOINT_SLOT).into(), U256::from(1).into());
+            },
+            |g| {
+                g.alloc
+                    .get_mut(&HISTORY_IMPLEMENTATION_ADDRESS)
+                    .unwrap()
+                    .code = Some(Default::default())
+            },
+            |g| {
+                g.alloc
+                    .get_mut(&HISTORY_IMPLEMENTATION_ADDRESS)
+                    .unwrap()
+                    .nonce = Some(2)
+            },
+            |g| g.alloc.get_mut(&HISTORY_ADMIN_ADDRESS).unwrap().code = Some(Default::default()),
+            |g| {
+                g.alloc
+                    .get_mut(&HISTORY_ADMIN_ADDRESS)
+                    .unwrap()
+                    .storage
+                    .as_mut()
+                    .unwrap()
+                    .insert(B256::ZERO, B256::ZERO);
+            },
+            |g| {
+                g.alloc
+                    .get_mut(&HISTORY_ADMIN_ADDRESS)
+                    .unwrap()
+                    .storage
+                    .as_mut()
+                    .unwrap()
+                    .insert(B256::ZERO, B256::repeat_byte(0xff));
+            },
+            |g| {
+                g.alloc
+                    .get_mut(&HISTORY_ADMIN_ADDRESS)
+                    .unwrap()
+                    .storage
+                    .as_mut()
+                    .unwrap()
+                    .insert(B256::ZERO, eez_primitives::SYSTEM_ADDRESS.into_word());
+            },
+        ];
+        for (index, mutation) in mutations.iter().enumerate() {
+            let mut invalid = genesis();
+            mutation(&mut invalid);
+            assert!(chain_spec(invalid).is_err(), "mutation {index}");
+        }
+        let mut transferred = genesis();
+        transferred
+            .alloc
+            .get_mut(&HISTORY_ADMIN_ADDRESS)
+            .unwrap()
+            .storage
+            .as_mut()
+            .unwrap()
+            .insert(
+                B256::ZERO,
+                alloy_primitives::Address::with_last_byte(99).into_word(),
+            );
+        chain_spec(transferred).unwrap();
     }
 }

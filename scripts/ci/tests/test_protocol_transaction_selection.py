@@ -244,7 +244,9 @@ L2 call exec: {other["hash"]}
             original_log = log.read_text()
             successes = {"pass", "outbound-without-call-search", "outbound-replayed",
                          "settlement-summary-hint", "outbound-receipt-snapshot", "split",
-                         "oversize-evidence", "linked-delivery", "outbound-linked-load", "split-linked"}
+                         "oversize-evidence", "linked-delivery", "outbound-linked-load", "split-linked",
+                         "refusal-recovered", "outbound-refusal-recovered", "split-refusal-recovered",
+                         "refusal-quote-busy", "refusal-stale-context"}
             failures = {
                 "orphan": "differs from the canonical block",
                 "causal_failure": "independent trigger/table/event causal verification failed",
@@ -264,6 +266,17 @@ L2 call exec: {other["hash"]}
                 "split-wrong-registry": "postBatch transaction target differs",
                 "split-blob-failure": "settlement blob semantic verification failed",
                 "split-uncovered-trigger": "settlements do not uniquely cover trigger blocks",
+                "refusal-unrelated-error": "upstream log contains an unreconciled ERROR",
+                "refusal-underfunded": "upstream log contains an unreconciled ERROR",
+                "refusal-malformed": "upstream log contains an unreconciled ERROR",
+                "refusal-lookup": "lookup collector cannot reconcile submission errors",
+                "refusal-unaccounted": "refused transaction is not a verified scenario trigger",
+                "refusal-wrong-chain": "refused transaction chain/nonce differs from canonical inclusion",
+                "refusal-wrong-nonce": "refused transaction chain/nonce differs from canonical inclusion",
+                "refusal-reverted": "reverted",
+                "refusal-orphan": "is absent from its canonical block",
+                "refusal-causal-failure": "independent trigger/table/event causal verification failed",
+                "refusal-blob-failure": "settlement blob semantic verification failed",
             }
             for case in (*sorted(successes), *failures):
                 with self.subTest(case=case):
@@ -373,9 +386,33 @@ L2 call exec: {other["hash"]}
                         current["receipts"][post["hash"]]["blockHash"] = word(999)
                     if case == "settlement-reorg-during-collection":
                         current["recheck_hash"] = {"l1": word(999)}
+                    if "refusal" in case:
+                        refused = current.get("trigger_hashes", [trigger["hash"]])[-1]
+                        current["transactions"][refused].update(chainId="0x1ca3", nonce="0x4")
+                        for chain_blocks in current["blocks"].values():
+                            for block in chain_blocks.values():
+                                for tx in block["transactions"]:
+                                    if tx["hash"] == refused:
+                                        tx.update(chainId="0x1ca3", nonce="0x4")
+                        reported_hash = word(999) if case == "refusal-unaccounted" else refused
+                        chain = 7332 if case == "refusal-wrong-chain" else 7331
+                        nonce = 5 if case == "refusal-wrong-nonce" else 4
+                        diagnostic = (f"ERROR: submission refused (reconciliation) chain={chain} "
+                                      f"nonce={nonce} hash={reported_hash}: ERROR: eth_sendRawTransaction failed\n")
+                        reason = {"refusal-quote-busy": "quote_busy", "refusal-stale-context": "stale_context",
+                                  "refusal-underfunded": "l2_tip_underfunded"}.get(case, "reconciliation")
+                        diagnostic = diagnostic.replace("(reconciliation)", f"({reason})")
+                        if case == "refusal-unrelated-error": diagnostic += "ERROR: semantic verification failed\n"
+                        if case == "refusal-malformed": diagnostic = diagnostic.replace(reported_hash, "0x12")
+                        if case == "refusal-reverted": current["receipts"][refused]["status"] = "0x0"
+                        if case == "refusal-orphan": current["receipts"][refused]["blockHash"] = word(999)
+                        if case == "refusal-causal-failure": current["causal_failure"] = True
+                        if case == "refusal-blob-failure": current["blob_failure"] = True
+                        log.write_text(diagnostic + log.read_text())
                     fixture_path.write_text(json.dumps(current))
                     output = root / (case + ".json")
-                    result = subprocess.run(["bash", str(collector), "counter", str(scenario), str(log), str(output)],
+                    scenario_name = "staticCounterL2" if case == "refusal-lookup" else "counter"
+                    result = subprocess.run(["bash", str(collector), scenario_name, str(scenario), str(log), str(output)],
                                             env=env, capture_output=True, text=True, timeout=30)
                     if case in successes:
                         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -383,6 +420,9 @@ L2 call exec: {other["hash"]}
                         self.assertEqual([t["hash"] for t in evidence["system_transactions"]],
                                          [t["hash"] for t in current.get("wanted_txs", [wanted])])
                         self.assertEqual(evidence["source_log"]["upstream_first_table_hash"], other["hash"])
+                        if "refusal" in case:
+                            self.assertEqual(evidence["source_log"]["reconciled_submissions"],
+                                             [dict(chain_id="7331", nonce="4", hash=refused)])
                         if case in ("split", "split-linked"):
                             self.assertEqual([t["hash"] for t in evidence["settlement_transactions"]], current["post_hashes"])
                             blobs = evidence["blob_da"]["settlements"]

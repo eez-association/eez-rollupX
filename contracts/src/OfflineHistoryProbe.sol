@@ -18,12 +18,12 @@ contract OfflineHistoryProbe {
     Observation[] public records;
 
     function record() external {
-        (uint64 number, bytes32 hash) = HISTORY.current();
+        (uint64 number, bytes32 hash) = HISTORY.getLatestImportedL1Block();
         records.push(Observation(block.number, number, hash, block.prevrandao));
     }
 
     function observe() external view returns (uint64 number, bytes32 hash, uint256 randao) {
-        (number, hash) = HISTORY.current();
+        (number, hash) = HISTORY.getLatestImportedL1Block();
         randao = block.prevrandao;
     }
 

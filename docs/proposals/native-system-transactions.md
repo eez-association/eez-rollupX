@@ -213,7 +213,7 @@ all complete-group, reverted-transaction and discarded-preview regressions.
 This changes execution and commitments. Use matching new-network artifacts;
 pre-change histories/databases are unsupported, with no mixed-version execution,
 activation switch or migration. Use the six-field cross-chain envelope and keep the
-`prove.v2` protobuf unchanged; validation-contract version 5 identifies the new
+`prove.v2` protobuf unchanged; validation-contract version 6 identifies the new
 semantics. The manager profile preimage also includes this fixed version before
 the history address, binding the cleanup rule into on-chain public inputs without
 a new profile struct, configurable mode or alternate decoder. Solidity/Rust and
@@ -261,40 +261,33 @@ by its exact signed user; inline callbacks have no separate native transaction.
 ### Dedicated optional HistoryUpdate (accepted 2026-10-27)
 
 ```text
-transaction = 0x46 || RLP([version, chainId, hashes])
-version = 1
-1 <= hashes.length <= 64
+transaction = 0x46 || RLP([version = 1, chainId, [[number, blockHash], ...]])
+1 <= blocks.length <= 64
 ```
 
-The exact three-field RLP uses minimal unsigned integers and a list of exact
-32-byte nonzero hashes. Enforce lengths before allocation and reject trailing
-fields/bytes, wrong widths, zero/oversized arrays, unsupported versions and the
-former `0x45` history destination. There is no sourceHash. Chain ID equals the
-configured L2 chain ID (supported as u64 without truncation).
+Numbers are positive uint64 values in strictly increasing order, with nonzero
+32-byte hashes. Gaps are allowed in storage, not in authentication ancestry.
+Bounded canonical complete decoding rejects malformed pairs, extra RLP fields,
+nonminimal integers, unsupported versions and the previous hash-only format.
+Chain ID equals the configured L2 chain ID. There is no sourceHash, calldata,
+gas, destination or value field supplied by the producer.
 
-Derive sender SYSTEM_ADDRESS, destination HISTORY_ADDRESS, value zero and
-`min(2_000_000, remainingBlockGas)` gas. Derive `importHistory(cutoff, hashes)`
-from the genesis-phased schedule and block timestamp, then independently check
-all hashes against parent endpoint and complete authenticated L1 ancestry before
-execution. RPC exposes `hashes` plus fixed sender/destination/value/gas/nonce/fee
-placeholders; `input` is empty because calldata is not an envelope field.
+The [history contract](../../contracts/L1_HISTORY_SPEC.md) owns the exact storage,
+proxy authority, ABI, timing, evidence and application semantics. It starts empty;
+execution inherits the genesis-configured origin until the first import. The
+engine derives `importL1Blocks`, permits an optional update only at transaction
+zero at an eligible delayed timestamp, and authenticates every selected pair.
+Omission remains valid even in eligible empty blocks and retains PREVRANDAO.
+A first import may publish the positive bootstrap number; later imports must
+advance beyond the stored endpoint. No imports regress the logical origin.
 
-Updates are optional, only at transaction zero on eligible delayed timestamps.
-Omission leaves history storage, origin and PREVRANDAO unchanged, including
-eligible empty blocks. Verify inherited PREVRANDAO explicitly. Nonempty updates
-strictly advance by at most 64 produced headers. Fixed slot 3 stores firstCutoff;
-it never advances. The engine rejects duplicates and off-schedule updates.
-
-Meter execution, preserve system nonce and require a successful `0x46` receipt,
-empty output and no logs. History is fee-free, mints nothing, does not end a
-cross-chain group and remains part of the ordinary prefix. Its exact bytes stay
-unchanged across settlement anchors and catch-up partitions. A repeated byte
-sequence alone is not authorized: parent-state linkage, schedule and ancestry
-must independently hold in its containing block.
-
-The [history contract](../../contracts/L1_HISTORY_SPEC.md) defines the complete
-storage, pending-simulation and application API. This is one fresh-network
-profile, without a legacy history decoder or compatibility mode.
+Meter execution with `min(2_000_000, remainingBlockGas)`, preserve system nonce
+and require a successful 0x46 receipt, empty output and no logs. History is
+fee-free, mints nothing, does not end a cross-chain group and remains in the
+ordinary prefix. Exact bytes survive anchor changes and catch-up partitions.
+Repeated bytes still require valid parent state, schedule and ancestry.
+RPC exposes `blocks: [{number, blockHash}]` and fixed Ethereum placeholders;
+input is empty. No legacy decoder or selector alias is retained.
 
 ### Authorization, retries and partial consumption
 
@@ -400,7 +393,7 @@ Deployments reusing an EVM chain ID may share identifiers; deployment/genesis,
 registry/rollup, exact prefix, tables and bytes remain independently bound by
 validation. Do not use sourceHash alone as a cross-network identifier.
 
-The single validation-contract version is 5, in both capability identity and
+The single validation-contract version is 6, in both capability identity and
 manager profile; cross-chain envelopes have no version; history remains version 1 and the transport remains
 prove.v2 with unchanged protobuf. New source bytes change native transaction and
 block hashes. Use matching new-network artifacts, fresh genesis/profile and
@@ -570,7 +563,7 @@ both anchor selectors and existing current-root checks. The context already
 binds protocolConfigHash; require that exact commitment without additional
 context variants. No pinned core ABI change is needed.
 
-Use one ten-element portable identity RLP. Validation-contract version 5 covers
+Use one ten-element portable identity RLP. Validation-contract version 6 covers
 its encoding, canonical JSON rules and accepted execution/settlement semantics:
 
 ```text

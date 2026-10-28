@@ -23,8 +23,8 @@ COPY --from=node-tools /usr/local/bin/eez-genesis-block-hash /usr/local/bin/eez-
 WORKDIR /repo
 COPY scripts ./scripts
 COPY contracts ./contracts
-# --render verifies this identity against the canonical Solidity compilation.
-COPY crates/eez-protocol/src/l1_history/runtime.bin ./crates/eez-protocol/src/l1_history/runtime.bin
+# --render verifies the proxy, initial implementation and admin identities.
+COPY crates/eez-protocol/src/l1_history/runtime.bin crates/eez-protocol/src/l1_history/implementation.bin crates/eez-protocol/src/l1_history/proxy_admin.bin ./crates/eez-protocol/src/l1_history/
 COPY eez-core-protocol ./eez-core-protocol
 # genesis.json is the ETH-free production base; genesis.dev.json additionally
 # funds the public development keys used by Kurtosis and test networks.

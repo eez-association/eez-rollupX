@@ -12,7 +12,7 @@ request Keccak, byte count, native signature and public-input digest. Deployment
 identities and complete local genesis documents are public test inputs. The
 signer used no L1/L2 RPC or prior preparation cache.
 
-The [implementation audit](../../../../../docs/audits/2026-10-27-block-end-cleanup/README.md)
+The [implementation audit](../../../../../docs/audits/2026-10-27-upgradeable-l1-history/README.md)
 records source identity, commands and limits. This capture uses the fresh-network
 Profile with versionless cross-chain 0x45 transactions and optional metered
 history 0x46/version-1 updates. Only cross-chain transactions carry a sourceHash,
@@ -22,5 +22,9 @@ complete groups clear protocol residue before checkpoints. Ordinary fees reach
 FeeVault and native execution does not change the system-account nonce.
 
 This capture includes the fixed FeeVault predeploy, its initial owner/recipient,
-the single `Profile` commitment and validation-contract version 5. The sole
+the single `Profile` commitment and validation-contract version 6. The sole
 prover service remains `prove.v2.Prover`; its protobuf messages are unchanged.
+
+The history predeploy is an initially empty EEZProxy with a separate ProxyAdmin.
+Native history updates carry explicit `(number, blockHash)` pairs. The public
+store remains zero until its first system import.

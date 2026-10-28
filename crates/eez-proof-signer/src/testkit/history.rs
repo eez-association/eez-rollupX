@@ -3,9 +3,7 @@
 //! without executing the EVM, history contract or checkpoint implementation.
 
 use alloy_primitives::{Address, B256, Bytes, U256, keccak256};
-use eez_protocol::l1_history::{
-    HISTORY_ADDRESS, HISTORY_RUNTIME, HistorySchedule, bootstrap_storage,
-};
+use eez_protocol::l1_history::{HISTORY_ADDRESS, HISTORY_RUNTIME, genesis_storage};
 use reth_trie_common::{HashBuilder, Nibbles, proof::ProofRetainer};
 use std::sync::Arc;
 
@@ -53,16 +51,8 @@ pub(crate) fn genesis() -> alloy_genesis::Genesis {
     }));
     genesis.alloc.get_mut(&HISTORY_ADDRESS).unwrap().code =
         Some(Bytes::copy_from_slice(HISTORY_RUNTIME));
-    genesis.alloc.get_mut(&HISTORY_ADDRESS).unwrap().storage = Some(
-        bootstrap_storage(
-            0,
-            reference.hash_slow(),
-            HistorySchedule::new(80, 2, 6, 2).unwrap(),
-        )
-        .unwrap()
-        .into_iter()
-        .collect(),
-    );
+    genesis.alloc.get_mut(&HISTORY_ADDRESS).unwrap().storage =
+        Some(genesis_storage().into_iter().collect());
     genesis
 }
 
@@ -97,9 +87,7 @@ pub(crate) fn state(accounts: &[(Address, u64, U256)], _timestamp: u64) -> (B256
         storage_root: B256,
         code_hash: B256,
     }
-    let reference = l1_spec().genesis_header().hash_slow();
-    let schedule = HistorySchedule::new(80, 2, 6, 2).unwrap();
-    let storage = bootstrap_storage(0, reference, schedule).unwrap();
+    let storage = genesis_storage();
     let (storage_root, mut nodes) = trie(
         storage
             .into_iter()
@@ -130,7 +118,7 @@ pub(crate) fn state(accounts: &[(Address, u64, U256)], _timestamp: u64) -> (B256
     leaves.push((
         keccak256(HISTORY_ADDRESS),
         alloy_rlp::encode(Account {
-            nonce: 1,
+            nonce: 2,
             balance: U256::ZERO,
             storage_root,
             code_hash: keccak256(HISTORY_RUNTIME),

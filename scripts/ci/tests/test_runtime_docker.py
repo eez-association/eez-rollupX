@@ -12,6 +12,8 @@ import unittest
 
 
 REPO = Path(__file__).resolve().parents[3]
+HISTORY_ASSETS = tuple(Path("crates/eez-protocol/src/l1_history") / name
+                       for name in ("runtime.bin", "implementation.bin", "proxy_admin.bin"))
 spec = importlib.util.spec_from_file_location("native_tests", REPO / "scripts/ci/native-tests.py")
 native = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(native)
@@ -21,11 +23,11 @@ spec.loader.exec_module(native)
                      "set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images")
 class RuntimeDockerTest(unittest.TestCase):
     def test_deploy_context_preserves_history_identity(self):
-        runtime = Path("crates/eez-protocol/src/l1_history/runtime.bin")
         with tempfile.TemporaryDirectory(prefix="eez-deploy-context.") as temporary:
             root = Path(temporary)
             dockerfile = root / "Dockerfile"
-            dockerfile.write_text(f"FROM scratch\nCOPY {runtime} /runtime.bin\n")
+            dockerfile.write_text("FROM scratch\n" + "".join(
+                f"COPY {asset} /{asset.name}\n" for asset in HISTORY_ASSETS))
             shutil.copy2(REPO / "testing/kurtosis/Dockerfile.deploy.dockerignore",
                          root / "Dockerfile.dockerignore")
             output = root / "output"
@@ -34,7 +36,8 @@ class RuntimeDockerTest(unittest.TestCase):
                 "--provenance=false", "-f", str(dockerfile),
                 "--output", f"type=local,dest={output}", ".",
             ], cwd=REPO, check=True)
-            self.assertEqual((output / "runtime.bin").read_bytes(), (REPO / runtime).read_bytes())
+            for asset in HISTORY_ASSETS:
+                self.assertEqual((output / asset.name).read_bytes(), (REPO / asset).read_bytes())
 
     def test_repository_source_context_preserves_genesis(self):
         with tempfile.TemporaryDirectory(prefix="eez-runtime-source.") as temporary:
@@ -149,9 +152,9 @@ class RuntimeDockerTest(unittest.TestCase):
 
             (repo / "contracts").mkdir(exist_ok=True)
             (repo / "contracts/fixture").touch()
-            history_runtime = Path("crates/eez-protocol/src/l1_history/runtime.bin")
-            (repo / history_runtime).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(REPO / history_runtime, repo / history_runtime)
+            for asset in HISTORY_ASSETS:
+                (repo / asset).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(REPO / asset, repo / asset)
             (repo / "genesis.json").write_text("{}")
             (repo / "genesis.dev.json").write_text("{}")
             protocol = repo / "eez-core-protocol"
@@ -224,11 +227,12 @@ class RuntimeDockerTest(unittest.TestCase):
                     container = subprocess.check_output(["docker", "create", image, "--help"], env=env, text=True).strip()
                     try:
                         if role == "deploy":
-                            copied_runtime = root / "copied-history-runtime.bin"
-                            subprocess.run(["docker", "cp", f"{container}:/repo/{history_runtime}",
-                                            str(copied_runtime)], env=env, check=True)
-                            self.assertEqual(copied_runtime.read_bytes(),
-                                             (repo / history_runtime).read_bytes())
+                            for asset in HISTORY_ASSETS:
+                                copied_runtime = root / f"copied-history-{asset.name}"
+                                subprocess.run(["docker", "cp", f"{container}:/repo/{asset}",
+                                                str(copied_runtime)], env=env, check=True)
+                                self.assertEqual(copied_runtime.read_bytes(),
+                                                 (repo / asset).read_bytes())
                         for binary in binaries:
                             copied = root / "copied-binary"
                             subprocess.run(["docker", "cp", f"{container}:/usr/local/bin/{binary}", str(copied)], env=env, check=True)

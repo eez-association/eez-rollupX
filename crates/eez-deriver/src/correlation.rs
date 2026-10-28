@@ -61,7 +61,7 @@ impl BatchCorrelation {
         {
             return Err("correlation endpoint header differs from its accepted hash".into());
         }
-        if self.endpoint_history.first_number > self.endpoint_history.endpoint
+        if (self.endpoint_history.imported && self.endpoint_history.endpoint == 0)
             || self.endpoint_history.endpoint > self.l1_block_number
             || self.endpoint_history.endpoint_hash.is_zero()
         {
@@ -902,10 +902,9 @@ mod tests {
             l2_blocks,
             endpoint_header,
             endpoint_history: eez_protocol::l1_history::HistoryState {
-                first_number: 0,
+                imported: true,
                 endpoint: l1_block.saturating_sub(1),
                 endpoint_hash: B256::with_last_byte(l1_block as u8),
-                first_cutoff: 12,
             },
         }
     }
@@ -1068,7 +1067,8 @@ mod tests {
             |r: &mut BatchCorrelation| r.endpoint_history.endpoint_hash = B256::ZERO,
             |r: &mut BatchCorrelation| r.endpoint_history.endpoint = r.l1_block_number + 1,
             |r: &mut BatchCorrelation| {
-                r.endpoint_history.first_number = r.endpoint_history.endpoint + 1;
+                r.endpoint_history.imported = true;
+                r.endpoint_history.endpoint = 0;
             },
         ] {
             let mut record = record(20, 1, 5, &[1]);

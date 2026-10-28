@@ -28,12 +28,20 @@ die() {
 }
 
 grep -Fq '====== Done ======' "$SCENARIO_LOG" || die "upstream completion marker is absent"
-! grep -q '^ERROR:' "$SCENARIO_LOG" || die "upstream log contains an ERROR"
+mapfile -t upstream_errors < <(grep '^ERROR:' "$SCENARIO_LOG" || true)
+refused_submissions=()
+refusal_pattern='^ERROR: submission refused \((reconciliation|quote_busy|stale_context)\) chain=([0-9]+) nonce=([0-9]+) hash=(0x[[:xdigit:]]{64}): ERROR: eth_sendRawTransaction failed$'
+for diagnostic in "${upstream_errors[@]}"; do
+    [[ "$diagnostic" =~ $refusal_pattern ]] || die "upstream log contains an unreconciled ERROR"
+    refused_submissions+=("${BASH_REMATCH[2]} ${BASH_REMATCH[3]} ${BASH_REMATCH[4]}")
+done
 case "$SCENARIO_NAME" in
     staticCounterL2|topLevelStaticReentrantCounterL2)
+        (( ${#refused_submissions[@]} == 0 )) || die "lookup collector cannot reconcile submission errors"
         exec bash "$(dirname "$0")/verify-static-counter-l2.sh" "$SCENARIO_LOG" "$OUTPUT_JSON" "$SCENARIO_NAME"
         ;;
     topLevelStaticCounter|topLevelStaticReentrantCounter|staticLocalWrite|revertCounter)
+        (( ${#refused_submissions[@]} == 0 )) || die "lookup collector cannot reconcile submission errors"
         exec bash "$(dirname "$0")/verify-l1-lookup.sh" \
             "$SCENARIO_NAME" "$SCENARIO_SOL" "$SCENARIO_LOG" "$OUTPUT_JSON"
         ;;
@@ -125,6 +133,7 @@ transaction_evidence() {
         ' >/dev/null || die "$role transaction/receipt $hash differs from the canonical block"
     # Feed every exact validated receipt to Rust, not a second RPC snapshot.
     printf '%s\n' "$receipt" >"$causal_tmp/$chain-$hash.receipt.json"
+    printf '%s\n' "$canonical_tx" >"$causal_tmp/$chain-$hash.transaction.json"
     block_number="$(cast to-dec "$block_hex")"
     tx_index="$(cast to-dec "$(jq -er '.transactionIndex' <<<"$receipt")")"
     tx_to="$(jq -er '.to' <<<"$tx")"
@@ -166,6 +175,25 @@ for row in "${user_rows[@]}"; do
     user_receipts+=("$evidence")
 done
 user_receipts_json="$(printf '%s\n' "${user_receipts[@]}" | jq -s .)"
+
+# Upstream logs a refusal before retrying the identical signed transaction.
+# Its ERROR text is not a final scenario failure when that exact trigger has
+# successful canonical inclusion. Retain the diagnostic and require all later
+# causal, table and blob checks as usual; a PASS line alone cannot reconcile it.
+for refused in "${refused_submissions[@]}"; do
+    read -r refused_chain refused_nonce refused_hash <<<"$refused"
+    jq -e --arg hash "$refused_hash" '[.[] | select(.hash == $hash)] | length == 1' \
+        <<<"$user_receipts_json" >/dev/null || die "refused transaction is not a verified scenario trigger"
+    snapshot="$causal_tmp/$trigger_chain-$refused_hash.transaction.json"
+    canonical_chain="$(cast to-dec "$(jq -er '.chainId' "$snapshot")")" \
+        || die "refused transaction has no canonical chain ID"
+    canonical_nonce="$(cast to-dec "$(jq -er '.nonce' "$snapshot")")" \
+        || die "refused transaction has no canonical nonce"
+    [[ "$canonical_chain" == "$refused_chain" && "$canonical_nonce" == "$refused_nonce" ]] \
+        || die "refused transaction chain/nonce differs from canonical inclusion"
+done
+reconciled_submissions="$(printf '%s\n' "${refused_submissions[@]}" | jq -Rsc \
+    'split("\n") | map(select(length > 0) | split(" ") | {chain_id: .[0], nonce: .[1], hash: .[2]})')"
 
 # PR 56 reports every post and names table loads/deliveries by role. Older
 # content-scan output can also list matches outside the summary. These are
@@ -376,6 +404,7 @@ jq -n \
     --arg log "$SCENARIO_LOG" \
     --arg log_sha256 "$log_sha256" \
     --arg upstream_table_hash "$load_hash" \
+    --slurpfile reconciled_submissions "$(json_file reconciled_submissions "$reconciled_submissions")" \
     --arg trigger_chain "$trigger_chain" \
     --slurpfile trigger_transactions "$(json_file trigger_transactions "$user_receipts_json")" \
     --slurpfile settlement_transactions "$(json_file settlement_transactions "$post_receipts_json")" \
@@ -411,5 +440,6 @@ jq -n \
                l2_calls_verified: $l2_calls_verified},
       proof_statements: $proof_statements,
       source_log: {path: $log, sha256: $log_sha256,
+                   reconciled_submissions: $reconciled_submissions[0],
                    upstream_first_table_hash: $upstream_table_hash}}' >"$tmp_output"
 mv "$tmp_output" "$OUTPUT_JSON"

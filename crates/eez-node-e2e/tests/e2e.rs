@@ -40,9 +40,13 @@ async fn pending_history_import_requires_executed_state() {
     );
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
-    let request = TransactionRequest::default()
-        .to(HISTORY_ADDRESS)
-        .input(Bytes::from(IL1BlockhashContract::currentCall {}.abi_encode()).into());
+    let genesis: alloy_genesis::Genesis =
+        serde_json::from_slice(&std::fs::read(&world.cfg.l2_genesis.0).unwrap()).unwrap();
+    let config: eez_protocol::l2::DerivationConfig =
+        serde_json::from_value(genesis.config.extra_fields["rollupX"].clone()).unwrap();
+    let request = TransactionRequest::default().to(HISTORY_ADDRESS).input(
+        Bytes::from(IL1BlockhashContract::getLatestImportedL1BlockCall {}.abi_encode()).into(),
+    );
     // Inject the existing observation fixture only into the RPC simulation; it
     // reads history and PREVRANDAO together without a deployment transaction.
     let artifact: serde_json::Value = serde_json::from_slice(
@@ -58,11 +62,6 @@ async fn pending_history_import_requires_executed_state() {
         .to(probe)
         .input(Bytes::copy_from_slice(&keccak256(b"observe()")[..4]).into());
     let overrides = json!({probe.to_string(): {"code": artifact["deployedBytecode"]["object"]}});
-    // firstCutoff is internal slot 3, without a public getter. Replace only its
-    // reader code after the real prefix; the simulated history storage remains.
-    let cutoff_request = TransactionRequest::default().to(HISTORY_ADDRESS);
-    let cutoff_override =
-        json!({HISTORY_ADDRESS.to_string(): {"code": "0x60035460005260206000f3"}});
     let counter: serde_json::Value = serde_json::from_slice(
         &std::fs::read(eez_testkit::repo_root().join("contracts/out/Counter.sol/Counter.json"))
             .unwrap(),
@@ -116,20 +115,14 @@ async fn pending_history_import_requires_executed_state() {
         let env_override =
             json!({env_probe.to_string(): {"code": "0x43600052426020524460405260606000f3"}});
         requests.extend([
-            (
-                "eth_call",
-                json!([cutoff_request, "pending", cutoff_override]),
-            ),
+            ("eth_call", json!([request, "pending"])),
             ("eth_call", json!([request])),
             ("eth_call", json!([request, "latest"])),
             (
                 "eth_call",
                 json!([observe, "pending", overrides, block_overrides]),
             ),
-            (
-                "eth_call",
-                json!([cutoff_request, "pending", cutoff_override, block_overrides]),
-            ),
+            ("eth_call", json!([request, "pending", {}, block_overrides])),
             (
                 "eth_call",
                 json!([env_request, "pending", env_override, block_overrides]),
@@ -159,8 +152,8 @@ async fn pending_history_import_requires_executed_state() {
         requests.extend([
             (
                 "debug_traceCall",
-                json!([cutoff_request, "pending", {
-                    "tracer": "callTracer", "stateOverrides": cutoff_override,
+                json!([request, "pending", {
+                    "tracer": "callTracer",
                     "blockOverrides": block_overrides,
                 }]),
             ),
@@ -233,16 +226,22 @@ async fn pending_history_import_requires_executed_state() {
         }
         let bytes = |index: usize| serde_json::from_value::<Bytes>(results[index].clone()).unwrap();
         let (number, hash, randao) = <(u64, B256, U256)>::abi_decode(&bytes(0)).unwrap();
-        let expected_cutoff = U256::from(world.dep.profile.genesisTimestamp);
-        assert_eq!(U256::abi_decode(&bytes(27)).unwrap(), expected_cutoff);
+        assert!(
+            number > 0 && !hash.is_zero(),
+            "pending prefix must import history"
+        );
+        assert_eq!(
+            <(u64, B256)>::abi_decode(&bytes(27)).unwrap(),
+            (number, hash)
+        );
         assert_eq!(results[28], results[29], "default tag remains latest");
         assert_eq!(
             <(u64, B256, U256)>::abi_decode(&bytes(30)).unwrap(),
             (number, hash, U256::from_be_slice(hypothetical.as_slice()))
         );
         assert_eq!(
-            U256::abi_decode(&bytes(31)).unwrap(),
-            expected_cutoff,
+            <(u64, B256)>::abi_decode(&bytes(31)).unwrap(),
+            (number, hash),
             "block overrides do not reschedule or repeat history execution"
         );
         assert_eq!(
@@ -287,13 +286,23 @@ async fn pending_history_import_requires_executed_state() {
         .block(parent.hash.into())
         .await
         .unwrap();
-    let before = IL1BlockhashContract::currentCall::abi_decode_returns(&before).unwrap();
+    let before =
+        IL1BlockhashContract::getLatestImportedL1BlockCall::abi_decode_returns(&before).unwrap();
+    // The contract stays empty until the first import. Execution still binds
+    // PREVRANDAO to the authenticated genesis reference during that prefix.
+    let (previous_number, previous_hash) = if before.hash.is_zero() {
+        assert_eq!(before.number, 0);
+        (config.l1_reference.number, config.l1_reference.hash)
+    } else {
+        assert!(before.number > 0);
+        (before.number, before.hash)
+    };
     let previous_source = l1
-        .get_block_by_number(before.number.into())
+        .get_block_by_number(previous_number.into())
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(before.hash, previous_source.header.hash);
+    assert_eq!(previous_hash, previous_source.header.hash);
     assert_eq!(parent.mix_hash, previous_source.header.mix_hash);
     let selected_pending = l1
         .get_block_by_number(pending_origin.0.into())
@@ -301,7 +310,7 @@ async fn pending_history_import_requires_executed_state() {
         .unwrap()
         .unwrap()
         .header;
-    assert!(pending_origin.0 >= before.number);
+    assert!(pending_origin.0 >= previous_number);
     assert_eq!(pending_origin.1, selected_pending.hash);
     assert_eq!(
         pending_randao,
@@ -321,7 +330,8 @@ async fn pending_history_import_requires_executed_state() {
         .block(next.hash.into())
         .await
         .unwrap();
-    let after = IL1BlockhashContract::currentCall::abi_decode_returns(&after).unwrap();
+    let after =
+        IL1BlockhashContract::getLatestImportedL1BlockCall::abi_decode_returns(&after).unwrap();
     let selected = l1
         .get_block_by_number(after.number.into())
         .await
@@ -350,7 +360,8 @@ async fn pending_history_import_requires_executed_state() {
         .await
         .unwrap();
     let indexed: Bytes = serde_json::from_value(indexed["output"].clone()).unwrap();
-    let indexed = IL1BlockhashContract::currentCall::abi_decode_returns(&indexed).unwrap();
+    let indexed =
+        IL1BlockhashContract::getLatestImportedL1BlockCall::abi_decode_returns(&indexed).unwrap();
     assert_eq!((indexed.number, indexed.hash), (before.number, before.hash));
     let out_of_bounds = l2
         .raw_request::<_, serde_json::Value>(

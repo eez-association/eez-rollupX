@@ -31,13 +31,14 @@ async fn imported_history_reorg_recovers_twenty_ordinary_transactions_without_se
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let setup_tip = l1.get_block_number().await.unwrap();
-    let current = TransactionRequest::default()
-        .to(HISTORY_ADDRESS)
-        .input(Bytes::from(IL1BlockhashContract::currentCall {}.abi_encode()).into());
+    let current = TransactionRequest::default().to(HISTORY_ADDRESS).input(
+        Bytes::from(IL1BlockhashContract::getLatestImportedL1BlockCall {}.abi_encode()).into(),
+    );
     // Fork only history produced after every fixture contract was installed.
     wait_for(TIMEOUT, || async {
         let source = l2.call(current.clone()).latest().await?;
-        let source = IL1BlockhashContract::currentCall::abi_decode_returns(&source)?;
+        let source =
+            IL1BlockhashContract::getLatestImportedL1BlockCall::abi_decode_returns(&source)?;
         Ok((source.number > setup_tip).then_some(()))
     })
     .await
@@ -80,16 +81,15 @@ async fn imported_history_reorg_recovers_twenty_ordinary_transactions_without_se
         before.push(receipt);
     }
     let original_origin = l2
-        .call(
-            TransactionRequest::default()
-                .to(HISTORY_ADDRESS)
-                .input(Bytes::from(IL1BlockhashContract::currentCall {}.abi_encode()).into()),
-        )
+        .call(TransactionRequest::default().to(HISTORY_ADDRESS).input(
+            Bytes::from(IL1BlockhashContract::getLatestImportedL1BlockCall {}.abi_encode()).into(),
+        ))
         .block(before[0].block_hash.unwrap().into())
         .await
         .unwrap();
     let original_origin =
-        IL1BlockhashContract::currentCall::abi_decode_returns(&original_origin).unwrap();
+        IL1BlockhashContract::getLatestImportedL1BlockCall::abi_decode_returns(&original_origin)
+            .unwrap();
     assert!(
         original_origin.number > 1,
         "must fork an imported non-bootstrap source"

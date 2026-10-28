@@ -9,10 +9,10 @@ and pinned core define interoperability. Shared type/version names alone do not:
 
 | Boundary | Exact local contract |
 | --- | --- |
-| Native transactions and receipts | Cross-chain `0x45` has six fields and no version, with execution-group source identities; optional HistoryUpdate `0x46` version **1** has only chain ID and 1–64 hashes after its version. Receipts retain the corresponding type. |
+| Native transactions and receipts | Cross-chain `0x45` has six fields and no version, with execution-group source identities; optional HistoryUpdate `0x46` version **1** has only chain ID and 1–64 explicit increasing positive number/hash pairs after its version. Receipts retain the corresponding type. |
 | `ChainOperation` payload | Direct RollupX V0 (`0x00`), including its [compact count grammar](../../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract); this differs from the draft's per-block uvarints. |
 | Execution and settlement | The single authenticated `Profile`/`OfflineProfile`, genesis, L1 rules and [signer validation contract](../../eez-proof-signer/SPEC.md). |
-| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 5, as defined below. |
+| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 6, as defined below. |
 
 These are the fixed contracts of one network profile, not selectable compatibility
 modes. The [compliance review](../../../docs/audits/2026-10-24-specs-compliance/README.md)
@@ -135,9 +135,14 @@ execution engine alone does not implement the RollupX profile.
 The [history transaction contract](../../../contracts/L1_HISTORY_SPEC.md) also
 applies to an external engine: execute the optional first-position `0x46` update
 only at an eligible genesis-phased timestamp. Decode exactly version 1, chain ID
-and 1–64 hashes; derive cutoff, fixed sender/destination/zero value and the 2M
+and 1–64 increasing positive number/hash pairs; derive the delayed cutoff,
+fixed sender/destination/zero value and the 2M
 remaining-gas-bounded budget. Preserve the system nonce and meter execution.
-Check the consecutive ancestry and delay, and set both header and opcode
+The store starts empty behind a genesis-bound proxy; inherit the configured
+bootstrap origin until the first import. Execute the implementation authenticated
+by state and witness code, including ordinary authorized upgrades. Gaps in stored
+numbers are allowed and cannot be backfilled. Check the complete consecutive
+ancestry (including unstored headers) and delay, and set both header and opcode
 PREVRANDAO from that recorded choice. Omission inherits origin and PREVRANDAO
 without a storage write; validate that inheritance even in eligible empty blocks.
 Never infer a new choice from newer witness headers or perform an invisible import.

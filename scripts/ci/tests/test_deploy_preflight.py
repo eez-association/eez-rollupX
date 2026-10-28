@@ -261,9 +261,8 @@ exit 97
 class DeployImageAssetsTest(unittest.TestCase):
     def test_render_history_identities_exist_at_their_consumed_image_paths(self):
         renderer = (REPO / "scripts/update-eezl2-genesis.sh").read_text()
-        assets = re.findall(r'^history_(?:binary|solidity)="\$REPO/([^"\n]+)"$',
-                            renderer, re.MULTILINE)
-        self.assertEqual(len(assets), 2, "both generated history identities are required")
+        assets = re.findall(r"root / '([^'\n]+(?:\.bin|\.sol))'", renderer)
+        self.assertEqual(len(assets), 4, "proxy, implementation, admin and manager identity must be packaged")
         dockerfile = (REPO / "testing/kurtosis/Dockerfile.deploy").read_text()
         for asset in assets:
             with self.subTest(asset=asset):

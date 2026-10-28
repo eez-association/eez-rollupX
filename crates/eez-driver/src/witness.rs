@@ -141,21 +141,20 @@ fn capture_history<P: StateProviderFactory>(
     config: &EezEvmConfig,
     block: &RecoveredBlock<Block>,
 ) -> eyre::Result<(EezEvmConfig, Vec<Bytes>)> {
-    use eez_protocol::l1_history::{ENDPOINT_SLOT, HISTORY_ADDRESS};
     let header = block.header();
     let state = provider.state_by_block_hash(header.parent_hash)?;
-    let first = u64::try_from(
-        state
-            .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT).into())?
-            .unwrap_or_default(),
-    )?;
-    let count = match block.body().transactions.first() {
-        Some(eez_primitives::EezTxEnvelope::History(tx)) => tx.hashes.len() as u64,
-        _ => 0,
+    let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state.as_ref()));
+    let first = config.history_state(&mut db)?.endpoint;
+    let last = match block.body().transactions.first() {
+        Some(eez_primitives::EezTxEnvelope::History(tx)) => {
+            tx.validate()?;
+            tx.blocks
+                .last()
+                .ok_or_else(|| eyre::eyre!("empty history import"))?
+                .number
+        }
+        _ => first,
     };
-    let last = first
-        .checked_add(count)
-        .ok_or_else(|| eyre::eyre!("history witness range overflow"))?;
     let chain = config.l1_headers(header.timestamp)?;
     let range = std::sync::Arc::new(chain.range(first, last)?);
     let raw = range.raw_headers().collect();
@@ -563,8 +562,7 @@ mod tests {
     /// for observations scheduled before its first transaction.
     fn observation_fixture() -> (MockEthProvider, EezEvmConfig, RecoveredBlock<Block>, B256) {
         use eez_protocol::l1_history::{
-            HISTORY_ADDRESS, HeaderChain, HeaderRules, HistorySchedule, WitnessHistory,
-            bootstrap_storage,
+            HISTORY_ADDRESS, HeaderChain, HeaderRules, WitnessHistory, genesis_storage,
         };
         let reference = Header {
             timestamp: 964,
@@ -596,15 +594,8 @@ mod tests {
             serde_json::json!(reference.hash_slow());
         genesis["config"]["rollupX"]["l1Reference"]["prevRandao"] =
             serde_json::json!(reference.mix_hash);
-        genesis["alloc"][format!("{HISTORY_ADDRESS:#x}")]["storage"] = serde_json::to_value(
-            bootstrap_storage(
-                0,
-                reference.hash_slow(),
-                HistorySchedule::new(988, 12, 2, 1).unwrap(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        genesis["alloc"][format!("{HISTORY_ADDRESS:#x}")]["storage"] =
+            serde_json::to_value(genesis_storage()).unwrap();
         let chain_spec = Arc::new(
             eez_evm::profile::chain_spec(serde_json::from_value(genesis).unwrap()).unwrap(),
         );
@@ -630,20 +621,25 @@ mod tests {
             .with_l1_history(Arc::new(WitnessHistory(Arc::new(chain))))
             .unwrap();
         let provider: MockEthProvider = MockEthProvider::new();
-        let history = &chain_spec.genesis.alloc[&HISTORY_ADDRESS];
-        provider.add_account(
-            HISTORY_ADDRESS,
-            ExtendedAccount::new(1, U256::ZERO)
-                .with_bytecode(history.code.clone().unwrap())
-                .extend_storage(
-                    history
-                        .storage
-                        .as_ref()
-                        .unwrap()
-                        .iter()
-                        .map(|(key, value)| (*key, U256::from_be_bytes(value.0))),
-                ),
-        );
+        for address in [
+            eez_protocol::l1_history::HISTORY_ADDRESS,
+            eez_protocol::l1_history::HISTORY_IMPLEMENTATION_ADDRESS,
+            eez_protocol::l1_history::HISTORY_ADMIN_ADDRESS,
+        ] {
+            let account = &chain_spec.genesis.alloc[&address];
+            provider.add_account(
+                address,
+                ExtendedAccount::new(account.nonce.unwrap(), U256::ZERO)
+                    .with_bytecode(account.code.clone().unwrap())
+                    .extend_storage(
+                        account
+                            .storage
+                            .iter()
+                            .flatten()
+                            .map(|(key, value)| (*key, U256::from_be_bytes(value.0))),
+                    ),
+            );
+        }
         let parent = Header {
             number: 1,
             timestamp: 1_000,
