@@ -110,10 +110,6 @@ pub struct CrossChainExecCtx {
     pub l1_poster_signer: alloy_signer_local::PrivateKeySigner,
     /// L1 chain id for EIP-155 signing of the `postAndVerifyBatch` transaction.
     pub l1_chain_id: u64,
-    /// Fresh-genesis execution and L1 rule identity registered by the manager.
-    pub offline_profile: eez_protocol::l1_history::OfflineProfile,
-    /// Exact RollupX deployment committed by capability preflight.
-    pub rollup_manager: Address,
     /// Physical sidecar encoding for the mandatory native blob DA carrier.
     pub blob_sidecar_encoding: eez_blob_codec::BlobSidecarEncoding,
     /// Address of the rollup's on-chain proof-system contract, embedded
@@ -395,34 +391,24 @@ const MAX_PROOF_BYTES: usize = 128;
 
 /// Select the proof mode before proving; submission still owns the exact target.
 fn select_proof_anchor(
-    profile: &eez_protocol::l1_history::OfflineProfile,
     parent: &alloy_consensus::Header,
     target_timestamp: u64,
     terminal_timestamp: u64,
     has_actions: bool,
-) -> Result<eez_protocol::l1_history::EvidenceAnchor, eez_protocol::l2::ProfileError> {
+) -> eez_protocol::l1_history::EvidenceAnchor {
     use eez_protocol::l1_history::EvidenceAnchor;
-    Ok(
-        if !has_actions
-            && parent.number != 0
-            && terminal_timestamp <= parent.timestamp
-            // Historical context uses the anchor's rule epoch. When the next
-            // inclusion crosses a known fork, bind its actual parent/time so
-            // the first proof already uses the rules getCustomData will return.
-            && profile.rules_id(parent.timestamp)? == profile.rules_id(target_timestamp)?
-        {
-            EvidenceAnchor::Historical {
-                number: parent.number,
-                hash: parent.hash_slow(),
-            }
-        } else {
-            EvidenceAnchor::ActualParent {
-                number: parent.number,
-                hash: parent.hash_slow(),
-                target_timestamp,
-            }
-        },
-    )
+    if !has_actions && parent.number != 0 && terminal_timestamp <= parent.timestamp {
+        EvidenceAnchor::Historical {
+            number: parent.number,
+            hash: parent.hash_slow(),
+        }
+    } else {
+        EvidenceAnchor::ActualParent {
+            number: parent.number,
+            hash: parent.hash_slow(),
+            target_timestamp,
+        }
+    }
 }
 
 /// Complete only the terminal frame's L1 bridge. Earlier captured segments end
@@ -468,8 +454,8 @@ fn append_anchor_bridge(
 const DEFAULT_MAX_POSTBATCH_GAS: u64 = 16_777_216;
 
 /// Execution for a batch with just the leading immediate entry, calldata aside.
-/// Offline manager with its root pin, 64 rule epochs and 64 blob references:
-/// measured 165,440, plus 10% rounded up. Pinned by PostBatchGasPins.t.sol.
+/// Conservative reserve for the Core manager, registry root assertion and up
+/// to 64 blob references. Bounded by PostBatchGasPins.t.sol.
 const POSTBATCH_BASE_GAS_PIN: u64 = 190_000;
 
 /// One more entry costs EEZ.sol hashing, a state SSTORE, and a CREATE2 proxy
@@ -7318,24 +7304,19 @@ where
             .timestamp(sync_block_number)
             .map_err(|error| error.to_string())?;
         let proof_anchor = select_proof_anchor(
-            &ctx.offline_profile,
             &header,
             timestamp,
             terminal_timestamp,
             !semantic_transactions.is_empty(),
-        )
-        .map_err(|error| error.to_string())?;
-        let offline_context = eez_protocol::l1_history::OfflineContext::new(
-            &ctx.offline_profile,
-            posting.registry,
-            ctx.rollup_manager,
+        );
+        let proof_context = eez_protocol::l1_history::ProofContext::new(
+            U256::from(ctx.l2_chain_id),
             rollup_id,
-            pre_block_hash,
             proof_anchor,
             header.timestamp,
         )
         .map_err(|error| error.to_string())?;
-        batch.blockNumber = offline_context.selector();
+        batch.blockNumber = proof_context.selector();
         if gas_projection.is_none() && semantic_transactions.is_empty() {
             let hash = alloy_consensus::Sealable::hash_slow(&header);
             empty_projection = provider.provider.state_by_block_hash(hash)
@@ -7576,7 +7557,7 @@ where
             blobs: transaction_blobs.clone(),
             blocks: block_witnesses.into(),
             l1_posting: (batch.blockNumber == u64::MAX).then_some(l1_posting),
-            offline_context,
+            proof_context,
         };
         if let Some(attempt) = admission {
             attempt.prepared(rollup_id, semantic_transactions.len());
@@ -8390,60 +8371,25 @@ mod tests {
     use alloy_sol_types::SolValue as _;
 
     #[test]
-    fn proof_anchor_uses_inclusion_rules_at_a_known_fork_boundary() {
-        use eez_protocol::l1_history::{
-            EvidenceAnchor, HISTORY_RUNTIME, OfflineContext, OfflineProfile,
-        };
-        let profile = OfflineProfile {
-            feeCollector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
-            l1ChainId: U256::from(1),
-            l2ChainId: U256::from(31337),
-            genesisHash: B256::repeat_byte(1),
-            genesisTimestamp: 80,
-            blockInterval: 2,
-            syncInterval: 6,
-            updateOffset: 2,
-            l1ConfigHash: B256::repeat_byte(2),
-            historyCodeHash: alloy_primitives::keccak256(HISTORY_RUNTIME),
-            ruleTimes: vec![0, 120],
-        };
-        // A historical proof for parent time 119 binds the old rule epoch,
-        // whereas getCustomData at the exact target 120 returns the new one.
+    fn historical_anchor_does_not_expire_at_a_known_fork_boundary() {
+        use eez_protocol::l1_history::EvidenceAnchor;
         for (parent_time, target_time, terminal_time, has_actions, historical) in [
             (118, 119, 100, false, true),
-            (119, 120, 100, false, false),
-            (119, 121, 100, false, false),
+            (119, 120, 100, false, true),
+            (119, 121, 100, false, true),
             (120, 121, 100, false, true),
             (120, 121, 121, false, false),
-            (120, 121, 121, true, false),
+            (120, 121, 100, true, false),
         ] {
             let parent = alloy_consensus::Header {
                 number: 10,
                 timestamp: parent_time,
                 ..Default::default()
             };
-            let anchor =
-                select_proof_anchor(&profile, &parent, target_time, terminal_time, has_actions)
-                    .unwrap();
+            let anchor = select_proof_anchor(&parent, target_time, terminal_time, has_actions);
             assert_eq!(
                 matches!(anchor, EvidenceAnchor::Historical { .. }),
-                historical,
-                "parent {parent_time}, target {target_time}, terminal {terminal_time}, actions {has_actions}"
-            );
-            let context = OfflineContext::new(
-                &profile,
-                Address::with_last_byte(1),
-                Address::with_last_byte(2),
-                1,
-                B256::repeat_byte(3),
-                anchor,
-                parent_time,
-            )
-            .unwrap();
-            // Word 7 is the rule identity returned by the real manager at inclusion.
-            assert_eq!(
-                &context.custom_data()[7 * 32..8 * 32],
-                profile.rules_id(target_time).unwrap().as_slice()
+                historical
             );
         }
     }

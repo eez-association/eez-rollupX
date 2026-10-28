@@ -46,6 +46,7 @@ struct Inner {
     /// rejected (a wrong/malicious prover cannot forge an attestation).
     attester: Address,
     expected_identity: B256,
+    vkey: B256,
     connection: tokio::sync::Mutex<Option<Arc<connection::Connection>>>,
     agreed_capabilities: tokio::sync::Mutex<Option<eez_control_rpc::v2::CapabilitiesResponse>>,
 }
@@ -53,9 +54,15 @@ struct Inner {
 impl RemoteProver {
     /// Build a remote prover pointing at `url`, verifying attestations against
     /// the registered `attester` and requiring agreement with locally computed
-    /// `expected_identity` before any proof is dispatched.
+    /// `expected_identity` before any proof is dispatched. `vkey` must be derived
+    /// locally from the network profile and registered deployment identities.
     #[must_use]
-    pub fn new(url: impl Into<String>, attester: Address, expected_identity: B256) -> Self {
+    pub fn new(
+        url: impl Into<String>,
+        attester: Address,
+        expected_identity: B256,
+        vkey: B256,
+    ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 streaming: tokio::sync::Mutex::new(streaming::StreamingState::default()),
@@ -63,6 +70,7 @@ impl RemoteProver {
                 url: url.into(),
                 attester,
                 expected_identity,
+                vkey,
                 connection: tokio::sync::Mutex::new(None),
                 agreed_capabilities: tokio::sync::Mutex::new(None),
             }),
@@ -205,8 +213,7 @@ impl Prover for RemoteProver {
     }
 
     fn vkey(&self) -> B256 {
-        // Left-zero-pad the 20-byte attester into a B256 (the registry vkey).
-        self.inner.attester.into_word()
+        self.inner.vkey
     }
 }
 
@@ -219,7 +226,7 @@ fn request_hash(ctx: &ProvingContext, vkey: B256) -> ProverResult<B256> {
         &ctx.batch,
         vkey,
         &blob_hashes,
-        ctx.offline_context,
+        ctx.proof_context,
     )
     .map_err(|error| ProverError::Backend(format!("request public inputs: {error}")))?;
     match hashes.as_slice() {
@@ -347,6 +354,8 @@ mod tests {
     use std::str::FromStr;
     use tonic::{Request, Response, Streaming, transport::Server};
 
+    const TEST_VKEY: B256 = B256::repeat_byte(0x71);
+
     async fn spawn_stub(signer: PrivateKeySigner, hash: B256) -> String {
         spawn_capturing_stub(signer, hash).await.0
     }
@@ -410,10 +419,10 @@ mod tests {
         let signer = test_key();
         let attester = signer.address();
         let ctx = test_context();
-        let hash = request_hash(&ctx, attester.into_word()).unwrap();
+        let hash = request_hash(&ctx, TEST_VKEY).unwrap();
         let (url, mut received, calls) =
             spawn_configured_stub(signer, hash, test_capabilities()).await;
-        let prover = RemoteProver::new(url, attester, TEST_IDENTITY);
+        let prover = RemoteProver::new(url, attester, TEST_IDENTITY, TEST_VKEY);
         prover.capabilities().await.unwrap();
         prover.prove(ctx.clone()).await.unwrap();
         prover.prove(ctx).await.unwrap();
@@ -466,7 +475,7 @@ mod tests {
             let attester = signer.address();
             let (url, mut headers, _) =
                 spawn_configured_stub(signer, B256::ZERO, capabilities).await;
-            let prover = RemoteProver::new(url, attester, TEST_IDENTITY);
+            let prover = RemoteProver::new(url, attester, TEST_IDENTITY, TEST_VKEY);
             let error = prover.prove(context_with_witnesses()).await.unwrap_err();
             assert!(matches!(error, ProverError::Backend(_)), "{error}");
             assert_eq!(error.actionable_failure(), None);
@@ -483,7 +492,7 @@ mod tests {
         let signer = test_key();
         let attester = signer.address();
         let (url, _, calls) = spawn_configured_stub(signer, B256::ZERO, test_capabilities()).await;
-        let prover = RemoteProver::new(url, attester, TEST_IDENTITY);
+        let prover = RemoteProver::new(url, attester, TEST_IDENTITY, TEST_VKEY);
         let first = prover.connection().await.unwrap();
         prover.invalidate_connection(&first).await;
         let second = prover.connection().await.unwrap();
@@ -503,7 +512,7 @@ mod tests {
             ..baseline.clone()
         };
         let (url, mut headers, _) = spawn_configured_stub(signer, B256::ZERO, changed).await;
-        let prover = RemoteProver::new(url, attester, TEST_IDENTITY);
+        let prover = RemoteProver::new(url, attester, TEST_IDENTITY, TEST_VKEY);
         *prover.inner.agreed_capabilities.lock().await = Some(baseline);
         let error = prover.prove(test_context()).await.unwrap_err();
         assert!(matches!(error, ProverError::Backend(ref message)
@@ -534,27 +543,11 @@ mod tests {
         .unwrap()
     }
 
-    fn test_offline_context() -> eez_protocol::l1_history::OfflineContext {
-        use eez_protocol::l1_history::{EvidenceAnchor, OfflineContext, OfflineProfile};
-        let profile = OfflineProfile {
-            feeCollector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
-            l1ChainId: alloy_primitives::U256::from(31337),
-            l2ChainId: alloy_primitives::U256::from(1),
-            genesisHash: alloy_consensus::Header::default().hash_slow(),
-            genesisTimestamp: 5,
-            blockInterval: 1,
-            syncInterval: 5,
-            updateOffset: 2,
-            l1ConfigHash: B256::repeat_byte(1),
-            historyCodeHash: B256::repeat_byte(2),
-            ruleTimes: vec![0],
-        };
-        OfflineContext::new(
-            &profile,
-            Address::repeat_byte(3),
-            Address::repeat_byte(4),
+    fn test_proof_context() -> eez_protocol::l1_history::ProofContext {
+        use eez_protocol::l1_history::{EvidenceAnchor, ProofContext};
+        ProofContext::new(
+            alloy_primitives::U256::from(1),
             1,
-            profile.genesisHash,
             EvidenceAnchor::ActualParent {
                 number: 99,
                 hash: B256::repeat_byte(0x42),
@@ -571,7 +564,7 @@ mod tests {
         use eez_protocol::abi::{ExecutionEntrySol, RollupIdWithProofSystemsSol};
         ProvingContext {
             parent: Default::default(),
-            offline_context: test_offline_context(),
+            proof_context: test_proof_context(),
             rollup_id: 1,
             from_block: 1,
             to_block: 1,
@@ -669,8 +662,12 @@ mod tests {
 
     #[tokio::test]
     async fn early_rpc_rejection_releases_streamed_witnesses() {
-        let prover =
-            RemoteProver::new(spawn_unavailable_stub().await, Address::ZERO, TEST_IDENTITY);
+        let prover = RemoteProver::new(
+            spawn_unavailable_stub().await,
+            Address::ZERO,
+            TEST_IDENTITY,
+            TEST_VKEY,
+        );
         let ctx = context_with_witnesses();
         let owner = Arc::downgrade(&ctx.blocks);
         assert_eq!(
@@ -707,9 +704,9 @@ mod tests {
             .iter()
             .map(|blob| blob.as_bytes().to_vec())
             .collect::<Vec<_>>();
-        let hash = request_hash(&ctx, attester.into_word()).unwrap();
+        let hash = request_hash(&ctx, TEST_VKEY).unwrap();
         let (url, mut received) = spawn_capturing_stub(key, hash).await;
-        RemoteProver::new(url, attester, TEST_IDENTITY)
+        RemoteProver::new(url, attester, TEST_IDENTITY, TEST_VKEY)
             .prove(ctx)
             .await
             .unwrap();
@@ -741,10 +738,10 @@ mod tests {
         let key = test_key();
         let attester = key.address();
         let ctx = test_context();
-        let hash = request_hash(&ctx, attester.into_word()).unwrap();
+        let hash = request_hash(&ctx, TEST_VKEY).unwrap();
         let url = spawn_stub(key, hash).await;
 
-        let prover = RemoteProver::new(url, attester, TEST_IDENTITY);
+        let prover = RemoteProver::new(url, attester, TEST_IDENTITY, TEST_VKEY);
         let proof = prover
             .prove(ctx)
             .await
@@ -757,8 +754,13 @@ mod tests {
         let key = test_key();
         let attester = key.address();
         let original = test_context();
-        let hash = request_hash(&original, attester.into_word()).unwrap();
-        let prover = RemoteProver::new(spawn_stub(key, hash).await, attester, TEST_IDENTITY);
+        let hash = request_hash(&original, TEST_VKEY).unwrap();
+        let prover = RemoteProver::new(
+            spawn_stub(key, hash).await,
+            attester,
+            TEST_IDENTITY,
+            TEST_VKEY,
+        );
 
         let mut changed_entry = original.clone();
         changed_entry.batch.entries[0].rollingHash = B256::repeat_byte(0x42);
@@ -783,7 +785,7 @@ mod tests {
         let url = spawn_stub(key, hash).await;
 
         let wrong_attester = address!("0x00000000000000000000000000000000000000ff");
-        let prover = RemoteProver::new(url, wrong_attester, TEST_IDENTITY);
+        let prover = RemoteProver::new(url, wrong_attester, TEST_IDENTITY, TEST_VKEY);
         let err = prover
             .prove(test_context())
             .await
@@ -799,7 +801,12 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         drop(listener);
-        let prover = RemoteProver::new(format!("http://{addr}"), Address::ZERO, TEST_IDENTITY);
+        let prover = RemoteProver::new(
+            format!("http://{addr}"),
+            Address::ZERO,
+            TEST_IDENTITY,
+            TEST_VKEY,
+        );
 
         let error = tokio::time::timeout(
             std::time::Duration::from_secs(2),
@@ -817,8 +824,12 @@ mod tests {
 
     #[tokio::test]
     async fn unavailable_rpc_status_surfaces_as_retryable() {
-        let prover =
-            RemoteProver::new(spawn_unavailable_stub().await, Address::ZERO, TEST_IDENTITY);
+        let prover = RemoteProver::new(
+            spawn_unavailable_stub().await,
+            Address::ZERO,
+            TEST_IDENTITY,
+            TEST_VKEY,
+        );
 
         let error = prover.prove(test_context()).await.unwrap_err();
 

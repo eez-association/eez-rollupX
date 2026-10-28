@@ -2253,9 +2253,11 @@ async fn restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint
         l1_chain_config: world.cfg.l1_genesis.0.to_string_lossy().into_owned(),
         rollup_id: world.cfg.rollup_id,
         signer_key: world.cfg.attester_key,
-        vkey: eez_testkit::signer_address(world.cfg.attester_key)
-            .unwrap()
-            .into_word(),
+        vkey: world.dep.profile.verification_key(
+            world.dep.eez_address,
+            world.dep.proof_system_address,
+            eez_testkit::signer_address(world.cfg.attester_key).unwrap(),
+        ),
         proof_system: world.cfg.proof_system_address,
         max_request_blocks: None,
     })

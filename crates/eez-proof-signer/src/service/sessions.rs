@@ -1029,7 +1029,7 @@ impl SessionRuntime {
                     )
                     .map_err(PipelineError::L1Authorization)?;
                 let maximum_blobs = state
-                    .posting_blob_limit(candidate_context.rules_timestamp())
+                    .posting_blob_limit(candidate_context.posting_timestamp())
                     .map_err(|_| {
                         PipelineError::L1Authorization("no supported L1 blob rules at proof anchor")
                     })?;

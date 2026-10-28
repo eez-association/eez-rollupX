@@ -42,7 +42,6 @@ EEZ_DEPLOY_KEY="${EEZ_DEPLOY_KEY:-$EEZ_L1_POSTER_KEY}"
 
 # Derive addresses from keys.
 AUTHORIZED_SIGNER="$(cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY")"
-PROOF_SYSTEM_VKEY="0x000000000000000000000000${AUTHORIZED_SIGNER#0x}"
 OWNER="$(cast wallet address --private-key "$EEZ_DEPLOY_KEY")"
 POSTER_ADDRESS="$(cast wallet address --private-key "$EEZ_L1_POSTER_KEY")"
 # EEZ, the Rollup and the EEZL2 genesis predeploy sit behind transparent
@@ -289,8 +288,8 @@ if [[ ! ${EEZ_L1_CHAIN_CONFIG+x} ]]; then
     esac
 fi
 [[ -n "$EEZ_L1_CHAIN_CONFIG" ]] || { echo "deploy: empty L1 profile" >&2; exit 1; }
-OFFLINE_PROFILE="$(compute_genesis_block_hash "$GENESIS_OUT" --offline-profile "$EEZ_L1_CHAIN_CONFIG")"
-[[ "$OFFLINE_PROFILE" =~ ^0x[0-9a-fA-F]+$ ]] || { echo "deploy: invalid offline profile output" >&2; exit 1; }
+NETWORK_PROFILE="$(compute_genesis_block_hash "$GENESIS_OUT" --network-profile "$EEZ_L1_CHAIN_CONFIG")"
+[[ "$NETWORK_PROFILE" =~ ^0x[0-9a-fA-F]{64}$ ]] || { echo "deploy: invalid network profile output" >&2; exit 1; }
 
 # ── 1/4 DeployEEZ ────────────────────────────────────────────────────
 echo "[1/4] DeployEEZ"
@@ -313,12 +312,19 @@ EEZ_ECDSA_PROOF_SYSTEM_ADDRESS="$(extract ECDSA_PS "$OUT")"
 [[ -n "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" ]] || { echo "$OUT" >&2; echo "deploy: failed to capture ECDSA_PS address" >&2; exit 1; }
 echo "      ECDSA_PS   = $EEZ_ECDSA_PROOF_SYSTEM_ADDRESS"
 
+# The registered key binds configuration and deployment identity into Core's
+# public-input accumulator. Incompatible upgrades rotate this key.
+PROOF_SYSTEM_VKEY_PREIMAGE="$(cast abi-encode 'f(bytes32,bytes32,address,address,address)' \
+    "$(cast keccak EEZ_ROLLUPX_VERIFICATION_KEY_V1)" "$NETWORK_PROFILE" \
+    "$EEZ_REGISTRY_ADDRESS" "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" "$AUTHORIZED_SIGNER")"
+PROOF_SYSTEM_VKEY="$(cast keccak "$PROOF_SYSTEM_VKEY_PREIMAGE")"
+
 # ── 3/4 DeployRollup ────────────────────────────────────────────────
 echo "[3/4] DeployRollup"
 run_forge "DeployRollup" forge script script/DeployRollup.s.sol:DeployRollup \
-    --sig "run(address,address,address,address,address,bytes)" \
-    "$EEZ_REGISTRY_ADDRESS" "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" "$AUTHORIZED_SIGNER" "$OWNER" \
-    "$EEZ_ROLLUP_UPGRADE_OWNER" "$OFFLINE_PROFILE" $RPC $KEY --broadcast
+    --sig "run(address,address,bytes32,address,address)" \
+    "$EEZ_REGISTRY_ADDRESS" "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" "$PROOF_SYSTEM_VKEY" "$OWNER" \
+    "$EEZ_ROLLUP_UPGRADE_OWNER" $RPC $KEY --broadcast
 EEZ_ROLLUP_MANAGER_ADDRESS="$(extract ROLLUP_CONTRACT "$OUT")"
 EEZ_ROLLUP_IMPLEMENTATION="$(extract ROLLUP_IMPLEMENTATION "$OUT")"
 EEZ_ROLLUP_PROXY_ADMIN="$(extract ROLLUP_PROXY_ADMIN "$OUT")"
@@ -352,6 +358,10 @@ then
     echo "rendered:   $EEZ_INITIAL_BLOCK_HASH" >&2
     exit 1
 fi
+[[ "$(compute_genesis_block_hash "$GENESIS_OUT" --network-profile "$EEZ_L1_CHAIN_CONFIG")" == "$NETWORK_PROFILE" ]] || {
+    echo "deploy: network profile changed after its verification key was registered" >&2
+    exit 1
+}
 echo "      blockHash  = $EEZ_INITIAL_BLOCK_HASH"
 echo "      stateRoot  = $EEZ_L2_GENESIS_STATE_ROOT"
 echo "      runtimeHash= $EEZ_L2_EEZL2_CODE_HASH"

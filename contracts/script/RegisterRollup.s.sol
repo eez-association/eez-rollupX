@@ -4,14 +4,14 @@ pragma solidity ^0.8.28;
 import {Script, console} from "forge-std/Script.sol";
 
 import {EEZ} from "eez-core-protocol/src/EEZ.sol";
-import {RollupX} from "../src/RollupX.sol";
+import {Rollup} from "eez-core-protocol/src/rollupContract/Rollup.sol";
 
 /// @title RegisterRollup
 /// @notice Calls `EEZ.registerRollup(rollupContract, initialRoot)`. The
 ///         registry assigns the next sequential `rollupId` (starting at
 ///         1 — `MAINNET_ROLLUP_ID = 0` is reserved for L1 self), emits
 ///         `RollupCreated(rollupId, rollupContract, initialRoot)`, and
-///         calls back `RollupX.rollupContractRegistered(rollupId, registrant)` to
+///         calls back `Rollup.rollupContractRegistered(rollupId, registrant)` to
 ///         wire the new id into the manager. The broadcaster must be the
 ///         owner configured when the Rollup was deployed.
 ///
@@ -32,13 +32,14 @@ import {RollupX} from "../src/RollupX.sol";
 ///                              semantics to the opaque bytes32 value.
 contract RegisterRollup is Script {
     function run(address eez, address rollupContract, bytes32 initialRoot) external {
+        require(initialRoot != bytes32(0), "Zero genesis commitment");
         // The pinned protocol's `deployment/Deploy.s.sol:RegisterRollup` checks.
         require(eez.code.length != 0 && rollupContract.code.length != 0, "Contract has no code");
-        require(RollupX(rollupContract).EEZContract() == eez, "Wrong registry");
-        require(RollupX(rollupContract).rollupId() == 0, "Already registered");
+        require(Rollup(rollupContract).EEZContract() == eez, "Wrong registry");
+        require(Rollup(rollupContract).rollupId() == 0, "Already registered");
         vm.startBroadcast();
         (, address broadcaster,) = vm.readCallers();
-        require(broadcaster == RollupX(rollupContract).owner(), "Broadcast as rollup owner");
+        require(broadcaster == Rollup(rollupContract).owner(), "Broadcast as rollup owner");
         uint64 rollupId = EEZ(eez).registerRollup(rollupContract, initialRoot);
         vm.stopBroadcast();
         console.log("L2_ROLLUP_ID=%s", rollupId);

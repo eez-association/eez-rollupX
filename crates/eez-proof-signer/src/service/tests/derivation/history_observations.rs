@@ -5,12 +5,11 @@ use crate::testkit::history_observations::{Fixture, PROBE};
 
 fn state(fixture: &Fixture) -> Arc<ServiceState> {
     Arc::new(
-        ServiceState::new(
+        configured_test_state(
             Address::repeat_byte(0x33),
             Address::repeat_byte(0x44),
             Validator::stateless_for_test(fixture.genesis.clone(), TEST_SYSTEM_ADDRESS),
             expected_rollup_id(1),
-            test_attester(),
             crate::testkit::history::l1_spec(),
         )
         .unwrap(),
@@ -188,7 +187,7 @@ fn process_fixtures(write: bool) {
             "registry": Address::repeat_byte(0x33),
             "manager": Address::repeat_byte(0x44),
             "proof_system": test_proof_system(),
-            "vkey": B256::repeat_byte(0x42),
+            "vkey": state.attester.proof_system_vkey().get(),
             "rollup_id": 1,
             "cases": cases,
         }))

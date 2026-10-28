@@ -6,7 +6,7 @@ this revision's offline-history profile. It uses the
 embedded L1, Composer/L2, local proof signer, and Lighthouse. For an unchanged
 installation, use [restart](chiado-deployment.md#restart-and-stop).
 
-The original deployment must have the matching manager profile, history
+The original deployment must have the matching Core manager and network-bound vkey, history
 predeploy, authenticated bootstrap and delayed origin/PREVRANDAO schedule from
 genesis. Native `0x45` transactions alone do not establish compatibility.
 Earlier networks remain on their original runtime, configuration and databases;
@@ -42,7 +42,7 @@ Obtain these inputs from the existing network's operator:
 
 | Input | Required contents or constraint |
 | --- | --- |
-| Deployment files | Original `deployments.env`, `datadir/genesis.json`, and `datadir/genesis.profile.json`. Keep registry/deployment block, rollup ID, proof-system/vkey/attester, offline manager/bridge addresses, system address, and initial block/state commitments. Preserve the complete history bootstrap, schedule and local L1 rules bound by that manager. |
+| Deployment files | Original `deployments.env`, `datadir/genesis.json`, and `datadir/genesis.profile.json`. Keep registry/deployment block, rollup ID, proof-system/vkey/attester, Core manager/bridge addresses, system address, and initial block/state commitments. Preserve the complete history bootstrap, schedule and local L1 rules bound by the registered verification key. |
 | Runtime configuration | Matching offline-profile node/signer images, configuration checkout/protocol revision, and settlement/admission settings. The packaged timing is 5-second L1 / 1-second L2, with EEZL2 at proxy `0x4B2760F84B83d6b3829E30A7573B0172B6d6402C` and history at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077`. The genesis fixes the history delay; startup cannot override it. |
 | System and attester bindings | The deployed system address must be `0xfffffffffffffffffffffffffffffffffffffffe`; no system private key exists. Supply `EEZ_PROOF_SIGNER_KEY` for the registered attester privately. A fresh attestation key cannot replace that binding; this Compose profile runs a local signer. |
 | Posting wallet | A dedicated `EEZ_L1_POSTER_KEY` funded with Chiado test xDAI. Do not share it with another active Composer or workload. No deployer key is needed. |

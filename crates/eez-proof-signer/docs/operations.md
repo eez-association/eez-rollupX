@@ -15,10 +15,12 @@ Each v2 request supplies canonical raw L1 headers and L2 execution witnesses.
 The signer validates their consistency, exact parent, scheduled history imports,
 PREVRANDAO, effects and DA before signing the independently reconstructed public
 input. It does not discover chain canonicality by itself: the deployed manager
-returns the actual inclusion context and accepted L2 commitment through
-`getCustomData()`. The on-chain verifier accepts only a matching public input.
-Deployment tooling must verify that manager profile, proof-system registration,
-vkey and attester bindings agree. ECDSA attestation remains a trusted backend.
+returns the anchor timestamp/hash through `getCustomData()`. Core checks signed
+entry roots separately at consumption. The on-chain verifier accepts only a
+matching public input. Deployment tooling must verify proof-system registration
+and the network-bound vkey/attester binding. Incompatible program changes require
+revoking or replacing the old on-chain key before activation; restarting the
+signer does not invalidate its existing signatures. ECDSA attestation remains a trusted backend.
 
 The daemon uses the attestation key only after all execution, settlement and L1
 checks pass, signing with raw/prehash ECDSA and no EIP-191 prefix. Native L2 system

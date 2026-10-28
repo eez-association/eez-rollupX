@@ -16,7 +16,7 @@ flowchart LR
     H --> K[ECDSA attester]
     K -->|conditional proof| C
     C --> L[L1 settlement]
-    L --> G[getCustomData: actual L1 facts and accepted L2 commitment]
+    L --> G[getCustomData: anchor timestamp and hash]
     G --> V[Verify proof against this exact context]
 ```
 
@@ -31,7 +31,7 @@ flowchart LR
 | [stream validation](../src/validate/streaming.rs) | Canonical L1 evidence, authenticated L2 state and incremental checked execution |
 | [Stateless adapter](../src/validate/stateless.rs) | Transaction recovery, exact replay, receipts, roots and whole-group checkpoints |
 | [offline context](../src/service/l1.rs) | Mode-specific anchor/time/action rules and the exact on-chain context commitment |
-| [settlement job](../src/service/settlement_job.rs), [settlement gates](../src/settlement.rs) | Accepted-root binding, ordered effects, observations and native blob DA |
+| [settlement job](../src/service/settlement_job.rs), [settlement gates](../src/settlement.rs) | Signed entry-root chaining, ordered effects, observations and native blob DA |
 | [attester](../src/attest.rs) | Signing only the typed authorized public input |
 | [cancellation](../src/cancel.rs) | Cooperative cancellation of blocking work |
 
@@ -53,15 +53,16 @@ selected PREVRANDAO for stateful production and stateless replay.
    restores the corresponding evidence prefix.
 4. Finalize checks recorded origin membership and exact anchor termination, verifies both the
    selected range and settlement eligibility, and independently recomputes
-   observations, effects, blob commitments and public inputs. The accepted L2
-   hash must match the replay predecessor or a fully replayed whole-group
-   terminal checkpoint, including partial consumption.
+   observations, effects, blob commitments and public inputs. Signed entry roots
+   must match the replayed predecessor and whole-group checkpoints. The unsigned
+   live-root assertion is checked by Core at consumption.
 5. Only successful complete validation yields attestation material. The async
    owner checks its deadline/cancellation state before signing. A timed-out
    response does not release a blocking worker's permit before it exits.
-6. On L1, the manager independently supplies the actual accepted commitment,
-   deployment/profile, current rules and anchor facts through getCustomData.
-   An inconsistent context produces a different digest and cannot verify.
+6. On L1, Core Rollup supplies the anchor timestamp/hash through getCustomData
+   and the registered network-bound verification key. An inconsistent key or
+   context produces a different digest and cannot verify. Core checks each
+   consumed entry against its current accepted root.
 
 Composer-controlled headers, witnesses, ranges and ABI are untrusted input.
 Local profile documents and keys define deployment authority. Stateless, Reth

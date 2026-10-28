@@ -68,7 +68,6 @@ where
     l1_reader: L1Reader,
     derivation: eez_l1::derivation::DerivationSource,
     header_rules: eez_protocol::l1_history::HeaderRules,
-    offline_profile: eez_protocol::l1_history::OfflineProfile,
     evm_config: EezEvmConfig,
     deploy_block: u64,
     /// Shared canonical-head state — cursor + per-batch index +
@@ -150,7 +149,7 @@ where
             })
             .await
             .map_err(DeriverError::l2_provider)?;
-        let offline_profile = offline_rules
+        offline_rules
             .profile(schedule, chain_spec.chain().id())
             .map_err(DeriverError::l2_provider)?;
         l1_head.initialize_history(schedule);
@@ -164,7 +163,6 @@ where
                 l1_reader,
                 derivation,
                 header_rules: offline_rules.headers,
-                offline_profile,
                 evm_config,
                 deploy_block,
                 l1_head,
@@ -2173,9 +2171,8 @@ where
                 target_timestamp: l1.header().timestamp,
             }
         };
-        self.inner
-            .offline_profile
-            .validate_inclusion(anchor, endpoint.header(), l1.header())
+        anchor
+            .validate_inclusion(endpoint.header(), l1.header())
             .map_err(DeriverError::l2_provider)?;
         // Lookup-only and reverted/static observations can be present in the
         // settlement table even when no semantic L2 transaction was published.

@@ -129,10 +129,9 @@ not silently widen the range or change the settlement input.
 The first selected block's witness supplies its exact L2 parent header; a
 subrange predecessor also has retained execution evidence. RollupX checks its
 number/hash/state root against Begin or the retained predecessor, then binds
-the accepted L2 commitment to that predecessor or a fully replayed whole-group
-terminal checkpoint. The manager supplies the actual accepted commitment when
-settlement verifies the proof. Neither a caller-supplied root nor a Validated
-ACK supplies this authority. Missing or inconsistent request evidence is a
+the signed entry chain and whole-group checkpoints to independently replayed
+execution. Core checks entry roots at consumption. Neither a caller-supplied
+root nor a Validated ACK supplies settlement authority. Missing or inconsistent request evidence is a
 validation failure; the prover does not fetch it from another source.
 
 Finalize binds the complete settlement input in section 3 to that exact range.
@@ -224,8 +223,9 @@ The manager checks actual-parent number/hash and exact inclusion timestamp.
 For historical mode it requires `B < block.number`, age at most 256 produced
 blocks, and nonzero `blockhash(B)`. The prover checks header ancestry and time
 eligibility; it cannot predict future inclusion or anchor expiry. The actual
-manager also binds the active L1 rule period and current accepted L2 block-hash
-commitment. A proof becomes unusable if those differ, even before B expires.
+manager uses the registered network-bound vkey. Root advancement alone and
+known compatible L1 rule transitions do not expire a historical signature;
+Core entry eligibility and anchor availability still apply.
 
 Historical mode rejects every cross-chain action, including static, failed,
 nested and reverted observations with no L2 transaction. It is never an automatic
@@ -234,36 +234,32 @@ actual L1 parent, deadline, queue ownership and replacement accounting.
 
 ### Context and authority
 
-The exact flat ABI context is defined by
-[`OfflineContext`](../eez-protocol/src/l1_history/context.rs) and
-[`RollupX.getCustomData`](../../contracts/src/RollupX.sol):
+The original Core [`Rollup.getCustomData`](../../eez-core-protocol/src/rollupContract/Rollup.sol)
+and [`ProofContext`](../eez-protocol/src/l1_history/context.rs) encode:
 
 ```text
-common = domain, L1 chain ID, registry, manager, rollup ID, L2 chain ID,
-         fixed profile hash, active L1 rules ID, current accepted L2 block hash
-actual = abi.encode(common..., uint8(1), parent number, parent hash, inclusion time)
-history = abi.encode(common..., uint8(2), B, block hash at B)
+actual  = abi.encode(uint256(inclusionTimestamp), bytes32(parentHash))
+history = abi.encode(uint256(0), bytes32(blockhash(B)))
 ```
 
-Addresses/profile are independently loaded locally. The requested root pin must
-identify exactly this rollup and bind to the selected predecessor or a fully
-replayed whole-group terminal checkpoint. Height equality and receipts do not
-establish consumption. The manager reads the actual registry commitment before
-queue mutations and incorporates it into the verified public input.
-A changed accepted root requires a new Proof, even if execution and DA are
-unchanged. Fully replayed checkpoint authorization permits same-block
-resumption; it does not make the original root-bound proof reusable.
+Network configuration is committed by the registered verification key using
+[the exact shared preimages](VALIDATION_IDENTITY.md). The signer derives this
+key from trusted local configuration and rejects a mismatched operator value.
+Core includes its registered key and rollup ID in the signed accumulator.
+The unsigned expected-root pin is not an authorization input. Signed entry
+roots and whole-group checkpoints remain validated; Core enforces applicability
+and immediate-entry requirements at consumption, including partial consumption.
 
-The prover's result is conditional on this exact context. The contract binds it
-to actual L1 facts at inclusion. This permits proof validation without an L1 or
-L2 RPC source and without assuming the Composer is honest. It does not turn the
-ECDSA proof backend into a zero-knowledge proof: settlement still trusts the
-configured attester to perform these validation gates correctly.
+The contract independently obtains the anchor at inclusion. This authenticates
+the witness chain without an L1 or L2 RPC at the prover. ECDSA settlement still
+trusts the configured attester to execute the validation program correctly.
 
-The configured canonical L1 profile supplies fork-aware header decoding and
-blob limits. Actual-parent mode evaluates the target rule period; historical
-mode evaluates B's period and the manager requires the same period at inclusion.
-A rule transition requires new evidence/finalization, not a relaxed limit.
+Each header uses its own fork rules. Actual-parent proofs use the target's blob
+allowance. Historical proofs admit no more than the largest configured allowance;
+L1 and followers enforce the actual containing block's allowance. Compatible
+known L1 transitions do not invalidate historical proofs. Incompatible upgrades
+require on-chain key/proof-system revocation or replacement before activation;
+restarting the signer alone does not revoke old proofs.
 
 Absent settlement, malformed encodings or missing required mode inputs reject.
 Unsupported proof-relevant inputs cannot be stripped on retry. Retaining the

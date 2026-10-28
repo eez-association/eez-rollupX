@@ -66,11 +66,7 @@ impl StreamStub {
         }
     }
     fn new(ctx: &ProvingContext) -> Self {
-        Self::response(
-            test_key(),
-            request_hash(ctx, test_key().address().into_word()).unwrap(),
-            None,
-        )
+        Self::response(test_key(), request_hash(ctx, TEST_VKEY).unwrap(), None)
     }
 }
 #[tonic::async_trait]
@@ -310,7 +306,7 @@ async fn serve(stub: StreamStub) -> (RemoteProver, ServerTask) {
             .unwrap();
     });
     (
-        RemoteProver::new(endpoint, test_key().address(), TEST_IDENTITY),
+        RemoteProver::new(endpoint, test_key().address(), TEST_IDENTITY, TEST_VKEY),
         ServerTask(task),
     )
 }

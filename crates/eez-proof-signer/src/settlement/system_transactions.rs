@@ -37,7 +37,7 @@ impl SystemTransactionReconstructor {
     pub(super) fn source_entries(
         &self,
         transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
-        context: &eez_protocol::l1_history::OfflineContext,
+        context: &eez_protocol::l1_history::ProofContext,
     ) -> Result<Vec<eez_protocol::native_source::SourceEntry>, String> {
         let live = context
             .live_source_context()

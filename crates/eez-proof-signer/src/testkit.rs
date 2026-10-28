@@ -91,33 +91,15 @@ pub(crate) fn controlled_schedule() -> eez_protocol::l2::Schedule {
 
 /// Fixed deployment metadata for settlement/hash unit tests. This is not
 /// authenticated ancestry; full service tests load captured deployment profiles.
-pub(crate) fn offline_context(
+pub(crate) fn proof_context(
     batch: &eez_protocol::EvmBatch,
     posting: eez_protocol::public_inputs::L1PostingContext,
-) -> eez_protocol::l1_history::OfflineContext {
-    use eez_protocol::l1_history::{
-        EvidenceAnchor, HISTORY_RUNTIME, OfflineContext, OfflineProfile,
-    };
-    let profile = OfflineProfile {
-        feeCollector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
-        l1ChainId: alloy_primitives::U256::from(posting.chain_id),
-        l2ChainId: alloy_primitives::U256::from(1),
-        genesisHash: B256::repeat_byte(0x11),
-        genesisTimestamp: 12,
-        blockInterval: 2,
-        syncInterval: 6,
-        updateOffset: 2,
-        l1ConfigHash: B256::repeat_byte(0x22),
-        historyCodeHash: alloy_primitives::keccak256(HISTORY_RUNTIME),
-        ruleTimes: vec![0],
-    };
+) -> eez_protocol::l1_history::ProofContext {
+    use eez_protocol::l1_history::{EvidenceAnchor, ProofContext};
     let pin = batch.expectedRootPerRollup.first();
-    OfflineContext::new(
-        &profile,
-        Address::repeat_byte(0x33),
-        Address::repeat_byte(0x44),
+    ProofContext::new(
+        alloy_primitives::U256::from(1),
         pin.map_or(1, |pin| pin.rollupId),
-        pin.map_or(B256::repeat_byte(0x04), |pin| pin.root),
         if batch.blockNumber == u64::MAX {
             EvidenceAnchor::ActualParent {
                 number: posting.parent_number,
@@ -138,7 +120,7 @@ pub(crate) fn offline_context(
 /// Fixed native live context for synthetic settlement fixtures. This supplies
 /// occurrence inputs only; captured service tests establish authenticated context.
 pub(crate) fn native_source_context() -> eez_protocol::native_source::LiveSourceContext {
-    offline_context(
+    proof_context(
         &eez_protocol::EvmBatch {
             blockNumber: u64::MAX,
             ..Default::default()

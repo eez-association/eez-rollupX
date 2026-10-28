@@ -15,7 +15,7 @@ flowchart TD
     X --> A[Validated ACK and evidence checkpoint]
     A --> X
     A --> F[Finalize selects retained range and exact settlement]
-    F --> C[Blocking worker: ancestry, mode, accepted-root, effects, DA and observations]
+    F --> C[Blocking worker: ancestry, mode, entry roots, effects, DA and observations]
     C --> S[Complete AttestationMaterial]
     S --> G[Check deadline and epoch, sign, Proof, EOF]
     C --> R[Reject without signature or canonical progress]
@@ -70,7 +70,7 @@ Half-close instead drains accepted operations. EOF without Proof is failure.
 Sessions and checked artifacts are volatile. Resume reconciles number and hash,
 not height alone. A missing/evicted session requires Begin and full witness
 backfill. Retained execution never supplies canonical completion. Every Finalize
-rechecks the selected range's mode, bridge, accepted-root coverage, settlement
+rechecks the selected range's mode, bridge, entry roots, settlement
 and public inputs. Changing the terminal bridge requires Rewind and resubmission
 of that Block. Cold restart uses the same evidence and gates without a local
 history database or any L1/L2 RPC connection.

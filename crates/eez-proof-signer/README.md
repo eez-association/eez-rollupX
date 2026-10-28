@@ -24,8 +24,9 @@ header evidence needed for its chosen anchor. It never connects to an L1 or L2
 RPC, including during startup, retries or restart.
 
 The signer checks execution and public inputs conditional on that evidence.
-`RollupX.getCustomData()` binds the same context to the actual accepted L2
-commitment and L1 anchor when settlement verifies the proof. The ECDSA backend
+Core `Rollup.getCustomData()` binds the L1 anchor when settlement verifies the
+proof. The registered vkey binds the network profile; Core checks signed entry
+roots separately at consumption. The ECDSA backend
 still requires trust in the configured attester; it is not a ZK proof.
 
 This execution profile is active from a fresh genesis with new contracts and

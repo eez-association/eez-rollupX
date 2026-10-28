@@ -13,7 +13,7 @@ optimizer_runs = 1
 via_ir      = true
 fs_permissions = [
     { access = "read", path = "test/fixtures" },
-    { access = "read", path = "../crates/eez-composer/src/composer/estimate/testdata/rollupx.hex" },
+    { access = "read", path = "../crates/eez-composer/src/composer/estimate/testdata/rollup.hex" },
 ]
 
 # Pull `forge-std` from the submodule's vendored copy, and include

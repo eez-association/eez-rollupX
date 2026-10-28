@@ -432,12 +432,9 @@ fn prepare(
             Ok(hash)
         })
         .collect::<Result<Vec<_>, FeeQuoteError>>()?;
-    let context = eez_protocol::l1_history::OfflineContext::new(
-        &runtime.ctx.offline_profile,
-        runtime.registry,
-        runtime.ctx.rollup_manager,
+    let context = eez_protocol::l1_history::ProofContext::new(
+        U256::from(runtime.ctx.l2_chain_id),
         input.rollup_id,
-        input.settled_root,
         eez_protocol::l1_history::EvidenceAnchor::ActualParent {
             number: posting.parent.number,
             hash: posting.quote.sample.hash,

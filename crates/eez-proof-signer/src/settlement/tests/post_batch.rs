@@ -93,7 +93,7 @@ fn signer_hash_matches_the_context_bound_protocol_api() {
     let expected = public_inputs_hashes(
         &batch,
         proof_system_vkey.get(),
-        crate::testkit::offline_context(&batch, crate::testkit::l1_target()),
+        crate::testkit::proof_context(&batch, crate::testkit::l1_target()),
     )
     .unwrap()[0];
 
@@ -178,7 +178,7 @@ fn proofs_are_not_an_input_to_the_hash_gate() {
     let expected = public_inputs_hashes(
         &batch,
         test_proof_system_vkey().get(),
-        crate::testkit::offline_context(&batch, crate::testkit::l1_target()),
+        crate::testkit::proof_context(&batch, crate::testkit::l1_target()),
     )
     .unwrap()[0];
     batch.proofs = vec![Bytes::from_static(b"ignored"), Bytes::from(vec![0xaa; 65])];
@@ -328,7 +328,7 @@ fn blob_indices_are_checked_by_the_da_gate_and_hash_computation() {
         profile.recompute_public_inputs_hash(
             test_proof_system_vkey(),
             &[],
-            &crate::testkit::offline_context(&batch, crate::testkit::l1_target())
+            &crate::testkit::proof_context(&batch, crate::testkit::l1_target())
         ),
         Err(PublicInputError::Computation(_))
     ));
@@ -337,7 +337,7 @@ fn blob_indices_are_checked_by_the_da_gate_and_hash_computation() {
             .recompute_public_inputs_hash(
                 test_proof_system_vkey(),
                 &[B256::repeat_byte(0x44)],
-                &crate::testkit::offline_context(&batch, crate::testkit::l1_target())
+                &crate::testkit::proof_context(&batch, crate::testkit::l1_target())
             )
             .is_ok()
     );

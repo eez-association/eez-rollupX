@@ -11,8 +11,8 @@ and pinned core define interoperability. Shared type/version names alone do not:
 | --- | --- |
 | Native transactions and receipts | Cross-chain `0x45` has six fields and no version, with execution-group source identities; optional HistoryUpdate `0x46` version **1** has only chain ID and 1–64 explicit increasing positive number/hash pairs after its version. Receipts retain the corresponding type. |
 | `ChainOperation` payload | Direct RollupX V0 (`0x00`), including its [compact count grammar](../../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract); this differs from the draft's per-block uvarints. |
-| Execution and settlement | The single authenticated `Profile`/`OfflineProfile`, genesis, L1 rules and [signer validation contract](../../eez-proof-signer/SPEC.md). |
-| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 6, as defined below. |
+| Execution and settlement | The single `NetworkProfile` bound by the registered verification key, genesis, L1 rules and [signer validation contract](../../eez-proof-signer/SPEC.md). |
+| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 7, as defined below. |
 
 These are the fixed contracts of one network profile, not selectable compatibility
 modes. The [compliance review](../../../docs/audits/2026-10-24-specs-compliance/README.md)
@@ -38,11 +38,11 @@ No language/backend selector or new runtime setting is required.
 
 Implement the [portable identity](../VALIDATION_IDENTITY.md) using independent
 local inputs. Its ten-element RLP has one validation-contract version covering
-encoding, canonical JSON and execution/settlement semantics together. The manager
-profile domain is `EEZ_ROLLUPX_OFFLINE_PROFILE`. There are no independent schema
+encoding, canonical JSON and execution/settlement semantics together. The network
+profile domain is `EEZ_ROLLUPX_NETWORK_PROFILE_V1`. There are no independent schema
 or canonicalizer versions to configure. Use the published identity/profile vectors
 before testing streaming; generated protobuf bindings alone do not implement this hash.
-Validation-contract version 5 includes execution-group source identities,
+Validation-contract version 7 includes execution-group source identities,
 optional nonempty `0x46` history and [complete-group cleanup](../../../docs/proposals/native-system-transactions.md#complete-group-balance-cleanup).
 An external executor clears SYSTEM/EEZL2 in the completing transaction's state
 before its checkpoint, retaining load/user adjacency through previews/rollbacks.
@@ -53,7 +53,7 @@ clears them. Derive canonical prefix hashes by closing copies; replay FIFO
 observations at their selected in-block transaction boundary before finalization,
 even for a full terminal prefix. An `eth_call` on the closed state is not
 equivalent. Independently check the unmodified terminal execution output against
-its header root. The version-5 identity distinguishes these semantics without
+its header root. The version-7 identity distinguishes these semantics without
 changing the v2 protobuf.
 For each native group compute standard ABI
 `keccak256(abi.encode(string("SOURCE_ENTRY_V1"), uint256(chainId),
@@ -96,13 +96,13 @@ Composer                         C# prover
   |                               | DA and independently derived public input
   |<-- Proof, then EOF -----------| sign only after every check
   |    verify digest/signature    |
-  |--- submit exact batch to L1 -> getCustomData binds real anchor/root/rules;
-                                  registry verifies the attestation and batch
+  |--- submit exact batch to L1 -> getCustomData binds the actual L1 anchor;
+                                  Core verifies the attestation and entry roots
 ```
 
 A caller-supplied Begin root is not trusted state. Bind it to the witness parent,
-reconstruct the state transition and retain the conditional accepted-root binding
-that the manager authenticates at settlement. L1 headers arrive through
+reconstruct the state transition and bind its starting block hash in the signed
+entries. Core checks each entry's starting root when consuming it. L1 headers arrive through
 `ExecutionWitness.l1_headers_rlp`; its `headers` field remains L2 ancestry.
 
 The execution witness contains Ethereum data, not serialized Rust objects:
@@ -155,7 +155,7 @@ binds an explicit recent anchor and forbids all cross-chain actions. Every
 catch-up part carries its complete bridge, even when intermediate headers were
 not selected for execution. No L1 or L2 RPC fills missing evidence.
 
-Recompute native blob commitments, the accepted block-hash binding, ABI/operation
+Recompute native blob commitments, the signed block-hash transitions, ABI/operation
 bytes and the public-input hash from independently validated execution. The
 [public-input specification](../../../eez-core-protocol/docs/MULTI_PROVER_SPEC.md#per-ps-publicinputshash-two-stage)
 and [signer gates](../../eez-proof-signer/SPEC.md) are the authority. Return the

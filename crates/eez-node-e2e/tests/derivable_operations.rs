@@ -24,7 +24,7 @@ use eez_protocol::abi::{
     EtherDeltaSol, ExecutionEntrySol, RollupIdWithProofSystemsSol, RootUpdateSol,
 };
 use eez_protocol::l1_history::{
-    EvidenceAnchor, HeaderChain, HeaderRules, OfflineContext, OfflineProfile,
+    EvidenceAnchor, HeaderChain, HeaderRules, NetworkProfile, ProofContext,
 };
 use eez_testkit::{
     NativeL1Profile, NodeBinary, NodeConfig, NodeHandle, batches_posted, receipt_ok,
@@ -232,8 +232,7 @@ struct NativeProofContext<'a> {
     l1_rpc: &'a str,
     l1_step: u64,
     registry: Address,
-    manager: Address,
-    offline_profile: OfflineProfile,
+    network_profile: NetworkProfile,
     header_rules: HeaderRules,
 }
 
@@ -353,12 +352,9 @@ async fn prove_cold_window(
             hash: head.header.hash,
         }
     };
-    let offline = OfflineContext::new(
-        &context.offline_profile,
-        context.registry,
-        context.manager,
+    let offline = ProofContext::new(
+        (context.network_profile).l2ChainId,
         context.rollup_id,
-        parent.hash_slow(),
         anchor,
         head.header.timestamp,
     )
@@ -544,7 +540,11 @@ async fn prove_cold_window(
     };
     let expected = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
         &batch,
-        context.attester.into_word(),
+        context.network_profile.verification_key(
+            context.registry,
+            context.proof_system,
+            context.attester,
+        ),
         sidecar.versioned_hashes(),
         offline,
     )
@@ -664,8 +664,7 @@ async fn prove_native_window(
         l1_rpc: &l1_rpc,
         l1_step,
         registry: world.dep.eez_address,
-        manager: world.dep.rollup_manager_address,
-        offline_profile: world.dep.profile.clone(),
+        network_profile: world.dep.profile.clone(),
         header_rules: eez_l1::chain_config::offline_l1_rules(
             &eez_l1::chain_config::load_l1_chain_spec(std::path::Path::new(&read_setting(
                 "EEZ_L1_CHAIN_CONFIG",
@@ -925,12 +924,7 @@ async fn retained_native_history_cold_checkpoint() {
             .unwrap()
             .parse()
             .unwrap(),
-        manager: metadata["rollup_manager_address"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap(),
-        offline_profile: rules.profile(schedule, chain.chain().id()).unwrap(),
+        network_profile: rules.profile(schedule, chain.chain().id()).unwrap(),
         header_rules: rules.headers,
         profile,
         k: metadata["k"].as_u64().unwrap(),

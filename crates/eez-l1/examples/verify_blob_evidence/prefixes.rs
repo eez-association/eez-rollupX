@@ -97,8 +97,19 @@ fn replay_history(
     let profile = rules
         .profile(eez_evm::profile::schedule(spec)?, spec.chain().id())
         .map_err(|error| error.to_string())?;
-    if profile.commitment() != required_b256(input, "/protocol_config_hash")? {
-        return Err("prefix replay profile differs from the deployed manager commitment".into());
+    let address = |key| -> Result<alloy_primitives::Address, Box<dyn Error>> {
+        Ok(required(input, key)?
+            .as_str()
+            .ok_or("invalid deployment address")?
+            .parse()?)
+    };
+    if profile.verification_key(
+        address("/registry")?,
+        address("/proof_system")?,
+        address("/attester")?,
+    ) != required_b256(input, "/verification_key")?
+    {
+        return Err("prefix replay profile differs from the registered verification key".into());
     }
 
     // Sparse imports still require every intervening parent link. Bound the
@@ -420,14 +431,14 @@ mod tests {
     fn prefix_history_rejects_uncommitted_l1_rules_and_file_selectors() {
         for (pointer, value, expected) in [
             (
-                "/protocol_config_hash",
+                "/verification_key",
                 json!(B256::ZERO),
-                "deployed manager commitment",
+                "registered verification key",
             ),
             (
                 "/l1_chain_config/config/pragueTime",
                 json!(1),
-                "deployed manager commitment",
+                "registered verification key",
             ),
             (
                 "/l1_chain_config",

@@ -43,9 +43,8 @@ impl fmt::Display for NonZeroProofSystemVkey {
 ///
 /// Keeping the signer, verification key, and proof-system address together
 /// prevents the service from being constructed with only part of its
-/// attestation configuration. The proof-system vkey is deliberately
-/// independent from the signing address: deployments may register a
-/// proof-system-specific vkey.
+/// attestation configuration. Service startup checks that the vkey commits to
+/// the independently loaded network profile, registry, proof system and signer.
 /// The attestation key signs validated public inputs. Native system transactions
 /// use a fixed reserved sender and require no signature or private key. The
 /// attester address must remain distinct from that reserved identity.

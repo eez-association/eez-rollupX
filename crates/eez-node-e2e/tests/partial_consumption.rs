@@ -545,28 +545,20 @@ async fn restart_after_partial_keeps_accounting_and_rebuilds_intent() {
     partial_after_proving(1, true).await;
 }
 
-/// A normal L1 setter changes the middle destination's return value after
-/// proving, making the first post skip it. The next proof binds the replayed
-/// checkpoint instead of the original accepted root. Restoring the return value
-/// lets that post resume at the middle group, at the same L2 height and in the
-/// same L1 block. Reusing the original proof with the new pin must fail.
+/// A normal L1 setter makes the first post skip the middle destination.
+/// Restoring it lets subsequent posts consume the remaining complete groups
+/// using the original proof and DA, with only unsigned root assertions changed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn valid_blob_batch_resumes_at_middle_group_in_same_l1_block() {
     Box::pin(valid_same_block_resume()).await;
 }
 
-/// Reuse the exact captured execution and DA in a new session. Only the accepted
-/// root claim changes; the real offline signer must authenticate that claim as a
-/// fully replayed whole-group checkpoint before returning another proof.
-async fn reprove_checkpoint(
-    world: &eez_testkit::CrossChainWorld,
+fn captured_terminal(
     directory: &std::path::Path,
     original: &eez_protocol::EvmBatch,
-    checkpoint: B256,
-) -> Result<(eez_protocol::EvmBatch, eez_primitives::Block), eez_control_rpc::v2::Rejected> {
-    use eez_control_rpc::v2::{self, ClientFrame, client_frame, server_frame};
+) -> eez_primitives::Block {
+    use eez_control_rpc::v2::{ClientFrame, client_frame};
     use prost::Message as _;
-
     let mut unsigned = original.clone();
     unsigned.proofs.clear();
     let expected = eez_protocol::entries::encode_postbatch(&unsigned);
@@ -581,120 +573,38 @@ async fn reprove_checkpoint(
         }
         let bytes = std::fs::read(path).unwrap();
         let mut input = bytes.as_slice();
-        let mut frames = Vec::new();
+        let mut terminal = None;
         while !input.is_empty() {
-            frames.push(ClientFrame::decode_length_delimited(&mut input).unwrap());
-        }
-        let Some(client_frame::Kind::Finalize(finalize)) =
-            frames.last_mut().and_then(|frame| frame.kind.as_mut())
-        else {
-            panic!("capture must end with Finalize");
-        };
-        let settlement = finalize.settlement.as_mut().unwrap();
-        let mut batch = eez_protocol::entries::decode_postbatch(&settlement.abi_calldata).unwrap();
-        batch.proofs.clear();
-        if eez_protocol::entries::encode_postbatch(&batch) != expected {
-            continue;
-        }
-        assert_eq!(
-            batch.blockNumber,
-            u64::MAX,
-            "resume retains actual-parent mode"
-        );
-        assert!(settlement.posting_context.is_some());
-        batch.expectedRootPerRollup[0].root = checkpoint;
-        settlement.abi_calldata = eez_protocol::entries::encode_postbatch(&batch);
-        assert!(
-            selected.replace((frames, batch)).is_none(),
-            "unique proved batch capture"
-        );
-    }
-    let (frames, mut batch) = selected.expect("held bundle has complete captured v2 evidence");
-    let terminal = frames
-        .iter()
-        .rev()
-        .find_map(|frame| match frame.kind.as_ref()? {
-            client_frame::Kind::Block(block) => block.data.as_ref(),
-            _ => None,
-        })
-        .expect("captured terminal block");
-    let original_terminal = alloy_rlp::decode_exact(&terminal.rlp).unwrap();
-    let capabilities = eez_control_rpc::v2::prover_client::ProverClient::connect(
-        world.proof_signer.endpoint().to_owned(),
-    )
-    .await
-    .unwrap()
-    .capabilities(eez_control_rpc::v2::CapabilitiesRequest {})
-    .await
-    .unwrap()
-    .into_inner();
-    assert_eq!(capabilities.profile_id, eez_control_rpc::OFFLINE_PROFILE_ID);
-    let (sender, receiver) = tokio::sync::mpsc::channel(1);
-    let mut request = tonic::Request::new(tokio_stream::wrappers::ReceiverStream::new(receiver));
-    request.metadata_mut().insert_bin(
-        "eez-validation-identity-bin",
-        tonic::metadata::MetadataValue::from_bytes(&capabilities.validation_identity),
-    );
-    let mut client =
-        v2::prover_client::ProverClient::connect(world.proof_signer.endpoint().to_owned())
-            .await
-            .unwrap()
-            .max_encoding_message_size(eez_control_rpc::MAX_MESSAGE_BYTES)
-            .max_decoding_message_size(eez_control_rpc::MAX_MESSAGE_BYTES);
-    let mut responses = client.prove_stream(request).await.unwrap().into_inner();
-    let mut session_id = vec![];
-    let mut epoch = 0;
-    let mut proof = None;
-    for (index, mut frame) in frames.into_iter().enumerate() {
-        frame.session_id = session_id.clone();
-        frame.epoch = epoch;
-        frame.request_id = index as u64 + 1;
-        let expected_kind = frame.kind.clone().unwrap();
-        let request_id = frame.request_id;
-        sender.send(frame).await.unwrap();
-        let response = tokio::time::timeout(TIMEOUT, responses.message())
-            .await
-            .unwrap()
-            .unwrap()
-            .expect("checkpoint proof response");
-        assert_eq!(response.request_id, request_id);
-        match (expected_kind, response.kind) {
-            (client_frame::Kind::Begin(begin), Some(server_frame::Kind::Ready(ready))) => {
-                assert_eq!(ready.validated_through, begin.anchor_number);
-                assert_eq!(ready.validated_hash, begin.anchor_hash);
-                session_id = response.session_id;
-                epoch = response.epoch;
+            match ClientFrame::decode_length_delimited(&mut input)
+                .unwrap()
+                .kind
+                .unwrap()
+            {
+                client_frame::Kind::Block(block) => terminal = block.data,
+                client_frame::Kind::Finalize(finalize) => {
+                    let settlement = finalize.settlement.unwrap();
+                    let mut batch =
+                        eez_protocol::entries::decode_postbatch(&settlement.abi_calldata).unwrap();
+                    batch.proofs.clear();
+                    if eez_protocol::entries::encode_postbatch(&batch) == expected {
+                        let block =
+                            alloy_rlp::decode_exact(&terminal.as_ref().unwrap().rlp).unwrap();
+                        assert!(
+                            selected.replace(block).is_none(),
+                            "unique proved batch capture"
+                        );
+                    }
+                }
+                _ => {}
             }
-            (client_frame::Kind::Block(block), Some(server_frame::Kind::Validated(ack))) => {
-                let block = block.data.unwrap();
-                assert_eq!(ack.number, block.number);
-                assert_eq!(ack.hash, block.hash);
-            }
-            (client_frame::Kind::Finalize(_), Some(server_frame::Kind::Proof(value))) => {
-                assert!(proof.replace(value).is_none());
-            }
-            (client_frame::Kind::Finalize(_), Some(server_frame::Kind::Rejected(rejected))) => {
-                return Err(rejected);
-            }
-            (_, response) => panic!("checkpoint evidence must pass full validation: {response:?}"),
         }
     }
-    batch.proofs = vec![
-        proof
-            .expect("only Proof authorizes settlement")
-            .proof
-            .into(),
-    ];
-    assert_ne!(
-        batch.proofs, original.proofs,
-        "accepted-root binding changes the proof"
-    );
-    Ok((batch, original_terminal))
+    selected.expect("held bundle has captured execution evidence")
 }
 
 async fn valid_same_block_resume() {
     let mut env = policy_env();
-    // Retain complete evidence for diagnosing this conditional checkpoint proof,
+    // Retain the original proved execution for independent follower comparison,
     // without changing process-global environment while other tests may run.
     let captures = tempfile::Builder::new()
         .prefix("eez-partial-v2-")
@@ -801,26 +711,16 @@ async fn valid_same_block_resume() {
     let unknown_root = B256::repeat_byte(0xab);
     assert!(!proposed_roots.contains(&unknown_root));
     assert_ne!(unknown_root, call.batch.expectedRootPerRollup[0].root);
-    let rejected = reprove_checkpoint(&world, &captures, &call.batch, unknown_root)
-        .await
-        .expect_err("an unwitnessed accepted root must not produce a proof");
-    assert_eq!(rejected.code, i32::from(tonic::Code::FailedPrecondition));
-    assert_eq!(rejected.message, "settlement validation rejected");
-    let (intervening_batch, original_terminal) =
-        reprove_checkpoint(&world, &captures, &call.batch, checkpoint)
-            .await
-            .unwrap();
+    let original_terminal = captured_terminal(&captures, &call.batch);
+    let mut intervening_batch = call.batch.clone();
+    intervening_batch.expectedRootPerRollup[0].root = checkpoint;
     let next_checkpoint = proposed_roots[2];
-    let (resumed_batch, resumed_terminal) =
-        reprove_checkpoint(&world, &captures, &call.batch, next_checkpoint)
-            .await
-            .unwrap();
-    assert_eq!(
-        original_terminal, resumed_terminal,
-        "both checkpoint reproofs retain the original complete execution"
-    );
+    let mut resumed_batch = call.batch.clone();
+    resumed_batch.expectedRootPerRollup[0].root = next_checkpoint;
     let mut stale_batch = resumed_batch.clone();
-    stale_batch.proofs = call.batch.proofs.clone();
+    stale_batch.expectedRootPerRollup[0].root = unknown_root;
+    assert_eq!(intervening_batch.proofs, call.batch.proofs);
+    assert_eq!(resumed_batch.proofs, call.batch.proofs);
     assert!(!call.batch.blobIndices.is_empty());
     let priority = original.max_priority_fee_per_gas().unwrap();
     assert!(priority > 7);
@@ -910,7 +810,7 @@ async fn valid_same_block_resume() {
                 )
                 .await
                 .unwrap();
-            panic!("only the stale-root proof must revert: {hash}; trace={trace}");
+            panic!("only the incorrect root assertion must revert: {hash}; trace={trace}");
         }
         receipts.push(receipt);
     }
@@ -946,13 +846,13 @@ async fn valid_same_block_resume() {
     assert_eq!(trace["error"], "execution reverted");
     let output: Bytes = trace["output"].as_str().unwrap().parse().unwrap();
     assert_eq!(
-        output.as_ref(),
-        &alloy_primitives::keccak256("InvalidProof()")[..4],
-        "the changed root pin must reach proof verification"
+        &output[..4],
+        &alloy_primitives::keccak256("ExpectedRootMismatch(uint64)")[..4],
+        "Core independently checks the unsigned root assertion"
     );
     assert!(
         roots(&receipts[6]).is_empty(),
-        "rejected proof cannot advance a root"
+        "rejected root assertion cannot advance a root"
     );
     assert_eq!(
         roots(&receipts[4]),
@@ -963,7 +863,7 @@ async fn valid_same_block_resume() {
     assert_eq!(first_roots.len(), 2, "anchor and first user only");
     assert_eq!(
         first_roots[1], checkpoint,
-        "the resumed proof pins the consumed prefix"
+        "the next post asserts the consumed prefix"
     );
     assert_eq!(
         resumed_roots.len(),
@@ -1070,7 +970,7 @@ async fn valid_same_block_resume() {
             .collect();
         assert_eq!(
             hashes, original_transaction_hashes,
-            "partial reproof and cold replay preserve every original native and signed transaction byte commitment"
+            "partial proof reuse and cold replay preserve every original native and signed transaction byte commitment"
         );
         for hash in &users {
             assert_eq!(

@@ -244,10 +244,10 @@ The host's tracked genesis files are not used unless selected explicitly.
 Each complete cross-chain group clears residual EEZL2/system balances before its
 checkpoint, under [the native profile](../proposals/native-system-transactions.md#complete-group-balance-cleanup).
 This is a fresh-network execution boundary: deploy matching Composer, followers
-and validation-contract-6 signers together; there is no existing-database upgrade.
+and validation-contract-7 signers together; there is no existing-database upgrade.
 The initially empty history proxy returns zero for absent records, including
 permanently skipped numbers. Its dedicated ProxyAdmin initially shares
-`EEZ_L2_UPGRADE_OWNER` with EEZL2's separate admin. Genesis, manager profile and
+`EEZ_L2_UPGRADE_OWNER` with EEZL2's separate admin. Genesis, registered verification key and
 validation identity bind the new layout and paired native encoding. See the
 [history compatibility rules](../../contracts/L1_HISTORY_SPEC.md#compatibility).
 History updates use the optional `0x46` envelope with explicit number/hash pairs;
@@ -852,50 +852,30 @@ legacy execution mode in these binaries. Do not rerun deployment or delete
 operator state to convert an existing network. Source and private fixture tests
 do not establish a public deployment or restart rehearsal.
 
-### RollupX manager implementation upgrades
+### Rollup manager and coordinated upgrades
 
-The [RollupX manager simplification](../proposals/rollupx-manager-simplification.md)
-renames `OfflineRollup` and preserves validation-contract-6 networks. It changes
-neither the deployed proxy address nor its profile, genesis, storage layout,
-accepted-root binding, active rules, anchor modes or context bytes. Existing
-followers, providers and signers can continue using the same configuration and
-history. No hard fork, database migration or proof regeneration is needed solely
-for this implementation change; the ordinary anchor/root/rule validity limits
-still apply. This does not convert an older execution profile to version 6.
+Fresh deployments use the unchanged pinned Core `Rollup.sol`, its original
+initializer and a network-bound registered vkey. The
+[accepted simplification](../proposals/rollupx-manager-simplification.md) replaces
+the old custom manager. This is not a drop-in proxy upgrade from that manager;
+this release has no old context/key/manager compatibility path. Use matching
+node, follower, signer and deploy artifacts. L2 formats and database layout are
+unchanged, but historical inclusion policy and signed public inputs changed.
 
-Before an independently authorized upgrade, verify the intended proxy's current
-implementation, ProxyAdmin and owner, registry immutable and full stored profile
-against the original deployment inventory. Preserve those bindings and the old
-implementation address. Update Composer first: its fee estimator must recognize
-both exact executable fingerprints. An old Composer rejects fee estimation with
-the new implementation; the new Composer also supports the original implementation.
-This allowlist only enables conditional fee simulation, which still executes the
-actual deployed bytes and retains final admission/execution checks.
+Deployment derives the profile from the actual rendered genesis and canonical
+L1 configuration, then derives the key from the profile, registry, proof system
+and attester. `EEZ_VKEY` must equal this value; a padded signer address is invalid.
+The signer verifies this before serving. No L1 or L2 RPC is needed by the signer.
 
-Deploy the reviewed `contracts/src/RollupX.sol:RollupX` implementation with the
-same registry proxy as constructor argument, verify its compiled bytes and
-`EEZContract()`, then have the existing ProxyAdmin owner use
-`upgradeAndCall(managerProxy, implementation, "0x")`. Do not initialize again,
-register a new rollup, rerender genesis or change the manager address. The new
-`initialize(..., Profile)` selector is only for fresh proxy deployment; there is
-no `initializeOffline` alias or storage migration. The initialization lock and
-operational owner remain intact. Existing event topics and custom errors remain
-unchanged for provider queries.
+For a future incompatible validation change, first identify pending proofs and
+canonical settlement progress. Revoke/replace the old registered vkey or proof
+system on L1 before incompatible rules activate, coordinate all runtime roles,
+and discard old sessions. Merely restarting old signers leaves their signatures
+valid. A compatible known L1 transition requires no automatic period-key change.
 
-After inclusion, verify the implementation slot, admin/owner, profile hash,
-genesis commitment, rollup ID, threshold and all configured verification keys.
-Compare context bytes at identical L1 coordinates and registry roots, then verify
-normal settlement and existing follower replay. Preserve the upgrade receipt and
-artifact identity. These are operational checks to perform, not a claim that a
-live upgrade has been executed; see the [local evidence](../audits/2026-10-28-rollupx-manager/README.md).
-
-Rollback can restore the original implementation with empty calldata and the same
-registry. Both implementations use identical state and rules; rollback does not
-undo intervening owner-policy or accepted-root changes. Roll back the manager
-before rolling back Composer's fingerprint support. Fresh deployments use the
-new artifact and initializer; changed creation bytes imply different CREATE2
-addresses if an external deployment tool uses CREATE2. Existing proxy addresses,
-EEZ/EEZL2/history bytecode and genesis are unaffected.
+Rollback cannot restore revoked-proof compatibility blindly: restore a matching
+contract/key/runtime set only if canonical history remains valid under it.
+These are deployment boundaries, not evidence that a live upgrade was performed.
 
 ### L1 history implementation upgrades
 

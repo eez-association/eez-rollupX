@@ -9,7 +9,7 @@ use alloy_sol_types::{SolValue, sol};
 use tracing::debug;
 
 use crate::abi::{EvmBatch, ExecutionEntrySol, StaticExecutionEntrySol};
-use crate::l1_history::OfflineContext;
+use crate::l1_history::ProofContext;
 
 // ── Per-element atomic hashes ─────────────────────────────────────
 
@@ -171,7 +171,7 @@ pub enum PublicInputsError {
     #[error(transparent)]
     InvalidPlan(#[from] ProofPlanInvariantError),
     /// The batch selector must agree with its checked evidence mode.
-    #[error("batch selector {block_number} differs from the offline context")]
+    #[error("batch selector {block_number} differs from the Core Rollup context")]
     UnsupportedBlockNumber {
         /// Unsupported `batch.blockNumber` value.
         block_number: u64,
@@ -200,7 +200,7 @@ pub enum PublicInputsError {
 }
 
 /// Exact inclusion target for actual-parent mode. Shape validation alone
-/// supplies no authority; the offline context and manager bind these fields.
+/// supplies no authority; the network-bound key and Core context bind these fields.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct L1PostingContext {
     /// Configured execution network; authenticated independently by the signer.
@@ -227,12 +227,12 @@ impl L1PostingContext {
     }
 }
 
-/// Hash an offline-profile batch without blobs. Both anchor modes use the
-/// same exact deployment, accepted-root and rule-period binding.
+/// Hash a supported batch without blobs, using the registered verification key
+/// and Core Rollup context. Entry roots are bound through the entry hashes.
 pub fn public_inputs_hashes(
     batch: &EvmBatch,
     vkey: B256,
-    context: OfflineContext,
+    context: ProofContext,
 ) -> Result<Vec<B256>, PublicInputsError> {
     if !batch.blobIndices.is_empty() {
         return Err(PublicInputsError::UnsupportedBlobIndices {
@@ -242,14 +242,14 @@ pub fn public_inputs_hashes(
     public_inputs_hashes_with_blob_hashes(batch, vkey, &[], context)
 }
 
-/// Compute per-proof-system hashes for the exact checked offline context.
+/// Compute per-proof-system hashes for the exact checked Core Rollup context.
 /// Callers derive transaction hashes from actual blobs; indices select those
 /// hashes in order. The context cannot be reused for another rollup or mode.
 pub fn public_inputs_hashes_with_blob_hashes(
     batch: &EvmBatch,
     vkey: B256,
     transaction_blob_hashes: &[B256],
-    context: OfflineContext,
+    context: ProofContext,
 ) -> Result<Vec<B256>, PublicInputsError> {
     if batch.blockNumber != context.selector() {
         return Err(PublicInputsError::UnsupportedBlockNumber {
@@ -292,7 +292,7 @@ pub fn public_inputs_hashes_with_blob_hashes(
         || rollup_assignments[0].rollup_id.0 != context.rollup_id()
         || batch.expectedRootPerRollup.len() != 1
         || batch.expectedRootPerRollup[0].rollupId != context.rollup_id()
-        || batch.expectedRootPerRollup[0].root != context.current_l2_root()
+        || batch.expectedRootPerRollup[0].root.is_zero()
     {
         return Err(PublicInputsError::InvalidL1Context);
     }
@@ -481,34 +481,10 @@ mod tests {
         ));
     }
 
-    fn profile() -> crate::l1_history::OfflineProfile {
-        crate::l1_history::OfflineProfile {
-            feeCollector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
-            l1ChainId: alloy_primitives::U256::from(1),
-            l2ChainId: alloy_primitives::U256::from(900),
-            genesisHash: B256::with_last_byte(0x23),
-            genesisTimestamp: 120,
-            blockInterval: 2,
-            syncInterval: 6,
-            updateOffset: 2,
-            l1ConfigHash: B256::repeat_byte(2),
-            historyCodeHash: keccak256(crate::l1_history::HISTORY_RUNTIME),
-            ruleTimes: vec![0, 144],
-        }
+    fn context_for(anchor: crate::l1_history::EvidenceAnchor) -> ProofContext {
+        ProofContext::new(alloy_primitives::U256::from(900), 1, anchor, 1_699_999_988).unwrap()
     }
-    fn context_for(anchor: crate::l1_history::EvidenceAnchor) -> OfflineContext {
-        OfflineContext::new(
-            &profile(),
-            Address::repeat_byte(0x11),
-            Address::repeat_byte(0x22),
-            1,
-            B256::repeat_byte(0x33),
-            anchor,
-            1_699_999_988,
-        )
-        .unwrap()
-    }
-    fn context() -> OfflineContext {
+    fn context() -> ProofContext {
         context_for(crate::l1_history::EvidenceAnchor::ActualParent {
             number: 99,
             hash: B256::with_last_byte(0xab),
@@ -536,8 +512,7 @@ mod tests {
 
     #[test]
     fn generic_core_manager_vector_remains_unchanged() {
-        // The generic core still supports other manager contracts. Its separate
-        // Solidity oracle remains valid; RollupX selects the offline profile.
+        // This independent Solidity oracle exercises the unchanged Core formula.
         let plan = ProofPlan {
             proof_systems: carrier_batch().proofSystems,
             rollup_assignments: vec![RollupProofAssignment {
@@ -563,11 +538,16 @@ mod tests {
     }
 
     #[test]
-    fn both_anchor_modes_bind_exact_context_and_root_pin() {
+    fn both_anchor_modes_bind_core_context_and_validate_pin_shape() {
         use crate::l1_history::EvidenceAnchor;
         let vkey = B256::with_last_byte(0x42);
         let mut batch = carrier_batch();
         let actual = public_inputs_hashes(&batch, vkey, context()).unwrap()[0];
+        batch.expectedRootPerRollup[0].root = B256::repeat_byte(0x44);
+        assert_eq!(
+            actual,
+            public_inputs_hashes(&batch, vkey, context()).unwrap()[0]
+        );
         for anchor in [
             EvidenceAnchor::ActualParent {
                 number: 99,
@@ -577,11 +557,6 @@ mod tests {
             EvidenceAnchor::ActualParent {
                 number: 99,
                 hash: B256::with_last_byte(0xac),
-                target_timestamp: 1_700_000_000,
-            },
-            EvidenceAnchor::ActualParent {
-                number: 98,
-                hash: B256::with_last_byte(0xab),
                 target_timestamp: 1_700_000_000,
             },
         ] {

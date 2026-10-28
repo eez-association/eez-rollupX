@@ -7,7 +7,7 @@ starting at L2 block 1 and including one caught, failed destination observation.
 native process test also checked subsequent observations and follower replay.
 
 `request.v2.protobuf` contains the complete cold request, execution witnesses and
-L1 ancestry. `response.json` pins its bytes/Keccak, native digest and signature.
+L1 ancestry. `response.json` pins its bytes/Keccak, expected digest and signature.
 The local genesis documents and public deployment identities are sufficient to
 repeat validation without either chain's RPC or a preparation cache.
 
@@ -21,9 +21,24 @@ complete groups clear protocol residue before checkpoints. Ordinary fees reach
 FeeVault and native execution does not change the system-account nonce.
 
 This capture includes the fixed FeeVault predeploy, its initial owner/recipient,
-the single `Profile` commitment and validation-contract version 6. The sole
+the single `Profile` commitment and the original validation-contract version 6. The sole
 prover service remains `prove.v2.Prover`; its protobuf messages are unchanged.
 
 The history predeploy is an initially empty EEZProxy with a separate ProxyAdmin.
 Native history updates carry explicit `(number, blockHash)` pairs. The public
 store remains zero until its first system import.
+
+## Core Rollup proof-policy adaptation
+
+The recorded request, execution witnesses, L1/L2 genesis and transaction bytes
+are retained unchanged. `identity.json` now records the version-7 network-bound
+verification key; `response.json` contains the digest and ECDSA signature
+recomputed from those inputs using Core's `(timestamp, blockHash)` context.
+These updated signatures are derived fixture expectations, not new deployed-network
+captures. The signer replay tests must accept them after complete independent
+execution; regeneration alone does not establish that validation.
+
+Regenerate only through the explicit
+`service::tests::derivation::captured::regenerate_native_fixture_commitments`
+utility. It also emits local Core-verifier oracle inputs under
+`artifacts/rollup-core-fixture-oracle/` for an independent Solidity comparison.

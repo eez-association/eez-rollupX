@@ -70,6 +70,29 @@ fn test_attester_for(
     .unwrap()
 }
 
+pub(super) fn configured_test_state(
+    registry: Address,
+    manager: Address,
+    validator: Validator,
+    rollup_id: NonZeroU64,
+    l1: Arc<reth_chainspec::ChainSpec>,
+) -> eyre::Result<ServiceState> {
+    let profile = eez_l1::chain_config::offline_l1_rules(&l1)?
+        .profile(validator.schedule()?, validator.chain_id())?;
+    let key = profile.verification_key(registry, test_proof_system(), test_attester().address());
+    ServiceState::new(
+        registry,
+        manager,
+        validator,
+        rollup_id,
+        test_attester_for(
+            crate::attest::NonZeroProofSystemVkey::new(key).unwrap(),
+            test_proof_system(),
+        ),
+        l1,
+    )
+}
+
 fn test_system_transaction_reconstructor(
     rollup_id: NonZeroU64,
 ) -> settlement::SystemTransactionReconstructor {
@@ -82,23 +105,37 @@ fn posting_rules_use_the_trusted_profile_and_exact_target_fork() {
     genesis.config.cancun_time = Some(10);
     genesis.config.prague_time = Some(20);
     genesis.config.osaka_time = Some(1_000);
-    let state = ServiceState::new(
+    let state = configured_test_state(
+        Address::repeat_byte(0x33),
+        Address::repeat_byte(0x44),
+        Validator::stub(Vec::new()),
+        expected_rollup_id(1),
+        Arc::new(reth_chainspec::ChainSpec::from(genesis)),
+    )
+    .unwrap();
+    assert_eq!(state.posting_blob_limit(None).unwrap(), 9);
+    assert_eq!(state.posting_blob_limit(Some(999)).unwrap(), 9);
+    assert_eq!(state.posting_blob_limit(Some(1_000)).unwrap(), 6);
+    for invalid in [0, 9] {
+        assert_eq!(
+            state.posting_blob_limit(Some(invalid)).unwrap_err().code(),
+            Code::InvalidArgument
+        );
+    }
+}
+
+#[test]
+fn mismatched_network_verification_key_rejects_before_service_start() {
+    let error = ServiceState::new(
         Address::repeat_byte(0x33),
         Address::repeat_byte(0x44),
         Validator::stub(Vec::new()),
         expected_rollup_id(1),
         test_attester(),
-        Arc::new(reth_chainspec::ChainSpec::from(genesis)),
+        crate::testkit::l1_chain_spec(),
     )
-    .unwrap();
-    assert_eq!(state.posting_blob_limit(999).unwrap(), 9);
-    assert_eq!(state.posting_blob_limit(1_000).unwrap(), 6);
-    for invalid in [0, 9] {
-        assert_eq!(
-            state.posting_blob_limit(invalid).unwrap_err().code(),
-            Code::InvalidArgument
-        );
-    }
+    .unwrap_err();
+    assert!(error.to_string().contains("network-bound verification key"));
 }
 
 #[test]
@@ -108,18 +145,17 @@ fn first_unsupported_inclusion_rejects_even_with_a_supported_parent() {
     genesis.config.prague_time = Some(20);
     genesis.config.osaka_time = Some(1_000);
     genesis.config.amsterdam_time = Some(2_000);
-    let state = ServiceState::new(
+    let state = configured_test_state(
         Address::repeat_byte(0x33),
         Address::repeat_byte(0x44),
         Validator::stub(Vec::new()),
         expected_rollup_id(1),
-        test_attester(),
         Arc::new(reth_chainspec::ChainSpec::from(genesis)),
     )
     .unwrap();
-    assert_eq!(state.posting_blob_limit(1_999).unwrap(), 6);
+    assert_eq!(state.posting_blob_limit(Some(1_999)).unwrap(), 6);
     for target in [2_000, 2_001] {
-        let error = state.posting_blob_limit(target).unwrap_err();
+        let error = state.posting_blob_limit(Some(target)).unwrap_err();
         assert_eq!(error.code(), Code::InvalidArgument);
         assert_eq!(
             error.message(),
@@ -552,15 +588,18 @@ fn bind_anchor_commitments(batch: &mut eez_protocol::EvmBatch, block_count: usiz
     eez_protocol::entries::finalize_l1_rolling_hashes(batch).unwrap();
 }
 
-fn recompute_test_public_inputs_hash(post_batch: &WireSettlement) -> B256 {
+fn recompute_test_public_inputs_hash(
+    post_batch: &WireSettlement,
+    vkey: crate::attest::NonZeroProofSystemVkey,
+) -> B256 {
     let batch = settlement::decode_canonical_post_batch(post_batch.abi_calldata.clone()).unwrap();
     let verified_da = settlement::verify_da_carrier(&batch, &post_batch.blobs, 1).unwrap();
     settlement::CheckedPublicInputProfile::new(&batch, expected_rollup_id(1), test_proof_system())
         .unwrap()
         .recompute_public_inputs_hash(
-            test_proof_system_vkey(),
+            vkey,
             verified_da.transaction_blob_hashes(),
-            &crate::testkit::offline_context(
+            &crate::testkit::proof_context(
                 &batch,
                 crate::testkit::target_from_wire(post_batch.posting_context.as_ref().unwrap()),
             ),
@@ -569,11 +608,14 @@ fn recompute_test_public_inputs_hash(post_batch: &WireSettlement) -> B256 {
         .into_inner()
 }
 
-fn recompute_window_public_inputs_hash(window: &[WindowChunk]) -> B256 {
+fn recompute_window_public_inputs_hash(
+    window: &[WindowChunk],
+    vkey: crate::attest::NonZeroProofSystemVkey,
+) -> B256 {
     let Some(WindowPart::Metadata(header)) = &window[0].kind else {
         unreachable!("fixture starts with a header")
     };
-    recompute_test_public_inputs_hash(header.post_batch.as_ref().unwrap())
+    recompute_test_public_inputs_hash(header.post_batch.as_ref().unwrap(), vkey)
 }
 
 fn recompute_window_public_inputs_for_state(state: &ServiceState, window: &[WindowChunk]) -> B256 {
@@ -608,12 +650,9 @@ fn recompute_window_public_inputs_for_state(state: &ServiceState, window: &[Wind
             hash: endpoint.hash_slow(),
         },
     };
-    let context = eez_protocol::l1_history::OfflineContext::new(
-        &state.deployment.profile,
-        state.deployment.registry,
-        state.deployment.manager,
+    let context = eez_protocol::l1_history::ProofContext::new(
+        (state.deployment.profile).l2ChainId,
         header.rollup_id,
-        batch.expectedRootPerRollup[0].root,
         anchor,
         endpoint.timestamp,
     )
@@ -1210,12 +1249,11 @@ fn native_validator_state(rollup_id: NonZeroU64) -> Arc<ServiceState> {
     let directory =
         crate::testkit::manifest_dir().join("tests/fixtures/native-offline-bidirectional");
     Arc::new(
-        ServiceState::new(
+        configured_test_state(
             Address::repeat_byte(0x33),
             Address::repeat_byte(0x44),
             Validator::stateless(&directory.join("l2-genesis.json"), TEST_SYSTEM_ADDRESS).unwrap(),
             rollup_id,
-            test_attester(),
             Arc::new(reth_chainspec::ChainSpec::from(
                 serde_json::from_slice::<alloy_genesis::Genesis>(
                     &std::fs::read(directory.join("l1-genesis.json")).unwrap(),
@@ -1229,12 +1267,11 @@ fn native_validator_state(rollup_id: NonZeroU64) -> Arc<ServiceState> {
 
 fn inner_with_rollup(validator: Validator, expected_rollup_id: NonZeroU64) -> Arc<ServiceState> {
     Arc::new(
-        ServiceState::new(
+        configured_test_state(
             Address::repeat_byte(0x33),
             Address::repeat_byte(0x44),
             validator,
             expected_rollup_id,
-            test_attester(),
             crate::testkit::l1_chain_spec(),
         )
         .unwrap(),

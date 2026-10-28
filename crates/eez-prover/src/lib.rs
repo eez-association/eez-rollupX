@@ -155,7 +155,7 @@ pub struct ProvingContext {
     /// Explicit L1 target whose fork rules authorize this request's blob carrier.
     pub l1_posting: Option<L1PostingContext>,
     /// Locally derived context for independent response verification.
-    pub offline_context: eez_protocol::l1_history::OfflineContext,
+    pub proof_context: eez_protocol::l1_history::ProofContext,
     /// Exact execution predecessor, authenticated through replay and settlement.
     pub parent: alloy_consensus::Header,
 }

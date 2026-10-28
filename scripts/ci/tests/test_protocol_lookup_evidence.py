@@ -62,6 +62,7 @@ def fixture(scenario):
         "blob": {
             "verified": True,
             "l1_block_hash": L1_HASH,
+            "proof_system": "0x" + "1" * 40,
             "settlement_claim": dict(pre_block_hash=PARENT, post_block_hash=ROOT),
             "payload": {
                 "block_count": 1,
@@ -162,7 +163,10 @@ if pathlib.Path(sys.argv[0]).name == "blob":
     assert request["genesis_hash"] == "0x" + "8"*64, request
     assert request["chain_config"] == {}, request
     assert request["l1_chain_config"] == f.get("l1_chain_config", {"config": {"chainId": 7331}, "timestamp": "0x1230"}), request
-    assert request["protocol_config_hash"] == "0x" + "9"*64, request
+    assert request["registry"] == "0x" + "c"*40, request
+    assert request["proof_system"] == "0x" + "1"*40, request
+    assert request["attester"] == "0x" + "2"*40, request
+    assert request["verification_key"] == "0x" + "9"*64, request
     assert request["l1_headers_rlp"] == f.get("expected_l1_headers", ["0xc001"]), request
     print(json.dumps({"verified":True, "block_hash":request["block_hash"], "prefixes":f.get("prefixes", [])}))
     sys.exit(0)
@@ -214,10 +218,15 @@ elif command == "call":
     elif sig == "rollups(uint64)(address,bytes32,uint256)":
         assert args[args.index("--block") + 1] == "0x" + "3"*64, args
         value = "0x" + "c"*40 + "\n" + "0x" + "8"*64 + "\n0"
-    elif sig == "protocolConfigHash()(bytes32)":
+    elif sig == "verificationKey(address)(bytes32)":
         assert args[1] == "0x" + "c"*40, args
         assert args[args.index("--block") + 1] == "0x" + "3"*64, args
+        assert args[3] == "0x" + "1"*40, args
         value = "0x" + "9"*64
+    elif sig == "signer()(address)":
+        assert args[1] == "0x" + "1"*40, args
+        assert args[args.index("--block") + 1] == "0x" + "3"*64, args
+        value = "0x" + "2"*40
     else:
         assert sig == "counter()(uint256)", args
         value = f.get("counter", "1")
@@ -805,7 +814,7 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                         for call in calls:
                             if any(method in call for method in ("debug_getRawBlock", "debug_getRawReceipts", "debug_chainConfig")):
                                 self.assertEqual(call[call.index("--rpc-url") + 1], self.env["L2_RPC"])
-                            if any(method in call for method in ("debug_getRawHeader", "protocolConfigHash()(bytes32)")):
+                            if any(method in call for method in ("debug_getRawHeader", "verificationKey(address)(bytes32)", "signer()(address)")):
                                 self.assertEqual(call[call.index("--rpc-url") + 1], self.env["L1_RPC"])
 
     def test_empty_history_uses_the_configured_positive_bootstrap_for_ancestry(self):
@@ -859,7 +868,7 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         retained = json.loads(next(self.root.glob("*.lookup-root.input.json")).read_text())
         self.assertEqual(retained["l1_headers_rlp"], ["0x00"])
-        self.assertEqual(retained["protocol_config_hash"], "0x" + "9" * 64)
+        self.assertEqual(retained["verification_key"], "0x" + "9" * 64)
         self.assertEqual(retained["l1_chain_config"], json.loads(self.l1_genesis.read_text()))
 
     def test_prefix_collector_preserves_public_l1_presets(self):

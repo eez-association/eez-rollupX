@@ -662,7 +662,7 @@ and configuration against the node before replay. It also requires
 `EEZ_L1_CHAIN_CONFIG`: the deployed Ethereum genesis file or an existing public
 preset (`mainnet`, `sepolia`, `hoodi`, `chiado`). Kurtosis supplies both genesis
 files from its artifacts. The retained prefix input embeds that L1 profile,
-the manager's `protocolConfigHash` read at the original post, and at most 65 raw
+the manager's registered verification key and proof-system signer read at the original post, and at most 65 raw
 L1 headers (the inherited endpoint and up to 64 imports). The offline helper
 checks the profile commitment, exact header decoding/linkage, parent trie,
 history transaction and PREVRANDAO before reconstructing transaction prefixes.

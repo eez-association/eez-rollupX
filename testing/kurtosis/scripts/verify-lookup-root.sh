@@ -70,14 +70,19 @@ post_block="$(jq -er '.l1_block_hash' "$blob")"
 manager="$(cast call "$ROLLUPS" 'rollups(uint64)(address,bytes32,uint256)' \
     "$ROLLUP_ID" --block "$post_block" --rpc-url "$L1_RPC" | sed -n '1p' | tr -d '[:space:]')"
 [[ "$manager" =~ ^0x[[:xdigit:]]{40}$ && "$manager" != 0x0000000000000000000000000000000000000000 ]] || exit 1
-profile_hash="$(cast call "$manager" 'protocolConfigHash()(bytes32)' --block "$post_block" --rpc-url "$L1_RPC")"
-[[ "$profile_hash" =~ ^0x[[:xdigit:]]{64}$ ]] || exit 1
+proof_system="$(jq -er '.proof_system' "$blob")"
+[[ "$proof_system" =~ ^0x[[:xdigit:]]{40}$ && "$proof_system" != 0x0000000000000000000000000000000000000000 ]] || exit 1
+verification_key="$(cast call "$manager" 'verificationKey(address)(bytes32)' "$proof_system" --block "$post_block" --rpc-url "$L1_RPC")"
+attester="$(cast call "$proof_system" 'signer()(address)' --block "$post_block" --rpc-url "$L1_RPC")"
+[[ "$verification_key" =~ ^0x[[:xdigit:]]{64}$ && "$attester" =~ ^0x[[:xdigit:]]{40}$ ]] || exit 1
 case "${EEZ_L1_CHAIN_CONFIG:?set the deployed L1 profile}" in
     mainnet|sepolia|hoodi|chiado)
         jq -n --arg preset "$EEZ_L1_CHAIN_CONFIG" '$preset' >"$scratch/l1-config.json" ;;
     *) jq . "$EEZ_L1_CHAIN_CONFIG" >"$scratch/l1-config.json" ;;
 esac
-jq -n --arg hash "$hash" --arg genesis_hash "$genesis_hash" --arg profile_hash "$profile_hash" \
+jq -n --arg hash "$hash" --arg genesis_hash "$genesis_hash" \
+    --arg registry "$ROLLUPS" --arg proof_system "$proof_system" \
+    --arg attester "$attester" --arg verification_key "$verification_key" \
     --slurpfile genesis "${EEZ_L2_GENESIS:?set the deployed L2 genesis path}" \
     --slurpfile l1_config "$scratch/l1-config.json" \
     --slurpfile l1_headers "$scratch/l1-headers.jsonl" \
@@ -86,7 +91,8 @@ jq -n --arg hash "$hash" --arg genesis_hash "$genesis_hash" --arg profile_hash "
     --slurpfile config "$scratch/config.json" \
     '{block_hash:$hash, block_rlp:$block[0], receipts_rlp:$receipts[0], witness:$witness[0],
       chain_config:$config[0], genesis:$genesis[0], genesis_hash:$genesis_hash,
-      l1_chain_config:$l1_config[0], l1_headers_rlp:$l1_headers, protocol_config_hash:$profile_hash}' \
+      l1_chain_config:$l1_config[0], l1_headers_rlp:$l1_headers,
+      registry:$registry, proof_system:$proof_system, attester:$attester, verification_key:$verification_key}' \
     >"${output%.json}.input.json"
 "$BLOB_VERIFIER" --prefixes "${output%.json}.input.json" >"$scratch/prefixes.json"
 jq -e --arg root "$root" --arg hash "$hash" '

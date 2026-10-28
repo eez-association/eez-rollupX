@@ -860,8 +860,8 @@ mod tests {
     fn test_context() -> ProvingContext {
         ProvingContext {
             parent: Default::default(),
-            offline_context: eez_protocol::l1_history::OfflineContext::new(
-                &eez_protocol::l1_history::OfflineProfile {
+            proof_context: eez_protocol::l1_history::ProofContext::new(
+                (eez_protocol::l1_history::NetworkProfile {
                     feeCollector: alloy_primitives::address!(
                         "f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
                     ),
@@ -873,13 +873,9 @@ mod tests {
                     syncInterval: 6,
                     updateOffset: 2,
                     l1ConfigHash: B256::repeat_byte(2),
-                    historyCodeHash: B256::repeat_byte(3),
-                    ruleTimes: vec![0],
-                },
-                alloy_primitives::Address::repeat_byte(4),
-                alloy_primitives::Address::repeat_byte(5),
+                })
+                .l2ChainId,
                 1,
-                B256::repeat_byte(1),
                 eez_protocol::l1_history::EvidenceAnchor::ActualParent {
                     number: 99,
                     hash: B256::repeat_byte(0x42),

@@ -9,7 +9,7 @@ use alloy_consensus::Header;
 use alloy_primitives::Address;
 use eez_protocol::{
     EvmBatch,
-    l1_history::{EvidenceAnchor, HeaderChain, OfflineContext, OfflineProfile},
+    l1_history::{EvidenceAnchor, HeaderChain, NetworkProfile, ProofContext},
     l2::Schedule,
     public_inputs::L1PostingContext,
 };
@@ -21,7 +21,7 @@ use std::sync::Arc;
 pub(crate) struct OfflineDeployment {
     pub(crate) registry: Address,
     pub(crate) manager: Address,
-    pub(crate) profile: OfflineProfile,
+    pub(crate) profile: NetworkProfile,
     schedule: Schedule,
 }
 
@@ -29,7 +29,7 @@ impl OfflineDeployment {
     pub(crate) fn new(
         registry: Address,
         manager: Address,
-        profile: OfflineProfile,
+        profile: NetworkProfile,
         schedule: Schedule,
     ) -> eyre::Result<Self> {
         eyre::ensure!(
@@ -115,12 +115,9 @@ impl OfflineDeployment {
         if pin.rollupId != rollup_id || pin.root.is_zero() {
             return Err("accepted-root pin identifies another rollup or zero root");
         }
-        let context = OfflineContext::new(
-            &self.profile,
-            self.registry,
-            self.manager,
+        let context = ProofContext::new(
+            self.profile.l2ChainId,
             rollup_id,
-            pin.root,
             anchor,
             end.header().timestamp,
         )
@@ -141,10 +138,9 @@ impl OfflineDeployment {
     }
 }
 
-/// Independently checked evidence and conditional settlement context. Its root
-/// pin is authorized only after whole-group execution binding below.
+/// Independently checked evidence and conditional settlement context.
 pub(super) struct CandidateContext {
-    context: OfflineContext,
+    context: ProofContext,
     parent: Header,
     schedule: Schedule,
     history: Arc<HeaderChain>,
@@ -153,14 +149,18 @@ pub(super) struct CandidateContext {
 }
 
 impl CandidateContext {
-    pub(super) const fn public_inputs(&self) -> OfflineContext {
+    pub(super) const fn public_inputs(&self) -> ProofContext {
         self.context
     }
     pub(super) fn history(&self) -> Arc<HeaderChain> {
         Arc::clone(&self.history)
     }
-    pub(super) const fn rules_timestamp(&self) -> u64 {
-        self.eligibility_timestamp
+    pub(super) const fn posting_timestamp(&self) -> Option<u64> {
+        if self.historical {
+            None
+        } else {
+            Some(self.eligibility_timestamp)
+        }
     }
 
     fn check_candidate(&self, count: u32, has_actions: bool) -> Result<(), &'static str> {
@@ -183,7 +183,7 @@ impl CandidateContext {
     }
 
     /// Bind the fully decoded and replayed action stream to this mode's timing
-    /// rules. Root-pin coverage is checked against bound settlement effects.
+    /// rules. Core checks entry roots independently at consumption.
     pub(super) fn check_actions(
         &self,
         window: &ValidatedWindow,

@@ -61,7 +61,7 @@ from an empty string. Restart is required to change settings.
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to the active network's blob base fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 500 | Nonnegative integer margin on pre-refund execution gas (at least the calldata floor). The final ordered bundle is checked again at the selected gas limit. |
-| `EEZ_L1_CHAIN_CONFIG` (signer and follower) | Required for both | Supported public-network preset or a reviewed complete Ethereum-format genesis path. The offline profile binds chain identity and rule epochs. Actual-parent proofs carry an exact posting context; historical proofs carry an explicit anchor and no posting context. Followers also check the actual inclusion block's rules. |
+| `EEZ_L1_CHAIN_CONFIG` (signer and follower) | Required for both | Supported public-network preset or a reviewed complete Ethereum-format genesis path. The registered verification key binds chain identity and configured L1 rules. Actual-parent proofs carry an exact posting context; historical proofs carry an explicit anchor and no posting context. Followers also check the actual inclusion block's rules. |
 
 Execution, blob, and gas margins use checked
 `ceil(x * (10000 + margin) / 10000)` arithmetic. Fee ceilings are per-unit
@@ -79,9 +79,8 @@ planning/signing; it does not change the network's fixed execution profile.
 
 Actual-parent requests require the exact L1 posting context. Historical-mode
 ordinary catch-up requires that field to be absent and binds its explicit
-header anchor instead. Composer uses historical mode only when that anchor and
-the intended inclusion share a rule period; at a known transition it selects
-actual-parent mode before proving. The attempt's operational parent and submission cutoff
+header anchor instead. Historical ordinary catch-up may cross a known compatible
+L1 fork; actual-parent mode remains mandatory for cross-chain actions. The attempt's operational parent and submission cutoff
 remain distinct from that proof anchor; retry and replacement accounting are
 unchanged. See the [offline profile](proposals/l1-origin-and-offline-proving.md)
 for its context commitment and fresh-genesis boundary. Native batch/DA encoding
@@ -475,8 +474,8 @@ Calldata, the fork-specific calldata floor, companion execution and the
 configured gas margin remain separate. These versioned reserves describe the
 tested native ECDSA batch family; they are not network gas limits.
 
-The 190,000 base includes the leading anchor, the offline manager context and its
-accepted-root check. It is pinned with 64 cold rule epochs and up to 64 blob
+The conservative 190,000 base covers the leading anchor, original Core manager
+context and registry root assertion. Its contract regression covers up to 64 blob
 references; the calldata bound also includes the mandatory root pin. Incremental
 and final sizing retain the same discounts for exactly one nonzero own-rollup
 pin; missing, foreign, zero or duplicate pins keep conservative reserves and still
@@ -952,9 +951,11 @@ or proof-time configuration.
 The composer uses the embedded node's actual fork configuration and executor,
 including Gnosis fee collection and fork transitions. It resolves outgoing
 limits at the intended target timestamp. The signer uses its fixed local L1
-profile at the actual-parent target or historical anchor timestamp. The manager
-binds the actual inclusion rule epoch, invalidating historical proofs across
-rule transitions; followers check the same inclusion condition. The Chiado and
+profile at the exact actual-parent target. Historical proofs have no inclusion
+timestamp and use the largest configured blob allowance as an admission bound.
+L1 execution and followers enforce the actual containing block's rules. Known
+compatible forks do not invalidate historical proofs; incompatible program changes
+require coordinated on-chain key revocation/replacement. The Chiado and
 Kurtosis Compose profiles supply the corresponding local L1 profile to the signer.
 
 Final preflight executes `[postBatch, inbound companions...]` in order against

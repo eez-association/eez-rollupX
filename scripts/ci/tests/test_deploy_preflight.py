@@ -75,8 +75,8 @@ fi
         self.tool("bin/eez-genesis-block-hash", '''
 [[ -f "$1" ]] || exit 93
 [[ "$FAIL_STAGE" != hash ]] || { echo 'hash failed' >&2; exit 61; }
-[[ "$FAIL_STAGE" != profile || "${2-}" != --offline-profile ]] || { echo 'profile failed' >&2; exit 62; }
-echo 0x1234
+[[ "$FAIL_STAGE" != profile || "${2-}" != --network-profile ]] || { echo 'profile failed' >&2; exit 62; }
+if [[ "${2-}" == --network-profile ]]; then printf '0x%064x\n' 1; else echo 0x1234; fi
 ''')
         self.tool("bin/forge", '''
 printf '%s\n' "$*" >> "$BROADCAST_LOG"
@@ -148,6 +148,75 @@ exit 97
             "feeCollector": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078",
             "l1Reference": {"chainId": 10200, "number": 42, "timestamp": 1000,
                             "hash": "0x" + "11" * 32, "prevRandao": "0x" + "22" * 32}})
+
+    def test_network_key_reaches_manager_and_runtime_bindings(self):
+        cast = self.root / "bin/cast"
+        cast.write_text(cast.read_text().replace('if [[ "$1" == chain-id ]]', '''
+if [[ "$1" == block-number ]]; then echo 42; exit; fi
+if [[ "$1" == call ]]; then [[ "$3" == 'rollupCounter()(uint256)' ]]; echo 0; exit; fi
+if [[ "$1" == keccak ]]; then
+    case "$2" in
+        EEZ_ROLLUPX_VERIFICATION_KEY_V1) printf '0x%064x\\n' 2 ;;
+        0xabcdef|'') printf '0x%064x\\n' 3 ;;
+        *) exit 94 ;;
+    esac
+    exit
+fi
+if [[ "$1" == abi-encode ]]; then
+    [[ "$FAIL_STAGE" != key ]] || { echo 'key encoding failed' >&2; exit 63; }
+    [[ "$2" == 'f(bytes32,bytes32,address,address,address)' ]]
+    [[ "$3" == "$(printf '0x%064x' 2)" && "$4" == "$(printf '0x%064x' 1)" ]]
+    [[ "$5" == 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ]]
+    [[ "$6" == 0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ]]
+    [[ "$7" == 0x1111111111111111111111111111111111111111 ]]
+    echo 0xabcdef; exit
+fi
+if [[ "$1" == chain-id ]]'''))
+        self.tool("bin/eez-genesis-state-root", "echo 0x1234\n")
+        self.tool("scripts/verify-blockscout.sh", "exit 0\n")
+        self.tool("bin/forge", '''
+printf '%s\\n' "$*" >> "$BROADCAST_LOG"
+case "$2" in
+    script/DeployEEZ.s.sol:DeployEEZ)
+        for key in EEZ EEZ_IMPLEMENTATION EEZ_PROXY_ADMIN; do
+            echo "$key=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        done ;;
+    script/DeployECDSAProofSystem.s.sol:DeployECDSAProofSystem)
+        echo ECDSA_PS=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ;;
+    script/DeployRollup.s.sol:DeployRollup)
+        [[ "$4" == 'run(address,address,bytes32,address,address)' ]]
+        [[ "$7" == "$(printf '0x%064x' 3)" ]]
+        for key in ROLLUP_CONTRACT ROLLUP_IMPLEMENTATION ROLLUP_PROXY_ADMIN; do
+            echo "$key=0xcccccccccccccccccccccccccccccccccccccccc"
+        done ;;
+    script/RegisterRollup.s.sol:RegisterRollup) echo L2_ROLLUP_ID=1 ;;
+    *) exit 95 ;;
+esac
+''')
+        result = self.run_deploy("")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        bindings = (self.root / "deployments.env").read_text()
+        self.assertIn(f"EEZ_VKEY=0x{3:064x}\n", bindings)
+        self.assertIn("EEZ_ATTESTER_ADDRESS=0x" + "11" * 20 + "\n", bindings)
+        shutil.rmtree(self.root / "datadir")
+        (self.root / "deployments.env").unlink()
+        (self.root / "broadcast.log").unlink()
+        result = self.run_deploy("key")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("key encoding failed", result.stderr)
+        self.assertNotIn("DeployRollup", (self.root / "broadcast.log").read_text())
+        self.assertFalse((self.root / "deployments.env").exists())
+        shutil.rmtree(self.root / "datadir")
+        (self.root / "broadcast.log").unlink()
+        helper = self.root / "bin/eez-genesis-block-hash"
+        helper.write_text(helper.read_text().replace("set -euo pipefail", '''set -euo pipefail
+if [[ "${2-}" == --network-profile && -f "$BROADCAST_LOG" ]]; then
+    printf '0x%064x\\n' 4; exit
+fi'''))
+        result = self.run_deploy("")
+        self.assertIn("network profile changed", result.stderr)
+        self.assertNotIn("RegisterRollup", (self.root / "broadcast.log").read_text())
+        self.assertFalse((self.root / "deployments.env").exists())
 
     def test_timestamped_base_preserves_genesis_read_permissions_for_renderer(self):
         for mode in (0o644, 0o664, 0o640, 0o600):
@@ -262,7 +331,7 @@ class DeployImageAssetsTest(unittest.TestCase):
     def test_render_history_identities_exist_at_their_consumed_image_paths(self):
         renderer = (REPO / "scripts/update-eezl2-genesis.sh").read_text()
         assets = re.findall(r"root / '([^'\n]+(?:\.bin|\.sol))'", renderer)
-        self.assertEqual(len(assets), 4, "proxy, implementation, admin and manager identity must be packaged")
+        self.assertEqual(len(assets), 3, "history proxy, implementation and admin must be packaged")
         dockerfile = (REPO / "testing/kurtosis/Dockerfile.deploy").read_text()
         for asset in assets:
             with self.subTest(asset=asset):

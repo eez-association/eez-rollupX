@@ -17,12 +17,11 @@ fn genesis() -> alloy_genesis::Genesis {
 
 fn state() -> Arc<ServiceState> {
     Arc::new(
-        ServiceState::new(
+        configured_test_state(
             Address::repeat_byte(0x33),
             Address::repeat_byte(0x44),
             Validator::stateless_for_test(genesis(), TEST_SYSTEM_ADDRESS),
             expected_rollup_id(1),
-            test_attester(),
             Arc::new(reth_chainspec::ChainSpec::from(
                 serde_json::from_slice::<alloy_genesis::Genesis>(
                     &std::fs::read(
@@ -339,7 +338,7 @@ fn successful_backend_without_reconstruction_is_rejected_by_da_validation() {
     };
     let post = header.post_batch.as_ref().unwrap();
     let batch = settlement::decode_canonical_post_batch(post.abi_calldata.clone()).unwrap();
-    let context = crate::testkit::offline_context(
+    let context = crate::testkit::proof_context(
         &batch,
         crate::testkit::target_from_wire(post.posting_context.as_ref().unwrap()),
     );

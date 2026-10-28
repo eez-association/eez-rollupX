@@ -1,73 +1,71 @@
-# RollupX manager simplification
+# Use the original Core Rollup
 
-| Field | Value |
-| --- | --- |
-| Design status | Owner-requested scope accepted on 2026-10-28; implemented, validation recorded in the [audit](../audits/2026-10-28-rollupx-manager/README.md) |
-| Source baseline | `6215df1a4395f58bb58bdb78bf4dc22f907c4169`, PR 112 after merging PR 115; identical tree to `f965725872be23dc514911abe73877053b4f7f65` |
-| Protocol baseline | `84a5b5207880f192a6a5896cbfe0bac5249db47f`; no core edits or gitlink change |
-| Scope | Rename the integration manager to `RollupX`, share anchor validation, retain the deployed proxy and existing network rules |
+Status: accepted for PR #116. This replaces the earlier byte-compatible manager
+refactor. The owner selected fresh deployments without old-format support.
+Core remains pinned at `84a5b5207880f192a6a5896cbfe0bac5249db47f`, unchanged.
 
-## Requirements and acceptance
+## Design
 
-| ID | Requirement | Acceptance |
-| --- | --- | --- |
-| R1 | No execution, historical replay, provider/RPC, native DA, public-input or profile change; validation contract remains 6 | Frozen protocol/prover vectors and source process tests; exact context comparison with baseline bytecode |
-| R2 | Same storage, registry immutable, initialization lock, owner/admin authority, registration and proof policy | Full storage layout comparison; baseline proxy initialization, mutation, upgrade and rollback tests; pinned core policy differential test |
-| R3 | Both anchor modes bind exactly the same bytes and reject the same invalid contexts | Differential fuzz and boundary tests, including rules transitions, accepted roots, coordinates and unavailable hashes; registry proof acceptance across upgrade |
-| R4 | One production manager named `RollupX`; no old implementation or initializer wrapper | Source/artifact/deployment/test references updated; existing initializer state remains locked |
-| R5 | Preserve fee quoting on existing and upgraded manager deployments | Exact old/new executable fingerprints, mutation rejection, estimation tests; actual deployed bytes still execute |
-| R6 | Reduce duplication without weakening checks or adding gas overhead | Comparable compiler, runtime byte size and gas measurements for both anchor modes and initialization |
+Deploy Core `Rollup.sol` directly behind its existing proxy, using its original
+four-argument initializer. Remove the custom manager, generated profile-code
+helper, old runtime fingerprints and manager-upgrade compatibility tests.
+Keep Core ownership, proof threshold, registration, root escape and key policy.
 
-## Design boundary
+Core authenticates the anchor through its original `getCustomData`:
 
-The pinned reference `Rollup` has nonvirtual `initialize`, registration and
-`getCustomData` functions. Direct inheritance would expose its context-free
-initializer and replace this network's profile/root/anchor checks. Core contracts
-must remain unchanged. Keep the reference proof policy, ownership and root escape
-implementation together in this manager; adding a forwarding manager or a private
-copy of core would add code and authority boundaries without removing that issue.
+- Actual parent: `abi.encode(uint256(inclusionTimestamp), parentHash)`.
+- Historical: `abi.encode(uint256(0), blockhash(B))`, with a nonzero available
+  hash and `0 < B < uint64.max`. The Core EVM blockhash window is 256 blocks.
 
-Consolidate the common anchor lookup and cache the profile/rollup ID across the
-read-only registry call. Keep the two explicit flat ABI encodings: factoring
-their common fields into a memory tuple adds gas, while a hand-trimmed encoding
-adds assembly for only a small code-size reduction. Preserve all profile
-validation, registry/genesis registration checks, active-rule search and accepted-root
-checks. EVM `BLOCKHASH` already rejects current, future and older-than-256 anchors;
-retaining the nonzero-hash rejection enforces the same availability condition.
-The tests must establish the identical boundary and revert arguments.
+The signer still independently executes every supplied L2 block, validates the
+complete L1 header chain, recorded history, delayed PREVRANDAO, native DA and
+cross-chain effects, and recomputes the exact Core public-input digest. It has
+no L1 or L2 RPC. Historical mode still forbids every cross-chain action and must
+end at or before the anchor timestamp. Actual-parent mode retains exact target
+binding and live-action timing. v2 protobuf fields remain unchanged.
 
-Rename the deployment-only `initializeOffline` to `initialize` with the same profile
-parameter. Existing proxies already consumed their initializer; upgrades use empty
-calldata and preserve its namespaced lock. There is no old-selector alias. Preserve
-existing profile event topics and custom error selectors because providers may
-query them. The word "offline" in domain strings, wire profiles and those public
-identities describes the unchanged protocol, not a second implementation.
+The registered verification key replaces the former on-chain profile payload.
+It commits to the local network profile, registry, proof system and signing
+address. The profile commits to validation version 7, L1/L2 identity, genesis,
+schedule, history runtime/limits, fee collector and canonical L1 rules.
+[The identity specification](../../crates/eez-control-rpc/VALIDATION_IDENTITY.md)
+defines the exact preimages. Deployment, Composer and signer derive the same
+key; signer startup rejects an arbitrary or mismatched configured key. Core
+includes its registered key and rollup ID in the signed accumulator.
 
-## Compatibility and recovery
+## Accepted behavior changes
 
-An existing validation-contract-6 network can retain its manager implementation
-or upgrade the same proxy to this implementation bound to the same registry.
-The change needs no hard fork, activation schedule, genesis edit, database migration,
-profile/validation identity change, signer/follower update, or proof regeneration
-solely because of the manager upgrade. Ordinary anchor expiry, rule changes and
-accepted-root advancement still invalidate proofs normally.
+The manager no longer adds the current accepted L2 root to each proof. Core
+checks signed entry roots when consuming entries and enforces immediate-entry
+rules. `expectedRootPerRollup` remains an unsigned admission assertion, not an
+authentication source. Advancing the root alone does not invalidate a signature.
+Reuse and partial consumption remain subject to Core eligibility, complete
+signed entries, unchanged DA and the available anchor.
 
-The new creation/runtime bytes and metadata have different code hashes. Fresh
-CREATE2 deployments using those bytes would have different addresses; no deployed
-address changes on a proxy upgrade. EEZ, EEZL2, the history store and their genesis
-fixtures remain unchanged. Fresh deployment tooling must use the new source artifact
-and profile-bearing initializer selector.
+Historical proofs may cross a known compatible L1 rule transition. Each L1
+header uses its own fork layout; actual included transactions remain subject
+to the containing L1 block's blob limits. Historical signing bounds work by
+the largest configured blob allowance because inclusion time is not known.
+Actual-parent signing uses the exact target's rules. No proof may omit required
+ancestry or change its anchor mode after signing.
 
-Composer's conditional fee estimator recognizes exact executable fingerprints.
-Update Composer before upgrading the manager; the new release accepts both equivalent
-implementations and still executes the actual code. Old Composer estimation rejects
-the new executable until updated. Existing signers and followers remain compatible.
-Rollback of the manager uses the original implementation with empty calldata and
-the same registry; rollback of Composer should follow that manager rollback.
-Neither restart nor rollback recovers volatile queue requests.
+An incompatible rule/program upgrade requires coordinated replacement or
+revocation of the registered vkey/proof system before incompatible rules become
+active. Stopping old signers does not revoke existing signatures. A compatible
+known L1 fork does not by itself require a new key.
 
-The [runbook](../runbooks/chiado-deployment.md#rollupx-manager-implementation-upgrades)
-owns the upgrade procedure; the [audit](../audits/2026-10-28-rollupx-manager/README.md)
-records source comparisons, actual bytecode/gas results and remaining validation.
-No deployment, wallet funding, core changes or live upgrade is authorized by this
-record.
+## Compatibility and acceptance
+
+This is a fresh-deployment change, not a transparent proxy upgrade from the old
+custom manager. Deploy matching node, follower, signer and contract artifacts;
+discard old sessions. No old manager, context encoder, key derivation or runtime
+fingerprint is retained. The L2 transaction formats, history contract, genesis
+state layout and database format are unchanged by this change. Followers change
+their historical-inclusion policy and must run the matching release.
+
+Required checks are focused Core/ECDSA anchor and key-revocation tests, independent
+profile/key/context vectors, signer startup rejection, existing signer/RPC/client
+regressions, Composer and follower tests, partial-consumption/source process
+coverage, formatting and workspace Clippy. The PR's complete CI matrix is the
+release gate. Dated evidence for the superseded refactor remains historical and
+does not validate this implementation.

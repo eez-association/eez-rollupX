@@ -129,7 +129,7 @@ fn verify_da_payload<'a>(
         inbound,
         reconstructor,
         semantics,
-        &crate::testkit::offline_context(
+        &crate::testkit::proof_context(
             &eez_protocol::EvmBatch {
                 blockNumber: u64::MAX,
                 ..Default::default()

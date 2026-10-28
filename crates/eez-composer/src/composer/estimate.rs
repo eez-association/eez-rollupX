@@ -73,8 +73,6 @@ pub struct GasEstimator {
     poster: Address,
     post_batch_target: Address,
     verifier: Address,
-    offline_profile: eez_protocol::l1_history::OfflineProfile,
-    rollup_manager: Address,
     l1_slot_seconds: u64,
     recipient: Address,
 }
@@ -141,8 +139,6 @@ where
             poster: cc.exec_ctx.l1_poster_signer.address(),
             post_batch_target: self.inner.posting.post_batch_target,
             verifier: cc.exec_ctx.ecdsa_proof_system_address,
-            offline_profile: cc.exec_ctx.offline_profile.clone(),
-            rollup_manager: cc.exec_ctx.rollup_manager,
             l1_slot_seconds: self.inner.emission.timing.l1_block_time().as_secs(),
             recipient: self.inner.fee_recipient,
         })
