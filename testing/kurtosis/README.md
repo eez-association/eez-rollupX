@@ -828,8 +828,10 @@ bash testing/kurtosis/scripts/run-protocol-e2e.sh
 The suite uses the pinned upstream `script/e2e/run/network/parallel.sh`, with a
 fresh funded wallet per worker. `EEZ_PROTOCOL_MAX_PARALLEL=all` (the local script
 default) starts one worker per eligible scenario, including `revertCounter` and
-`staticCounterL2`. GitHub-hosted CI sets `EEZ_PROTOCOL_MAX_PARALLEL=2` in both
-publication paths; this changes concurrency, not scenario selection. Foundry
+`staticCounterL2`. GitHub-hosted CI sets `EEZ_PROTOCOL_MAX_PARALLEL=4` in both
+publication paths; this changes concurrency, not scenario selection. Workers spend
+most of their time in the setup confirmation wait below, so additional workers
+overlap settlement latency rather than compilation. Foundry
 artifacts are warmed before workers start. Set a positive integer to bound
 concurrency, or `1` to run serially with
 the same assertions. When both bridge scenarios are selected, `bridge` runs
@@ -857,7 +859,11 @@ succeed before protocol scenarios begin. Failure or cancellation stops the
 owned preparation process group; a busy protocol-suite
 lock or mismatched pin is rejected before network startup/teardown. The existing
 upstream `forge build` still runs afterwards and checks the warmed artifacts;
-there is no new persistent artifact cache or runtime-binary rebuild.
+there is no runtime-binary rebuild. The published Kurtosis job restores
+`eez-core-protocol/out` and `cache` keyed on the exact protocol gitlink and
+Foundry version, with no prefix fallback; only successful jobs save it. A miss
+compiles cold, and Forge still recompiles any source whose content hash differs.
+The no-publication fallback and the integration fixtures are not cached.
 
 `protocol-build.log` and `integration-build.log` retain compiler output.
 `timings.jsonl` records completed

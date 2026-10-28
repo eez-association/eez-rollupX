@@ -396,9 +396,7 @@ class NativeArtifactTest(unittest.TestCase):
         # If tests or extra logic are added here, reconsider the CI selection.
         for package, name, library, entrypoint in (
                 ("eez-node", "eez-composer", "eez_node", "run_composer"),
-                ("eez-follower", "eez-follower", "eez_follower", "run"),
-                ("eez-node-e2e", "eez-composer", "eez_node", "run_composer"),
-                ("eez-node-e2e", "eez-follower", "eez_follower", "run")):
+                ("eez-follower", "eez-follower", "eez_follower", "run")):
             source = (REPO / f"crates/{package}/src/bin/{name}.rs").read_text()
             code = "\n".join(line for line in source.splitlines() if not line.startswith("//!"))
             self.assertEqual(" ".join(code.split()), f"fn main() -> eyre::Result<()> {{ {library}::{entrypoint}() }}")
@@ -626,8 +624,7 @@ class NativeRelocationTest(unittest.TestCase):
                 elif name == "eez-follower":
                     manifest += '[dependencies]\neez-composer={path="../eez-composer"}\n'
                 elif name == "eez-node-e2e":
-                    manifest += '[dependencies]\neez-node={path="../eez-node"}\neez-follower={path="../eez-follower"}\neez-composer={path="../eez-composer"}\n'
-                    manifest += '[dev-dependencies]\nanyhow="1"\n'
+                    manifest += '[dev-dependencies]\neez-node={path="../eez-node"}\nanyhow="1"\n'
                 elif name == "eez-composer":
                     manifest += ('[dependencies]\neez-protocol={path="../eez-protocol"}\n'
                                  '[dev-dependencies]\neez-protocol={path="../eez-protocol",features=["test-util"]}\n')
@@ -652,8 +649,7 @@ fn main() {}
             signer = repo / "crates/eez-proof-signer/src/main.rs"
             signer.write_text('fn main() { println!("signer"); }\n#[test] fn signer_is_tested() { assert_eq!(2+2,4); }\n')
             node = repo / "crates/eez-node-e2e"
-            for package, binary in (("eez-node", "eez-composer"), ("eez-follower", "eez-follower"),
-                                    ("eez-node-e2e", "eez-composer"), ("eez-node-e2e", "eez-follower")):
+            for package, binary in (("eez-node", "eez-composer"), ("eez-follower", "eez-follower")):
                 directory = repo / f"crates/{package}/src/bin"
                 directory.mkdir(exist_ok=True)
                 (directory / f"{binary}.rs").write_text(
@@ -663,7 +659,13 @@ fn main() {}
             common = (REPO / "crates/eez-testkit/src/lib.rs").read_text()
             manifest_fn = common.split("fn manifest_dir()", 1)[1].split("/// Stop dotenv", 1)[0]
             binary_type = common.split("pub enum NodeBinary", 1)[1].split("#[derive(Default)]\npub struct NodeConfig", 1)[0]
-            test_source = 'use std::path::PathBuf;\nuse anyhow::{Context, Result, anyhow, bail, ensure};\nfn manifest_dir()' + manifest_fn + '\npub enum NodeBinary' + binary_type
+            runtime_fn = common.split("fn build_runtime_binary", 1)[1].split("fn proof_signer_binary", 1)[0]
+            test_source = ('use std::{path::PathBuf, process::Command, sync::Mutex};\n'
+                           'use anyhow::{Context, Result, anyhow, bail, ensure};\n'
+                           'static RUNTIME_BUILT: Mutex<bool> = Mutex::new(false);\n'
+                           'fn repo_root() -> PathBuf { manifest_dir().join("../..").canonicalize().unwrap() }\n'
+                           'fn manifest_dir()' + manifest_fn + '\nfn build_runtime_binary' + runtime_fn
+                           + '\npub enum NodeBinary' + binary_type)
             # The standalone enum copy needs its original derive attributes.
             test_source = test_source.replace("pub enum NodeBinary", "#[derive(Default)] pub enum NodeBinary")
             test_source += '''
@@ -673,7 +675,8 @@ fn main() {}
 fn check_node(bin: NodeBinary) {
     let result = std::process::Command::new(bin.path().unwrap()).output().unwrap();
     assert!(result.status.success());
-    assert_eq!(String::from_utf8(result.stdout).unwrap().trim(), "release");
+    let expected = std::env::var("EEZ_FIXTURE_RUNTIME_OUTPUT").unwrap_or_else(|_| "release".into());
+    assert_eq!(String::from_utf8(result.stdout).unwrap().trim(), expected);
 }
 #[test] fn composer_is_relocated() { check_node(NodeBinary::Composer); }
 #[test] fn follower_is_relocated() { check_node(NodeBinary::Follower); }
@@ -750,16 +753,17 @@ fn check_node(bin: NodeBinary) {
             # The rejected run already compiled the workspace test targets here.
             self.assertEqual(produced.returncode, 0, produced.stdout + produced.stderr)
             self.assertNotIn("Compiling anyhow", produced.stderr)
-            # The harness wrappers may rebuild into the same target paths. The
-            # producer preserves the exact shipping bytes before archiving them.
+            # No duplicate runtime entrypoints are linked by the test package.
             for name in native.RUNTIME_BINARIES:
                 self.assertEqual(subprocess.check_output([str(frozen / name)], text=True).strip(),
                                  "signer" if name == "eez-proof-signer" else "release")
             # Check actual Cargo metadata: exactly the E2E target, the vectors
             # and the eez-l1 example; workspace lib/bin units are debug-lane only.
-            metadata = json.loads(subprocess.check_output([
+            archive_metadata = json.loads(subprocess.check_output([
                 "tar", "--zstd", "-xOf", str(artifact / "native-tests.tar.zst"),
-                "target/nextest/binaries-metadata.json"], text=True))["rust-binaries"]
+                "target/nextest/binaries-metadata.json"], text=True))
+            metadata = archive_metadata["rust-binaries"]
+            self.assertFalse(archive_metadata["rust-build-meta"]["non-test-binaries"])
             self.assertEqual(set(metadata), {
                 *(f"eez-node-e2e::{name}" for name in node_targets),
                 *(f"{package}::{target}" for target, package in native.VECTOR_TARGETS.items()),
@@ -771,6 +775,25 @@ fn check_node(bin: NodeBinary) {
                     archive.add(frozen / name, arcname=f"bin/{name}")
             subprocess.run([sys.executable, "scripts/ci/native-tests.py", "seal", str(artifact),
                             "--runtime-archive", str(runtime_archive)], cwd=repo, env=env, check=True)
+            # Local source tests still build current production entrypoints.
+            # Change the source after the archive was built: simply accepting
+            # the existing executable would print the old output and fail.
+            source_binary = metadata[f"eez-node-e2e::{native.E2E_TARGET}"]["binary-path"]
+            source_env = {key: value for key, value in env.items()
+                          if key not in ("EEZ_TEST_PREBUILT", "EEZ_TEST_RUNTIME_BIN_DIR", "EEZ_TEST_PROOF_SIGNER_BIN")}
+            source_env["EEZ_FIXTURE_RUNTIME_OUTPUT"] = "current source"
+            for package, binary in (("eez-node", "eez-composer"), ("eez-follower", "eez-follower")):
+                (repo / f"crates/{package}/src/bin/{binary}.rs").write_text(
+                    'fn main() { println!("current source"); }\n')
+            for test in ("composer_is_relocated", "follower_is_relocated"):
+                command = [source_binary, "--exact", f"e2e::{test}", "--nocapture"]
+                current = subprocess.run(command, cwd=repo, env=source_env, capture_output=True, text=True)
+                self.assertEqual(current.returncode, 0, current.stdout + current.stderr)
+                self.assertIn("1 passed", current.stdout)
+                denied = subprocess.run(command, cwd=repo, env=dict(source_env, EEZ_TEST_PREBUILT="1"),
+                                        capture_output=True, text=True)
+                self.assertNotEqual(denied.returncode, 0)
+                self.assertIn("prebuilt tests require EEZ_TEST_RUNTIME_BIN_DIR", denied.stdout + denied.stderr)
             consumer = root / "different-runner-checkout"
             shutil.copytree(repo, consumer)
             repo.rename(root / "producer-unavailable")

@@ -85,7 +85,7 @@ const TEST_L2_GENESIS_ENV: &str = "EEZ_TEST_L2_GENESIS_PATH";
 const TX_SPAM_INTERVAL: Duration = Duration::from_secs(1);
 
 static LOG_COUNTER: AtomicUsize = AtomicUsize::new(0);
-static WORKSPACE_BUILD_LOCK: Mutex<()> = Mutex::new(());
+static RUNTIME_BUILT: Mutex<bool> = Mutex::new(false);
 
 pub const FATAL_SIGNALS: &[&str] = signals::FATAL;
 
@@ -722,6 +722,55 @@ fn test_log_destination(name: &str) -> Result<(PathBuf, Option<tempfile::TempDir
     Ok((path, Some(dir)))
 }
 
+// Source-based tests build the real role binaries once per test process. Keeping
+// all three in one Cargo invocation avoids alternating dependency feature sets.
+// An existing executable alone does not establish that it matches current source.
+fn build_runtime_binary(name: &str) -> Result<PathBuf> {
+    let current = std::env::current_exe().context("current test executable")?;
+    let target_profile = current
+        .parent()
+        .and_then(std::path::Path::parent)
+        .ok_or_else(|| anyhow!("test executable has no target profile directory"))?;
+    let path = target_profile.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+    let mut built = RUNTIME_BUILT
+        .lock()
+        .map_err(|_| anyhow!("workspace build lock poisoned"))?;
+    if !*built {
+        let profile = target_profile
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| anyhow!("target profile directory is not valid UTF-8"))?;
+        let mut command = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
+        command.current_dir(repo_root()).args([
+            "build",
+            "--locked",
+            "-p",
+            "eez-node",
+            "-p",
+            "eez-follower",
+            "-p",
+            "eez-proof-signer",
+            "--bin",
+            "eez-composer",
+            "--bin",
+            "eez-follower",
+            "--bin",
+            "eez-proof-signer",
+        ]);
+        if profile != "debug" {
+            command.args(["--profile", profile]);
+        }
+        let status = command.status().context("build runtime binaries")?;
+        if !status.success() {
+            bail!("building runtime binaries failed with {status}");
+        }
+        *built = true;
+    }
+    path.is_file()
+        .then_some(path)
+        .ok_or_else(|| anyhow!("runtime build completed without producing {name}"))
+}
+
 fn proof_signer_binary() -> Result<PathBuf> {
     if let Some(path) = std::env::var_os("EEZ_TEST_PROOF_SIGNER_BIN") {
         let path = PathBuf::from(path);
@@ -735,43 +784,7 @@ fn proof_signer_binary() -> Result<PathBuf> {
     if std::env::var_os("EEZ_TEST_PREBUILT").is_some() {
         bail!("prebuilt tests require EEZ_TEST_PROOF_SIGNER_BIN; refusing to compile");
     }
-    let current = std::env::current_exe().context("current test executable")?;
-    let target_profile = current
-        .parent()
-        .and_then(std::path::Path::parent)
-        .ok_or_else(|| anyhow!("test executable has no target profile directory"))?;
-    let path = target_profile.join(format!("eez-proof-signer{}", std::env::consts::EXE_SUFFIX));
-
-    // Keep concurrent test fns from racing the build. Do not treat an existing
-    // binary as current: `cargo test` builds the signer's test executable, not the
-    // un-hashed executable launched below, so an ABI change can otherwise
-    // leave these integration tests running a stale signer indefinitely.
-    let _build_guard = WORKSPACE_BUILD_LOCK
-        .lock()
-        .map_err(|_| anyhow!("workspace build lock poisoned"))?;
-    let profile = target_profile
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| anyhow!("target profile directory is not valid UTF-8"))?;
-    let mut command = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
-    command.current_dir(repo_root()).args([
-        "build",
-        "--locked",
-        "-p",
-        "eez-proof-signer",
-        "--bin",
-        "eez-proof-signer",
-    ]);
-    if profile != "debug" {
-        command.args(["--profile", profile]);
-    }
-    let status = command.status().context("build eez-proof-signer")?;
-    if !status.success() {
-        bail!("building eez-proof-signer failed with {status}");
-    }
-    path.is_file()
-        .then_some(path)
-        .ok_or_else(|| anyhow!("eez-proof-signer build completed without producing the binary"))
+    build_runtime_binary("eez-proof-signer")
 }
 
 /// Launch configuration for one real `eez-proof-signer` process, including
@@ -845,7 +858,9 @@ impl ProofSignerHandle {
         isolate_dotenv(working_dir.path())?;
         let log = std::fs::File::create(&log_path).context("create proof signer log")?;
         let err_log = log.try_clone().context("clone proof signer log")?;
-        let executable = proof_signer_binary()?;
+        let executable = tokio::task::spawn_blocking(proof_signer_binary)
+            .await
+            .context("resolve proof signer binary")??;
         let mut command = if deny_network {
             let mut command = Command::new("python3");
             command
@@ -1205,51 +1220,21 @@ impl NodeBinary {
 
     fn path(self) -> Result<PathBuf> {
         let name = self.name();
-        // The CI archive also contains Cargo's test-feature-unified binaries.
-        // Composer/follower must instead use the frozen shipping candidate.
-        {
-            if let Some(directory) = std::env::var_os("EEZ_TEST_RUNTIME_BIN_DIR") {
-                let path = PathBuf::from(directory).join(name);
-                ensure!(
-                    path.is_file(),
-                    "missing release candidate {}",
-                    path.display()
-                );
-                return Ok(path);
-            }
+        // CI must execute the frozen shipping candidate and never invoke Cargo.
+        if let Some(directory) = std::env::var_os("EEZ_TEST_RUNTIME_BIN_DIR") {
+            let path = PathBuf::from(directory).join(name);
             ensure!(
-                std::env::var_os("EEZ_TEST_PREBUILT").is_none(),
-                "prebuilt tests require EEZ_TEST_RUNTIME_BIN_DIR"
+                path.is_file(),
+                "missing release candidate {}",
+                path.display()
             );
-        }
-        let nextest_key = format!("NEXTEST_BIN_EXE_{}", name.replace('-', "_"));
-        if let Some(path) = std::env::var_os(&nextest_key) {
-            return Ok(path.into());
+            return Ok(path);
         }
         ensure!(
             std::env::var_os("EEZ_TEST_PREBUILT").is_none(),
-            "missing {nextest_key} in prebuilt test"
+            "prebuilt tests require EEZ_TEST_RUNTIME_BIN_DIR"
         );
-        if let Some(path) = std::env::var_os(format!("CARGO_BIN_EXE_{name}")) {
-            return Ok(path.into());
-        }
-
-        // `eez-testkit` is compiled as a library, where Cargo does not expose
-        // `CARGO_BIN_EXE_*` to `env!`. At test runtime the executable sits in
-        // `<target>/<profile>/deps`, alongside the role binaries' parent dir.
-        let current = std::env::current_exe().context("current test executable")?;
-        let target_profile = current
-            .parent()
-            .and_then(std::path::Path::parent)
-            .ok_or_else(|| anyhow!("test executable has no target profile directory"))?;
-        let path = target_profile.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
-        if path.is_file() {
-            return Ok(path);
-        }
-        bail!(
-            "{name} binary not found next to the test profile at {}; build the role binaries before running the harness",
-            target_profile.display(),
-        )
+        build_runtime_binary(name)
     }
 }
 
@@ -1281,16 +1266,16 @@ impl NodeHandle {
         signal("-CONT")
     }
 
-    fn spawn_with(
+    async fn spawn_with(
         name: &str,
         datadir: &std::path::Path,
         cfg: &NodeConfig<'_>,
         env: &[(&'static str, String)],
     ) -> Result<Self> {
-        Self::spawn_with_reservations(name, datadir, cfg, env, Vec::new(), None)
+        Self::spawn_with_reservations(name, datadir, cfg, env, Vec::new(), None).await
     }
 
-    fn spawn_with_reservations(
+    async fn spawn_with_reservations(
         name: &str,
         datadir: &std::path::Path,
         cfg: &NodeConfig<'_>,
@@ -1347,7 +1332,11 @@ impl NodeHandle {
             .map(|p| p.as_os_str().to_owned())
             .or(env_genesis)
             .unwrap_or_else(|| std::ffi::OsString::from("dev"));
-        let mut cmd = Command::new(cfg.binary.path()?);
+        let binary = cfg.binary;
+        let executable = tokio::task::spawn_blocking(move || binary.path())
+            .await
+            .context("resolve node binary")??;
+        let mut cmd = Command::new(executable);
         // env_clear alone does not stop dotenv searching parent directories.
         isolate_dotenv(datadir)?;
         let signal_filter = std::env::var("EEZ_TEST_LOG").unwrap_or_else(|_| {
@@ -1484,7 +1473,7 @@ impl NodeHandle {
         cfg: &NodeConfig<'_>,
         env: &[(&'static str, String)],
     ) -> Result<Self> {
-        let handle = Self::spawn_with(name, datadir, cfg, env)?;
+        let handle = Self::spawn_with(name, datadir, cfg, env).await?;
         handle
             .wait_for_rpc(&handle.l2_rpc_url(), Duration::from_mins(3), "L2 RPC")
             .await?;
@@ -4397,7 +4386,8 @@ impl NativeWorld {
             &self.env,
             Vec::new(),
             Some(http_lease),
-        )?;
+        )
+        .await?;
         self.node
             .wait_for_rpc(&self.node.l2_rpc_url(), SETUP_TIMEOUT, "restarted L2")
             .await?;
@@ -6218,7 +6208,8 @@ async fn setup_native_inner(
         &env,
         cfg.take_port_leases(),
         Some(l2_http_lease),
-    )?;
+    )
+    .await?;
     let mut setup_diagnostics = FixtureSetupDiagnostics {
         node: &node,
         signer: &proof_signer,

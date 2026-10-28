@@ -106,7 +106,8 @@ pub async fn spawn_composer(
         &env,
         port_leases.into(),
         None,
-    )?;
+    )
+    .await?;
     let error = Arc::new(Mutex::new(None));
     let feed_error = error.clone();
     let source = world.l1_rpc();

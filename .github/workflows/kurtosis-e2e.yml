@@ -21,7 +21,9 @@ jobs:
       KURTOSIS_ENCLAVE: eez-ci
       EEZ_CI_RESULT_DIR: ${{ github.workspace }}/artifacts/kurtosis-e2e
       # Bound process concurrency on standard hosted VMs; run every scenario.
-      EEZ_PROTOCOL_MAX_PARALLEL: "2"
+      # Workers mostly wait for their setup to reach the L2 safe head, so four
+      # overlap those waits on the public repository's 4-vCPU runner.
+      EEZ_PROTOCOL_MAX_PARALLEL: "4"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
@@ -56,6 +58,19 @@ jobs:
         uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
         with:
           version: v1.7.1
+      - name: Resolve protocol compiler cache key
+        id: protocol-cache-key
+        run: echo "pin=$(git rev-parse HEAD:eez-core-protocol)" >> "$GITHUB_OUTPUT"
+      # Optional: a miss compiles cold. Forge still checks source content hashes
+      # against the restored cache, and only successful jobs save it. The key
+      # binds the exact protocol gitlink and Foundry version; no prefix fallback.
+      - name: Restore protocol compiler cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            eez-core-protocol/out
+            eez-core-protocol/cache
+          key: forge-protocol-${{ runner.os }}-foundry-v1.7.1-${{ steps.protocol-cache-key.outputs.pin }}
       - name: Install Kurtosis
         id: kurtosis
         run: bash scripts/ci/install-kurtosis.sh

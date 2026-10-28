@@ -1,9 +1,11 @@
 """Keep fixture exceptions narrow enough to detect a new credential beside them."""
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
+import tomllib
 import unittest
 
 
@@ -27,17 +29,29 @@ class SecretScanTest(unittest.TestCase):
         ]
         cases.extend(("scripts/ci/tests/test_why_excluded.py", f'{name} = "{value}"\n')
                      for name, value in builder_keys)
+        # All-ref scans cover fixtures from other revisions. Test the reviewed
+        # historical digests even when the current fixture format or value differs.
+        rules = {rule["description"]: rule for rule in tomllib.loads((REPO / ".gitleaks.toml").read_text())["allowlists"]}
         verification_key_fixtures = [
-            ("crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history.json", "verification_key"),
-            ("crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history-import.json", "verification_key"),
-            ("crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity.json", "vkey"),
-            ("crates/eez-proof-signer/tests/fixtures/native-history-observations/identity.json", "vkey"),
-            ("crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/identity.json", "vkey"),
-            ("crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity.json", "vkey"),
+            ("Bidirectional and prefix-replay fixture verification key", "verification_key", [
+                "crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history.json",
+                "crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history-import.json"]),
+            ("Bidirectional and prefix-replay fixture verification key", "vkey", [
+                "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity.json"]),
+            ("History-observation fixture verification key", "vkey", [
+                "crates/eez-proof-signer/tests/fixtures/native-history-observations/identity.json"]),
+            ("Osaka changing-static fixture verification key", "vkey", [
+                "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/identity.json"]),
+            ("Osaka lookup fixture verification key", "vkey", [
+                "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity.json"]),
         ]
-        for relative, field in verification_key_fixtures:
-            value = json.loads((REPO / relative).read_text())[field]
-            cases.append((relative, json.dumps({field: value}) + "\n"))
+        for description, field, paths in verification_key_fixtures:
+            regexes = rules[description]["regexes"]
+            self.assertEqual(len(regexes), 1)
+            match = re.fullmatch(r"\^\(0x\)\?([0-9a-f]{64})\$", regexes[0])
+            self.assertIsNotNone(match, "verification-key exceptions must match one exact digest")
+            value = "0x" + match[1]
+            cases.extend((relative, json.dumps({field: value}) + "\n") for relative in paths)
         for relative, allowed in cases:
             with self.subTest(path=relative), tempfile.TemporaryDirectory(prefix="eez-secret-scan.") as directory:
                 root = Path(directory)
