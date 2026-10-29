@@ -366,9 +366,19 @@ fn compact_option(detail: &Value) -> Result<Value, FeeQuoteError> {
     let gas = detail["estimate"]["sourceGasUsed"]
         .as_u64()
         .ok_or(FeeQuoteError::Unavailable("internal quote gas"))?;
-    // The unsigned engine uses cap = base + tip, so this is the effective
-    // price. The caller computes the separate wallet reservation from the limit.
-    option["estimatedFee"] = json!(format!("{:#x}", U256::from(cap) * U256::from(gas)));
+    // A type-2 cap includes base-fee headroom, so the charged price is
+    // `base + tip`. The caller computes the separate wallet reservation from the limit.
+    let charged = if transaction["type"] == "0x0" {
+        cap
+    } else {
+        let base = ["l1BaseFeePerGas", "l2BaseFeePerGas"]
+            .iter()
+            .find_map(|key| detail["estimate"][key].as_str())
+            .and_then(|base| base.parse::<u128>().ok())
+            .ok_or(FeeQuoteError::Unavailable("internal quote base fee"))?;
+        cap.min(base.saturating_add(price(transaction, "maxPriorityFeePerGas")?))
+    };
+    option["estimatedFee"] = json!(format!("{:#x}", U256::from(charged) * U256::from(gas)));
     Ok(option)
 }
 
@@ -559,13 +569,21 @@ mod tests {
         let mut hashes = Vec::new();
         for ty in [0, 2] {
             let request = request.resolve(906969, 1, 6_050_247, ty).unwrap();
-            let tx = request.fields(5, 15);
+            // Base 10 and tip 5: legacy pays its full price 15, while type 2
+            // carries the doubled-base cap 25 but is still charged 15.
+            let cap = request.quoted_fee_cap(10, 5).unwrap();
+            assert_eq!(cap, if ty == 0 { 15 } else { 25 });
+            assert_eq!(
+                request.quoted_fee_cap(u128::MAX / 2 + 1, 0).is_err(),
+                ty == 2
+            );
+            let tx = request.fields(5, cap);
             let mut transaction = tx.clone();
             for fee in ["gasPrice", "maxFeePerGas", "maxPriorityFeePerGas"] {
                 transaction.as_object_mut().unwrap().remove(fee);
             }
             let detail = json!({"transaction":tx,"requestHash":keccak256(transaction.to_string()),
-                "estimate":{"sourceGasUsed":100_000}, "policy":{"private":"debug only"}});
+                "estimate":{"sourceGasUsed":100_000,"l2BaseFeePerGas":"10"}, "policy":{"private":"debug only"}});
             let option = compact_option(&detail).unwrap();
             assert_eq!(option["estimatedFee"], "0x16e360");
             assert_eq!(option.get("gasPrice").is_some(), ty == 0);
