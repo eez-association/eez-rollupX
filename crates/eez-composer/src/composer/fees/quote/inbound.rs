@@ -82,8 +82,7 @@ where
             let cap = if request.signed_fees {
                 request.tx.max_fee_per_gas()
             } else {
-                base.checked_add(tip)
-                    .ok_or(FeeQuoteError::Limit("fee cap overflow"))?
+                request.quoted_fee_cap(base, tip)?
             };
             let effective_tip = request
                 .env(tip, cap)

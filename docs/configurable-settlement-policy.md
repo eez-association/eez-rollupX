@@ -1322,7 +1322,7 @@ The compact result is:
     { "type": "0x0", "gas": "0x186a0", "gasPrice": "0xf",
       "requestHash": "0x…", "estimatedFee": "0x4ce78" },
     { "type": "0x2", "gas": "0x186a0", "maxPriorityFeePerGas": "0x5",
-      "maxFeePerGas": "0xf", "requestHash": "0x…", "estimatedFee": "0x4ce78" }
+      "maxFeePerGas": "0x19", "requestHash": "0x…", "estimatedFee": "0x4ce78" }
   ]
 }
 ```
@@ -1331,6 +1331,12 @@ Values above are illustrative. Apart from numeric schema `version`, all compact
 quantities, including expiry Unix seconds, use canonical hex. Fees are in source
 native base units. `estimatedFee` is charged source gas times the quoted effective
 price; the separate maximum reservation is `gas * gasPrice` or `gas * maxFeePerGas`.
+A legacy `gasPrice` is the sampled source base fee plus the quoted tip and is
+charged in full. A type-2 `maxFeePerGas` is twice the sampled base fee plus
+`maxPriorityFeePerGas`: the base fee can double before admission and inclusion
+without clipping the tip, while the charged price stays base fee plus tip.
+The headroom does not raise the tip: admission still recomputes the required tip
+from current prices.
 Each option's `requestHash` is Keccak-256 of the normalized eight-field transaction
 request's UTF-8 JSON, with lexicographically sorted keys, no whitespace, lowercase
 addresses, calldata and minimal lowercase hex quantities. It includes resolved type/gas/nonce,
