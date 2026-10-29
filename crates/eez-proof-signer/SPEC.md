@@ -868,8 +868,13 @@ effect-binding and recursive table validators can represent host slices, but
 their success alone does not authorize signing.
 
 An outbound candidate transaction MUST be immediately preceded by a canonical,
-successful, zero-value `SYSTEM_ADDRESS` call to `loadExecutionTable` containing
-one or more L2 source entries. A group MAY contain only mutable sources,
+successful `SYSTEM_ADDRESS` call to `loadExecutionTable` containing
+one or more L2 source entries. Its native value MUST equal the checked
+`committed_l2_table_value` of its mutable sources, which includes value-bearing
+callbacks in reentrant rows; static sources commit no value. An outbound load is
+therefore not necessarily zero-value
+([native funding](../../docs/proposals/native-system-transactions.md)).
+A group MAY contain only mutable sources,
 or terminal static sources interleaved with successful flat mutable roots in
 one outbound host. A multi-root host containing static sources MUST cover the
 complete load and user transaction; it MUST NOT carry separate callbacks,

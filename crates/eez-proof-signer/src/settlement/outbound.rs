@@ -9,7 +9,8 @@ use eez_protocol::RollupId;
 use eez_protocol::abi::{ExecutionEntrySol, loadExecutionTableCall};
 use eez_protocol::entries::{NestedPairVerification, verify_outbound_source_group};
 use eez_protocol::system_tx::{
-    OutboundSourceEntry, check_entry_shape, check_l2_static_entry_shape, lift_entry_from_l2,
+    OutboundSourceEntry, check_entry_shape, check_l2_static_entry_shape, committed_l2_table_value,
+    lift_entry_from_l2,
 };
 use thiserror::Error;
 
@@ -90,8 +91,8 @@ impl Eq for LoadedOutboundEntries {}
 pub(crate) enum OutboundLoadObservationError {
     #[error("top-level load transaction reverted")]
     RevertedTransaction,
-    #[error("load transaction carries non-zero native value {actual}")]
-    NativeValue { actual: U256 },
+    #[error("load transaction value is {actual}; committed L2 table value is {expected}")]
+    NativeValueMismatch { expected: U256, actual: U256 },
     #[error("load calldata does not decode: {reason}")]
     InvalidAbi { reason: String },
     #[error("load calldata is not its canonical complete ABI encoding")]
@@ -111,11 +112,6 @@ pub(super) fn inspect_outbound_load_candidate(
     if !transaction_succeeded {
         return Err(OutboundLoadObservationError::RevertedTransaction);
     }
-    if transaction_value != U256::ZERO {
-        return Err(OutboundLoadObservationError::NativeValue {
-            actual: transaction_value,
-        });
-    }
     let call = loadExecutionTableCall::abi_decode(calldata).map_err(|error| {
         OutboundLoadObservationError::InvalidAbi {
             reason: error.to_string(),
@@ -126,6 +122,17 @@ pub(super) fn inspect_outbound_load_candidate(
     }
     if call._entries.is_empty() && call._staticEntries.is_empty() {
         return Err(OutboundLoadObservationError::EntryCount { actual: 0 });
+    }
+    // The load funds every call committed to execute on L2, including
+    // value-bearing callbacks in reentrant rows, exactly as the shared builder
+    // prices it. Static sources commit no incoming value.
+    let committed = committed_l2_table_value(&call._entries)
+        .map_err(|reason| OutboundLoadObservationError::InvalidEntry { reason })?;
+    if transaction_value != committed {
+        return Err(OutboundLoadObservationError::NativeValueMismatch {
+            expected: committed,
+            actual: transaction_value,
+        });
     }
     let mut sidecars = Vec::with_capacity(call._entries.len() + call._staticEntries.len());
     for entry in &call._entries {

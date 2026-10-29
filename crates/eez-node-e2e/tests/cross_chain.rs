@@ -21,12 +21,13 @@ use eez_testkit::{
     account_code, assert_latest_batch_signature, batches_posted, call_read, call_revert_data,
     count_events, cross_chain_source_proxy, deploy_nested_setter_inner, deploy_nested_setter_outer,
     events_since, l2_balance, l2_value, last_proxy_result, onchain_nonce, read_state_word,
-    receipt_ok, run_scenarios, safe_block_hash, setter_call, setup_cross_chain,
-    setup_cross_chain_codeless, setup_cross_chain_empty_call, setup_cross_chain_nested_setter,
-    setup_cross_chain_outbound_return_data, setup_cross_chain_overlay_round_trip,
-    setup_cross_chain_proxied, setup_cross_chain_return_data, setup_cross_chain_reverting,
-    setup_cross_chain_static_round_trip, setup_cross_chain_with_env, sign_and_send, signer_address,
-    state_root, value_no_ret, value_read, wait_for, wait_for_receipt_or_failure,
+    receipt_ok, rollup_ether_balance, run_scenarios, safe_block_hash, setter_call,
+    setup_cross_chain, setup_cross_chain_codeless, setup_cross_chain_empty_call,
+    setup_cross_chain_nested_setter, setup_cross_chain_outbound_return_data,
+    setup_cross_chain_overlay_round_trip, setup_cross_chain_proxied, setup_cross_chain_return_data,
+    setup_cross_chain_reverting, setup_cross_chain_static_round_trip, setup_cross_chain_with_env,
+    sign_and_send, signer_address, state_root, value_no_ret, value_read, wait_for,
+    wait_for_receipt_or_failure,
 };
 
 const WAVE_SETTERS: &[u64] = &[7, 11, 17];
@@ -1719,6 +1720,74 @@ async fn overlay_inbound_round_trip_reenters_suspended_l1() {
         .run(&w)
         .await
         .unwrap();
+}
+
+fn overlay_refunded(w: &CrossChainOverlayRoundTripWorld) -> StateRead {
+    call_read(
+        w.probe,
+        "refunded()",
+        IOverlayProbeL2::refundedCall {}.abi_encode(),
+    )
+}
+
+/// An L2 call sends ETH to L1, which returns it to the L2 caller in a
+/// value-bearing callback. The callback's table load carries that value, and
+/// the signer must authorize the funded load for the batch to settle. A prior
+/// inbound deposit funds the rollup's L1 escrow for the outbound transfer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn overlay_refund_round_trip_settles_value_bearing_callback() {
+    let w = setup_cross_chain_overlay_round_trip().await.unwrap();
+    let value = U256::from(OVERLAY_AMOUNT);
+    Scenario::new("inbound deposit through the refund callback")
+        .inbound(
+            ScenarioCall::new(
+                w.probe_on_l1,
+                IOverlayProbeL2::receiveRefundCall {}.abi_encode(),
+            )
+            .with_value(value)
+            .with_gas_limit(OVERLAY_GAS),
+        )
+        .expect_l2_state(overlay_refunded(&w), value)
+        .expect_settled_fully()
+        .run(&w)
+        .await
+        .unwrap();
+    let l1_rpc = w.l1_rpc();
+    let escrow = rollup_ether_balance(&l1_rpc, w.cfg.eez_address, w.cfg.rollup_id)
+        .await
+        .unwrap();
+
+    Scenario::new("outbound refund round trip with a value-bearing callback")
+        .outbound(
+            ScenarioCall::new(
+                w.probe,
+                IOverlayProbeL2::startRefundRoundTripCall {
+                    driver: w.driver_on_l2,
+                    probe: w.probe_on_l1,
+                }
+                .abi_encode(),
+            )
+            .with_value(value)
+            .with_callback_value(value)
+            .with_gas_limit(OVERLAY_GAS),
+        )
+        .expect_l2_state(overlay_refunded(&w), value * U256::from(2))
+        .expect_l2_state(overlay_completed(&w), 1u64)
+        .expect_settled_fully()
+        .run(&w)
+        .await
+        .unwrap();
+    assert_eq!(
+        rollup_ether_balance(&l1_rpc, w.cfg.eez_address, w.cfg.rollup_id)
+            .await
+            .unwrap(),
+        escrow,
+        "the returned value nets the outbound transfer on L1"
+    );
+    assert_eq!(
+        l2_balance(&w.l2_rpc(), w.probe).await.unwrap(),
+        value * U256::from(2)
+    );
 }
 
 /// An L1 call makes a delivery callback and then reverts. The failed call

@@ -313,6 +313,15 @@ fn canonical_outbound_case() -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256)
 }
 
 fn outbound_case(value: U256) -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256) {
+    outbound_case_with_callback_value(value, U256::ZERO)
+}
+
+/// A nonzero `callback_value` adds one value-bearing L1-to-L2 callback to the
+/// source table, so the shared builder funds the load with exactly that value.
+fn outbound_case_with_callback_value(
+    value: U256,
+    callback_value: U256,
+) -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256) {
     let parent_hash = B256::repeat_byte(0x04);
     let block_hash = B256::repeat_byte(0x05);
     let mut batch = outbound_batch(parent_hash, parent_hash, block_hash);
@@ -337,7 +346,19 @@ fn outbound_case(value: U256) -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256
         ..Default::default()
     };
     let user = user_body.encoded_2718_transactions_iter().next().unwrap();
-    let sidecar = flat_outbound_sidecar(&batch.entries[1]);
+    let mut sidecar = flat_outbound_sidecar(&batch.entries[1]);
+    if !callback_value.is_zero() {
+        sidecar.l2ToL1Calls.push(L2ToL1CallSol {
+            revertNextNCalls: 0,
+            isStatic: false,
+            gas: 0,
+            sourceAddress: alloy_primitives::Address::repeat_byte(0x61),
+            sourceRollupId: RollupId::MAINNET.0,
+            targetAddress: alloy_primitives::Address::repeat_byte(0x62),
+            value: callback_value,
+            data: Bytes::new(),
+        });
+    }
     let pairs = eez_protocol::system_tx::build_cross_chain_sync_pairs(
         &[(sidecar.clone(), Bytes::from(user.clone()))],
         &[],
