@@ -9,6 +9,14 @@ fn nested_position_key(call_hash: B256, rolling_hash: B256) -> B256 {
 }
 
 fn nested_outbound_fixture() -> (CanonicalPostBatch, ExecutionEntrySol, Vec<B256>) {
+    nested_outbound_fixture_with_callback_value(U256::ZERO)
+}
+
+/// Four-hop nested host whose first L1-to-L2 callback carries `callback_value`.
+/// L1 credits that value to the rollup, and the L2 load must fund it.
+fn nested_outbound_fixture_with_callback_value(
+    callback_value: U256,
+) -> (CanonicalPostBatch, ExecutionEntrySol, Vec<B256>) {
     let make_call = |index: u8, source_rollup_id: u64| L2ToL1CallSol {
         revertNextNCalls: 0,
         isStatic: false,
@@ -19,12 +27,13 @@ fn nested_outbound_fixture() -> (CanonicalPostBatch, ExecutionEntrySol, Vec<B256
         value: U256::ZERO,
         data: Bytes::from(vec![0x30 + index]),
     };
-    let calls = [
+    let mut calls = [
         make_call(0, 1),
         make_call(1, 0),
         make_call(2, 1),
         make_call(3, 0),
     ];
+    calls[1].value = callback_value;
     let returns = [
         Bytes::from_static(&[0x40]),
         Bytes::from_static(&[0x41]),
@@ -59,7 +68,8 @@ fn nested_outbound_fixture() -> (CanonicalPostBatch, ExecutionEntrySol, Vec<B256
     let l2_outbound_hashes = vec![l2_hash(&calls[0]), l2_hash(&calls[2])];
 
     let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
-    let update = batch.entries[1].rootUpdates.clone();
+    let mut update = batch.entries[1].rootUpdates.clone();
+    update[0].etherDelta = EtherDeltaSol::from(callback_value);
     let mut l1_rolling = EntryRollingHash::seed_for_l1([(1, B256::ZERO)], B256::ZERO);
     l1_rolling.call_begin(common_hash(&calls[0], RollupId::MAINNET));
     let row0_key = nested_position_key(common_hash(&calls[1], RollupId(1)), l1_rolling.current());
@@ -167,6 +177,86 @@ fn outbound_authorizer_accepts_four_hop_nested_tables_and_rejects_row_tampering(
     assert!(matches!(
         authorize_outbound_effects(&plan),
         Err(OutboundEffectError::ExecutionTableMismatch { entry_index: 1, .. })
+    ));
+}
+
+#[test]
+fn outbound_load_funds_exactly_its_committed_callback_value() {
+    use super::super::outbound::OutboundLoadObservationError;
+    use eez_protocol::abi::loadExecutionTableCall;
+    use eez_protocol::system_tx::lower_entry_to_l2;
+    let value = U256::from(1_000_000_000_000_000u64);
+    let (batch, source_entry, event_hashes) = nested_outbound_fixture_with_callback_value(value);
+    let calldata = loadExecutionTableCall {
+        _entries: vec![lower_entry_to_l2(&source_entry)],
+        _staticEntries: Vec::new(),
+    }
+    .abi_encode();
+    let inspect = |transaction_value| {
+        super::super::outbound::inspect_outbound_load_candidate(transaction_value, &calldata, true)
+    };
+    for actual in [U256::ZERO, value - U256::ONE, value + U256::ONE] {
+        assert_eq!(
+            inspect(actual).unwrap_err(),
+            OutboundLoadObservationError::NativeValueMismatch {
+                expected: value,
+                actual,
+            }
+        );
+    }
+
+    let verify = |batch: &CanonicalPostBatch| {
+        let mut settling = SettlingBlockObservations::for_test(
+            vec![true, false],
+            Vec::new(),
+            event_hashes
+                .iter()
+                .enumerate()
+                .map(|(log_index, hash)| {
+                    OutboundEventObservation::decoded_for_test(1, log_index, *hash, 0)
+                })
+                .collect(),
+        );
+        settling
+            .outbound_load_candidates_mut_for_test()
+            .push(OutboundLoadCandidate {
+                transaction_index: 0,
+                inspection: inspect(value),
+            });
+        authorize_outbound_effects(&effect_plan(batch, &settling)).err()
+    };
+    assert_eq!(verify(&batch), None);
+
+    // L1 must credit the callback value to the rollup it funds on L2.
+    let mut uncredited = batch;
+    uncredited.entries[1].rootUpdates[0].etherDelta = EtherDeltaSol::ZERO;
+    assert_eq!(
+        verify(&uncredited),
+        Some(OutboundEffectError::EtherDeltaMismatch {
+            entry_index: 1,
+            expected: I256::try_from(value).unwrap(),
+            actual: I256::ZERO,
+        })
+    );
+}
+
+#[test]
+fn outbound_load_rejects_overflowing_committed_value() {
+    use super::super::outbound::OutboundLoadObservationError;
+    use eez_protocol::abi::loadExecutionTableCall;
+    use eez_protocol::system_tx::lower_entry_to_l2;
+    let (_, source_entry, _) = nested_outbound_fixture();
+    let mut lowered = lower_entry_to_l2(&source_entry);
+    lowered.incomingCalls[0].value = U256::MAX;
+    lowered.expectedOutgoingCalls[0].incomingCalls[0].value = U256::ONE;
+    let calldata = loadExecutionTableCall {
+        _entries: vec![lowered],
+        _staticEntries: Vec::new(),
+    }
+    .abi_encode();
+    assert!(matches!(
+        super::super::outbound::inspect_outbound_load_candidate(U256::MAX, &calldata, true),
+        Err(OutboundLoadObservationError::InvalidEntry { reason }) if reason.contains("overflows")
     ));
 }
 

@@ -51,6 +51,7 @@ def settlement_environment(values):
         "EEZ_FEES_RISK_BPS",
         "EEZ_FEES_PROFIT_BPS",
         "EEZ_FEES_EXCLUDED_SENDERS",
+        "EEZ_FEES_QUOTE_BASE_FEE_PERCENT",
         "EEZ_FEES_L1_REFUND_RECIPIENT",
         "EEZ_FEES_L1_REFUND_PERCENT",
         # Preserve obsolete inputs for Composer migration errors.

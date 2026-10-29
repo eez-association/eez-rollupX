@@ -2756,6 +2756,9 @@ sol! {
         function startDeliverThenBurnAndPing(address driver, address probe, uint256 amount) external;
         function startDeliverBurnThenPing(address driver, address probe, uint256 amount) external;
         function startDeliverThenRevert(address driver, address probe, uint256 amount) external;
+        function refunded() external view returns (uint256);
+        function receiveRefund() external payable;
+        function startRefundRoundTrip(address driver, address probe) external payable;
     }
     #[sol(rpc)]
     interface IOverlayDriverL1 {
@@ -4658,6 +4661,9 @@ enum ScenarioDirection {
 pub struct ScenarioCall {
     pub to: Address,
     pub value: U256,
+    /// Value the call's cross-chain execution returns to its source chain
+    /// through callbacks, counted in bridged-value conservation.
+    pub callback_value: U256,
     pub data: Vec<u8>,
     pub gas_limit: u64,
 }
@@ -4667,6 +4673,7 @@ impl ScenarioCall {
         Self {
             to,
             value: U256::ZERO,
+            callback_value: U256::ZERO,
             data,
             gas_limit: 900_000,
         }
@@ -4676,6 +4683,13 @@ impl ScenarioCall {
     #[must_use]
     pub fn with_value(mut self, value: impl IntoTestU256) -> Self {
         self.value = value.into_test_u256();
+        self
+    }
+
+    /// Set the value returned to the source chain by this call's callbacks.
+    #[must_use]
+    pub fn with_callback_value(mut self, value: impl IntoTestU256) -> Self {
+        self.callback_value = value.into_test_u256();
         self
     }
 
@@ -4786,6 +4800,7 @@ pub async fn read_state_word(rpc_url: &str, read: &StateRead) -> Result<U256> {
 struct ExecutedScenarioAction {
     direction: ScenarioDirection,
     value: U256,
+    callback_value: U256,
     nonce: u64,
     hash: alloy_primitives::TxHash,
 }
@@ -5305,10 +5320,18 @@ async fn assert_value_conservation(
 ) -> Result<()> {
     let mut inbound = U256::ZERO;
     let mut outbound = U256::ZERO;
+    // Callbacks move value back toward the source chain: an outbound call's
+    // callbacks credit the rollup, and an inbound call's callbacks debit it.
     for action in actions {
         match action.direction {
-            ScenarioDirection::Inbound => inbound += action.value,
-            ScenarioDirection::Outbound => outbound += action.value,
+            ScenarioDirection::Inbound => {
+                inbound += action.value;
+                outbound += action.callback_value;
+            }
+            ScenarioDirection::Outbound => {
+                outbound += action.value;
+                inbound += action.callback_value;
+            }
         }
     }
     let after =
@@ -5434,6 +5457,7 @@ impl Scenario {
             actions.push(ExecutedScenarioAction {
                 direction,
                 value: call.value,
+                callback_value: call.callback_value,
                 nonce,
                 hash,
             });

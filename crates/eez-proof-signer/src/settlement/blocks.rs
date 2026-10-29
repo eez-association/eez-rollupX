@@ -8,7 +8,7 @@ use alloy_sol_types::SolCall as _;
 use eez_protocol::abi::loadExecutionTableCall;
 use eez_protocol::entries::EXECUTE_INCOMING_SELECTOR;
 use eez_protocol::settlement::pair_end_positions as framed_effect_candidate_positions;
-use eez_protocol::system_tx::LOAD_EXECUTION_TABLE_SELECTOR;
+use eez_protocol::system_tx::{LOAD_EXECUTION_TABLE_SELECTOR, committed_l2_table_value};
 use reth_primitives_traits::SignedTransaction;
 use thiserror::Error;
 
@@ -215,7 +215,7 @@ pub(crate) fn paired_outbound_transaction(
     if load_call.abi_encode().as_slice() != load.input()
         || load_call._entries.len() != 1
         || !load_call._staticEntries.is_empty()
-        || !load.value().is_zero()
+        || committed_l2_table_value(&load_call._entries).ok() != Some(load.value())
     {
         return None;
     }

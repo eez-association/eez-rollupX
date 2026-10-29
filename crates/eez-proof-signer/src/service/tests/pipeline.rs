@@ -386,7 +386,15 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
 
 #[test]
 fn a_reverted_outbound_load_reports_the_paired_user_transaction() {
-    let (batch, block_rlp, user, _call_hash) = canonical_outbound_case();
+    // A load funding a value-bearing callback frames its user transaction too.
+    for callback_value in [U256::ZERO, U256::from(1_000_000_000_000_000u64)] {
+        assert_reverted_outbound_load_reports_its_user(callback_value);
+    }
+}
+
+fn assert_reverted_outbound_load_reports_its_user(callback_value: U256) {
+    let (batch, block_rlp, user, _call_hash) =
+        outbound_case_with_callback_value(U256::ZERO, callback_value);
     let settling_block = validate::ValidatedBlock::for_test(
         5,
         block_rlp,

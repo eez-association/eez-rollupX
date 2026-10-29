@@ -97,15 +97,26 @@ pub(crate) async fn repeated_quotes(
                     .parse::<U256>()
                     .unwrap();
                 assert!(tip >= required && !required.is_zero(), "{response}");
-                let price: U256 = option[if ty == "0x0" {
-                    "gasPrice"
+                let quantity =
+                    |key: &str| -> U256 { option[key].as_str().unwrap().parse().unwrap() };
+                let base: U256 = estimate["l2BaseFeePerGas"]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                // Legacy pays its full price; type 2 carries the default 150%
+                // base fee (rounded up) and is charged `base + tip`.
+                let price = if ty == "0x0" {
+                    quantity("gasPrice")
                 } else {
-                    "maxFeePerGas"
-                }]
-                .as_str()
-                .unwrap()
-                .parse()
-                .unwrap();
+                    let priority = quantity("maxPriorityFeePerGas");
+                    assert_eq!(
+                        quantity("maxFeePerGas"),
+                        (base * U256::from(150)).div_ceil(U256::from(100)) + priority,
+                        "{response}"
+                    );
+                    base + priority
+                };
                 let fee: U256 = option["estimatedFee"].as_str().unwrap().parse().unwrap();
                 assert_eq!(fee, price * U256::from(source_gas));
                 let runs = result["diagnostics"]["trace"]["runs"].as_array();
