@@ -104,15 +104,15 @@ pub(crate) async fn repeated_quotes(
                     .unwrap()
                     .parse()
                     .unwrap();
-                // Legacy pays its full price; type 2 leaves room for the base
-                // fee to double and is charged `base + tip`.
+                // Legacy pays its full price; type 2 carries the default 150%
+                // base fee (rounded up) and is charged `base + tip`.
                 let price = if ty == "0x0" {
                     quantity("gasPrice")
                 } else {
                     let priority = quantity("maxPriorityFeePerGas");
                     assert_eq!(
                         quantity("maxFeePerGas"),
-                        base * U256::from(2) + priority,
+                        (base * U256::from(150)).div_ceil(U256::from(100)) + priority,
                         "{response}"
                     );
                     base + priority

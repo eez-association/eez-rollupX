@@ -359,12 +359,23 @@ impl L2FeeRequest {
 
     /// Fee cap of an unsigned quote for a candidate `tip`. A legacy `gasPrice`
     /// is charged in full, so it is exactly `base + tip`. A type-2
-    /// `maxFeePerGas` adds one more `base`: the source base fee can double
-    /// before admission and inclusion without clipping the tip, while the
-    /// charged price remains `base + tip`.
-    pub(super) fn quoted_fee_cap(&self, base: u128, tip: u128) -> Result<u128, FeeQuoteError> {
-        let headroom = if self.tx.ty() == 0 { 0 } else { base };
-        base.checked_add(headroom)
+    /// `maxFeePerGas` scales `base` by `base_fee_percent` (at least 100,
+    /// rounded up) so the source base fee can rise before admission and
+    /// inclusion without clipping the tip, while the charged price remains
+    /// `base + tip`.
+    pub(super) fn quoted_fee_cap(
+        &self,
+        base: u128,
+        tip: u128,
+        base_fee_percent: u16,
+    ) -> Result<u128, FeeQuoteError> {
+        let scaled = if self.tx.ty() == 0 {
+            Some(base)
+        } else {
+            base.checked_mul(u128::from(base_fee_percent))
+                .map(|scaled| scaled.div_ceil(100))
+        };
+        scaled
             .and_then(|cap| cap.checked_add(tip))
             .ok_or(FeeQuoteError::Limit("fee cap overflow"))
     }
@@ -902,7 +913,11 @@ where
             let cap = if request.signed_fees {
                 request.tx.max_fee_per_gas()
             } else {
-                request.quoted_fee_cap(u128::from(base), tip)?
+                request.quoted_fee_cap(
+                    u128::from(base),
+                    tip,
+                    self.inner.posting.collection.quote_base_fee_percent,
+                )?
             };
             let effective_tip = tip.min(cap.checked_sub(u128::from(base)).ok_or(
                 FeeQuoteError::SourceFeeCap {

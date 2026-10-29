@@ -82,7 +82,11 @@ where
             let cap = if request.signed_fees {
                 request.tx.max_fee_per_gas()
             } else {
-                request.quoted_fee_cap(base, tip)?
+                request.quoted_fee_cap(
+                    base,
+                    tip,
+                    self.inner.posting.collection.quote_base_fee_percent,
+                )?
             };
             let effective_tip = request
                 .env(tip, cap)

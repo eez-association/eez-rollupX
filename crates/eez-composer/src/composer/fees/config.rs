@@ -10,6 +10,7 @@ pub(crate) struct FeeConfig {
     l2_to_l1_enabled: bool,
     pricing: Option<pricing::Config>,
     refund: Option<refund::Policy>,
+    quote_base_fee_percent: u16,
 }
 
 /// Bound to the actual node before any quote or settlement workers start.
@@ -20,7 +21,16 @@ pub(crate) struct RuntimeFees {
     pub l2_to_l1_enabled: bool,
     pub pricing: Option<pricing::Policy>,
     pub l1_refund: Option<refund::Policy>,
+    /// Percentage of the sampled base fee in an unsigned type-2 quote's
+    /// `maxFeePerGas`, before the tip. It only bounds what the user signs; the
+    /// charged price and admission remain `base + tip`.
+    pub quote_base_fee_percent: u16,
 }
+
+/// Default `EEZ_FEES_QUOTE_BASE_FEE_PERCENT`: the source base fee may rise 50%
+/// (about three full L1 blocks at the 12.5% EIP-1559 step) before inclusion
+/// without clipping the quoted tip.
+pub(crate) const DEFAULT_QUOTE_BASE_FEE_PERCENT: u16 = 150;
 
 impl FeeConfig {
     pub fn parse(
@@ -50,6 +60,16 @@ impl FeeConfig {
             get("EEZ_FEES_L1_REFUND_RECIPIENT")?,
             get("EEZ_FEES_L1_REFUND_PERCENT")?,
         )?;
+        let quote_base_fee_percent = match get("EEZ_FEES_QUOTE_BASE_FEE_PERCENT")? {
+            None => DEFAULT_QUOTE_BASE_FEE_PERCENT,
+            Some(raw) => raw
+                .parse::<u16>()
+                .ok()
+                .filter(|percent| {
+                    raw.bytes().all(|b| b.is_ascii_digit()) && (100..=1000).contains(percent)
+                })
+                .ok_or("EEZ_FEES_QUOTE_BASE_FEE_PERCENT must be an integer between 100 and 1000")?,
+        };
         if (l1_to_l2_enabled || l2_to_l1_enabled) && pricing.is_none() {
             return Err(
                 "enabling cross-chain fees requires complete EEZ_FEES_* cost assumptions".into(),
@@ -63,6 +83,7 @@ impl FeeConfig {
             l2_to_l1_enabled,
             pricing,
             refund,
+            quote_base_fee_percent,
         })
     }
 
@@ -81,6 +102,7 @@ impl FeeConfig {
             l2_to_l1_enabled: self.l2_to_l1_enabled,
             pricing,
             l1_refund: self.refund.filter(|_| self.l1_to_l2_enabled),
+            quote_base_fee_percent: self.quote_base_fee_percent,
         })
     }
 }
@@ -186,6 +208,30 @@ mod tests {
                         .is_none()
                 );
             }
+        }
+    }
+
+    #[test]
+    fn quote_base_fee_percent_defaults_to_150_and_is_bounded() {
+        let percent = |value: Option<&str>| {
+            let mut values = HashMap::new();
+            if let Some(value) = value {
+                values.insert("EEZ_FEES_QUOTE_BASE_FEE_PERCENT", value.to_owned());
+            }
+            parse(&values).map(|config| bind(config).unwrap().quote_base_fee_percent)
+        };
+        assert_eq!(percent(None), Ok(DEFAULT_QUOTE_BASE_FEE_PERCENT));
+        assert_eq!(DEFAULT_QUOTE_BASE_FEE_PERCENT, 150);
+        for (raw, expected) in [("100", 100), ("200", 200), ("1000", 1000)] {
+            assert_eq!(percent(Some(raw)), Ok(expected));
+        }
+        for invalid in ["", "99", "1001", "+150", " 150", "1.5", "150%", "65636"] {
+            assert!(
+                percent(Some(invalid))
+                    .unwrap_err()
+                    .contains("EEZ_FEES_QUOTE_BASE_FEE_PERCENT"),
+                "{invalid:?} must be rejected"
+            );
         }
     }
 

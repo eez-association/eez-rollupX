@@ -570,11 +570,20 @@ mod tests {
         for ty in [0, 2] {
             let request = request.resolve(906969, 1, 6_050_247, ty).unwrap();
             // Base 10 and tip 5: legacy pays its full price 15, while type 2
-            // carries the doubled-base cap 25 but is still charged 15.
-            let cap = request.quoted_fee_cap(10, 5).unwrap();
-            assert_eq!(cap, if ty == 0 { 15 } else { 25 });
+            // carries the 150%-base cap 20 but is still charged 15. Scaling
+            // rounds up, and overflow is rejected rather than saturated.
+            let cap = request.quoted_fee_cap(10, 5, 150).unwrap();
+            assert_eq!(cap, if ty == 0 { 15 } else { 20 });
             assert_eq!(
-                request.quoted_fee_cap(u128::MAX / 2 + 1, 0).is_err(),
+                request.quoted_fee_cap(10, 5, 200).unwrap(),
+                if ty == 0 { 15 } else { 25 }
+            );
+            assert_eq!(
+                request.quoted_fee_cap(7, 0, 150).unwrap(),
+                if ty == 0 { 7 } else { 11 }
+            );
+            assert_eq!(
+                request.quoted_fee_cap(u128::MAX / 100 + 1, 0, 150).is_err(),
                 ty == 2
             );
             let tx = request.fields(5, cap);

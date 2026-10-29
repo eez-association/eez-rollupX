@@ -1077,6 +1077,12 @@ empty value.
 | `EEZ_FEES_RISK_BPS`, `EEZ_FEES_PROFIT_BPS` | Integers 0..10000, independently applied to posting plus the three fixed costs. Risk is mandatory; profit is the additional quote target and may absorb later cost changes. |
 | `EEZ_FEES_EXCLUDED_SENDERS` | Comma-separated distinct 20-byte addresses, at most 64 and 4096 bytes. Empty means none; surrounding address whitespace is allowed. The poster and L2 beneficiary are always excluded too. |
 
+`EEZ_FEES_QUOTE_BASE_FEE_PERCENT` is optional and independent of the cost model:
+an integer 100..1000, default 150, giving the percentage of the sampled source
+base fee placed in an unsigned type-2 quote's `maxFeePerGas` before the tip. It
+bounds only what the wallet signs; charged fees, tip requirements and admission
+are unchanged. Absent uses the default; empty or out-of-range values fail startup.
+
 The model derives chain IDs, the owned L2 rollup and its beneficiary from runtime
 wiring. The shipping node owns one L2 rollup; a configured fee model rejects zero
 chain IDs, zero/multiple owned L2 rollups, and a zero `EEZ_L2_FEE_RECIPIENT`.
@@ -1322,7 +1328,7 @@ The compact result is:
     { "type": "0x0", "gas": "0x186a0", "gasPrice": "0xf",
       "requestHash": "0x…", "estimatedFee": "0x4ce78" },
     { "type": "0x2", "gas": "0x186a0", "maxPriorityFeePerGas": "0x5",
-      "maxFeePerGas": "0x19", "requestHash": "0x…", "estimatedFee": "0x4ce78" }
+      "maxFeePerGas": "0x14", "requestHash": "0x…", "estimatedFee": "0x4ce78" }
   ]
 }
 ```
@@ -1332,9 +1338,11 @@ quantities, including expiry Unix seconds, use canonical hex. Fees are in source
 native base units. `estimatedFee` is charged source gas times the quoted effective
 price; the separate maximum reservation is `gas * gasPrice` or `gas * maxFeePerGas`.
 A legacy `gasPrice` is the sampled source base fee plus the quoted tip and is
-charged in full. A type-2 `maxFeePerGas` is twice the sampled base fee plus
-`maxPriorityFeePerGas`: the base fee can double before admission and inclusion
-without clipping the tip, while the charged price stays base fee plus tip.
+charged in full. A type-2 `maxFeePerGas` is `EEZ_FEES_QUOTE_BASE_FEE_PERCENT`
+(default 150) percent of the sampled base fee, rounded up, plus
+`maxPriorityFeePerGas`: the base fee can rise by that margin before admission and
+inclusion without clipping the tip, while the charged price stays base fee plus
+tip.
 The headroom does not raise the tip: admission still recomputes the required tip
 from current prices.
 Each option's `requestHash` is Keccak-256 of the normalized eight-field transaction
