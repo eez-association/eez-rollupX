@@ -19,7 +19,7 @@ fn action(source: u64, target: u64, marker: u8) -> ExecutedAction {
             gas_used: 0,
             success: true,
         },
-        revert_span: None,
+        revert_spans: vec![],
     }
 }
 

@@ -17,7 +17,7 @@ use crate::RollupId;
 use crate::abi::ExecutionEntrySol;
 use crate::blob_semantics::SemanticTransaction;
 use crate::settlement::{FifoSourceAction, composition_fifo_actions};
-use crate::system_tx::{OutboundSyncGroup, outbound_settlement_root_counts};
+use crate::system_tx::{OutboundSyncGroup, outbound_settlement_source_counts};
 
 /// Signed source transaction in original held-pool order.
 #[derive(Debug)]
@@ -247,7 +247,22 @@ impl SettlementManifest {
         if !semantics.is_empty() {
             return Err("unowned semantic source transaction".into());
         }
-        let root_counts = outbound_settlement_root_counts(input.outbound_hosts)?;
+        let group_shapes = input
+            .outbound_groups
+            .iter()
+            .map(|group| {
+                (
+                    group.effects.len(),
+                    group.effects.iter().any(|effect| {
+                        matches!(
+                            effect.source_entry,
+                            crate::system_tx::OutboundSourceEntry::Static(_)
+                        )
+                    }),
+                )
+            })
+            .collect::<Vec<_>>();
+        let root_counts = outbound_settlement_source_counts(input.outbound_hosts, &group_shapes)?;
         let mut effects = Vec::new();
         let mut root_cursor = 0usize;
         let mut host_cursor = 0usize;
@@ -421,7 +436,7 @@ mod tests {
                 gas_used: 0,
                 success,
             },
-            revert_span: None,
+            revert_spans: vec![],
         }
     }
 
@@ -738,7 +753,7 @@ mod tests {
                 match invalid {
                     "pending" => call.outcome = ExecutionOutcome::Pending,
                     "parent" => call.parent_index = Some(0),
-                    "rollback" => call.revert_span = Some(2),
+                    "rollback" => call.revert_spans = vec![2],
                     "static value" => {
                         call.call_mode = CallMode::Static;
                         call.value = U256::from(1);

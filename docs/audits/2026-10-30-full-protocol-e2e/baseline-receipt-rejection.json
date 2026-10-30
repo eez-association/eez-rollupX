@@ -1,0 +1,86 @@
+{
+  "interpretation": "During the first receipt wait (staticLocalWriteL2), the signer repeatedly rejected outbound static lookup results. Later receipt waits share this network and are not independently attributed support gaps.",
+  "logs": [
+    {
+      "service": "eez-node",
+      "sha256": "33c45386a1110b39a4df86131efc005296aea45e86fcc89acf8ffdf4f7cea076",
+      "events": [
+        {
+          "timestamp": "2026-10-30T18:53:10.439421Z",
+          "level": "ERROR",
+          "fields": {
+            "error": "protocol: unsupported protocol operation: static cross-chain callbacks with descendants are not supported"
+          },
+          "target": "eez_protocol::composition"
+        },
+        {
+          "timestamp": "2026-10-30T18:53:10.440014Z",
+          "level": "ERROR",
+          "fields": {
+            "error": "protocol: unsupported protocol operation: static cross-chain callbacks with descendants are not supported"
+          },
+          "target": "eez_protocol::composition"
+        },
+        {
+          "timestamp": "2026-10-30T18:53:12.264003Z",
+          "level": "ERROR",
+          "fields": {
+            "message": "proof unavailable or rejected; retaining the complete range and all source ownership",
+            "rollup_id": 1,
+            "error": "prover backend: Prove 1411-1416: code: 'The system is not in a state required for the operation's execution', message: \"settlement validation rejected\""
+          },
+          "target": "eez_composer::composer"
+        },
+        {
+          "timestamp": "2026-10-30T18:53:24.293080Z",
+          "level": "ERROR",
+          "fields": {
+            "message": "proof unavailable or rejected; retaining the complete range and all source ownership",
+            "rollup_id": 1,
+            "error": "prover backend: Prove 1411-1422: code: 'The system is not in a state required for the operation's execution', message: \"settlement validation rejected\""
+          },
+          "target": "eez_composer::composer"
+        }
+      ]
+    },
+    {
+      "service": "eez-proof-signer",
+      "sha256": "313d369b02abc4d1afbf0583b76a40c3e57281b29ac10a18c5f2b2067c7cf4e9",
+      "events": [
+        {
+          "timestamp": "2026-10-30T18:53:12.258104Z",
+          "level": "WARN",
+          "fields": {
+            "message": "offline finalization rejected",
+            "phase": "settlement",
+            "gate": "outbound_effects",
+            "error": "outbound entry 1 and its source table are structurally inconsistent: invalid encoding: outbound static sources have conflicting results for the same lookup key"
+          },
+          "target": "eez_proof_signer::service::sessions"
+        },
+        {
+          "timestamp": "2026-10-30T18:53:12.263425Z",
+          "level": "WARN",
+          "fields": {
+            "message": "offline finalization rejected",
+            "phase": "settlement",
+            "gate": "outbound_effects",
+            "error": "outbound entry 1 and its source table are structurally inconsistent: invalid encoding: outbound static sources have conflicting results for the same lookup key"
+          },
+          "target": "eez_proof_signer::service::sessions"
+        },
+        {
+          "timestamp": "2026-10-30T18:53:24.292793Z",
+          "level": "WARN",
+          "fields": {
+            "message": "offline finalization rejected",
+            "phase": "settlement",
+            "gate": "outbound_effects",
+            "error": "outbound entry 1 and its source table are structurally inconsistent: invalid encoding: outbound static sources have conflicting results for the same lookup key"
+          },
+          "target": "eez_proof_signer::service::sessions"
+        }
+      ]
+    }
+  ]
+}

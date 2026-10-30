@@ -468,13 +468,12 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
                 self.assertEqual(self.summary()["passed"], ["one"])
 
     def test_full_wrapper_accounts_for_every_pinned_scenario_and_keeps_evidence_gate(self):
-        # Discovery and default eligibility follow the current pin.
+        # Upstream integration markers must not reduce RollupX's full inventory.
         paths = sorted((REPO / "eez-core-protocol/script/e2e/scenarios").rglob("E2E*.s.sol"))
         names = [p.parent.name for p in paths if "shared" not in p.parts]
         excluded = [p.parent.name for p in paths if "shared" not in p.parts
                     and any(line.startswith("// E2E_EXCLUDE_FROM_ALL:")
                             for line in p.read_text().splitlines())]
-        eligible = [name for name in names if name not in excluded]
         self.add_scenarios(*names)
         for name in excluded:
             scenario = self.protocol / "script/e2e/scenarios/fixtures/L1_to_L2" / name / "E2EFixture.s.sol"
@@ -483,17 +482,17 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
         result = self.run_outer(wrapper)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         summary = self.summary()
-        self.assertEqual(summary["suite"], dict(discovered=len(names), eligible=len(eligible),
-                                                selected=len(eligible), excluded_from_all=sorted(excluded),
+        self.assertEqual(summary["suite"], dict(discovered=len(names), eligible=len(names),
+                                                selected=len(names), excluded_from_all=[],
                                                 complete=True))
-        self.assertCountEqual(summary["passed"], eligible)
+        self.assertCountEqual(summary["passed"], names)
         self.assertTrue(summary["accounting"]["valid"])
         self.assertTrue(summary["evidence_complete"])
         self.assertTrue(summary["semantic_blob_coverage"]["complete"])
         self.assertEqual(summary["execution"]["runner"], "network-parallel")
         self.assertEqual([p["phase"] for p in summary["execution"]["phases"]],
                          ["bridge-prerequisite", "parallel"])
-        self.assert_schedule(2, eligible)
+        self.assert_schedule(2, names)
 
     def test_outer_selection_is_expanded_once_and_incomplete_coverage_is_explicit(self):
         self.add_scenarios("one", "two", "revertCounter")
@@ -539,7 +538,7 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(trace.read_text(), expected)
 
-    def test_default_suite_respects_upstream_network_exclusions(self):
+    def test_default_suite_includes_upstream_explicit_only_scenarios(self):
         self.add_scenarios("one", "two", "staticLocalWrite")
         scenario = self.protocol / "script/e2e/scenarios/fixtures/L1_to_L2/staticLocalWrite/E2EFixture.s.sol"
         scenario.write_text("// E2E_EXCLUDE_FROM_ALL: NOT LIVE YET\n" + scenario.read_text())
@@ -547,10 +546,10 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
 
         result = self.run_outer(wrapper)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertCountEqual(self.summary()["passed"], ["one", "two"])
-        self.assertEqual(self.summary()["suite"], dict(discovered=3, eligible=2, selected=2,
-                                                       excluded_from_all=["staticLocalWrite"], complete=True))
-        self.assert_schedule(2, ["one", "two"])
+        self.assertCountEqual(self.summary()["passed"], ["one", "two", "staticLocalWrite"])
+        self.assertEqual(self.summary()["suite"], dict(discovered=3, eligible=3, selected=3,
+                                                       excluded_from_all=[], complete=True))
+        self.assert_schedule(2, ["one", "two", "staticLocalWrite"])
 
         self.env["EEZ_PROTOCOL_SCENARIOS"] = "staticLocalWrite"
         self.tool("date", "#!/bin/sh\necho 20000101-000001\n")
@@ -564,7 +563,7 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
         result = self.run_outer(wrapper)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse(self.summary()["suite"]["complete"],
-                         "replacing a live scenario with an excluded one is incomplete")
+                         "selecting only two of three discovered scenarios is incomplete")
 
     def test_outer_all_parallel_still_accounts_for_every_pinned_scenario(self):
         paths = sorted((REPO / "eez-core-protocol/script/e2e/scenarios").rglob("E2E*.s.sol"))

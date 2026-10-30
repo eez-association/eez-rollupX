@@ -37,6 +37,7 @@ E2E_BINARIES = {f"eez-node-e2e::{E2E_TARGET}"}
 VECTOR_TARGETS = {
     "public_inputs_hash_vectors": "eez-protocol", "rolling_hash_vectors": "eez-protocol",
     "causal_evidence": "eez-protocol", "ethereum_kzg_compatibility": "eez-blob-codec",
+    "call_patterns": "eez-protocol",
     "issue35": "eez-payload-codec",
 }
 TARGETS = [E2E_TARGET, *VECTOR_TARGETS]

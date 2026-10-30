@@ -683,9 +683,8 @@ fn outbound_bindings_require_a_preceding_load_and_outbound_first_order() {
         ));
     assert_eq!(
         verify_effect_prefix(&outbound_batch, B256::ZERO, &[], &missing_load).err(),
-        Some(EffectPrefixError::EffectCountMismatch {
-            claimed: 1,
-            observed: 0
+        Some(EffectPrefixError::InvalidEffectTransactionLayout {
+            reason: "outbound settlement hosts exceed the signed source groups".into(),
         })
     );
 
@@ -821,6 +820,55 @@ fn fully_reverted_outbound_root_is_authorized_without_an_impossible_event() {
     let authorized = authorize_outbound_effects(&plan)
         .expect("the rollback marker authorizes a call whose receipt event reverted");
     assert_eq!(authorized.len(), 1);
+}
+
+#[test]
+fn naturally_reverted_root_retries_share_one_loaded_source_slot() {
+    let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
+    let failed_return = Bytes::from_static(b"L1 target reverted");
+    let root = batch.entries[1].l2ToL1Calls[0].clone();
+    let call_hash = common_cross_chain_call_hash(CallHashInput {
+        call_mode: CallMode::Mutable,
+        source_address: root.sourceAddress,
+        source_rollup_id: RollupId(root.sourceRollupId),
+        target_address: root.targetAddress,
+        target_rollup_id: RollupId::MAINNET,
+        value: root.value,
+        data: &root.data,
+    });
+    batch.entries[1].l2ToL1Calls.push(root.clone());
+    let mut rolling = EntryRollingHash::seed_for_l1([(1, B256::ZERO)], B256::ZERO);
+    for _ in 0..2 {
+        rolling.call_begin(call_hash);
+        rolling.call_end(false, &failed_return);
+    }
+    batch.entries[1].rollingHash = rolling.current();
+    batch.entries[1].rootUpdates[0].etherDelta = EtherDeltaSol::ZERO;
+    let source = flat_outbound_sidecar_for_call(&root, false, failed_return);
+    let mut settling = settling_with_system_flags(vec![true, false]);
+    settling
+        .outbound_load_candidates_mut_for_test()
+        .push(OutboundLoadCandidate::decoded_for_test(0, source.clone()));
+    // Both target attempts revert naturally, restoring the source cursor.
+    // Neither leaves a receipt event; the loaded source slot is reused.
+    let plan = effect_plan(&batch, &settling);
+    let authorized = authorize_outbound_effects(&plan)
+        .expect("natural retries reuse the same complete source load");
+    assert_eq!(authorized.len(), 1);
+    assert_eq!(authorized.groups().map(<[_]>::len).collect::<Vec<_>>(), [1]);
+
+    let mut unused = source.clone();
+    unused.proxyEntryHash = B256::repeat_byte(0xf1);
+    unused.rollingHash = EntryRollingHash::seed_for_l2(unused.proxyEntryHash).current();
+    settling.outbound_load_candidates_mut_for_test()[0] =
+        OutboundLoadCandidate::decoded_many_for_test(0, vec![source, unused]);
+    let plan = effect_plan(&batch, &settling);
+    assert!(
+        matches!(authorize_outbound_effects(&plan),
+        Err(OutboundEffectError::ExecutionTableMismatch { reason, .. })
+            if reason.contains("did not exercise every source entry")),
+        "whole-load accounting cannot authorize an unused source slot"
+    );
 }
 
 #[test]
@@ -981,14 +1029,17 @@ fn outbound_effect_prefix_rejects_unsupported_target_shapes() {
     ] {
         let mut batch = valid.clone();
         enrich(&mut batch.entries[1]);
+        let plan = verify_effect_prefix(&batch, B256::ZERO, &checkpoints, &settling)
+            .expect("one complete load owns the host checkpoint");
+        // Cardinality cannot distinguish a valid reverted retry from an
+        // extra successful call. The inverse execution check must reject it.
+        let Err(OutboundEffectError::ExecutionTableMismatch { reason, .. }) =
+            authorize_outbound_effects(&plan)
+        else {
+            panic!("extra calls or rows must fail independent table binding");
+        };
         if batch.entries[1].l2ToL1Calls.len() > 1 {
-            assert!(matches!(
-                verify_effect_prefix(&batch, B256::ZERO, &checkpoints, &settling),
-                Err(EffectPrefixError::InvalidEffectTransactionLayout { reason })
-                    if reason == "outbound host exceeds its source load"
-            ));
-        } else {
-            assert!(verify_effect_prefix(&batch, B256::ZERO, &checkpoints, &settling).is_ok());
+            assert!(reason.contains("no forward source candidate"), "{reason}");
         }
     }
 }
@@ -1328,12 +1379,14 @@ fn mixed_outbound_rejects_partitioning_the_static_pool_between_hosts() {
             }
             host.rollingHash = rolling.current();
         }
-        match authorize_outbound_effects(&effect_plan(&batch, &settling)) {
-            Err(OutboundEffectError::ExecutionTableMismatch { reason, .. }) => {
-                assert!(reason.contains("complete source load"))
-            }
-            _ => panic!("expected complete static pool rejection"),
-        }
+        assert!(
+            matches!(
+                verify_effect_prefix(&batch, B256::ZERO, &[checkpoint(1, B256::ZERO)], &settling),
+                Err(EffectPrefixError::InvalidEffectTransactionLayout { reason })
+                    if reason == "outbound settlement hosts exceed the signed source groups",
+            ),
+            "a static load cannot authorize two independently settled hosts"
+        );
     }
 }
 

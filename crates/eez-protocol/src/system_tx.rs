@@ -301,15 +301,19 @@ pub struct OutboundSyncGroup {
 /// entry. Calls inside a marked revert span advance the cursor temporarily and
 /// then restore it, so a later retry can consume the same source entry again.
 /// Nested callbacks are part of the loaded tables and execute inline.
+/// Natural failures also restore the source cursor, but their success bits are
+/// absent from the host call array. Use [`outbound_settlement_source_counts`]
+/// with complete load boundaries instead of treating this inferred count as
+/// authority for the number of source entries.
 ///
 /// # Errors
 ///
 /// Returns an error for a non-host entry or an empty host.
-pub fn outbound_settlement_root_counts(
-    entries: &[ExecutionEntrySol],
+pub fn outbound_settlement_root_counts<'a>(
+    entries: impl IntoIterator<Item = &'a ExecutionEntrySol>,
 ) -> Result<Vec<usize>, String> {
     entries
-        .iter()
+        .into_iter()
         .enumerate()
         .map(|(index, entry)| {
             if entry.proxyEntryHash != alloy_primitives::B256::ZERO {
@@ -333,21 +337,100 @@ pub fn outbound_settlement_root_counts(
 }
 
 fn call_array_cursor_slots(calls: &[crate::abi::L2ToL1CallSol]) -> usize {
-    let mut call_index = 0usize;
     let mut cursor = 0usize;
-    let mut slots = 0usize;
-    while call_index < calls.len() {
-        let span = usize::from(calls[call_index].revertNextNCalls);
-        let group_len = span.max(1);
-        let saved_cursor = cursor;
-        cursor += group_len;
-        slots = slots.max(cursor);
-        call_index += group_len;
-        if span != 0 {
-            cursor = saved_cursor;
+    let mut keys = Vec::new();
+    let mut scopes = Vec::new();
+    let mut static_roots = 0usize;
+    for (index, call) in calls.iter().enumerate() {
+        if call.revertNextNCalls != 0 {
+            scopes.push((index + usize::from(call.revertNextNCalls), cursor));
+        }
+        if call.isStatic {
+            static_roots += 1;
+        } else {
+            let key = crate::action::common_cross_chain_call_hash(crate::action::CallHashInput {
+                call_mode: crate::CallMode::Mutable,
+                source_address: call.sourceAddress,
+                source_rollup_id: RollupId(call.sourceRollupId),
+                target_address: call.targetAddress,
+                target_rollup_id: RollupId::MAINNET,
+                value: call.value,
+                data: &call.data,
+            });
+            let slot = keys
+                .iter()
+                .enumerate()
+                .skip(cursor)
+                .find(|(_, candidate)| **candidate == key)
+                .map(|(slot, _)| slot)
+                .unwrap_or_else(|| {
+                    keys.push(key);
+                    keys.len() - 1
+                });
+            cursor = slot + 1;
+        }
+        while scopes.last().is_some_and(|(end, _)| *end == index + 1) {
+            cursor = scopes.pop().expect("scope checked above").1;
         }
     }
-    slots
+    keys.len() + static_roots
+}
+
+/// Partition loaded source entries by settlement host without splitting a
+/// signed transaction's static pool. `groups` contains each complete load's
+/// entry count and whether it includes static entries, in transaction order.
+///
+/// Static reads may recursively use more pool entries than there are host root
+/// calls. Mutable-only loads retain their cursor-based partition, including
+/// multiple hosts in one signed transaction. Counts establish boundaries only;
+/// callers must independently bind every host to the selected source tables.
+pub fn outbound_settlement_source_counts<'a>(
+    entries: impl IntoIterator<Item = &'a ExecutionEntrySol>,
+    groups: &[(usize, bool)],
+) -> Result<Vec<usize>, String> {
+    let root_counts = outbound_settlement_root_counts(entries)?;
+    if groups.len() == root_counts.len() {
+        // Every load owns at least one host, so equal cardinalities uniquely
+        // identify complete-group boundaries. Do not infer slot counts from
+        // root attempts: terminal reverts can reuse the same source slot.
+        return groups
+            .iter()
+            .map(|&(count, _)| {
+                if count == 0 {
+                    Err("outbound source group is empty".into())
+                } else {
+                    Ok(count)
+                }
+            })
+            .collect();
+    }
+    let mut counts = Vec::with_capacity(root_counts.len());
+    for &(source_count, has_static) in groups {
+        if source_count == 0 {
+            return Err("outbound source group is empty".into());
+        }
+        if has_static {
+            if counts.len() >= root_counts.len() {
+                return Err("outbound static group has no settlement host".into());
+            }
+            counts.push(source_count);
+        } else {
+            let mut remaining = source_count;
+            while remaining != 0 {
+                let count = *root_counts
+                    .get(counts.len())
+                    .ok_or("outbound source group has no settlement host")?;
+                remaining = remaining
+                    .checked_sub(count)
+                    .ok_or("outbound settlement host splits signed source groups")?;
+                counts.push(count);
+            }
+        }
+    }
+    if counts.len() != root_counts.len() {
+        return Err("outbound settlement hosts exceed the signed source groups".into());
+    }
+    Ok(counts)
 }
 
 /// The canonical Sync-block tx order: each pair's system tx immediately
@@ -402,81 +485,54 @@ pub fn sync_pair_end_positions(pairs: &[SyncPair]) -> Vec<usize> {
 /// # Errors
 /// Returns a `String` error naming the offending shape.
 pub fn check_entry_shape(entry: &ExecutionEntrySol, dir: &str) -> Result<(), String> {
-    if !entry.success && (entry.l2ToL1Calls.len() > 1 || !entry.expectedL1ToL2Calls.is_empty()) {
-        return Err(format!(
-            "unsuccessful {dir} entry is nonterminal; failed top-level calls with descendants are not supported"
-        ));
-    }
     check_call_array_shape(&entry.l2ToL1Calls, &format!("{dir} entry flat calls"))?;
     for (row_index, row) in entry.expectedL1ToL2Calls.iter().enumerate() {
         check_call_array_shape(
             &row.l2ToL1Calls,
             &format!("{dir} entry nested row {row_index}"),
         )?;
-        if row.success && row.revertedOrStaticRollingHash != alloy_primitives::B256::ZERO {
-            return Err(format!(
-                "{dir} entry nested row {row_index} is successful but carries a reverted/static rolling hash"
-            ));
-        }
-        if !row.success {
-            if row.revertedOrStaticRollingHash == alloy_primitives::B256::ZERO {
-                return Err(format!(
-                    "{dir} entry failed nested row {row_index} has no reverted rolling hash"
-                ));
-            }
-            if !row.l2ToL1Calls.is_empty() {
-                return Err(format!(
-                    "{dir} entry failed nested row {row_index} contains sub-calls; failed rows with sub-calls are not supported"
-                ));
-            }
-        }
+        // The call that resolves a row determines its kind. Static rows bind
+        // callback results even on failure; mutable rows bind a reverted hash
+        // only on failure. Contextual verification enforces those distinctions.
     }
     Ok(())
 }
 
-fn check_call_array_shape(calls: &[crate::abi::L2ToL1CallSol], label: &str) -> Result<(), String> {
-    let mut index = 0usize;
-    while index < calls.len() {
-        let call = &calls[index];
+pub(crate) fn check_call_array_shape(
+    calls: &[crate::abi::L2ToL1CallSol],
+    label: &str,
+) -> Result<(), String> {
+    let mut scope_ends = Vec::new();
+    for (index, call) in calls.iter().enumerate() {
+        while scope_ends.last() == Some(&index) {
+            scope_ends.pop();
+        }
         if call.gas != 0 {
             return Err(format!("{label} call {index} uses explicit-gas semantics"));
         }
-        if call.isStatic {
-            if !call.value.is_zero() {
-                return Err(format!(
-                    "{label} static call {index} carries non-zero value"
-                ));
-            }
-            if call.revertNextNCalls != 0 {
-                return Err(format!("{label} static call {index} carries a revert span"));
-            }
-            index += 1;
-            continue;
-        }
-        let span = usize::from(call.revertNextNCalls);
-        if span == 0 {
-            index += 1;
-            continue;
-        }
-        let end = index
-            .checked_add(span)
-            .filter(|end| *end <= calls.len())
-            .ok_or_else(|| {
-                format!(
-                    "{label} call {index} revert span {span} exceeds the {}-call array",
-                    calls.len(),
-                )
-            })?;
-        if let Some(nested) = calls[index + 1..end]
-            .iter()
-            .position(|call| call.revertNextNCalls != 0)
-        {
+        if call.isStatic && !call.value.is_zero() {
             return Err(format!(
-                "{label} call {} starts a nested revert span",
-                index + 1 + nested,
+                "{label} static call {index} carries non-zero value"
             ));
         }
-        index = end;
+        let span = usize::from(call.revertNextNCalls);
+        if span != 0 {
+            let end = index
+                .checked_add(span)
+                .filter(|end| *end <= calls.len())
+                .ok_or_else(|| {
+                    format!(
+                        "{label} call {index} revert span {span} exceeds the {}-call array",
+                        calls.len()
+                    )
+                })?;
+            if scope_ends.last().is_some_and(|outer| end > *outer) {
+                return Err(format!(
+                    "{label} call {index} starts a crossing revert span"
+                ));
+            }
+            scope_ends.push(end);
+        }
     }
     Ok(())
 }
@@ -1024,6 +1080,34 @@ mod tests {
     }
 
     #[test]
+    fn call_array_shape_checks_every_call_inside_rollback_scopes() {
+        let mut calls = vec![inbound(1, U256::ZERO).as_abi_entry().l2ToL1Calls[0].clone(); 3];
+        calls[0].revertNextNCalls = 3;
+        calls[1].revertNextNCalls = 1;
+        calls[1].isStatic = true;
+        check_call_array_shape(&calls, "fixture").expect("nested scopes may start with a read");
+        calls[1].gas = 1;
+        assert_eq!(
+            check_call_array_shape(&calls, "fixture").unwrap_err(),
+            "fixture call 1 uses explicit-gas semantics"
+        );
+        calls[1].gas = 0;
+        calls[2].isStatic = true;
+        calls[2].value = U256::from(1);
+        assert_eq!(
+            check_call_array_shape(&calls, "fixture").unwrap_err(),
+            "fixture static call 2 carries non-zero value"
+        );
+        calls[2].value = U256::ZERO;
+        calls[0].revertNextNCalls = 2;
+        calls[1].revertNextNCalls = 2;
+        assert_eq!(
+            check_call_array_shape(&calls, "fixture").unwrap_err(),
+            "fixture call 1 starts a crossing revert span"
+        );
+    }
+
+    #[test]
     fn entry_lowering_preserves_multicall_nested_rows_and_failure_guards() {
         let mut entry = outbound_entry();
         let call = inbound(1, U256::ZERO).as_abi_entry().l2ToL1Calls[0].clone();
@@ -1045,22 +1129,17 @@ mod tests {
         build_cross_chain_sync_pairs(&[(entry.clone(), Bytes::from_static(&[1]))], &[], &ctx())
             .unwrap();
         entry.expectedL1ToL2Calls[0].success = false;
-        assert!(
-            check_entry_shape(&entry, "outbound")
-                .unwrap_err()
-                .contains("no reverted rolling hash")
-        );
+        check_entry_shape(&entry, "outbound").expect("row kind requires contextual validation");
         entry.expectedL1ToL2Calls[0].revertedOrStaticRollingHash = B256::repeat_byte(0x33);
-        assert!(
-            check_entry_shape(&entry, "outbound")
-                .unwrap_err()
-                .contains("contains sub-calls")
-        );
+        check_entry_shape(&entry, "outbound")
+            .expect("static failures can carry callback commitments");
         entry.expectedL1ToL2Calls[0].l2ToL1Calls.clear();
         check_entry_shape(&entry, "outbound").unwrap();
         let row = &lower_entry_to_l2(&entry).expectedOutgoingCalls[0];
         assert!(!row.success);
         assert_eq!(row.revertedOrStaticRollingHash, B256::repeat_byte(0x33));
+        entry.expectedL1ToL2Calls[0].revertedOrStaticRollingHash = B256::ZERO;
+        check_entry_shape(&entry, "outbound").expect("terminal static failures have no callbacks");
     }
 
     #[test]

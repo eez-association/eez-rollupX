@@ -54,7 +54,6 @@ pub struct ExecutedAction {
     /// earlier frame has returned when both originate on the entry rollup.
     pub parent_index: Option<usize>,
     /// Call mode observed at interception and committed to the call hash.
-    /// Current composition materialization accepts only mutable calls.
     pub call_mode: CallMode,
     /// Address invoked on the destination chain.
     pub target_address: Address,
@@ -74,16 +73,17 @@ pub struct ExecutedAction {
     pub value: U256,
     /// Target execution result for this call.
     pub outcome: ExecutionOutcome,
-    /// Number of consecutive recorded calls covered by a reverted EVM frame,
-    /// starting with this call. Only the first call in a span carries this
-    /// value; `None` means no enclosing revert was observed.
+    /// Reverted EVM scopes starting at this call, outermost first. Each value
+    /// counts consecutive recorded calls, including complete descendant trees.
+    /// An empty list means no scope starts here. Retaining every scope matters
+    /// when nested frames share their first call but restore at different times.
     ///
-    /// The materializer lowers a valid span to the destination arrays'
+    /// The materializer lowers valid scopes to the destination arrays'
     /// `revertNextNCalls` markers while retaining the calls and their rolling
     /// hash folds. The inspector normally populates it after execution through
     /// [`CompositionBuilder::annotate_revert_span`](crate::CompositionBuilder::annotate_revert_span)
     /// when it observes a reverted frame.
-    pub revert_span: Option<u32>,
+    pub revert_spans: Vec<u32>,
 }
 
 /// Target execution result for a recorded cross-chain call.

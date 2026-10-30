@@ -16,7 +16,7 @@ pub use derivation::{
 /// The one portable validation-contract version, also bound by the registered
 /// key's network profile. Mirrored by the wire-only RPC crate; independent
 /// conformance vectors enforce agreement without runtime-role dependencies.
-pub const VALIDATION_VERSION: u64 = 7;
+pub const VALIDATION_VERSION: u64 = 8;
 
 /// Ordinary and native transactions share this metered block budget.
 pub const GAS_LIMIT: u64 = 30_000_000;

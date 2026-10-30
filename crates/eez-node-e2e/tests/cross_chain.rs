@@ -2173,13 +2173,30 @@ fn static_reader_state(w: &CrossChainStaticRoundTripWorld) -> (StateRead, StateR
 /// the reader's chain settles as one static entry carrying that callback. The
 /// reader's own write records the round-trip result, and a follower replays
 /// the settled chain.
-async fn assert_static_round_trip_settles(inbound: bool) {
-    let w = setup_cross_chain_static_round_trip(inbound, true)
+async fn assert_static_round_trip_settles(inbound: bool, retry_missing_proxy: bool) {
+    let w = setup_cross_chain_static_round_trip(inbound, !retry_missing_proxy)
         .await
         .unwrap();
     let (last_read, reads) = static_reader_state(&w);
-    let call = ScenarioCall::new(w.reader, IStaticRoundTripReader::readCall {}.abi_encode())
-        .with_gas_limit(STATIC_ROUND_TRIP_GAS);
+    let calldata = if retry_missing_proxy {
+        IStaticRoundTripReader::readAfterDeployingCallbackCall {
+            manager: if inbound {
+                w.cfg.eez_address
+            } else {
+                EEZL2_ADDRESS
+            },
+            callback: w.callback,
+            remoteRollup: if inbound {
+                w.cfg.rollup_id
+            } else {
+                L1_ROLLUP_ID
+            },
+        }
+        .abi_encode()
+    } else {
+        IStaticRoundTripReader::readCall {}.abi_encode()
+    };
+    let call = ScenarioCall::new(w.reader, calldata).with_gas_limit(STATIC_ROUND_TRIP_GAS);
     let scenario = if inbound {
         Scenario::new("L1 static read with a static L1 callback")
             .inbound(call)
@@ -2192,6 +2209,31 @@ async fn assert_static_round_trip_settles(inbound: bool) {
             .expect_l2_state(reads, 1u64)
     };
     scenario.expect_settled_fully().run(&w).await.unwrap();
+
+    if retry_missing_proxy {
+        let source_rpc = if inbound { w.l1_rpc() } else { w.l2_rpc() };
+        assert!(
+            !account_code(&source_rpc, w.callback_source_proxy)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let error_hash = call_read(
+            w.reader,
+            "missingProxyErrorHash()",
+            IStaticRoundTripReader::missingProxyErrorHashCall {}.abi_encode(),
+        );
+        let expected = keccak256(
+            eez_protocol::abi::StaticCallProxyNotDeployed {
+                proxy: w.callback_source_proxy,
+            }
+            .abi_encode(),
+        );
+        assert_eq!(
+            read_state_word(&source_rpc, &error_hash).await.unwrap(),
+            U256::from_be_slice(expected.as_slice())
+        );
+    }
 
     // An L1 read is a lookup that changes no L2 state, so the follower reads
     // an immutable of the L2 forwarder. An L2 read is replayed by its result.
@@ -2212,12 +2254,22 @@ async fn assert_static_round_trip_settles(inbound: bool) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn inbound_static_read_with_static_callback_settles() {
-    assert_static_round_trip_settles(true).await;
+    assert_static_round_trip_settles(true, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn outbound_static_read_with_static_callback_settles_and_replays() {
-    assert_static_round_trip_settles(false).await;
+    assert_static_round_trip_settles(false, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn inbound_static_read_deploys_missing_callback_proxy_and_retries() {
+    assert_static_round_trip_settles(true, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn outbound_static_read_deploys_missing_callback_proxy_and_retries() {
+    assert_static_round_trip_settles(false, true).await;
 }
 
 /// A static read whose callback source proxy is not deployed on the reading
@@ -2278,12 +2330,24 @@ async fn assert_static_round_trip_without_callback_proxy_is_rejected(inbound: bo
         status["ownership"]["reason"], "SimulationFailed",
         "{status}"
     );
-    let expected = format!(
-        "executor: static callback source proxy {} is not deployed on chain {chain_id}; it must exist before the read",
-        w.callback_source_proxy,
+    // Missing proxies now surface as catchable protocol reverts. This source
+    // does not catch the revert, so source failure is the terminal reason.
+    assert_eq!(
+        status["ownership"]["rejection"]["error"],
+        "protocol: source transaction does not execute successfully",
+        "{status}"
+    );
+    let mut expected_revert =
+        alloy_primitives::keccak256("StaticCallProxyNotDeployed(address)")[..4].to_vec();
+    expected_revert.extend_from_slice(&[0u8; 12]);
+    expected_revert.extend_from_slice(w.callback_source_proxy.as_slice());
+    assert_eq!(
+        status["ownership"]["rejection"]["source"]["output"],
+        serde_json::json!(alloy_primitives::Bytes::from(expected_revert)),
+        "{status}"
     );
     assert_eq!(
-        status["ownership"]["rejection"]["error"], expected,
+        status["ownership"]["rejection"]["source"]["outputLength"], 36,
         "{status}"
     );
     assert_eq!(status["ownership"]["canonical"], serde_json::Value::Null);

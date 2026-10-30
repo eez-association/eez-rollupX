@@ -453,7 +453,7 @@ fn bounded_session_refuses_further_target_execution() {
         fn checkpoint(&mut self) -> ExecutorResult<SessionSnapshot> {
             Ok(Box::new(()))
         }
-        fn rollback(&mut self, _: SessionSnapshot) -> ExecutorResult<()> {
+        fn rollback(&mut self, _: &SessionSnapshot) -> ExecutorResult<()> {
             Ok(())
         }
     }

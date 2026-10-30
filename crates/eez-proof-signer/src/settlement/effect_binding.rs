@@ -2,7 +2,7 @@
 
 use alloy_primitives::{B256, I256};
 use eez_protocol::abi::{ExecutionEntrySol, RootUpdateSol};
-use eez_protocol::system_tx::outbound_settlement_root_counts;
+use eez_protocol::system_tx::outbound_settlement_source_counts;
 use thiserror::Error;
 
 use super::blocks::SettlingBlockObservations;
@@ -217,6 +217,33 @@ fn derive_effect_positions(
             observed: incoming.len(),
         });
     }
+    let group_shapes = loads
+        .iter()
+        .map(|load| {
+            let entries = load
+                .inspection
+                .as_ref()
+                .map_err(|error| {
+                    invalid(format!(
+                        "invalid load at {}: {error}",
+                        load.transaction_index
+                    ))
+                })?
+                .as_entries();
+            Ok((
+                entries.len(),
+                entries.iter().any(|entry| {
+                    matches!(
+                        entry,
+                        eez_protocol::system_tx::OutboundSourceEntry::Static(_)
+                    )
+                }),
+            ))
+        })
+        .collect::<Result<Vec<_>, EffectPrefixError>>()?;
+    let source_counts =
+        outbound_settlement_source_counts(outbound_entries.iter().copied(), &group_shapes)
+            .map_err(&invalid)?;
     let mut positions = Vec::with_capacity(outbound_count + inbound_count);
     let mut host_index = 0;
     let mut next_position = loads
@@ -246,11 +273,13 @@ fn derive_effect_positions(
         }
         let mut source_entry_start = 0;
         while source_entry_start < entries.len() {
-            let host = outbound_entries
+            // Checkpoint partitioning uses the same complete-load boundaries
+            // as composition and follower replay. Root attempts cannot count
+            // slots: natural reverts restore the cursor for identical retries.
+            // Exact table binding below still authorizes every loaded entry.
+            let source_entry_count = *source_counts
                 .get(host_index)
                 .ok_or_else(|| invalid("missing outbound settlement host".into()))?;
-            let source_entry_count =
-                outbound_settlement_root_counts(std::slice::from_ref(*host)).map_err(&invalid)?[0];
             let end = source_entry_start
                 .checked_add(source_entry_count)
                 .filter(|end| source_entry_count != 0 && *end <= entries.len())

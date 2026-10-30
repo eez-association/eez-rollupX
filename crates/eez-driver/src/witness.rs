@@ -837,6 +837,8 @@ mod tests {
                 expected_success: true,
                 expected_output: U256::from(42).to_be_bytes_vec().into(),
                 callbacks: Vec::new(),
+                delivery: None,
+                rollback_spans: Vec::new(),
             },
         };
 
@@ -888,20 +890,27 @@ mod tests {
                     U256::from_be_bytes(registration),
                 )]),
         );
-        // STATICCALL(gas, PROXY, 0, 0, 0, 32), then return its 32-byte result.
+        // Return both the callback's 32-byte output and the EVM success word.
+        // Catching a revert must preserve its bytes while leaving success zero.
         let mut target_code = vec![0x60, 0x20, 0x60, 0x00, 0x60, 0x00, 0x60, 0x00, 0x73];
         target_code.extend_from_slice(PROXY.as_slice());
-        target_code.extend_from_slice(&[0x5a, 0xfa, 0x50, 0x60, 0x20, 0x60, 0x00, 0xf3]);
+        target_code
+            .extend_from_slice(&[0x5a, 0xfa, 0x60, 0x20, 0x52, 0x60, 0x40, 0x60, 0x00, 0xf3]);
         provider.add_account(
             TARGET,
             ExtendedAccount::new(0, U256::ZERO).with_bytecode(Bytes::from(target_code)),
         );
 
         let answer = Bytes::from(U256::from(7).to_be_bytes_vec());
+        let mut caught_success = answer.to_vec();
+        caught_success.extend_from_slice(&U256::from(1).to_be_bytes::<32>());
+        let mut caught_failure = answer.to_vec();
+        caught_failure.extend_from_slice(&[0; 32]);
         let callback = FifoObservationCallback {
             source_address: TARGET,
             target_address: COUNTER,
             data: Bytes::new(),
+            success: true,
             output: answer.clone(),
         };
         let replay = |callbacks: Vec<FifoObservationCallback>| {
@@ -922,8 +931,10 @@ mod tests {
                         data: Bytes::new(),
                         value: U256::ZERO,
                         expected_success: true,
-                        expected_output: answer.clone(),
+                        expected_output: caught_success.clone().into(),
                         callbacks,
+                        delivery: None,
+                        rollback_spans: Vec::new(),
                     },
                 }],
             )
@@ -935,7 +946,16 @@ mod tests {
             outcomes,
             vec![crate::observation::ObservedOutcome {
                 success: true,
-                output: answer.clone(),
+                output: caught_success.clone().into(),
+            }]
+        );
+        let mut failed = callback.clone();
+        failed.success = false;
+        assert_eq!(
+            replay(vec![failed]).expect("claimed revert is faithfully answered"),
+            vec![crate::observation::ObservedOutcome {
+                success: true,
+                output: caught_failure.into(),
             }]
         );
 

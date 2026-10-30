@@ -5,14 +5,14 @@
 //! call in the opposite chain's current insertion array, and rolling hashes
 //! advance on both chains exactly as execution alternates between them.
 
-use alloy_primitives::{B256, I256, U256, keccak256};
+use alloy_primitives::{B256, Bytes, I256, U256, keccak256};
 
 use crate::abi::{ExecutionEntrySol, L2StaticExecutionEntrySol, L2ToL1CallSol};
 use crate::action::{CallHashInput, CallMode, common_cross_chain_call_hash, l2_outbound_call_hash};
 use crate::rolling_hash::{EntryRollingHash, StaticCallRollingHash};
 use crate::{ProtocolErrorKind, ProtocolResult, RollupId};
 
-const MAX_NESTING_DEPTH: usize = 1024;
+use super::MAX_NESTING_DEPTH;
 
 /// Which chain originated the root call represented by the pair.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -246,14 +246,14 @@ fn finish_facts(facts: AccumulatedFacts) -> ProtocolResult<NestedPairVerificatio
 }
 
 /// Verify a whole outbound host against the canonical load order (mutable
-/// entries followed by static entries). Static roots are terminal lookups:
+/// entries followed by static entries). Static roots are read-only lookups:
 /// they do not advance the mutable cursor or emit outbound events.
-/// Conflicting results for the same (position, proxy hash) key are rejected
+/// Conflicting results for the same (position, proxy hash, callback hash) key are rejected
 /// because EEZL2 resolves that key using its first matching cached entry.
 ///
 /// Mutable-only sources retain nested/revert verification. Groups containing
-/// static sources (with or without static callbacks to L2) support successful
-/// flat mutable roots and no root revert spans. The caller must bind the
+/// static sources support nested reads and successful mutable roots, with no
+/// root revert spans. The caller must bind the
 /// complete load and receipt evidence before treating the returned facts as
 /// authorization.
 ///
@@ -322,16 +322,9 @@ fn verify_outbound_tables(
             .into());
         }
     }
-    // Host rows are allowed only for static callbacks: flat mutable sources
-    // make no call that could consume a row, and `finish` rejects unused rows.
-    if !static_entries.is_empty()
-        && (!l1_entry.success
-            || l2_entries.iter().any(|entry| {
-                !entry.l2ToL1Calls.is_empty() || !entry.expectedL1ToL2Calls.is_empty()
-            }))
-    {
+    if !l1_entry.success {
         return Err(ProtocolErrorKind::InvalidEncoding(
-            "mixed outbound groups require a successful flat host and flat mutable sources".into(),
+            "outbound groups require a successful settlement host".into(),
         )
         .into());
     }
@@ -341,7 +334,14 @@ fn verify_outbound_tables(
             .map_err(ProtocolErrorKind::InvalidEncoding)?;
         let result = (entry.success, &entry.returnData);
         if static_results
-            .insert((entry.expectedEntryIndex, entry.proxyEntryHash), result)
+            .insert(
+                (
+                    entry.expectedEntryIndex,
+                    entry.proxyEntryHash,
+                    entry.rollingHash,
+                ),
+                result,
+            )
             .is_some_and(|first| first != result)
         {
             return Err(ProtocolErrorKind::InvalidEncoding(
@@ -349,21 +349,6 @@ fn verify_outbound_tables(
             )
             .into());
         }
-    }
-    // Reverted spans reuse mutable cursor slots, whereas static pool rows are
-    // never consumed. Keep that extension out of the mixed profile until its
-    // source-count and replay partitioning are specified together.
-    if !static_entries.is_empty()
-        && (l1_entry
-            .l2ToL1Calls
-            .iter()
-            .any(|call| call.revertNextNCalls != 0)
-            || l2_entries.iter().any(|entry| !entry.success))
-    {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "mixed outbound groups do not support reverted mutable roots or root spans".into(),
-        )
-        .into());
     }
     if l1_entry.rootUpdates.is_empty() {
         return Err(ProtocolErrorKind::InvalidEncoding(
@@ -383,17 +368,16 @@ fn verify_outbound_tables(
         )
         .into());
     }
-    let source_count = crate::system_tx::outbound_settlement_root_counts(std::slice::from_ref(
-        l1_entry,
-    ))
-    .map_err(|reason| crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(reason)))?[0];
-    if l2_entries.len() + static_entries.len() != source_count {
-        return Err(ProtocolErrorKind::InvalidEncoding(format!(
-            "outbound L1 host carries {source_count} source roots but the L2 table has {} entries",
-            l2_entries.len() + static_entries.len(),
-        ))
+    if l1_entry.l2ToL1Calls.is_empty() {
+        return Err(ProtocolErrorKind::InvalidEncoding(
+            "outbound settlement host has no root calls".into(),
+        )
         .into());
     }
+    // Root attempts need not have distinct source slots: a failed resolver
+    // restores its cursor and an identical retry selects the same entry.
+    // The walk below binds each attempt and requires coverage of every slot.
+    let source_count = l2_entries.len();
     let source_entries = l2_entries;
 
     let l1_seed = EntryRollingHash::seed_for_l1(
@@ -409,59 +393,85 @@ fn verify_outbound_tables(
     let mut source_cursor = 0usize;
     let mut seen_sources = vec![false; l2_entries.len()];
     let mut static_cursor = 0usize;
+    let mut root_scopes = Vec::new();
     while call_index < l1_entry.l2ToL1Calls.len() {
+        let root_index = call_index;
         let marker = l1.peek_current_call().ok_or_else(|| {
             crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(format!(
                 "outbound L1 host has no root call at index {call_index}",
             )))
         })?;
-        let revert_span = usize::from(marker.revertNextNCalls);
-        let group_len = revert_span.max(1);
-        let group_end = call_index
-            .checked_add(group_len)
-            .filter(|end| *end <= l1_entry.l2ToL1Calls.len())
-            .ok_or_else(|| {
-                crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(format!(
-                    "outbound root {call_index} revert span {revert_span} exceeds the root group"
-                )))
-            })?;
-        let saved_facts = (revert_span != 0).then(|| facts.clone());
-        let saved_source_cursor = source_cursor;
-
-        for root_index in call_index..group_end {
-            if l1.peek_current_call().is_some_and(|root| root.isStatic) {
-                let source = static_entries.get(static_cursor).ok_or_else(|| {
-                    crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
-                        "outbound static root has no source lookup".into(),
-                    ))
-                })?;
-                let root = l1.take_current_call().ok_or_else(|| {
-                    crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
-                        "outbound static root is missing".into(),
-                    ))
-                })?;
-                if source.expectedEntryIndex != U256::from(source_cursor)
-                    || root.revertNextNCalls != 0
-                    || root.gas != 0
-                    || !root.value.is_zero()
-                    || source_call_hash(&root, l2_rollup_id, RollupId::MAINNET)?
-                        != source.proxyEntryHash
-                {
-                    return Err(ProtocolErrorKind::InvalidEncoding(
-                        "outbound static root does not match its source lookup".into(),
+        let span = usize::from(marker.revertNextNCalls);
+        if span != 0 {
+            let end = call_index
+                .checked_add(span)
+                .filter(|end| *end <= l1_entry.l2ToL1Calls.len())
+                .ok_or_else(|| {
+                    ProtocolErrorKind::InvalidEncoding(
+                        "outbound root rollback exceeds its array".into(),
                     )
-                    .into());
-                }
-                l1.rolling.call_begin(destination_call_hash(
-                    &root,
-                    l2_rollup_id,
-                    RollupId::MAINNET,
-                )?);
-                resolve_static_callbacks(&mut l1, source, l2_rollup_id)?;
-                l1.rolling.call_end(source.success, &source.returnData);
-                static_cursor += 1;
-                continue;
+                })?;
+            if root_scopes.last().is_some_and(|(outer, _, _)| end > *outer) {
+                return Err(ProtocolErrorKind::InvalidEncoding(
+                    "outbound root rollback crosses its enclosing scope".into(),
+                )
+                .into());
             }
+            root_scopes.push((end, source_cursor, facts.clone()));
+        }
+        if l1.peek_current_call().is_some_and(|root| root.isStatic) {
+            let source = static_entries.get(static_cursor).ok_or_else(|| {
+                crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
+                    "outbound static root has no source lookup".into(),
+                ))
+            })?;
+            let root = l1.take_current_call().ok_or_else(|| {
+                crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
+                    "outbound static root is missing".into(),
+                ))
+            })?;
+            if source.expectedEntryIndex != U256::from(source_cursor)
+                || root.gas != 0
+                || !root.value.is_zero()
+                || source_call_hash(&root, l2_rollup_id, RollupId::MAINNET)?
+                    != source.proxyEntryHash
+            {
+                return Err(ProtocolErrorKind::InvalidEncoding(
+                    "outbound static root does not match its source lookup".into(),
+                )
+                .into());
+            }
+            l1.rolling.call_begin(destination_call_hash(
+                &root,
+                l2_rollup_id,
+                RollupId::MAINNET,
+            )?);
+            static_cursor += 1;
+            resolve_static_callbacks(
+                &mut l1,
+                source,
+                static_entries,
+                &mut static_cursor,
+                source_cursor,
+                l2_rollup_id,
+                0,
+            )?;
+            l1.rolling.call_end(source.success, &source.returnData);
+        } else {
+            let root = l1.peek_current_call().expect("root checked above");
+            let expected_hash = source_call_hash(root, l2_rollup_id, RollupId::MAINNET)?;
+            let original_source_cursor = source_cursor;
+            source_cursor = source_entries
+                .iter()
+                .enumerate()
+                .skip(source_cursor)
+                .find(|(_, entry)| entry.proxyEntryHash == expected_hash)
+                .map(|(index, _)| index)
+                .ok_or_else(|| {
+                    ProtocolErrorKind::InvalidEncoding(format!(
+                        "outbound root {root_index} has no forward source candidate"
+                    ))
+                })?;
             let source_entry = source_entries.get(source_cursor).ok_or_else(|| {
                 crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(format!(
                     "outbound root {root_index} advances beyond {source_count} source cursor slots"
@@ -479,12 +489,6 @@ fn verify_outbound_tables(
                     "outbound L1 host has no root call at index {root_index}",
                 )))
             })?;
-            if root_index != call_index && root.revertNextNCalls != 0 {
-                return Err(ProtocolErrorKind::InvalidEncoding(format!(
-                    "outbound root {root_index} starts a nested revert span",
-                ))
-                .into());
-            }
             let root_hash = source_call_hash(&root, l2_rollup_id, RollupId::MAINNET)?;
             if root_hash != source_entry.proxyEntryHash {
                 return Err(ProtocolErrorKind::InvalidEncoding(format!(
@@ -514,13 +518,21 @@ fn verify_outbound_tables(
             if let Some(saved) = reverted_facts {
                 facts = saved;
             }
-            source_cursor += 1;
+            source_cursor = if source_entry.success {
+                source_cursor + 1
+            } else {
+                original_source_cursor
+            };
         }
-        if let Some(saved) = saved_facts {
-            facts = saved;
-            source_cursor = saved_source_cursor;
+        call_index += 1;
+        while root_scopes
+            .last()
+            .is_some_and(|(end, _, _)| *end == call_index)
+        {
+            let (_, saved_cursor, saved_facts) = root_scopes.pop().expect("scope checked above");
+            facts = saved_facts;
+            source_cursor = saved_cursor;
         }
-        call_index = group_end;
     }
     if seen_sources.iter().any(|seen| !seen) || static_cursor != static_entries.len() {
         return Err(ProtocolErrorKind::InvalidEncoding(format!(
@@ -544,43 +556,87 @@ fn verify_outbound_tables(
 /// Repeated identical callbacks share one position key, because static rows
 /// leave the host rolling hash unchanged. L1 does not advance its cursor for a
 /// static read and resolves every repeat to the first matching row, so the
-/// repeats must carry the same result.
+/// repeats with the same callback commitment must carry the same result.
 fn resolve_static_callbacks(
     l1: &mut ChainState<'_>,
     source: &L2StaticExecutionEntrySol,
+    static_entries: &[L2StaticExecutionEntrySol],
+    static_cursor: &mut usize,
+    source_cursor: usize,
     l2_rollup_id: RollupId,
+    depth: usize,
 ) -> ProtocolResult<()> {
+    if depth > MAX_NESTING_DEPTH {
+        return Err(ProtocolErrorKind::Unsupported(
+            "static callback depth exceeds the verifier limit",
+        )
+        .into());
+    }
     let mut results = StaticCallRollingHash::new();
-    let mut resolved = std::collections::HashMap::new();
     for callback in &source.incomingCalls {
         let callback = crate::system_tx::lift_call_from_l2(callback);
         let callback_hash = source_call_hash(&callback, RollupId::MAINNET, l2_rollup_id)?;
-        let row = l1.next_row().cloned().ok_or_else(|| {
-            crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
-                "outbound static callback has no L1 host row".into(),
-            ))
-        })?;
+        let row_index = l1
+            .next_static_row(position_key(callback_hash, l1.rolling.current()))
+            .ok_or_else(|| {
+                crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
+                    if l1.entry.expectedL1ToL2Calls.is_empty() {
+                        "outbound static callback has no L1 host row"
+                    } else {
+                        "outbound static callback does not match its L1 host row"
+                    }
+                    .into(),
+                ))
+            })?;
+        let row = l1.entry.expectedL1ToL2Calls[row_index].clone();
         if !callback.isStatic
             || row.expectedL1toL2Hash != position_key(callback_hash, l1.rolling.current())
-            || !row.success
-            || !row.l2ToL1Calls.is_empty()
-            || row.revertedOrStaticRollingHash != B256::ZERO
         {
             return Err(ProtocolErrorKind::InvalidEncoding(
                 "outbound static callback does not match its L1 host row".into(),
             )
             .into());
         }
-        if resolved
-            .insert(row.expectedL1toL2Hash, row.returnData.clone())
-            .is_some_and(|first| first != row.returnData)
-        {
+        l1.mark_static_row(row_index)?;
+        let mut callback_results = StaticCallRollingHash::new();
+        for nested in &row.l2ToL1Calls {
+            let lookup = static_entries.get(*static_cursor).ok_or_else(|| {
+                crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
+                    "recursive static callback has no source pool entry".into(),
+                ))
+            })?;
+            if !nested.isStatic
+                || !nested.value.is_zero()
+                || nested.gas != 0
+                || nested.revertNextNCalls != 0
+                || lookup.expectedEntryIndex != U256::from(source_cursor)
+                || lookup.proxyEntryHash
+                    != source_call_hash(nested, l2_rollup_id, RollupId::MAINNET)?
+            {
+                return Err(ProtocolErrorKind::InvalidEncoding(
+                    "recursive static callback does not match its source pool entry".into(),
+                )
+                .into());
+            }
+            *static_cursor += 1;
+            l1.call_cursors[row_index + 1] += 1;
+            resolve_static_callbacks(
+                l1,
+                lookup,
+                static_entries,
+                static_cursor,
+                source_cursor,
+                l2_rollup_id,
+                depth + 1,
+            )?;
+            callback_results.append(lookup.success, &lookup.returnData);
+        }
+        if callback_results.current() != row.revertedOrStaticRollingHash {
             return Err(ProtocolErrorKind::InvalidEncoding(
-                "outbound static callbacks repeat a lookup key with different results".into(),
+                "static row callback commitment does not match its source results".into(),
             )
             .into());
         }
-        l1.mark_static_row();
         results.append(row.success, &row.returnData);
     }
     if results.current() != source.rollingHash {
@@ -608,65 +664,77 @@ fn execute_call(
     }
     let destination_hash = destination_call_hash(&call, source.chain, destination.chain)?;
     destination.rolling.call_begin(destination_hash);
+    let failed_frame = (!success).then(|| {
+        (
+            destination.rolling.clone(),
+            destination.next_row,
+            facts.clone(),
+        )
+    });
 
-    loop {
-        let Some(next_call) = source.peek_current_call().cloned() else {
-            break;
-        };
-        let revert_span = usize::from(next_call.revertNextNCalls);
-        let group_len = revert_span.max(1);
-        if group_len > source.remaining_current_calls() {
-            return Err(ProtocolErrorKind::InvalidEncoding(format!(
-                "nested pair {} revert span {revert_span} exceeds its current call array",
-                source.chain,
-            ))
-            .into());
-        }
-        let saved_region_state = (revert_span != 0).then(|| {
-            (
-                destination.rolling.clone(),
-                destination.next_row,
-                destination.call_cursors.clone(),
-            )
-        });
-        let saved_region_facts = (revert_span != 0).then(|| facts.clone());
-        let mut matched_all = true;
-        for offset in 0..group_len {
-            let current = source.peek_current_call().ok_or_else(|| {
-                crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
-                    "nested revert span ended before all calls were consumed".into(),
-                ))
-            })?;
-            if offset != 0 && current.revertNextNCalls != 0 {
+    let slot = source.cursor_slot();
+    let mut scopes = Vec::new();
+    while let Some(next_call) = source.peek_current_call().cloned() {
+        let index = source.call_cursors[slot];
+        let span = usize::from(next_call.revertNextNCalls);
+        if span != 0 {
+            let end = index
+                .checked_add(span)
+                .filter(|end| *end <= source.current_array().len())
+                .ok_or_else(|| {
+                    ProtocolErrorKind::InvalidEncoding(
+                        "nested rollback exceeds its current call array".into(),
+                    )
+                })?;
+            if scopes.last().is_some_and(|(outer, _, _, _)| end > *outer) {
                 return Err(ProtocolErrorKind::InvalidEncoding(
-                    "nested revert spans within one call array overlap".into(),
+                    "nested rollback crosses its enclosing scope".into(),
                 )
                 .into());
             }
-            if !execute_next_nested_call(destination, source, facts, depth)? {
-                if revert_span != 0 {
-                    return Err(ProtocolErrorKind::InvalidEncoding(
-                        "revert span call has no matching reentrant row".into(),
-                    )
-                    .into());
-                }
-                matched_all = false;
-                break;
-            }
+            scopes.push((
+                end,
+                destination.rolling.clone(),
+                destination.next_row,
+                facts.clone(),
+            ));
         }
-        if let Some((saved_hash, saved_row_cursor, saved_call_cursors)) = saved_region_state {
-            destination.rolling = saved_hash;
-            destination.next_row = saved_row_cursor;
-            destination.call_cursors = saved_call_cursors;
-            *facts = saved_region_facts.expect("saved with region hash");
-        } else if !matched_all {
-            // The unmarked call did not match the next row. Preserve the old
-            // behavior: leave both cursors in place so `finish` reports the
-            // complete mismatch with its recomputed position.
+        if !execute_next_nested_call(destination, source, facts, depth)? {
+            if !scopes.is_empty() {
+                return Err(ProtocolErrorKind::InvalidEncoding(
+                    "revert span call has no matching reentrant row".into(),
+                )
+                .into());
+            }
+            // A remaining unmarked call must be matched by a later outer
+            // frame; the final table checks reject any unconsumed remainder.
             break;
         }
+        while scopes
+            .last()
+            .is_some_and(|(end, _, _, _)| *end == source.call_cursors[slot])
+        {
+            let (_, hash, cursor, saved_facts) = scopes.pop().expect("scope checked above");
+            destination.rolling = hash;
+            destination.next_row = cursor;
+            *facts = saved_facts;
+        }
+    }
+    if !scopes.is_empty() {
+        return Err(ProtocolErrorKind::InvalidEncoding(
+            "nested call ended with an open rollback scope".into(),
+        )
+        .into());
     }
 
+    // Restore protocol state, not proof of the call arrays already executed.
+    // Each array invocation must finish; reopening a row starts a fresh copy
+    // of that row's array, just as the manager does on a retry.
+    if let Some((hash, cursor, saved_facts)) = failed_frame {
+        destination.rolling = hash;
+        destination.next_row = cursor;
+        *facts = saved_facts;
+    }
     destination.rolling.call_end(success, return_data);
     Ok(())
 }
@@ -680,29 +748,34 @@ fn execute_next_nested_call(
     let Some(next_call) = source.peek_current_call().cloned() else {
         return Ok(false);
     };
-    let Some(row) = destination.next_row().cloned() else {
-        return Ok(false);
-    };
     let source_hash = source_call_hash(&next_call, destination.chain, source.chain)?;
     let recomputed_position = position_key(source_hash, destination.rolling.current());
-    if row.expectedL1toL2Hash != recomputed_position {
-        destination.last_position_mismatch = Some((row.expectedL1toL2Hash, recomputed_position));
+    let saved_cursor = destination.next_row;
+    let row_index = if next_call.isStatic {
+        destination.next_static_row(recomputed_position)
+    } else {
+        destination
+            .entry
+            .expectedL1ToL2Calls
+            .iter()
+            .enumerate()
+            .skip(destination.next_row)
+            .find(|(_, row)| row.expectedL1toL2Hash == recomputed_position)
+            .map(|(index, _)| index)
+    };
+    let Some(row_index) = row_index else {
         return Ok(false);
-    }
+    };
+    let row = destination.entry.expectedL1ToL2Calls[row_index].clone();
 
     if next_call.isStatic {
-        if !next_call.value.is_zero()
-            || next_call.revertNextNCalls != 0
-            || next_call.gas != 0
-            || !row.l2ToL1Calls.is_empty()
-            || row.revertedOrStaticRollingHash != B256::ZERO
-        {
+        if !next_call.value.is_zero() || next_call.gas != 0 {
             return Err(ProtocolErrorKind::InvalidEncoding(
                 "nested static row uses an unsupported table shape".into(),
             )
             .into());
         }
-        let row_index = destination.mark_static_row();
+        destination.mark_static_row(row_index)?;
         let next_call = source.take_current_call().ok_or_else(|| {
             crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
                 "nested pair call cursor changed while resolving a static row".into(),
@@ -713,12 +786,13 @@ fn execute_next_nested_call(
             destination.chain,
             source.chain,
         )?);
+        verify_static_row_callbacks(destination, source, row_index, depth + 1)?;
         source.rolling.call_end(row.success, &row.returnData);
-        debug_assert_eq!(row_index + 1, destination.next_row);
         return Ok(true);
     }
 
-    let row_index = destination.open_next_row(source_hash);
+    destination.next_row = row_index;
+    let row_index = destination.open_next_row(source_hash, saved_cursor);
     let next_call = source.take_current_call().ok_or_else(|| {
         crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
             "nested pair call cursor changed while opening a row".into(),
@@ -745,6 +819,63 @@ fn execute_next_nested_call(
     Ok(true)
 }
 
+/// Bind callbacks within a static read when both chains already have mutable
+/// hosts. These pending reads use rows on both sides, never a top-level pool.
+/// Their callbacks leave both tagged host hashes unchanged.
+fn verify_static_row_callbacks(
+    lookup: &mut ChainState<'_>,
+    executing: &mut ChainState<'_>,
+    row_index: usize,
+    depth: usize,
+) -> ProtocolResult<()> {
+    if depth > MAX_NESTING_DEPTH {
+        return Err(ProtocolErrorKind::Unsupported(
+            "static callback depth exceeds the verifier limit",
+        )
+        .into());
+    }
+    let row = lookup.entry.expectedL1ToL2Calls[row_index].clone();
+    let mut results = StaticCallRollingHash::new();
+    for callback in &row.l2ToL1Calls {
+        let callback_key = position_key(
+            source_call_hash(callback, executing.chain, lookup.chain)?,
+            executing.rolling.current(),
+        );
+        let callback_row = executing.next_static_row(callback_key).ok_or_else(|| {
+            crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
+                "nested static callback has no matching row".into(),
+            ))
+        })?;
+        let resolved = executing.entry.expectedL1ToL2Calls[callback_row].clone();
+        if !callback.isStatic
+            || !callback.value.is_zero()
+            || callback.gas != 0
+            || callback.revertNextNCalls != 0
+            || resolved.expectedL1toL2Hash
+                != position_key(
+                    source_call_hash(callback, executing.chain, lookup.chain)?,
+                    executing.rolling.current(),
+                )
+        {
+            return Err(ProtocolErrorKind::InvalidEncoding(
+                "nested static callback does not match its host row".into(),
+            )
+            .into());
+        }
+        executing.mark_static_row(callback_row)?;
+        lookup.call_cursors[row_index + 1] += 1;
+        verify_static_row_callbacks(executing, lookup, callback_row, depth + 1)?;
+        results.append(resolved.success, &resolved.returnData);
+    }
+    if results.current() != row.revertedOrStaticRollingHash {
+        return Err(ProtocolErrorKind::InvalidEncoding(
+            "nested static callback results differ from the row rolling hash".into(),
+        )
+        .into());
+    }
+    Ok(())
+}
+
 struct ChainState<'a> {
     entry: &'a ExecutionEntrySol,
     chain: RollupId,
@@ -755,7 +886,7 @@ struct ChainState<'a> {
     frame_hashes: Vec<EntryRollingHash>,
     seen_rows: Vec<bool>,
     call_cursors: Vec<usize>,
-    last_position_mismatch: Option<(B256, B256)>,
+    static_results: std::collections::HashMap<(B256, B256), (bool, Bytes)>,
 }
 
 impl<'a> ChainState<'a> {
@@ -770,7 +901,7 @@ impl<'a> ChainState<'a> {
             frame_hashes: Vec::new(),
             seen_rows: vec![false; entry.expectedL1ToL2Calls.len()],
             call_cursors: vec![0; entry.expectedL1ToL2Calls.len() + 1],
-            last_position_mismatch: None,
+            static_results: std::collections::HashMap::new(),
         }
     }
 
@@ -790,11 +921,6 @@ impl<'a> ChainState<'a> {
         self.current_array().get(cursor)
     }
 
-    fn remaining_current_calls(&self) -> usize {
-        let cursor = self.call_cursors[self.cursor_slot()];
-        self.current_array().len().saturating_sub(cursor)
-    }
-
     fn take_current_call(&mut self) -> Option<L2ToL1CallSol> {
         let slot = self.cursor_slot();
         let call = self.current_array().get(self.call_cursors[slot]).cloned();
@@ -804,15 +930,25 @@ impl<'a> ChainState<'a> {
         call
     }
 
-    fn next_row(&self) -> Option<&crate::abi::ExpectedL1ToL2CallSol> {
-        self.entry.expectedL1ToL2Calls.get(self.next_row)
+    /// Construction records one row per static observation. Bind those rows
+    /// in order within the live mutable window, without advancing its cursor.
+    /// Exact replay checks candidate resolution; repeated commitments must
+    /// agree on the cached outcome (checked by `mark_static_row`).
+    fn next_static_row(&self, key: B256) -> Option<usize> {
+        self.entry
+            .expectedL1ToL2Calls
+            .iter()
+            .enumerate()
+            .skip(self.next_row)
+            .find(|(index, row)| !self.seen_rows[*index] && row.expectedL1toL2Hash == key)
+            .map(|(index, _)| index)
     }
 
-    fn open_next_row(&mut self, call_hash: B256) -> usize {
+    fn open_next_row(&mut self, call_hash: B256, saved_cursor: usize) -> usize {
         let row_index = self.next_row;
-        let saved_cursor = self.next_row;
         self.next_row += 1;
         self.seen_rows[row_index] = true;
+        self.call_cursors[row_index + 1] = 0;
         self.frame_cursors.push(saved_cursor);
         self.frame_hashes.push(self.rolling.clone());
         self.rolling.nested_begin(call_hash);
@@ -820,14 +956,38 @@ impl<'a> ChainState<'a> {
         row_index
     }
 
-    fn mark_static_row(&mut self) -> usize {
-        let row_index = self.next_row;
-        self.next_row += 1;
+    fn mark_static_row(&mut self, row_index: usize) -> ProtocolResult<()> {
+        let row = &self.entry.expectedL1ToL2Calls[row_index];
+        // Static resolution can revisit the same key across different pending
+        // reads. Compare the complete lookup commitment over the whole host,
+        // not just siblings in one callback frame.
+        if self
+            .static_results
+            .insert(
+                (row.expectedL1toL2Hash, row.revertedOrStaticRollingHash),
+                (row.success, row.returnData.clone()),
+            )
+            .is_some_and(|first| first != (row.success, row.returnData.clone()))
+        {
+            return Err(ProtocolErrorKind::InvalidEncoding(
+                "static callbacks repeat a lookup key with different results".into(),
+            )
+            .into());
+        }
         self.seen_rows[row_index] = true;
-        row_index
+        self.call_cursors[row_index + 1] = 0;
+        Ok(())
     }
 
     fn close_row(&mut self, row_index: usize, success: bool) -> ProtocolResult<()> {
+        if self.call_cursors[row_index + 1]
+            != self.entry.expectedL1ToL2Calls[row_index].l2ToL1Calls.len()
+        {
+            return Err(ProtocolErrorKind::InvalidEncoding(
+                "nested row invocation did not execute every call".into(),
+            )
+            .into());
+        }
         let closed_row = self.frame_rows.pop();
         debug_assert_eq!(closed_row, Some(row_index));
         let saved_cursor = self.frame_cursors.pop().ok_or_else(|| {
@@ -842,6 +1002,12 @@ impl<'a> ChainState<'a> {
         })?;
         let row = &self.entry.expectedL1ToL2Calls[row_index];
         if success {
+            if row.revertedOrStaticRollingHash != B256::ZERO {
+                return Err(ProtocolErrorKind::InvalidEncoding(
+                    "successful mutable row carries a reverted/static rolling hash".into(),
+                )
+                .into());
+            }
             self.rolling.nested_end();
         } else {
             if self.rolling.current() != row.revertedOrStaticRollingHash {
@@ -877,12 +1043,8 @@ impl<'a> ChainState<'a> {
         {
             return Err(ProtocolErrorKind::InvalidEncoding(format!(
                 "nested pair did not consume the complete {} table: cursor={}, \
-                 seen_rows={:?}, call_cursors={:?}, call_lengths={call_lengths:?}, last_position_mismatch={:?}",
-                self.chain,
-                self.next_row,
-                self.seen_rows,
-                self.call_cursors,
-                self.last_position_mismatch,
+                 seen_rows={:?}, call_cursors={:?}, call_lengths={call_lengths:?}",
+                self.chain, self.next_row, self.seen_rows, self.call_cursors,
             ))
             .into());
         }

@@ -32,7 +32,7 @@ store remains zero until its first system import.
 ## Core Rollup proof-policy adaptation
 
 The recorded request, execution witnesses, L1/L2 genesis and transaction bytes
-are retained unchanged. `identity.json` now records the version-7 network-bound
+are retained unchanged. `identity.json` now records the version-8 network-bound
 verification key; `response.json` contains the digest and ECDSA signature
 recomputed from those inputs using Core's `(timestamp, blockHash)` context.
 These updated signatures are derived fixture expectations, not new deployed-network

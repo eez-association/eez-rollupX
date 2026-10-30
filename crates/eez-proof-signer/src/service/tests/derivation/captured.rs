@@ -516,7 +516,15 @@ async fn native_changing_reads_and_caught_revert_replay_original_execution_with_
             assert!(actions.outbound().is_empty());
         }
         let server = fixture.server().await;
-        let response = server.attest(fixture.input.clone()).await;
+        let response = server
+            .exchange(fixture.input.clone())
+            .await
+            .unwrap_or_else(|status| {
+                panic!(
+                    "{name}: {status:?}; {:?}",
+                    pipeline_error(&fixture.state, fixture.input.clone())
+                )
+            });
         assert_attestation(
             &response,
             fixture.expected_hash,
@@ -622,6 +630,40 @@ async fn forged_native_lookup_outcome_reaches_observation_replay_and_never_signs
         Code::FailedPrecondition
     );
     assert_eq!(fixture.state.attester.signing_calls(), 0);
+}
+
+#[tokio::test]
+async fn missing_lookup_manager_code_reaches_observation_replay_and_never_signs() {
+    let mut fixture = Fixture::load("native-osaka-lookup");
+    let (genesis, _, _) = crate::testkit::native_capture("native-osaka-lookup");
+    let code = genesis.alloc[&eez_primitives::EEZL2_GENESIS_IMPLEMENTATION_ADDRESS]
+        .code
+        .as_ref()
+        .unwrap();
+    let Some(WindowPart::Block(block)) = &mut fixture.input.last_mut().unwrap().kind else {
+        panic!("terminal block");
+    };
+    let codes = &mut block.witness.as_mut().unwrap().codes;
+    let count = codes.len();
+    codes.retain(|candidate| candidate.as_slice() != code.as_ref());
+    assert_eq!(codes.len() + 1, count);
+    // Canonical block execution and native semantic binding must pass. This
+    // implementation is needed by the subsequent scratch manager delivery.
+    let error = pipeline_error(&fixture.state, fixture.input.clone());
+    assert_eq!(error.gate(), "observation_replay", "{error:?}");
+    assert!(format!("{error:?}").contains("bytecode"), "{error:?}");
+    let server = fixture.server().await;
+    assert_eq!(
+        server.prove(fixture.input).await.code(),
+        Code::FailedPrecondition
+    );
+    assert_eq!(fixture.state.attester.signing_calls(), 0);
+}
+
+#[test]
+#[ignore = "explicit supplemental witness generation from exact captured block replay"]
+fn supplement_native_lookup_capture_witness() {
+    crate::testkit::history_observations::complete_native_capture_witness("native-osaka-lookup");
 }
 
 /// Refresh commitments after an intentional proof-policy change while retaining

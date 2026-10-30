@@ -45,6 +45,16 @@ class SecretScanTest(unittest.TestCase):
             ("Osaka lookup fixture verification key", "vkey", [
                 "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity.json"]),
         ]
+        verification_key_fixtures.extend([
+            ("Version-8 Bidirectional fixture verification key", "vkey", [
+                "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity.json"]),
+            ("Version-8 History-observation fixture verification key", "vkey", [
+                "crates/eez-proof-signer/tests/fixtures/native-history-observations/identity.json"]),
+            ("Version-8 Osaka changing-static fixture verification key", "vkey", [
+                "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/identity.json"]),
+            ("Version-8 Osaka lookup fixture verification key", "vkey", [
+                "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity.json"]),
+        ])
         for description, field, paths in verification_key_fixtures:
             regexes = rules[description]["regexes"]
             self.assertEqual(len(regexes), 1)

@@ -720,7 +720,7 @@ fn fixture_action(
             gas_used: 0,
             success,
         },
-        revert_span: None,
+        revert_spans: vec![],
     }
 }
 

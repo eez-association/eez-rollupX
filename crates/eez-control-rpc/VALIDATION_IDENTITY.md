@@ -1,12 +1,12 @@
 # Portable validation identity
 
-Status: normative for validation contract 7, capability profile 2 and v2 proving.
+Status: normative for validation contract 8, capability profile 2 and v2 proving.
 This is a compatibility namespace, never authorization to execute or sign.
 No Rust dependency, Cargo lockfile, source revision, binary hash, transport URL,
 signing key or resource limit participates.
 
-Version 7 uses the unmodified Core `Rollup` manager and its timestamp/hash
-context. The registered vkey binds the validation program and network profile.
+Version 8 retains the unmodified Core `Rollup` manager and timestamp/hash
+context introduced in version 7. The registered vkey binds the validation program and network profile.
 It removes automatic accepted-root/rule-period proof expiry. The L2 execution
 rules, including the upgradeable history store, 0x46 imports and block-end balance
 cleanup, remain unchanged. Known compatible L1 fork crossings are allowed;
@@ -16,6 +16,15 @@ Use matching node, follower, signer and deployment artifacts for fresh networks.
 Previous manager/context/key formats and sessions are unsupported. The v2
 protobuf, cross-chain 0x45 and protocol pin are unchanged.
 
+Version 8 extends the accepted cross-chain profile to recursive static callbacks,
+failed mutable calls with descendants, nested rollback scopes and authenticated
+mutable lookup replay. Reused rows retain exact callback and execution
+commitments. The protobuf, protocol pin and native encodings remain unchanged.
+The version is bound into the network profile and registered key, so version-7
+runtime artifacts and keys cannot be mixed with this profile. The coordinated
+upgrade boundary is documented in the
+[full protocol proposal](../../docs/proposals/full-protocol-e2e.md#compatibility-and-recovery).
+
 ## Encoding
 
 Compute Ethereum **Keccak-256**, not NIST SHA3-256, over one canonical RLP list
@@ -24,7 +33,7 @@ with these ten elements in this exact order:
 | Position | Element | Encoding/value |
 | --- | --- | --- |
 | 0 | domain | UTF-8 bytes of `eez.validation-identity` |
-| 1 | validation-contract version | unsigned integer `7` |
+| 1 | validation-contract version | unsigned integer `8` |
 | 2 | rollup ID | locally configured nonzero u64 |
 | 3 | L2 chain ID | u64 from the locally loaded L2 chain document |
 | 4 | system address | exactly 20 raw bytes |
@@ -50,7 +59,7 @@ The network profile commitment is Ethereum Keccak over this static ABI tuple:
 
 ```text
 abi.encode(
-  keccak256("EEZ_ROLLUPX_NETWORK_PROFILE_V1"), uint64(7),
+  keccak256("EEZ_ROLLUPX_NETWORK_PROFILE_V1"), uint64(8),
   address(historyAddress), uint64(64), uint64(2000000),
   keccak256(historyProxyRuntime),
   (uint256 l1ChainId, uint256 l2ChainId, bytes32 genesisHash,
@@ -121,7 +130,7 @@ not admit a genesis configuration. Hash and load the same document snapshot.
 
 ## Versioning and operations
 
-Validation-contract version 7 covers the RLP tuple above, canonical JSON rules
+Validation-contract version 8 covers the RLP tuple above, canonical JSON rules
 and the complete offline validation contract:
 the fixed Osaka L2 profile, compact V0 operations, versionless cross-chain 0x45 and optional history 0x46/version-1 transactions
 (execution-group source identities belong only to cross-chain
@@ -157,7 +166,7 @@ identify a differing field.
 Different validation-contract versions fail the exact comparison.
 Deploy matching Composer/prover/follower artifacts and newly generated genesis
 and registered verification key together. The network profile binds the collector and execution profile;
-the service uses v2 and validation-contract version 7. Discard retained sessions
+the service uses v2 and validation-contract version 8. Discard retained sessions
 when changing identity. This is a fresh-network profile, with no migration or
 rollback path for existing blocks/databases.
 Pending requests/counters remain in memory; restart is not durable queue recovery.

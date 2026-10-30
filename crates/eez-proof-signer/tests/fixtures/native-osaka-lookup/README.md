@@ -30,8 +30,8 @@ store remains zero until its first system import.
 
 ## Core Rollup proof-policy adaptation
 
-The recorded request, execution witnesses, L1/L2 genesis and transaction bytes
-are retained unchanged. `identity.json` now records the version-7 network-bound
+The recorded L1/L2 genesis, block headers and transaction bytes are retained
+unchanged. The terminal witness was supplemented as described below. `identity.json` now records the version-8 network-bound
 verification key; `response.json` contains the digest and ECDSA signature
 recomputed from those inputs using Core's `(timestamp, blockHash)` context.
 These updated signatures are derived fixture expectations, not new deployed-network
@@ -42,3 +42,36 @@ Regenerate only through the explicit
 `service::tests::derivation::captured::regenerate_native_fixture_commitments`
 utility. It also emits local Core-verifier oracle inputs under
 `artifacts/rollup-core-fixture-oracle/` for an independent Solidity comparison.
+
+## Manager replay witness supplementation
+
+Validation-contract version 8 replays caught mutable observations through the
+real EEZL2 manager, including callback-table validation. The original capture
+predates those additional reads. Its terminal witness lacked storage exclusion
+proofs needed by the manager; missing evidence must remain a rejection.
+
+The explicit test utility
+`service::tests::derivation::captured::supplement_native_lookup_capture_witness`
+reconstructs all 45 captured blocks from the published genesis allocation. It
+checks contiguous ancestry, every pre-state root and exact reconstructed block
+RLP before replacing only the terminal witness's trie nodes and bytecodes.
+Transactions, headers, settlement bytes and expected proof remain unchanged by
+this supplementation. This is derived test evidence, not a new network capture.
+
+The request grew from 473,911 to 495,704 bytes. Its Keccak changed from
+`0x328c9139930669372be9820acc85b2140d04576ee6d8cdf0b8b5afc78489328f` to
+`0x73895e280887b30e3bd6d0066f3573f8a9ae7da25aefc228f6c492e56063df80`.
+Run the ignored utility explicitly:
+
+```bash
+cargo +1.95.0 test --locked -p eez-proof-signer -- --ignored --exact service::tests::derivation::captured::supplement_native_lookup_capture_witness
+```
+
+Then regenerate dependent streaming vectors using the
+[conformance procedure](../../../../eez-control-rpc/conformance/README.md).
+
+Positive service replay must still reproduce the expected proof. Adversarial
+service tests remove the manager implementation bytecode or forge matching
+claim-side revert outputs; both must reach `observation_replay` and reject with
+zero signing calls. Merely regenerating this fixture does not validate those
+properties or establish full protocol E2E coverage.

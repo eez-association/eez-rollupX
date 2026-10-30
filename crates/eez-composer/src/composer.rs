@@ -3510,8 +3510,13 @@ where
                     let source_entries = &composition.source.batch.entries;
                     let source_static_entries = &composition.source.l2_static_entries;
                     let settlement_root_counts =
-                        match eez_protocol::system_tx::outbound_settlement_root_counts(&l1_entries)
-                        {
+                        match eez_protocol::system_tx::outbound_settlement_source_counts(
+                            &l1_entries,
+                            &[(
+                                source_entries.len() + source_static_entries.len(),
+                                !source_static_entries.is_empty(),
+                            )],
+                        ) {
                             Ok(counts) => counts,
                             Err(error) => {
                                 event!(
@@ -6593,7 +6598,23 @@ where
             .map(|group| group.effects.len())
             .sum::<usize>();
         let outbound_settlement_root_counts =
-            eez_protocol::system_tx::outbound_settlement_root_counts(outbound_entries)?;
+            eez_protocol::system_tx::outbound_settlement_source_counts(
+                outbound_entries,
+                &outbound_l2_groups
+                    .iter()
+                    .map(|group| {
+                        (
+                            group.effects.len(),
+                            group.effects.iter().any(|effect| {
+                                matches!(
+                                    effect.source_entry,
+                                    eez_protocol::system_tx::OutboundSourceEntry::Static(_)
+                                )
+                            }),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )?;
         let covered_outbound_roots = outbound_settlement_root_counts.iter().sum::<usize>();
         if covered_outbound_roots != outbound_effect_count {
             return Err(format!(
@@ -8415,7 +8436,7 @@ mod tests {
                 gas_used,
                 success,
             },
-            revert_span: None,
+            revert_spans: vec![],
         }
     }
 
@@ -8455,7 +8476,7 @@ mod tests {
             gas_action(1, 0, Some(1), 70_000, true),
             gas_action(1, 0, None, 80_000, true),
         ];
-        actions[0].revert_span = Some(3);
+        actions[0].revert_spans = vec![3];
         assert_eq!(l1_target_gas(&actions), 210_000);
         actions[0] = gas_action(1, 0, None, u64::MAX, false);
         assert_eq!(l1_target_gas(&actions), u64::MAX);
@@ -9268,6 +9289,8 @@ mod tests {
                 expected_success,
                 expected_output,
                 callbacks: Vec::new(),
+                delivery: None,
+                rollback_spans: Vec::new(),
             },
         };
         let schedule = vec![

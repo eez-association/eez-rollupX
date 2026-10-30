@@ -1,0 +1,2875 @@
+{
+  "source": "c702f90da19cc149890d0a17a4ef6c200dcb6a21",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "discovered": 64,
+  "baseline_selected": 34,
+  "scenarios": [
+    {
+      "name": "multi-call-twice",
+      "path": "script/e2e/scenarios/multi_call/L1_to_L2/multi-call-twice/E2EMultiCallTwice.s.sol",
+      "sha256": "b18f0d315db1a06da8b3fbc2d42bc3b0d835c01e43ee268c4f8d76bbbf8e9166",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "532fd5338b7aad1025b7b49a31bf22ee29b6de3bd7c747d966cca595ca68a0be",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "multi-call-two-diff",
+      "path": "script/e2e/scenarios/multi_call/L1_to_L2/multi-call-two-diff/E2EMultiCallTwoDiff.s.sol",
+      "sha256": "ad8880ac2cc2cf5d99c5c8a6ec6f729e69aaab577e09c1a85a2ff81bb06027cc",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "c6a507d6e028b3e5b061969b5495bbd12e08f356798917a1f8066a70e285b4f3",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "multi-call-twiceL2",
+      "path": "script/e2e/scenarios/multi_call/L2_to_L1/multi-call-twiceL2/E2EMultiCallTwiceL2.s.sol",
+      "sha256": "06981584c29bbbba675772cdfc28c16730590d2e59da8b8e774aece48b1d38c0",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        }
+      ],
+      "literal_require_messages": [],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "3ad0ed68b4a58f5f5a651c2921426a7f9441c8f05574b2dcccaf2e529fe78089",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "multi-call-two-diffL2",
+      "path": "script/e2e/scenarios/multi_call/L2_to_L1/multi-call-two-diffL2/E2EMultiCallTwoDiffL2.s.sol",
+      "sha256": "a43497529b4dfd9a022a98e8c191f94e3168664e3e577790ff7c046d199eebd3",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "26f459132bd18cd779da6306caca374d62e9486ec4f2dddb5722c18efd0db49b",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "counter-multi-tx",
+      "path": "script/e2e/scenarios/multi_tx/L1_to_L2/counter-multi-tx/E2ECounterMultiTx.s.sol",
+      "sha256": "e7e9c9db24dcbee3d5f06bd3c4835eb52dec8f215e517610e86042ad56c21276",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        }
+      ],
+      "literal_require_messages": [],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "a29631c1a02974ef59046088b1b5639af97a89aebd3a066580c0fa5eb06f5b72",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "deepNested",
+      "path": "script/e2e/scenarios/nested/L1_to_L2/deepNested/E2EDeepNested.s.sol",
+      "sha256": "b953b9add03f118df80551952af237fd8788db6aaa821e2ef05acca23452ebdd",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "FAIL",
+          "exit_code": 1,
+          "seconds": 3,
+          "failure_class": "port_collision"
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [
+        "outer call failed"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "51ea076386c8ed26db7af2b07a8a85fde5f3e0059cde1f7a571ec0166051457e",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "flash-loan",
+      "path": "script/e2e/scenarios/nested/L1_to_L2/flash-loan/E2EFlashLoan.s.sol",
+      "sha256": "93c66bfc8072489fb10268fd0fa0ffc58a2e1dd0a7119c3aa03e5a33c2040221",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "106e7cd76438336e81f28c6c3fe02a650126638003f088ee85c468c410750cb2",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "multi-call-nested",
+      "path": "script/e2e/scenarios/nested/L1_to_L2/multi-call-nested/E2EMultiCallNested.s.sol",
+      "sha256": "a4d48e9cbf53c5d08b3d55523d99fd08f2fd31e24e7f1965a15258ead8e33767",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "FAIL",
+          "exit_code": 1,
+          "seconds": 3,
+          "failure_class": "port_collision"
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "78f1b98a35498568495c5d2d4ea47157abf20fd12351ce82f67a0504f8fd874f",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "nestedCounter",
+      "path": "script/e2e/scenarios/nested/L1_to_L2/nestedCounter/E2ENestedCounter.s.sol",
+      "sha256": "f9a75e9bbb80d14301c30132c4df5a41dd9bc5ee94afa9f6cda26cf764766016",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [
+        "outer call failed"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "3d8d1a19f6bf3315f314c7c3cc36df2d2c5c8308b4eca6b09db5011e84f6909e",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "multi-call-nestedL2",
+      "path": "script/e2e/scenarios/nested/L2_to_L1/multi-call-nestedL2/E2EMultiCallNestedL2.s.sol",
+      "sha256": "8821188d4566be2a334a43e45bb0851697d319fbe422af0acdeb1cb46c7544f9",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "b8ab552cb1cdd469a3bfcb3419e7bfc0e3af0ec5134ac604f639a4247ac93c74",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "nestedCounterL2",
+      "path": "script/e2e/scenarios/nested/L2_to_L1/nestedCounterL2/E2ENestedCounterL2.s.sol",
+      "sha256": "95516ab65f70322fee202d99a9f8bc45ab42cbe8e8d32a6979acb6d59161099c",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 14
+        }
+      ],
+      "literal_require_messages": [
+        "outgoing call failed"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "226d9ccc1a732cffe92bc9b407124f77a28922c8b7d01522fd20915ece3b5df9",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "bridge",
+      "path": "script/e2e/scenarios/one_way/L1_to_L2/bridge/E2EBridge.s.sol",
+      "sha256": "3268b6fe37853dc87f398f9f13d39b2a0064fe143a2345fb5997cf3c17d37079",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [
+        "invalid bridge amount",
+        "bridge failed"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "d84124b31d31cbe45b1a9407d6e34a969b9588d0a539d775c6d76a9071f17009",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "counter",
+      "path": "script/e2e/scenarios/one_way/L1_to_L2/counter/E2ECounter.s.sol",
+      "sha256": "939126ea0485d3cfe2f539919d7d22941b93b3cb3f04aa1a5b627fe679d6856c",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 10
+        }
+      ],
+      "literal_require_messages": [],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "defed704da27f8430beebfcccbc716201f6f9f79ad98a834b97157f548a63fb3",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "bridgeL2",
+      "path": "script/e2e/scenarios/one_way/L2_to_L1/bridgeL2/E2EBridgeL2.s.sol",
+      "sha256": "b9450f5e3ba5c1d4dc408d4e429363b2449ff023c00d59ba27a412a17050423f",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [
+        "bridge failed",
+        "receiver did not get the bridged ether",
+        "escrow cheat missed - EEZ storage layout moved?",
+        "balance cheat did not reach the node"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "f8130d5ea691b36127b94f1114ef9371fc2574e8512423de4b7aea2b35c2d5df",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "counterL2",
+      "path": "script/e2e/scenarios/one_way/L2_to_L1/counterL2/E2ECounterL2.s.sol",
+      "sha256": "87cbf8d6cffe9fa40d00cf3fdb2106f5efc2f4471b4d0e9e0747bc6465984e0b",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "425dbc6052a81e0108b3b8f13cbcf417488d9e1547db96fcecd9d6046a6699d1",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "reentrant",
+      "path": "script/e2e/scenarios/reentrant/L1_to_L2/reentrant/E2EReentrant.s.sol",
+      "sha256": "fd808e0dfdf36919675faf69dec3dd93f2eda85716bc48d8e3aff732a91df46d",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [
+        "rcL2.count must be 2 after the reentrant chain",
+        "L1 trigger failed",
+        "rcL1.count must be 2 after the reentrant chain"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "98a01ff0ee9213f9bf2c20e016535b6431445153ecfdb90817cb62ca6cf66684",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "catchNestedRevertAfterCallback",
+      "path": "script/e2e/scenarios/revert/L1_to_L2/catchNestedRevertAfterCallback/E2ECatchNestedRevertAfterCallback.s.sol",
+      "sha256": "f1bb8743082266654e4b9f2f2879a994b3bde14aef46b979874e1ed603b2c638",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 18
+        }
+      ],
+      "literal_require_messages": [
+        "source completion/rollback",
+        "caught nested result",
+        "destination state",
+        "exact nested failure",
+        "scenario requires gas-independent keys",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "203048830ac0d789fdd8df4a5e439d26bab1106a35952982baed70f40577acd2",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+      "path": "script/e2e/scenarios/revert/L1_to_L2/catchRemoteAndNestedRevertsAfterSuccessfulCallbacks/E2ECatchRemoteAndNestedRevertsAfterSuccessfulCallbacks.s.sol",
+      "sha256": "501884c436781a9a0fbf5846f0515b407ee41093fd91c679bdc5f1b7e470bb81",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [
+        "successful source continuation",
+        "failed root's L1 callback survived",
+        "wrong remote failure data",
+        "L2 rollback/continuation",
+        "wrong nested failure data",
+        "scenario requires gas-independent keys",
+        "real L2 failure prediction",
+        "prediction rollback",
+        "restore prediction fork",
+        "source table must use real producer result",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "7b69a12a1576fc7ff81e0c13b7c1a3089f6e1f673bae5e0d1d1ac3e0e7548e3b",
+        "failure_category": "fee_quote_unavailable",
+        "failure_excerpt": "eez_quoteFee failed: Error: server returned an error response: error code -32004: quote unavailable: gas estimation, data: {\"code\":\"quote_unavailable\",\"message\":\"quote unavailable: gas estimation\"}"
+      }
+    },
+    {
+      "name": "catchRemoteRevertAfterCallback",
+      "path": "script/e2e/scenarios/revert/L1_to_L2/catchRemoteRevertAfterCallback/E2ECatchRemoteRevertAfterCallback.s.sol",
+      "sha256": "13eaec428c537fbc9cda772a86c7e0d96384c5207d4f4558db87745037629bae",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 8
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 9
+        }
+      ],
+      "literal_require_messages": [
+        "source completion/rollback",
+        "exact remote failure",
+        "destination state",
+        "scenario requires gas-independent keys",
+        "real L2 failure prediction",
+        "prediction must leave no effects",
+        "restore prediction fork",
+        "use the real producer result",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "2d3827279f0043f0c9038f1bff97fd2f612f65036736e3ecf97bfcaaebbd3eb4",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "nestedCallRevert",
+      "path": "script/e2e/scenarios/revert/L1_to_L2/nestedCallRevert/E2ENestedCallRevert.s.sol",
+      "sha256": "25948fa6b6b7f0b965cf196d3c24e625c1e5573044796b8976242c6821abdc73",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        }
+      ],
+      "literal_require_messages": [
+        "SafeCAP must commit its own increment",
+        "inner revert must be caught and recorded",
+        "no target result on a reverted inner call",
+        "outer call failed",
+        "reverted inner call must commit nothing on L1"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "aaf5c79743dd8958f2c26eeeba4d975428dcd781bb3df22706ba2903669c20ae",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "revertCounter",
+      "path": "script/e2e/scenarios/revert/L1_to_L2/revertCounter/E2ERevertCounter.s.sol",
+      "sha256": "90c76827d4a8eaae7f2f0c8806bf381cc36051983b783064ddb4f04cb687241f",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 8
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 9
+        }
+      ],
+      "literal_require_messages": [
+        "cross-chain call must surface the destination revert",
+        "no target result on a reverted call"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-lookup-only",
+        "source_log_sha256": "5b7e61b983c4f4c55feb04039c6d06321030628c66fc07475449892a7e27d602",
+        "claims": {
+          "upstream_pass_required": true,
+          "receipts_revalidated": true,
+          "post_batch_preceded_trigger": true,
+          "no_destination_delivery_required": true,
+          "l2_absence_verified": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "actual_lookup_result_traced": true,
+          "lookup_root_bound": true
+        }
+      }
+    },
+    {
+      "name": "revertFromOtherChain",
+      "path": "script/e2e/scenarios/revert/L1_to_L2/revertFromOtherChain/E2ERevertFromOtherChain.s.sol",
+      "sha256": "522c8a8c07c4445f8a8dd22750c5082f8468b2fda0e46451e57414d037e9c786",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "FAIL",
+          "exit_code": 1,
+          "seconds": 2,
+          "failure_class": "port_collision"
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [
+        "trigger should succeed",
+        "revertNextNCalls must erase exactly the first increment",
+        "exactly one reentrant consumption must survive"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "5a1000e58d9cd0ff2796ce97da31955cc0513d10407e84accbf6264f869594f7",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "catchNestedRevertAfterCallbackL2",
+      "path": "script/e2e/scenarios/revert/L2_to_L1/catchNestedRevertAfterCallbackL2/E2ECatchNestedRevertAfterCallbackL2.s.sol",
+      "sha256": "50e75acb061bb265468c141f518140d74e4ce5a48340c068de07828857004b25",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 15
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source callback state",
+        "caught nested result",
+        "extra destination trigger",
+        "destination state",
+        "exact nested failure",
+        "scenario requires gas-independent keys",
+        "wrong source position after execution",
+        "unexpected value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "79e9912047f9d6d581b0ce4ecdd26c2b2b1e2a8ddb2e65a5d8bdea4dfb1b3c96",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+      "path": "script/e2e/scenarios/revert/L2_to_L1/catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2/E2ECatchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2.s.sol",
+      "sha256": "06c2a46bb2f109010757c91746f1e356ff2337526f868c831254193ac49a325a",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "FAIL",
+          "exit_code": 1,
+          "seconds": 2,
+          "failure_class": "port_collision"
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source rollback state",
+        "source continuation",
+        "source failure bytes",
+        "destination state/rollback",
+        "extra destination trigger",
+        "nested failure bytes",
+        "scenario requires gas-independent keys",
+        "wrong final source cursor",
+        "unexpected source value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "7850a4f88a94268f7e3ea939bae40f89b89820f7529f4683484f2f52eed197f9",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "catchRemoteRevertAfterCallbackL2",
+      "path": "script/e2e/scenarios/revert/L2_to_L1/catchRemoteRevertAfterCallbackL2/E2ECatchRemoteRevertAfterCallbackL2.s.sol",
+      "sha256": "4fe444d5a3407f7c529260da1f8fa535713c07b929c9b4c778ef6f03ef70ea84",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "FAIL",
+          "exit_code": 1,
+          "seconds": 4,
+          "failure_class": "port_collision"
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source callback state",
+        "exact remote failure",
+        "extra destination trigger",
+        "destination state",
+        "scenario requires gas-independent keys",
+        "wrong source position after execution",
+        "unexpected value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "1821e9dad40b52ff19a453b3f83c9038e026116331c7c679b9b8cafe1662034c",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "nestedCallRevertL2",
+      "path": "script/e2e/scenarios/revert/L2_to_L1/nestedCallRevertL2/E2ENestedCallRevertL2.s.sol",
+      "sha256": "081481cccb88200f5e1ada1670e96be0e643bd2123d1ddb9614455bd7ddffc60",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 14
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [
+        "outgoing call failed",
+        "reverted inner call must commit nothing on L2",
+        "SafeCAP must commit its own increment",
+        "inner revert must be caught and recorded",
+        "no target result on a reverted inner call"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "c98c0cddafbbc8c8316e7a9d8585366b6a511d92deccbb3c33b21eb1c6fa8ef1",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+      "path": "script/e2e/scenarios/revert/L2_to_L1/nestedRollbackGroupsRestoreStateBeforeContinuationL2/E2ENestedRollbackGroupsRestoreStateBeforeContinuationL2.s.sol",
+      "sha256": "a399951f4b197c8c9c8b1b29fb7159a194558353e36948187d2116b1a1406bc1",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 15
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source rollback state",
+        "outer group result",
+        "destination state/rollback",
+        "extra destination trigger",
+        "scenario requires gas-independent keys",
+        "wrong final source cursor",
+        "unexpected source value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "2bc7907282556e1433f6735aa859e90eb321036b618ab68382affb4b77dc9a49",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "nestedRollbackRestoresInnerThenOuterStateL2",
+      "path": "script/e2e/scenarios/revert/L2_to_L1/nestedRollbackRestoresInnerThenOuterStateL2/E2ENestedRollbackRestoresInnerThenOuterStateL2.s.sol",
+      "sha256": "2d6d42219e976af7a18e27cd33e60bd733283cd6368d2100fb89ec9f4605bd29",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 14
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source callback state",
+        "outer rollback observation",
+        "extra destination trigger",
+        "destination state",
+        "scenario requires gas-independent keys",
+        "wrong source position after execution",
+        "unexpected value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "b560c49841d27816a8137d57f68c2e5f13e655b6607dafe3ae1e596ac009d200",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "revertCounterL2",
+      "path": "script/e2e/scenarios/revert/L2_to_L1/revertCounterL2/E2ERevertCounterL2.s.sol",
+      "sha256": "ca6a843fe6c95cc6e501f9b223f55f982aca00b84507987695a0f25850d66bf3",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 14
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        }
+      ],
+      "literal_require_messages": [
+        "cross-chain call must surface the destination revert",
+        "no target result on a reverted call"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "c43f8e4c35f069277fe7505df4bb6b8cbb7bfb1d285f4e487284123bd19b402a",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": false
+        }
+      }
+    },
+    {
+      "name": "revertFromOtherChainAndCallAgainL2",
+      "path": "script/e2e/scenarios/revert/L2_to_L1/revertFromOtherChainAndCallAgainL2/E2ERevertFromOtherChainAndCallAgainL2.s.sol",
+      "sha256": "d7e41f00e9e9e5724c653df607a8696d2705045fe3f3afc57df471064f52281d",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 16
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [
+        "exactly one consumption must survive",
+        "revertNextNCalls must erase exactly the first increment"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "d3d28fdb50cca62ce36ddcd18091886dc86f624e4b97a760fc1bd7d899f1babf",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "revertFromOtherChainL2",
+      "path": "script/e2e/scenarios/revert/L2_to_L1/revertFromOtherChainL2/E2ERevertFromOtherChainL2.s.sol",
+      "sha256": "c80e86f56036cc983420a15ba9bd28bf2210d13ab93c0c3f090f4f0560465797",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 14
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        }
+      ],
+      "literal_require_messages": [
+        "inner frame must have reverted",
+        "revertNextNCalls must erase the call's state"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "84637580ff92ab7d52a59d65cb05bf5eb9890d5719c2eebe5c25153d2d110d43",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": false
+        }
+      }
+    },
+    {
+      "name": "revertFromOtherChainNested",
+      "path": "script/e2e/scenarios/revert/L2_to_L1/revertFromOtherChainNested/E2ERevertFromOtherChainNested.s.sol",
+      "sha256": "23a82ff09e50e323aaffeaaaa97f646ac050a14feeebe14223912f09c5af8cc3",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 15
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 16
+        }
+      ],
+      "literal_require_messages": [
+        "outer outgoing call failed",
+        "first callback must unwind and retry must commit",
+        "same reentrant row was not retried"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "b0eb83018972bcd27db31cd72ccfcfc57ed925c72007f25bbc2cec7dbf281147",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "rollbackGroupWithStaticReadThenWriteL2",
+      "path": "script/e2e/scenarios/revert/L2_to_L1/rollbackGroupWithStaticReadThenWriteL2/E2ERollbackGroupWithStaticReadThenWriteL2.s.sol",
+      "sha256": "b92c9e8f35da9e7be978d3afc14b226c226844c945283156010472b6e530e1ff",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 16
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source rollback state",
+        "static-first result",
+        "destination state/rollback",
+        "extra destination trigger",
+        "scenario requires gas-independent keys",
+        "wrong final source cursor",
+        "unexpected source value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "b0ae4a99b1d1acee8fa50adffa9e40763d3f9a86c35ffe4add8d2016da169fba",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+      "path": "script/e2e/scenarios/static/L1_to_L2/deepStaticReadCallbacksUnderStaticAndMutableCalls/E2EDeepStaticReadCallbacksUnderStaticAndMutableCalls.s.sol",
+      "sha256": "851dacd559c9e8ddbd0feb965e5c44a53edde17ac2534fab7feadbe2b312efca",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 16
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [
+        "source read-only callbacks",
+        "deep read results",
+        "one mutable delivery",
+        "real L2 nested read result",
+        "scenario requires gas-independent keys",
+        "real L2 static prediction",
+        "prediction must be read-only",
+        "restore prediction fork",
+        "source table must use real producer result",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "3a00af741f0e58cd1bee7f77aa0398cfeafc3075e1ad181e193eca6a0eb06bf7",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "mutableCallMakesReadThatCallsBack",
+      "path": "script/e2e/scenarios/static/L1_to_L2/mutableCallMakesReadThatCallsBack/E2EMutableCallMakesReadThatCallsBack.s.sol",
+      "sha256": "ee0034bdb56328c36db18a4a9ad7f5069876c61e081031d8ae43d89fa26d2640",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 14
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [
+        "source completion/rollback",
+        "mutable call read result",
+        "destination state",
+        "real nested read result",
+        "scenario requires gas-independent keys",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "189c19f667ba3b3724ba819ec6b32f81a845a510a461b65d16be1b90b77de00b",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "nestedStaticCounter",
+      "path": "script/e2e/scenarios/static/L1_to_L2/nestedStaticCounter/E2ENestedStaticCounter.s.sol",
+      "sha256": "28c41209a2f269c53fc0f5d25113c682f83f309718c00d4e210d1a6c31ad1dd2",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 14
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [
+        "nested static read returned wrong value",
+        "reader did not run",
+        "trigger call failed",
+        "cached return mismatch",
+        "CounterL1 not at 1"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "02db20df0991a4ec48775c7c22582ac2f53998c24b1bc733ef82c5c0917e9986",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "nestedStaticLocalWriteL2",
+      "path": "script/e2e/scenarios/static/L1_to_L2/nestedStaticLocalWriteL2/E2ENestedStaticLocalWriteL2.s.sol",
+      "sha256": "ca9bf3ef5f7421ceea254ff9d9fbeac6a8d0c2e43bbe713a23de8320baff8032",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "NOT LIVE YET (staged/parallel network tests).",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 14
+        }
+      ],
+      "literal_require_messages": [
+        "quote must read rate 1",
+        "quote must read updated rate 2",
+        "quote must read reset rate 1",
+        "stored quote at rate 1 mismatch",
+        "stored quote at rate 2 mismatch",
+        "stored quote after reset mismatch",
+        "reader state mismatch",
+        "unexpected mutable consumption",
+        "unexpected root transition"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "13903ae35dd09b488c68a29c64ab79101a3c917689fa4b47b4123e5590cca0c4",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "staticLocalWrite",
+      "path": "script/e2e/scenarios/static/L1_to_L2/staticLocalWrite/E2EStaticLocalWrite.s.sol",
+      "sha256": "b5ad3ae5ba18c47e47ed3219c90297003cbc3b6569de7f2dfec2550022e46963",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "NOT LIVE YET (staged/parallel network tests).",
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 10
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 9
+        }
+      ],
+      "literal_require_messages": [
+        "quote must read rate 1",
+        "quote must read updated rate 2",
+        "quote must read reset rate 1",
+        "stored quote at rate 1 mismatch",
+        "stored quote at rate 2 mismatch",
+        "stored quote after reset mismatch",
+        "reader state mismatch",
+        "quote prediction failed",
+        "unexpected root transition"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-lookup-only",
+        "source_log_sha256": "e5f20a76ee559a3e40b39fef39098e3cfa8bcd0720e7de0023be91bfb23a9b5b",
+        "claims": {
+          "upstream_pass_required": true,
+          "receipts_revalidated": true,
+          "post_batch_preceded_trigger": true,
+          "no_destination_delivery_required": true,
+          "l2_absence_verified": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "actual_lookup_result_traced": true,
+          "lookup_root_bound": true
+        }
+      }
+    },
+    {
+      "name": "staticReadCallsBackAndReadsAgain",
+      "path": "script/e2e/scenarios/static/L1_to_L2/staticReadCallsBackAndReadsAgain/E2EStaticReadCallsBackAndReadsAgain.s.sol",
+      "sha256": "016abf9102fe63ac32af595b013e47899999dbfdefc83b774234fe160a36a59b",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 9
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 10
+        }
+      ],
+      "literal_require_messages": [
+        "source completion/rollback",
+        "read callback's own read",
+        "destination state",
+        "scenario requires gas-independent keys",
+        "real L2 read prediction",
+        "prediction must leave no effects",
+        "restore prediction fork",
+        "use the real producer result",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "50b1695e0bb6e85f8c1594f90a69a3da5cdf7ba3bc311b39efd9590c349a14fc",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "staticReadWrite",
+      "path": "script/e2e/scenarios/static/L1_to_L2/staticReadWrite/E2EStaticReadWrite.s.sol",
+      "sha256": "a5c6aa1286d20514c041c0d3d7cfc03cf2d285702851b4cde2f1556b1b6dc491",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [
+        "increment result differs",
+        "static read did not advance",
+        "expected one trigger",
+        "expected initial zero",
+        "expected increment to one",
+        "expected final read of one",
+        "producer not initially zero",
+        "before-read producer mismatch",
+        "after-read producer mismatch",
+        "expected one mutable consumption",
+        "destination counter mismatch"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "5f94b1fa952231fcd8830c4318bb77b3007f571b4261fbd94e40adc07430ea3b",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "staticReadX2Write",
+      "path": "script/e2e/scenarios/static/L1_to_L2/staticReadX2Write/E2EStaticReadX2Write.s.sol",
+      "sha256": "2a0f3253eb4a448b156c37ab82fb5b28bc56aeadaba18bb09207f2c5e16007c0",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [
+        "repeated before read differs",
+        "repeated after read differs",
+        "increment result differs",
+        "static read did not advance",
+        "expected one trigger",
+        "expected initial zero",
+        "expected increment to one",
+        "expected final read of one",
+        "producer not initially zero",
+        "before-read producer mismatch",
+        "after-read producer mismatch",
+        "expected one mutable consumption",
+        "destination counter mismatch"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "7b524ed5e608389d9a44f8c944ad4ddd9d2c26c0f4687b37c1ab257af9fc530f",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "staticThenNestedWrites",
+      "path": "script/e2e/scenarios/static/L1_to_L2/staticThenNestedWrites/E2EStaticThenNestedWrites.s.sol",
+      "sha256": "6338ae6b2b5537fe542bd3afd5febaa907ad6648d5dc4ac0542deb5f0353a49d",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "Explicit selection only pending live validation.",
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [
+        "already configured",
+        "fresh source required",
+        "wrong initial static result",
+        "wrong remote return",
+        "callback must write first",
+        "fresh destination required",
+        "callback must return before remote write",
+        "callback out of order",
+        "source observations",
+        "source final state",
+        "source write counts",
+        "destination final state",
+        "extra destination execution",
+        "initial producer result",
+        "scenario requires gas-independent keys",
+        "producer prediction failed",
+        "initial producer changed",
+        "expected one mutable consumption",
+        "source return bytes",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "4761f6275d15e9ee631740cb62a05fff88f1124b27dac2d4d5de4d435db104ae",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "topLevelStaticCounter",
+      "path": "script/e2e/scenarios/static/L1_to_L2/topLevelStaticCounter/E2ETopLevelStaticCounter.s.sol",
+      "sha256": "6abf9f02d38b0d73fbefc80766e45d1e5f52dc03a8e4b7350bb8e321a68afe6e",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 8
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 9
+        }
+      ],
+      "literal_require_messages": [
+        "prediction staticcall failed",
+        "static read returned wrong value",
+        "reader did not run",
+        "no-tx static query returned wrong value"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-lookup-only",
+        "source_log_sha256": "f3294266eb8310f751e1f6249b0a2c581ae93fbd5e2410700f868538427f665c",
+        "claims": {
+          "upstream_pass_required": true,
+          "receipts_revalidated": true,
+          "post_batch_preceded_trigger": true,
+          "no_destination_delivery_required": true,
+          "l2_absence_verified": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "actual_lookup_result_traced": true,
+          "lookup_root_bound": true
+        }
+      }
+    },
+    {
+      "name": "topLevelStaticReentrantCounter",
+      "path": "script/e2e/scenarios/static/L1_to_L2/topLevelStaticReentrantCounter/E2ETopLevelStaticReentrantCounter.s.sol",
+      "sha256": "005ae8ad1f776099fa424642b14e0058d8cfcdc9d7e3a5f9bf2a7cc79753209a",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 10
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 10
+        }
+      ],
+      "literal_require_messages": [
+        "scenario requires gas-independent L2 keys",
+        "L1 return-call proxy missing",
+        "forwarder prediction mismatch",
+        "static read returned wrong value",
+        "reader did not run",
+        "callback proxy not deployed",
+        "unexpected missing-proxy observation",
+        "L1 producer changed",
+        "lookup moved L2 root",
+        "no-tx static query returned wrong value"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-lookup-only",
+        "source_log_sha256": "11ec6922afbd481046d73c4af656af6cdb9640a4b80d1169faf0374ec0fe7269",
+        "claims": {
+          "upstream_pass_required": true,
+          "receipts_revalidated": true,
+          "post_batch_preceded_trigger": true,
+          "no_destination_delivery_required": true,
+          "l2_absence_verified": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "actual_lookup_result_traced": true,
+          "lookup_root_bound": true
+        }
+      }
+    },
+    {
+      "name": "topLevelStaticReentrantMissingProxy",
+      "path": "script/e2e/scenarios/static/L1_to_L2/topLevelStaticReentrantMissingProxy/E2ETopLevelStaticReentrantMissingProxy.s.sol",
+      "sha256": "5345ac85f7cc61d31378eaac0b3ae625ba272214dff2c3ac2e6a666e6ad46c34",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "NOT READY. Missing-proxy cases remain explicit-only pending live staged validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 10
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 10
+        }
+      ],
+      "literal_require_messages": [
+        "scenario requires gas-independent L2 keys",
+        "callback source proxy must start undeployed",
+        "forwarder prediction mismatch",
+        "static read returned wrong value",
+        "reader did not run",
+        "callback proxy not deployed",
+        "missing-proxy evidence mismatch",
+        "L1 producer changed",
+        "lookup moved L2 root",
+        "no-tx static query returned wrong value"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "56ad15c3feef9dd8167718265a9f544a495cdfb482b2e9396dc0cc0b28ec8486",
+        "failure_category": "fee_quote_unavailable",
+        "failure_excerpt": "eez_quoteFee failed: Error: server returned an error response: error code -32004: quote unavailable: gas estimation, data: {\"code\":\"quote_unavailable\",\"message\":\"quote unavailable: gas estimation\"}"
+      }
+    },
+    {
+      "name": "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/deepStaticReadCallbacksUnderStaticAndMutableCallsL2/E2EDeepStaticReadCallbacksUnderStaticAndMutableCallsL2.s.sol",
+      "sha256": "756ea0f69442a58ecd00401de1ace1fbd6ffa30b5c4a96652227e9a6ddf3cf0d",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source rollback state",
+        "source deep reads",
+        "destination state/rollback",
+        "extra destination trigger",
+        "real destination read result",
+        "scenario requires gas-independent keys",
+        "wrong final source cursor",
+        "unexpected source value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "b4f48728e701da526cccc60bec2b5a968ab7bb7f46f7daa803c27ecd86096da6",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "mutableCallMakesReadThatCallsBackL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/mutableCallMakesReadThatCallsBackL2/E2EMutableCallMakesReadThatCallsBackL2.s.sol",
+      "sha256": "be9d96972df1cb8b7b70afa20edbd7ca44a87cbb6ce8f9c34877247cd8a23162",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source callback state",
+        "mutable call read result",
+        "extra destination trigger",
+        "destination state",
+        "real read result",
+        "scenario requires gas-independent keys",
+        "wrong source position after execution",
+        "unexpected value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "e7c95e7111d70e0ddc580ecfd07dea0e567453f174238917b697527d4187ed0a",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "nestedStaticCounterL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/nestedStaticCounterL2/E2ENestedStaticCounterL2.s.sol",
+      "sha256": "7e327465d05b597f724bdb69139058aa16606f02432127541f4986601aed2dad",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [
+        "outgoing call failed",
+        "nested static read returned wrong value",
+        "reader did not run",
+        "CAP did not run",
+        "cached nested return mismatch",
+        "CounterL1 not at 1"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "ec5dd7d7bb1e9785a9700bd84588bc98468910144c59672b04958845673d58fd",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        }
+      }
+    },
+    {
+      "name": "nestedStaticLocalWriteL1",
+      "path": "script/e2e/scenarios/static/L2_to_L1/nestedStaticLocalWriteL1/E2ENestedStaticLocalWriteL1.s.sol",
+      "sha256": "e18a8c5b80f7c6a985e5d0a0769760d95abb97c0ad91cc3845827b0e19842ecf",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "NOT LIVE YET (staged/parallel network tests).",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 16
+        }
+      ],
+      "literal_require_messages": [
+        "quote must read rate 1",
+        "quote must read updated rate 2",
+        "quote must read reset rate 1",
+        "stored quote at rate 1 mismatch",
+        "stored quote at rate 2 mismatch",
+        "stored quote after reset mismatch",
+        "reader state mismatch",
+        "unexpected mutable consumption",
+        "unexpected root transition"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "924e4d18eb021d310423b7cfdc4574fa5abd1912eada5bd3f42c1ddc30ef560e",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "staticCounterL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/staticCounterL2/E2EStaticCounterL2.s.sol",
+      "sha256": "503f6dd9e929b676a9af5aa2cf5239bc86665dc8b7b57410f4eb800df49f22da",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "PASS",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "FAIL",
+          "exit_code": 1,
+          "seconds": 2,
+          "failure_class": "port_collision"
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [
+        "CounterL1 not at 1",
+        "static read returned wrong value",
+        "reader did not run"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-static-pool",
+        "source_log_sha256": "583976fe2ec12cb3053d2e68a651e033abf5a54b0c55136e9fcf092f66b9d397",
+        "claims": {
+          "upstream_pass_required": true,
+          "receipts_revalidated": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "exact_same_block_static_table_decoded": true,
+          "table_load_preceded_trigger": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "producer_remained_read_only": true
+        }
+      }
+    },
+    {
+      "name": "staticLocalWriteL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/staticLocalWriteL2/E2EStaticLocalWriteL2.s.sol",
+      "sha256": "beff1b4df738bce16ccdc8730c2f53913357c0410cf4f8b0f0ef7ba5ded24887",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "NOT LIVE YET (staged/parallel network tests).",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [
+        "quote must read rate 1",
+        "quote must read updated rate 2",
+        "quote must read reset rate 1",
+        "stored quote at rate 1 mismatch",
+        "stored quote at rate 2 mismatch",
+        "stored quote after reset mismatch",
+        "reader state mismatch",
+        "unexpected mutable consumption",
+        "unexpected root transition"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "c6444864b8ff69c3e1ce2da334cff072f7531a5fa66e2ec53ff259d751167006",
+        "failure_category": "receipt_wait",
+        "failure_excerpt": "Waiting for receipt: 0x7bc9658643b0e7cf53e665663c7fc7591e04491c83bb24851cf22fd708f19863 (13s remaining)"
+      }
+    },
+    {
+      "name": "staticReadCallsBackAndReadsAgainL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/staticReadCallsBackAndReadsAgainL2/E2EStaticReadCallsBackAndReadsAgainL2.s.sol",
+      "sha256": "e03ac9686c9f904677d5245809b1b78db2d92edcabc3deb5f1decba5c7fd7fab",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 17
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source callback state",
+        "read callback's own read",
+        "extra destination trigger",
+        "destination state",
+        "scenario requires gas-independent keys",
+        "wrong source position after execution",
+        "unexpected value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "a7241b50b2f1fba3ce01c8c4c095a32543091a6917e22708969da925ccd0c900",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2/E2EStaticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2.s.sol",
+      "sha256": "878ed24c4cfee0a9ad102597d501be1a0c01f448563eb7e4f1f51e5b33863ed8",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 14
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source rollback state",
+        "handled failure result",
+        "propagated failure bytes",
+        "destination state/rollback",
+        "extra destination trigger",
+        "scenario requires gas-independent keys",
+        "wrong final source cursor",
+        "unexpected source value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "e76306eb46cfe19e0f19e7c52b4c717e1eb040c691438506cdad75fa3f90d859",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "staticReadHandlesFailedCallbackL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/staticReadHandlesFailedCallbackL2/E2EStaticReadHandlesFailedCallbackL2.s.sol",
+      "sha256": "1e25260f60e3bcc7d28e8b8e27341eb76d56d24c879e5163e82f2ca1c62211be",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "FAIL",
+          "exit_code": 1,
+          "seconds": 3,
+          "failure_class": "port_collision"
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source callback state",
+        "handled read failure",
+        "extra destination trigger",
+        "destination state",
+        "scenario requires gas-independent keys",
+        "wrong source position after execution",
+        "unexpected value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "ecdcb68ed9e720ea2f0f516b417cf1f203c38419111910043a428026131ed2c6",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "staticReadPropagatesFailedCallbackL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/staticReadPropagatesFailedCallbackL2/E2EStaticReadPropagatesFailedCallbackL2.s.sol",
+      "sha256": "e4c3944c05201bb00ef8b70facb8ca7339c049986372adf0ea0e61a2b6e7ca69",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source callback state",
+        "propagated read failure",
+        "failure must not become a successful answer",
+        "extra destination trigger",
+        "destination state",
+        "scenario requires gas-independent keys",
+        "wrong source position after execution",
+        "unexpected value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "74fb5580592a03100d1b9a042a950acd6fd02556c4b76f2e3228abd6abb8e838",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "staticReadThenCatchFailedWriteL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/staticReadThenCatchFailedWriteL2/E2EStaticReadThenCatchFailedWriteL2.s.sol",
+      "sha256": "898fff2d3cf5a26aa44c520e1d1216e9891c63e068f9f863fb77d97a47731061",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source callback state",
+        "read then failed write",
+        "extra destination trigger",
+        "destination state",
+        "scenario requires gas-independent keys",
+        "wrong source position after execution",
+        "unexpected value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "58dd5bc947bbf7b74e017235116eb91833bb0300403f2212cea7268c04129e9f",
+        "failure_category": "receipt_wait",
+        "failure_excerpt": "Waiting for receipt: 0xff1ba21078eee92bbedbbf26af03e46b2ecaefb2b47ef2ad03feaf87dec87500 (13s remaining)"
+      }
+    },
+    {
+      "name": "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/staticReadThenNestedWriteCaughtRevertAndRollbackL2/E2EStaticReadThenNestedWriteCaughtRevertAndRollbackL2.s.sol",
+      "sha256": "b7b414cabb282738cdf84cc9cbbf4509b62ed48d555802e246237a2ad6350829",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 14
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 14
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source rollback state",
+        "mixed reads/results",
+        "mixed failure bytes",
+        "destination state/rollback",
+        "extra destination trigger",
+        "scenario requires gas-independent keys",
+        "wrong final source cursor",
+        "unexpected source value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "c14ecb924730aa25a0bd3b1ff00c917caf97275b0d1449f49053a6c4cdcc44cd",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      }
+    },
+    {
+      "name": "staticReadThenRollbackWriteL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/staticReadThenRollbackWriteL2/E2EStaticReadThenRollbackWriteL2.s.sol",
+      "sha256": "de3f811c1c67d3a7d48c905ae9d9f1d49a41174d666ac413900bb288b0e5236e",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source callback state",
+        "read around rollback",
+        "extra destination trigger",
+        "destination state",
+        "scenario requires gas-independent keys",
+        "wrong source position after execution",
+        "unexpected value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "a236ddfb85acd98078165e5191d4d9a1bde6bf265bd24b5da4f096bc249be642",
+        "failure_category": "fee_quote_rejected",
+        "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: incomplete settlement roots"
+      }
+    },
+    {
+      "name": "staticReadThenWriteWithCallbackL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/staticReadThenWriteWithCallbackL2/E2EStaticReadThenWriteWithCallbackL2.s.sol",
+      "sha256": "e7a177a77945d7ceb928781a5903d74afff3c8f65e30bad50683ad5890f8d699",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 13
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 17
+        }
+      ],
+      "literal_require_messages": [
+        "source transaction did not finish",
+        "source callback state",
+        "read then nested write",
+        "extra destination trigger",
+        "destination state",
+        "scenario requires gas-independent keys",
+        "wrong source position after execution",
+        "unexpected value effects",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "cfbb2f42c3fc61873e64f0845ac2c60422c3d1694130731632aeee3e5789d348",
+        "failure_category": "receipt_wait",
+        "failure_excerpt": "Waiting for receipt: 0x5691f28e5b28a6ffa23fad4da90c67f6133aae2ff317f30dbab25ee5b5d111f3 (13s remaining)"
+      }
+    },
+    {
+      "name": "staticReadWriteL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/staticReadWriteL2/E2EStaticReadWriteL2.s.sol",
+      "sha256": "48b96d74ab7a529d083e7b32991c8746e32e22100c9847d4f02d8be3615b7f69",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 21
+        }
+      ],
+      "literal_require_messages": [
+        "increment result differs",
+        "static read did not advance",
+        "expected one trigger",
+        "expected initial zero",
+        "expected increment to one",
+        "expected final read of one",
+        "expected one mutable consumption",
+        "producer not initially zero",
+        "destination counter mismatch"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "b234b076c5b833117d9f11867ab0c609f17db02f3c001beccc33fdbd08c3288e",
+        "failure_category": "receipt_wait",
+        "failure_excerpt": "Waiting for receipt: 0x9114923cdf781fcb16c5139ae6a7bd5f6e794a81ec12b50934785fc5b6904f9c (13s remaining)"
+      }
+    },
+    {
+      "name": "staticReadX2WriteL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/staticReadX2WriteL2/E2EStaticReadX2WriteL2.s.sol",
+      "sha256": "a9ef07acff540d2779077cf4b5d8200220e6d7bde19e9dc6946e3dd83a3eefcc",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 16
+        }
+      ],
+      "literal_require_messages": [
+        "repeated before read differs",
+        "repeated after read differs",
+        "increment result differs",
+        "static read did not advance",
+        "expected one trigger",
+        "expected initial zero",
+        "expected increment to one",
+        "expected final read of one",
+        "expected one mutable consumption",
+        "producer not initially zero",
+        "destination counter mismatch"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "664093468eb1662c8b3cdd5b4616c76c3df529eb4c5196f9c66c98cb7d77c844",
+        "failure_category": "receipt_wait",
+        "failure_excerpt": "Waiting for receipt: 0xbe8611949421b4dd4ce0c0646bcfd9cf5b52bf5d95140c8fae1333c72ac4c10f (14s remaining)"
+      }
+    },
+    {
+      "name": "staticThenNestedWritesL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/staticThenNestedWritesL2/E2EStaticThenNestedWritesL2.s.sol",
+      "sha256": "9c00c6b6b63484a06294b464bfd472a000f3ac55d95de644f13cf8bbc046f7fa",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "Explicit selection only pending live validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 16
+        }
+      ],
+      "literal_require_messages": [
+        "already configured",
+        "fresh source required",
+        "wrong initial static result",
+        "wrong remote return",
+        "callback must write first",
+        "fresh destination required",
+        "callback must return before remote write",
+        "callback out of order",
+        "source observations",
+        "source final state",
+        "source write counts",
+        "destination final state",
+        "extra destination execution",
+        "scenario requires gas-independent keys",
+        "source return bytes",
+        "expected one mutable consumption",
+        "wrong final root",
+        "unexpected ether delta"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "6b082f95ba89322ee6c664d0224137e6768ce2bd2538f8d7f7198136b9cfc8d9",
+        "failure_category": "receipt_wait",
+        "failure_excerpt": "Waiting for receipt: 0x89fceb1147e91150943affb7cbf1293b71efacd64e64a11a5ac49abe121c4a0f (13s remaining)"
+      }
+    },
+    {
+      "name": "topLevelStaticReentrantCounterL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/topLevelStaticReentrantCounterL2/E2ETopLevelStaticReentrantCounterL2.s.sol",
+      "sha256": "bd490d67292e929b13f500cd53af027b27218aeeffe4926bb634daf0ec05413a",
+      "baseline_default_selected": true,
+      "baseline_exclusion_reason": null,
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 12
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 15
+        }
+      ],
+      "literal_require_messages": [
+        "scenario requires gas-independent L2 keys",
+        "L2 callback source proxy missing",
+        "static read consumed mutable entry",
+        "static read returned wrong value",
+        "reader did not run",
+        "callback proxy not deployed",
+        "unexpected missing-proxy observation",
+        "producer changed"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "e3b7e477a3a7bf25c51357b4e5dc9a01a649c2956e9db73ab15ed964607eba49",
+        "failure_category": "receipt_wait",
+        "failure_excerpt": "Waiting for receipt: 0x0c58ffdfde4b4e4158bebad91fb02399fd092093fded3e672281162a21157177 (14s remaining)"
+      }
+    },
+    {
+      "name": "topLevelStaticReentrantMissingProxyL2",
+      "path": "script/e2e/scenarios/static/L2_to_L1/topLevelStaticReentrantMissingProxyL2/E2ETopLevelStaticReentrantMissingProxyL2.s.sol",
+      "sha256": "73bd4c9a1569a7199f56b2241d51cd44e8f173a7376637c9bb5436f6e83c32e8",
+      "baseline_default_selected": false,
+      "baseline_exclusion_reason": "NOT READY. Missing-proxy cases remain explicit-only pending live staged validation.",
+      "baseline_network_result": "FAIL",
+      "candidate_network_result": "not_run",
+      "reference_anvil_runs": [
+        {
+          "run": 1,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 11
+        },
+        {
+          "run": 2,
+          "result": "PASS",
+          "exit_code": 0,
+          "seconds": 20
+        }
+      ],
+      "literal_require_messages": [
+        "scenario requires gas-independent L2 keys",
+        "callback source proxy must start undeployed",
+        "static read consumed mutable entry",
+        "static read returned wrong value",
+        "reader did not run",
+        "callback proxy not deployed",
+        "missing-proxy evidence mismatch",
+        "producer changed"
+      ],
+      "baseline_network_evidence": {
+        "verification_mode": "upstream-failed",
+        "source_log_sha256": "2e952c8c3708342be5f4ab28ba7669b878e753296353a65d2e9016f831fa5baa",
+        "failure_category": "fee_quote_unavailable",
+        "failure_excerpt": "eez_quoteFee failed: Error: server returned an error response: error code -32004: quote unavailable: gas estimation, data: {\"code\":\"quote_unavailable\",\"message\":\"quote unavailable: gas estimation\"}"
+      }
+    }
+  ],
+  "reference_anvil_run_2": {
+    "passed": 64,
+    "failed": 0,
+    "skipped": 0,
+    "base_port": 22545,
+    "semantic_assertions": true,
+    "rollupx_runtime": false
+  },
+  "baseline_network_run": {
+    "source": "c702f90da19cc149890d0a17a4ef6c200dcb6a21",
+    "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "passed": 33,
+    "failed": 31,
+    "skipped": 0,
+    "suite": {
+      "discovered": 64,
+      "eligible": 64,
+      "selected": 64,
+      "excluded_from_all": [],
+      "complete": true
+    },
+    "accounting": {
+      "valid": true,
+      "missing": [],
+      "duplicates": [],
+      "unexpected": []
+    },
+    "evidence_complete": false,
+    "summary_sha256": "2a53de530d765165e12638bd7b3b0608f9387889102133f3bf570d41cdf147b8",
+    "failure_categories": {
+      "fee_quote_rejected": 21,
+      "fee_quote_unavailable": 3,
+      "receipt_wait": 7
+    },
+    "diagnostics": "Local-only artifacts/full-protocol/baseline/kurtosis; compact claims and log hashes retained per scenario. Failed scenarios require targeted diagnosis, not inference from their names."
+  }
+}

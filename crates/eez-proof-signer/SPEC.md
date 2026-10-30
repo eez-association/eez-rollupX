@@ -72,14 +72,12 @@ are pinned at their exact FIFO positions relative to mutable entries.
 The profile supports exactly one nonzero rollup ID, one nonzero proof-system
 address, and one nonzero proof-system verification key. It supports nested and
 reentrant calls alternating between L1 and that L2, multi-root outbound
-transactions, terminal failed top-level calls, terminal static calls,
-successful top-level static reads whose only descendants are terminal,
-successful static callbacks to the reading chain, and terminal failed nested
-rows with no descendants. Calls rolled back inside a recovered source-chain
-frame are represented by canonical, non-overlapping `revertNextNCalls` windows.
-It does not support failed calls with descendants, any other static call with
-descendants, explicit call gas, overlapping or out-of-bounds rollback windows,
-sender binding, other L2 targets, or multiple proof systems. Both actual-parent
+transactions, failed mutable calls with bound descendants, and recursive static
+reads and callbacks (including failed reads and callbacks). Calls rolled back
+inside a recovered source-chain frame use canonical, properly nested
+`revertNextNCalls` windows. Multi-root lookup rollback uses temporary state
+shared only within its bound source scopes. Explicit call gas, crossing or out-of-bounds rollback windows,
+sender binding, other L2 targets, and multiple proof systems are unsupported. Both actual-parent
 and historical L1 anchor modes are supported under the distinct rules below.
 
 No failed stage may produce a signature. A successful signature authorizes the
@@ -736,16 +734,21 @@ The claimed entry at the same position MUST have the same direction.
 
 Every item in `entries` MUST be an anchor, a mutable effect, or an exact
 lookup-only inbound entry. An outbound or applying inbound effect MUST be
-successful. A lookup MAY report failure only as a terminal top-level call
-without nested rows. A nested row MAY fail only when its call sub-array is empty and its
-`revertedOrStaticRollingHash` is nonzero; successful rows MUST have a zero
+successful. A lookup MAY report failure with nested callbacks, provided the
+complete table is bound to native semantics and independently replayed as
+specified in section 11. Failed mutable nested rows retain their complete
+reverted execution traces.
+A mutable failure MUST bind the independently recomputed reverted execution
+hash; a terminal static failure MUST carry the empty callback hash (zero).
+Static callback result commitments MUST include both success and exact output,
+and repeated identical callback lookups MUST agree on both. Successful mutable rows MUST have a zero
 reverted hash. Every flat call, including calls in row sub-arrays, MUST have
-`gas == 0`. A static call MUST carry zero value and no revert span. A static
-call nested in a mutable call MUST have no semantic descendants; a top-level
-static read MAY have the static callbacks described in sections 10 and 11. A mutable call MAY start
-a rollback window by setting `revertNextNCalls` to the number of consecutive
-calls in that window, including itself. The window MUST fit in its current call
-array and no later call inside it may start another window.
+`gas == 0`. A static call MUST carry zero value. A static call's descendants
+MUST remain static; each pending read binds its own callback fold as described
+in sections 10 and 11. A call MAY start a source rollback window by setting
+`revertNextNCalls` to the number of consecutive calls in that window, including
+itself. The window MUST fit in its current call array. Nested windows MUST be
+properly contained; crossing windows are invalid.
 
 The leading entry is a canonical anchor only if:
 
@@ -762,14 +765,17 @@ Every later entry MUST be one of:
   `l2ToL1Calls` array; or
 - **inbound effect:** `proxyEntryHash != 0`, successful, and exactly bound to a
   replayed L2 system transaction; or
-- **inbound lookup:** `proxyEntryHash != 0`, empty call arrays, a zero-value
-  no-op root update, and the exact L1 seed for that proxy hash and current root.
+- **inbound lookup:** `proxyEntryHash != 0` and a zero-value no-op root update.
+  Empty callback tables additionally require the exact L1 seed for that proxy
+  hash and current root. Nonempty callback tables require complete native
+  semantic binding and authenticated observation replay.
 
 Classification deliberately does not infer nested execution from one entry
 alone. Sections 9 and 10 bind every effect to its exact complementary L2
 execution table and reject extra roots, rows, or flat calls. Section 11 binds
 lookup results and any source-reverted nested messages to the signed native
-semantic blob; lookup entries have no complementary L2 execution table.
+semantic blob. Lookup entries have no canonical L2 transaction; mutable
+lookups derive a complementary scratch table from the bound native actions.
 
 A second anchor or any other shape MUST be rejected.
 
@@ -875,10 +881,10 @@ callbacks in reentrant rows; static sources commit no value. An outbound load is
 therefore not necessarily zero-value
 ([native funding](../../docs/proposals/native-system-transactions.md)).
 A group MAY contain only mutable sources,
-or terminal static sources interleaved with successful flat mutable roots in
+or static sources interleaved with successful mutable roots in
 one outbound host. A multi-root host containing static sources MUST cover the
 complete load and user transaction; it MUST NOT carry separate callbacks,
-reverted mutable roots, root revert spans, or nested mutable roots.
+reverted mutable roots or root revert spans.
 
 The load serializes mutable sources first, then static sources. Verification
 MUST traverse the host's original call order, advancing the mutable cursor only
@@ -890,21 +896,28 @@ MUST be static, with zero value, zero gas and no revert span, and a source
 without callbacks MUST have a zero rolling hash. While verifying the static
 root, each callback MUST resolve the host's next row, whose position key is
 the callback's hash and the host rolling hash after the root's `CALL_BEGIN`
-(static rows do not advance it). That row MUST be successful, with no
-sub-calls and a zero reverted/static hash, and the untagged static fold of the
+(static rows do not advance it). A row MAY return or revert. Its static
+sub-calls recursively resolve further source pool entries at the same mutable
+cursor. Their untagged result fold MUST equal the row's
+`revertedOrStaticRollingHash`; an empty callback list requires zero. Every
+recursive source entry and host row MUST be consumed by this verification,
+including exact call identities and outputs. The untagged static fold of the
 rows' results MUST equal the source's `rollingHash`. L2 executes the callbacks
 and checks that fold, so the values L1 returns are the values L2 computes.
-Repeated identical callbacks share one position key, and L1 resolves each repeat
-to the first matching row without advancing its cursor, so their rows MUST carry
-the same result. In a
+Repeated callback candidates with the same position key and callback hash MUST
+carry identical success and output. Candidates with different callback hashes
+may represent different local states. The check spans the complete host,
+including different pending read frames. In a
 group containing static sources, host rows are allowed only for these
 callbacks. Each `expectedEntryIndex` MUST equal the mutable
 cursor independently reconstructed at that root in the host's call order. The
-complete `(expectedEntryIndex, proxyEntryHash)` lookup key MUST have identical
+complete `(expectedEntryIndex, proxyEntryHash, rollingHash)` lookup key MUST have identical
 success and return bytes wherever repeated. Different positions MAY carry
 different results for the same hash. Local writes without successful mutable
 cross-chain consumption do not advance this cursor; different results at one
-position remain unsupported. Static rows do not advance the mutable cursor.
+position require distinct callback-result commitments. Static rows do not advance
+the mutable cursor. A recursive static pool belongs to one complete signed load;
+the number of pool entries need not equal the number of top-level host calls.
 The full position-bearing static ABI MUST be reconstructed from authenticated
 native-blob semantics and compared with the executed load table. An L1-shaped
 projection that drops the position MUST NOT authorize signing or replay.
@@ -946,7 +959,7 @@ all roots covered by that host, within the `int192` range.
 ### Fresh-network profile boundary
 
 Deploy matching contracts, genesis, Composer, signer and followers together with
-fresh datadirs. There is no old/new activation height or migration. Validation-contract version 7 and capability profile 2 identify the
+fresh datadirs. There is no old/new activation height or migration. Validation-contract version 8 and capability profile 2 identify the
 current contract before proving. Configuration and wire inputs must match it. Restart may require client
 resubmission because queue ownership remains in memory; this feature does not
 add durable request recovery or change retry attribution.
@@ -1075,11 +1088,39 @@ independently validated FIFO-position root pins and MUST byte-for-byte reproduce
 of any static callbacks to L1. Replay of such a read executes its L2 target at
 the pinned prefix and answers each authorized-proxy dispatch only if it is the
 next semantic callback, with the same caller, target and calldata, in a static
-frame, with zero value. It returns the callback's claimed output without
+frame, with zero value. It returns or reverts with the callback's claimed output
+according to its committed success bit, without
 charging gas, as live simulation does. Any other dispatch, or a callback that is
-never made, rejects the request. The callback results themselves are enforced
-on L1 (section 1.1). A lookup-only mutable action with a semantic descendant
-remains unsupported.
+never made, rejects the request. A recursive L1-origin static read has a separate
+source pool entry and observation for each read back into L2. All pin the same
+live prefix because static execution cannot change L2 state. Each observation
+answers only its immediate L1 callbacks; deeper L2 reads MUST independently
+re-execute against that prefix, and none may be omitted. The callback results themselves are enforced
+on L1 (section 1.1).
+
+For a mutable lookup, derive one complete L2 delivery table and its checked
+funding from the bound native action subtree using the shared materializer.
+Execute it through the authenticated L2 manager using the native system
+transaction type and native gas cap, without committing its state. Manager
+validation MUST succeed. Independently capture the root target frame selected
+by exact proxy caller, target, calldata and value, and compare its success bit
+and exact output to the claim. A manager validation revert MUST NOT count as
+the target's claimed revert. Missing target execution, malformed tables, missing
+witness data and third-chain execution MUST reject before signing. Callback
+results supplied by the table remain bound to the source execution enforced on
+L1. The source-visible outcome and the scratch delivery's completion status are
+separate; a failed target may have a successfully validated scratch delivery.
+
+Rollback confined to one root's subtree uses this discarded replay. For a
+source rollback spanning multiple root calls, derive the observation ranges
+from the bound native action spans, including static observations in their
+original order. Ranges MUST remain at one canonical prefix and be properly
+nested. Execute observations in a separate disposable state overlay; retain
+mutable writes while a source rollback scope is open, restore the corresponding
+snapshot at each scope end, and discard the overlay before canonical execution
+continues. Reads MUST still reach the witness recorder. No temporary write may
+enter canonical state. Source transactions with adjacent observations MUST NOT
+share writes beyond their derived rollback scopes.
 
 For each L1-origin semantic transaction, top-level source actions are projected
 in their original order. A successful mutable action advances the live root to

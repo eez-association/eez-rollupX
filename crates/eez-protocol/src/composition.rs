@@ -240,12 +240,15 @@ impl CompositionBuilder {
         if self.pending_rollbacks.is_empty() {
             return Ok(());
         }
-        let queued: Vec<usize> = std::mem::take(&mut self.pending_rollbacks);
-        // Roll back each rollup once using its first queued checkpoint;
-        // discard later queued checkpoints for the same rollup.
+        let mut queued: Vec<usize> = std::mem::take(&mut self.pending_rollbacks);
+        // Inner frames close first, so queue order is not checkpoint order.
+        // Restore the earliest affected call on each rollup when an outer
+        // frame also reverted before the next dispatch.
+        queued.sort_unstable();
+        queued.dedup();
         let mut handled: std::collections::HashSet<RollupId> = std::collections::HashSet::new();
         for idx in queued {
-            let Some(snap) = self.pending_snapshots.remove(&idx) else {
+            let Some(snap) = self.pending_snapshots.get(&idx) else {
                 continue;
             };
             let Some(call) = self.recorded.get(idx) else {
@@ -261,8 +264,8 @@ impl CompositionBuilder {
                 session.rollback(snap)?;
             }
         }
-        // Later queued checkpoints for a handled rollup are discarded because
-        // the first rollback already restored that shared session.
+        // Retain checkpoints until composition ends: a later enclosing
+        // rollback can need the same anchor after local execution resumes.
         Ok(())
     }
 
@@ -373,6 +376,36 @@ impl CompositionBuilder {
         let response = match response_res {
             Ok(response) => response,
             Err(error) => {
+                // A missing callback proxy reverts the resolver of the owning
+                // static read before that callback executes. The inner dispatch
+                // leaves its pending child in preorder while the inspector
+                // unwinds; only its direct static parent may turn this specific
+                // execution error into an application-visible lookup revert.
+                if let ExecutorErrorKind::StaticCallbackProxyMissing { proxy, .. } = error.kind()
+                    && self.recorded[idx].call_mode == crate::CallMode::Static
+                    && self.recorded.last().is_some_and(|child| {
+                        child.parent_index == Some(idx)
+                            && child.call_mode == crate::CallMode::Static
+                            && child.outcome.is_pending()
+                    })
+                {
+                    use alloy_sol_types::SolError as _;
+                    let output =
+                        crate::abi::StaticCallProxyNotDeployed { proxy: *proxy }.abi_encode();
+                    // No static target state was committed. These speculative
+                    // read records are absent from the protocol execution; a
+                    // later successful retry supplies the actual lookup table.
+                    self.recorded.truncate(idx);
+                    self.pending_snapshots.retain(|index, _| *index < idx);
+                    self.pending_rollbacks.retain(|index| *index < idx);
+                    let popped = self.active_calls.pop();
+                    debug_assert_eq!(popped, Some(idx));
+                    return Ok(ExecutionOutcome::Resolved {
+                        success: false,
+                        return_data: output,
+                        gas_used: 0,
+                    });
+                }
                 let popped = self.active_calls.pop();
                 debug_assert_eq!(popped, Some(idx));
                 return Err(error);
@@ -394,7 +427,7 @@ impl CompositionBuilder {
         Ok(response)
     }
 
-    /// Whether the call being executed is a callback of a top-level static
+    /// Whether the call being executed is a callback of a pending static
     /// read. The protocol runs such a callback from the read's static entry,
     /// through a source proxy that must already exist.
     #[must_use]
@@ -404,7 +437,7 @@ impl CompositionBuilder {
             .and_then(|&call| self.recorded[call].parent_index)
             .is_some_and(|parent| {
                 let read = &self.recorded[parent];
-                read.call_mode == crate::CallMode::Static && read.parent_index.is_none()
+                read.call_mode == crate::CallMode::Static
             })
     }
 
@@ -462,7 +495,7 @@ impl CompositionBuilder {
             data: req.data.clone(),
             value: req.value,
             outcome: crate::types::ExecutionOutcome::Pending,
-            revert_span: None,
+            revert_spans: vec![],
         });
         self.pending_snapshots.insert(idx, snap);
         self.active_calls.push(idx);
@@ -487,7 +520,7 @@ impl CompositionBuilder {
         );
         slot.outcome = outcome;
         if let Some(span) = revert_span {
-            slot.revert_span = Some(span);
+            slot.revert_spans.insert(0, span);
             // Queue this slot's snapshot for rollback at the next dispatch
             // boundary.
             self.pending_rollbacks.push(idx);
@@ -533,15 +566,16 @@ impl CompositionBuilder {
             .sum()
     }
 
-    /// Mark the bracketing call with `revert_span` and queue checkpoints for
+    /// Record the reverted scope at its first call and queue checkpoints for
     /// recorded calls in that range. Rollbacks are coalesced per rollup and
     /// applied before a later dispatch.
     pub fn annotate_revert_span(&mut self, idx: usize, span: u32) {
         if idx >= self.recorded.len() || span == 0 {
             return;
         }
-        // Only the head carries the scope; bracketed inner calls do not.
-        self.recorded[idx].revert_span = Some(span);
+        // Inner frames close first. Prepend the enclosing scope without losing
+        // an earlier inner scope that starts at the same recorded call.
+        self.recorded[idx].revert_spans.insert(0, span);
         // Queue rollbacks for every recorded index in the bracket.
         // `process_pending_rollbacks` consolidates by rollup id and
         // applies one rollback per affected session at the next dispatch
@@ -713,7 +747,7 @@ mod tests {
             Ok(Box::new(()) as crate::executor::SessionSnapshot)
         }
 
-        fn rollback(&mut self, _snapshot: crate::executor::SessionSnapshot) -> ExecutorResult<()> {
+        fn rollback(&mut self, _snapshot: &crate::executor::SessionSnapshot) -> ExecutorResult<()> {
             Ok(())
         }
     }
@@ -737,7 +771,7 @@ mod tests {
             Ok(Box::new(()) as Box<dyn std::any::Any + Send>)
         }
 
-        fn rollback(&mut self, _snap: crate::executor::SessionSnapshot) -> ExecutorResult<()> {
+        fn rollback(&mut self, _snap: &crate::executor::SessionSnapshot) -> ExecutorResult<()> {
             Ok(())
         }
     }
@@ -773,7 +807,7 @@ mod tests {
             Ok(Box::new(()) as crate::executor::SessionSnapshot)
         }
 
-        fn rollback(&mut self, _snapshot: crate::executor::SessionSnapshot) -> ExecutorResult<()> {
+        fn rollback(&mut self, _snapshot: &crate::executor::SessionSnapshot) -> ExecutorResult<()> {
             self.rollbacks.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
@@ -808,7 +842,7 @@ mod tests {
             Ok(Box::new(()) as crate::executor::SessionSnapshot)
         }
 
-        fn rollback(&mut self, _snapshot: crate::executor::SessionSnapshot) -> ExecutorResult<()> {
+        fn rollback(&mut self, _snapshot: &crate::executor::SessionSnapshot) -> ExecutorResult<()> {
             Ok(())
         }
     }
@@ -1083,7 +1117,7 @@ mod tests {
             data: Bytes::new(),
             value: U256::ZERO,
             outcome: sample_outcome([0u8; 32]),
-            revert_span: None,
+            revert_spans: vec![],
         });
 
         let err = builder.finalize().expect_err("should fail");
@@ -1196,7 +1230,7 @@ mod tests {
                     gas_used: 123,
                     success: true,
                 },
-                revert_span: None,
+                revert_spans: vec![],
             },
             ExecutedAction {
                 parent_index: None,
@@ -1212,7 +1246,7 @@ mod tests {
                     gas_used: 456,
                     success: true,
                 },
-                revert_span: None,
+                revert_spans: vec![],
             },
         ];
         let composition = builder.finalize().expect("finalize composition");
@@ -1474,7 +1508,7 @@ mod tests {
         ));
     }
 
-    /// `annotate_revert_span` writes `revert_span = Some(span)` on
+    /// `annotate_revert_span` records the scope length on
     /// the bracketing call AND queues every snapshot inside the
     /// bracket for rollback at the next dispatch boundary.
     #[test]
@@ -1490,7 +1524,7 @@ mod tests {
 
         builder.annotate_revert_span(0, 1);
 
-        assert_eq!(builder.recorded[0].revert_span, Some(1));
+        assert_eq!(builder.recorded[0].revert_spans, vec![1]);
         assert_eq!(
             builder.pending_rollbacks,
             vec![0],
@@ -1506,7 +1540,7 @@ mod tests {
 
     /// Outer call dispatches 2 inner calls and then the outer's
     /// frame reverts — span = 3 covers the outer + both children.
-    /// Bracketed children carry no `revert_span`.
+    /// Bracketed children carry no additional scope start.
     #[test]
     fn revert_span_gt_one_covers_outer_plus_two_children() {
         let mut rollups = HashMap::new();
@@ -1534,9 +1568,9 @@ mod tests {
         assert_eq!(span, 3);
         builder.annotate_revert_span(start, span);
 
-        assert_eq!(builder.recorded[0].revert_span, Some(3));
-        assert_eq!(builder.recorded[1].revert_span, None);
-        assert_eq!(builder.recorded[2].revert_span, None);
+        assert_eq!(builder.recorded[0].revert_spans, vec![3]);
+        assert_eq!(builder.recorded[1].revert_spans, Vec::<u32>::new());
+        assert_eq!(builder.recorded[2].revert_spans, Vec::<u32>::new());
     }
 
     /// Outer call A reverts, sibling outer B succeeds. A is annotated
@@ -1558,8 +1592,8 @@ mod tests {
             .dispatch_call(RollupId(1), make_request(1))
             .expect("B");
 
-        assert_eq!(builder.recorded[0].revert_span, Some(1));
-        assert_eq!(builder.recorded[1].revert_span, None);
+        assert_eq!(builder.recorded[0].revert_spans, vec![1]);
+        assert_eq!(builder.recorded[1].revert_spans, Vec::<u32>::new());
         assert!(crate::assertions::is_preorder(
             &builder.recorded,
             RollupId(0),
@@ -1591,9 +1625,9 @@ mod tests {
         // reverts — the inspector observes that and annotates.
         builder.annotate_revert_span(start, span);
 
-        assert_eq!(builder.recorded[0].revert_span, Some(2));
+        assert_eq!(builder.recorded[0].revert_spans, vec![2]);
         assert!(builder.recorded[1].outcome.is_success());
-        assert_eq!(builder.recorded[1].revert_span, None);
+        assert_eq!(builder.recorded[1].revert_spans, Vec::<u32>::new());
         // Both bracketed slots are queued for rollback; this test observes the
         // queue before the next dispatch drains it.
         assert_eq!(builder.pending_rollbacks, vec![0, 1]);
@@ -1625,12 +1659,170 @@ mod tests {
             "queue must be drained at the next dispatch boundary",
         );
         assert!(
-            !builder.pending_snapshots.contains_key(&0),
-            "rolled-back snapshot must be removed from stash",
+            builder.pending_snapshots.contains_key(&0),
+            "an enclosing frame can still need the restored checkpoint",
         );
         // The completed call's checkpoint remains available in case an
         // enclosing frame later reverts.
         assert!(builder.pending_snapshots.contains_key(&1));
+    }
+
+    #[test]
+    fn nested_rollback_uses_earliest_checkpoint_even_when_inner_is_queued_first() {
+        struct StateSession(Arc<AtomicUsize>);
+        impl TargetExecutionSession for StateSession {
+            fn execute(
+                &mut self,
+                _req: ExecutionRequest,
+                _dispatcher: &mut CompositionBuilder,
+            ) -> ExecutorResult<ExecutionOutcome> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(ExecutionOutcome::Resolved {
+                    return_data: vec![],
+                    gas_used: 0,
+                    success: true,
+                })
+            }
+
+            fn checkpoint(&mut self) -> ExecutorResult<crate::SessionSnapshot> {
+                Ok(Box::new(self.0.load(Ordering::SeqCst)))
+            }
+
+            fn rollback(&mut self, snapshot: &crate::SessionSnapshot) -> ExecutorResult<()> {
+                self.0
+                    .store(*snapshot.downcast_ref::<usize>().unwrap(), Ordering::SeqCst);
+                Ok(())
+            }
+        }
+
+        for inner_already_restored in [false, true] {
+            let state = Arc::new(AtomicUsize::new(0));
+            let mut target = rollup_with_session([0x11; 32]);
+            target.session = Some(Box::new(StateSession(Arc::clone(&state))));
+            let mut builder = CompositionBuilder::new(
+                RollupId(0),
+                HashMap::from([(RollupId(0), entry_rollup([0; 32])), (RollupId(1), target)]),
+            );
+            builder.dispatch_call(RollupId(1), make_request(1)).unwrap();
+            if inner_already_restored {
+                builder.annotate_revert_span(0, 1);
+                builder.process_pending_rollbacks().unwrap();
+                assert_eq!(state.load(Ordering::SeqCst), 0);
+                // A resumed local frame changes the destination before the next
+                // callback. An enclosing revert still needs the original anchor.
+                state.store(5, Ordering::SeqCst);
+            }
+            builder.dispatch_call(RollupId(1), make_request(1)).unwrap();
+            if !inner_already_restored {
+                assert_eq!(state.load(Ordering::SeqCst), 2);
+                builder.annotate_revert_span(1, 1);
+            }
+            builder.annotate_revert_span(0, 2);
+            builder.process_pending_rollbacks().unwrap();
+            assert_eq!(
+                state.load(Ordering::SeqCst),
+                0,
+                "outer rollback restores the pre-outer state"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_static_proxy_reverts_owning_read_and_allows_retry() {
+        struct StaticSession {
+            callback: bool,
+            deployed: Arc<AtomicUsize>,
+        }
+        impl TargetExecutionSession for StaticSession {
+            fn execute(
+                &mut self,
+                _: ExecutionRequest,
+                dispatcher: &mut CompositionBuilder,
+            ) -> ExecutorResult<ExecutionOutcome> {
+                if self.callback {
+                    if self.deployed.load(Ordering::SeqCst) == 0 {
+                        return Err(ExecutorErrorKind::StaticCallbackProxyMissing {
+                            proxy: Address::with_last_byte(0x77),
+                            chain_id: 100,
+                        }
+                        .into());
+                    }
+                } else {
+                    let mut callback = make_request_from(0, RollupId(1));
+                    callback.call_mode = CallMode::Static;
+                    dispatcher.dispatch_call(RollupId(0), callback)?;
+                }
+                Ok(ExecutionOutcome::Resolved {
+                    success: true,
+                    return_data: vec![0x42],
+                    gas_used: 100,
+                })
+            }
+            fn checkpoint(&mut self) -> ExecutorResult<crate::executor::SessionSnapshot> {
+                Ok(Box::new(()))
+            }
+            fn rollback(&mut self, _: &crate::executor::SessionSnapshot) -> ExecutorResult<()> {
+                Ok(())
+            }
+        }
+        let deployed = Arc::new(AtomicUsize::new(0));
+        let mut rollups = HashMap::new();
+        for id in 0..2 {
+            let mut rollup = entry_rollup([0; 32]);
+            rollup.session = Some(Box::new(StaticSession {
+                callback: id == 0,
+                deployed: deployed.clone(),
+            }));
+            rollups.insert(RollupId(id), rollup);
+        }
+        let mut builder = CompositionBuilder::new(RollupId(0), rollups);
+        let mut read = make_request(1);
+        read.call_mode = CallMode::Static;
+        let failure = builder
+            .dispatch_call(RollupId(1), read.clone())
+            .expect("lookup revert is catchable");
+        assert!(!failure.is_success());
+        let mut expected = keccak256(b"StaticCallProxyNotDeployed(address)")[..4].to_vec();
+        expected.extend_from_slice(&[0; 31]);
+        expected.push(0x77);
+        assert_eq!(failure.return_data().unwrap(), expected);
+        assert!(
+            builder.recorded.is_empty(),
+            "lookup failed before executing its callback"
+        );
+        assert!(builder.active_calls.is_empty());
+        assert!(builder.pending_snapshots.is_empty());
+        assert!(builder.pending_rollbacks.is_empty());
+        deployed.store(1, Ordering::SeqCst);
+        let success = builder.dispatch_call(RollupId(1), read).unwrap();
+        assert!(success.is_success());
+        assert_eq!(builder.recorded.len(), 2);
+        assert_eq!(builder.recorded[1].parent_index, Some(0));
+        builder
+            .finalize()
+            .expect("only the successful retry enters the table");
+    }
+
+    #[test]
+    fn nested_static_callback_requires_its_source_proxy() {
+        let mut builder = CompositionBuilder::new(
+            RollupId(0),
+            HashMap::from([
+                (RollupId(0), entry_rollup([0; 32])),
+                (RollupId(1), rollup_with_session([0x11; 32])),
+            ]),
+        );
+        let root = make_request_from(1, RollupId(0));
+        builder.open_call(RollupId(1), &root).unwrap();
+        assert!(!builder.executing_static_read_callback());
+        let mut read = make_request_from(0, RollupId(1));
+        read.call_mode = crate::CallMode::Static;
+        builder.open_call(RollupId(0), &read).unwrap();
+        assert!(!builder.executing_static_read_callback());
+        let mut callback = make_request_from(1, RollupId(0));
+        callback.call_mode = crate::CallMode::Static;
+        builder.open_call(RollupId(1), &callback).unwrap();
+        assert!(builder.executing_static_read_callback());
     }
 
     #[test]

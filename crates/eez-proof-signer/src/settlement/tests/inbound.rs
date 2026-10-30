@@ -57,7 +57,10 @@ pub(super) fn nested_inbound_fixture() -> (CanonicalPostBatch, Vec<u8>) {
     };
     let root_hash = common_hash(&calls[0], RollupId(1));
 
-    let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Inbound]);
+    let mut batch = effect_batch(
+        &[B256::ZERO, B256::ZERO, B256::with_last_byte(1)],
+        &[ClaimedEntryShape::Inbound],
+    );
     let update = batch.entries[1].rootUpdates.clone();
     let mut l1_rolling = EntryRollingHash::seed_for_l1([(1, B256::ZERO)], root_hash);
     l1_rolling.call_begin(common_hash(&calls[1], RollupId::MAINNET));

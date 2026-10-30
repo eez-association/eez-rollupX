@@ -65,6 +65,8 @@ test -f "$FIXTURE/integration-done"
 test -f "$FIXTURE/waves-done"
 flock -n "$FIXTURE/eez-core-protocol/tmp/.eez-network-e2e.lock" true
 touch "$FIXTURE/scenarios-started"
+mkdir -p "$EEZ_CI_RESULT_DIR/protocol-e2e"
+printf '%s\\n' "$SCENARIO_SUMMARY" > "$EEZ_CI_RESULT_DIR/protocol-e2e/summary.json"
 ''')
         self.tool('git', '''#!/bin/bash
 case "$*" in
@@ -85,6 +87,9 @@ echo eez.prover_client.attested
         self.env = dict(os.environ, FIXTURE=str(self.root),
                         PATH=str(tools) + os.pathsep + os.environ['PATH'],
                         KURTOSIS_ENCLAVE='fixture-only',
+                        SCENARIO_SUMMARY=json.dumps({
+                            'suite': {'complete': True, 'excluded_from_all': []},
+                            'skipped': []}),
                         KURTOSIS_ARGS_FILE=str(self.package / 'ci-args.yaml'),
                         EEZ_CI_RESULT_DIR=str(self.root / 'results'))
 
@@ -130,6 +135,18 @@ echo eez.prover_client.attested
         self.assertEqual(result.returncode, 19, result.stdout + result.stderr)
         self.assertFalse((self.root / 'network-started').exists())
         self.assertFalse((self.root / 'scenarios-started').exists())
+
+    def test_successful_runner_cannot_qualify_incomplete_or_skipped_suite(self):
+        for summary in (
+            {'suite': {'complete': False, 'excluded_from_all': []}, 'skipped': []},
+            {'suite': {'complete': True, 'excluded_from_all': ['scenario']}, 'skipped': []},
+            {'suite': {'complete': True, 'excluded_from_all': []}, 'skipped': ['scenario']},
+            {},
+        ):
+            with self.subTest(summary=summary):
+                result = self.run_fixture(SCENARIO_SUMMARY=json.dumps(summary))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('CI requires the complete pinned protocol suite', result.stderr)
 
     def test_integration_compile_failure_never_starts_network(self):
         result = self.run_fixture(FAIL_BUILD='contracts')

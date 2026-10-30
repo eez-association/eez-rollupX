@@ -235,13 +235,13 @@ jq -e --arg scenario "$SCENARIO" --arg source "${source,,}" --arg destination "$
     def root_action: .parent_index == null and .kind == $kind and .source_chain == 0
       and .target_chain == $rollup and (.from_address | ascii_downcase) == $source
       and (.to_address | ascii_downcase) == $destination and .value == "0" and .data == $data
-      and .success == $success and (.return_data | ascii_downcase) == $result and .revert_span == null;
+      and .success == $success and (.return_data | ascii_downcase) == $result and .revert_spans == [];
     # The one static callback returns the L1 producer value, which is also the
     # read result.
     def callback_action: .parent_index == 0 and .kind == "StaticCall" and .source_chain == $rollup
       and .target_chain == 0 and (.from_address | ascii_downcase) == $callback_source
       and (.to_address | ascii_downcase) == $callback_target and .value == "0" and .data == $data
-      and .success == true and (.return_data | ascii_downcase) == $result and .revert_span == null;
+      and .success == true and (.return_data | ascii_downcase) == $result and .revert_spans == [];
     .semantic_evidence.semantics_bound_to_settlement == true
     and ([.payload.semantic_transactions[] | select(.origin_chain == 0 and .tx_data == "0x"
       and (if $scenario == "staticLocalWrite" then
@@ -252,13 +252,13 @@ jq -e --arg scenario "$SCENARIO" --arg source "${source,,}" --arg destination "$
                      and (.from_address | ascii_downcase) == $source
                      and (.to_address | ascii_downcase) == $destination and .value == "0"
                      and .data == $data and .success == true and .result_kind == "ReturnSuccess"
-                     and .return_data == $results[$i] and .revert_span == null)
+                     and .return_data == $results[$i] and .revert_spans == [])
                  and ($actions[2*$i+1] | .index == 2*$i+1 and .parent_index == 2*$i
                      and .kind == "StaticCall" and .source_chain == $rollup and .target_chain == 0
                      and (.from_address | ascii_downcase) == $callback_source
                      and (.to_address | ascii_downcase) == $callback_target and .value == "0"
                      and .data == $callback_data and .success == true and .result_kind == "ReturnSuccess"
-                     and .return_data == $results[$i] and .revert_span == null))
+                     and .return_data == $results[$i] and .revert_spans == []))
            elif $callback_target == "" then
              (.actions | length) == 1 and (.actions[0] | root_action)
            else

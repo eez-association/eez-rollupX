@@ -3,7 +3,7 @@
 The corpus uses [versionless cross-chain transactions and authenticated fee collection](../../../docs/proposals/native-system-transactions.md),
 execution-group source identities, optional HistoryUpdate 0x46/version 1,
 complete-group and block-finalization cleanup, network-bound verification keys and
-validation-contract version 7 with the unmodified Core `Rollup`. The proving transport remains v2.
+validation-contract version 8 with the unmodified Core `Rollup`. The proving transport remains v2.
 Separate [encoding vectors](native-profile-v1.json) freeze exact native bytes,
 source identities and profile commitments; they are not execution proofs.
 
@@ -68,8 +68,10 @@ The [bidirectional](../../eez-proof-signer/tests/fixtures/native-offline-bidirec
 [lookup](../../eez-proof-signer/tests/fixtures/native-osaka-lookup) and
 [changing-static](../../eez-proof-signer/tests/fixtures/native-osaka-changing-static)
 fixtures supply exact fresh-network genesis, deployment identity, full v2 inputs
-and expected proof digests. Execution/witness bytes come from the original native process
-scenarios; version-7 keys and proof expectations are recomputed from those inputs,
+and expected proof digests. Execution bytes come from the original native process
+scenarios; the lookup fixture supplements its terminal witness by exact replay
+from genesis, as documented in its README. Version-8 keys and proof expectations
+are recomputed from those inputs,
 then checked against the pinned Core Solidity verifier. Their READMEs distinguish
 these adaptations from new on-chain captures. The signing key is intentionally public test material.
 
