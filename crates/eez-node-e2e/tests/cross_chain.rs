@@ -1790,67 +1790,62 @@ async fn overlay_refund_round_trip_settles_value_bearing_callback() {
     );
 }
 
-/// An L1 call makes a delivery callback and then reverts. The failed call
-/// undoes the delivery, so the suspended L2 caller must not apply it, and its
-/// source simulation succeeds. Settling a failed call with descendants is not
-/// supported, so the Composer then rejects the transaction for that reason;
-/// applying the delivery instead fails the source with `ValueNotCleared`.
+/// An L1 call makes a delivery callback and then reverts. The suspended L2
+/// caller catches the failure and checks that the callback's write was undone.
+/// Both that transaction and a subsequent successful call must settle, and a
+/// fresh follower must reproduce the resulting canonical state from L1 blobs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn overlay_failed_l1_call_discards_its_callback_state() {
     let w = setup_cross_chain_overlay_round_trip().await.unwrap();
-    let l2_rpc = w.l2_rpc();
-    let nonce = onchain_nonce(&l2_rpc, OUTBOUND_USER).await.unwrap();
-    let hash = sign_and_send(
-        &w.l2_xchain(),
-        OUTBOUND_USER,
-        w.l2_chain_id,
-        nonce,
-        Some(w.probe),
-        U256::ZERO,
-        IOverlayProbeL2::startDeliverThenRevertCall {
-            driver: w.driver_on_l2,
-            probe: w.probe_on_l1,
-            amount: U256::from(OVERLAY_AMOUNT),
-        }
-        .abi_encode(),
-        OVERLAY_GAS,
-    )
-    .await
-    .unwrap();
-    let outcome = wait_for_receipt_or_failure(&w.node, &l2_rpc, hash, SETTLE_TIMEOUT).await;
-    assert!(
-        outcome.is_err(),
-        "a failed call with descendants must not be included: {outcome:?}"
-    );
-
-    let status: serde_json::Value = ProviderBuilder::new()
-        .connect_http(w.l2_xchain().parse().unwrap())
-        .client()
-        .request("eez_getCrossChainTransaction", (hash,))
+    Scenario::new("caught L1 revert rolls back its L2 delivery callback")
+        .outbound(
+            ScenarioCall::new(
+                w.probe,
+                IOverlayProbeL2::startDeliverThenRevertCall {
+                    driver: w.driver_on_l2,
+                    probe: w.probe_on_l1,
+                    amount: U256::from(OVERLAY_AMOUNT),
+                }
+                .abi_encode(),
+            )
+            .with_gas_limit(OVERLAY_GAS),
+        )
+        .expect_l2_state(overlay_value(&w), 0u64)
+        .expect_l2_state(overlay_completed(&w), 1u64)
+        .expect_l1_state(overlay_pings(&w), 0u64)
+        .expect_settled_fully()
+        .run(&w)
         .await
         .unwrap();
-    assert_eq!(
-        status["ownership"]["reason"], "SimulationFailed",
-        "{status}"
-    );
-    let rejection = &status["ownership"]["rejection"];
-    assert_eq!(
-        rejection["source"],
-        serde_json::Value::Null,
-        "the source must not fail once the failed call's callback is discarded: {status}"
-    );
-    assert!(
-        rejection["error"].as_str().is_some_and(|error| {
-            error.contains("unsuccessful cross-chain calls with descendants are not supported")
-        }),
-        "{status}"
-    );
-    assert_eq!(
-        read_state_word(&l2_rpc, &overlay_completed(&w))
-            .await
-            .unwrap(),
-        U256::ZERO
-    );
+
+    Scenario::new("successful call after the reverted delivery")
+        .outbound(
+            ScenarioCall::new(
+                w.probe,
+                IOverlayProbeL2::startDeliverBurnThenPingCall {
+                    driver: w.driver_on_l2,
+                    probe: w.probe_on_l1,
+                    amount: U256::from(OVERLAY_AMOUNT),
+                }
+                .abi_encode(),
+            )
+            .with_gas_limit(OVERLAY_GAS),
+        )
+        .expect_l2_state(overlay_value(&w), 0u64)
+        .expect_l2_state(overlay_completed(&w), 2u64)
+        .expect_l1_state(overlay_pings(&w), 1u64)
+        .expect_settled_fully()
+        .run(&w)
+        .await
+        .unwrap();
+
+    assert_follower_replays(
+        &w,
+        "reverted-delivery-follower",
+        &overlay_completed(&w),
+        U256::from(2),
+    )
+    .await;
 }
 
 fn failures_read(wrapper: Address) -> StateRead {

@@ -571,6 +571,43 @@ All 64 scenario paths and hashes were rechecked against the unchanged pin before
 startup. Existing operator deployments and the stopped baseline enclave remain
 untouched.
 
+## Release qualification and native regression follow-up
+
+Candidate `4c5060780d7cec124c9cafb1de61bb557e85b60c` passed the release
+producer's shipping-feature guard, all 53 archived producer tests (zero skips),
+verified E2E artifact export, consumer identity checks and the generated-genesis
+check. The runtime archive SHA-256 is
+`bdf76d2c8599f584fefde3176cd4a4f1c424ddba6b425adf94f37f6bac43f0ea`.
+Local evidence is under `candidate/revision-4c506078/`. An early consumer attempt
+saw an unsealed manifest and was correctly rejected before test selection; it
+is recorded separately from the subsequent sealed-artifact qualification.
+
+The initial diagnostic enclave completed its inbound, outbound, mixed,
+mixed-pure and state-chaining prechecks. It was interrupted to switch to the
+qualified candidate just after the protocol phase began: zero of 64 scenarios
+completed. Its resulting 64 missing/failed accounting entries are interrupted
+work, not scenario coverage or established runtime failures. Service logs and
+state were retained and the owned enclave was stopped without removal. The new
+`eez-full-protocol-final-4c506078` enclave uses the verified candidate artifacts.
+
+The full native campaign selects 43 embedded tests and 142 cross-chain tests,
+with the latter partitioned into four disjoint CI slices (36/36/35/35). Its first
+failure was `overlay_failed_l1_call_discards_its_callback_state`: the archived
+test still required rejection of failed calls with descendants. The candidate
+instead included the transaction successfully, which is the newly authorized
+behavior. The replacement regression requires the contract's caught-failure and
+rollback assertions to succeed, full canonical settlement, a subsequent
+successful cross-chain transaction, and independent follower reconstruction of
+the canonical block/state. The original failure and datadirs remain under
+`revision-4c506078/cross-chain-slice-2`; the replacement still needs qualification.
+
+The candidate plus fetched remote/tag history secret scan passed (1,148 commits).
+The local `--all` scan also includes unrelated operator-only branches and reported
+two public commitment fields in their older audit records. Neither commit is in
+the candidate ancestry or fetched remote/tag refs. No unrelated branch or
+allowlist was modified; redacted findings and ref-scope evidence are retained in
+`revision-4c506078/secret-scan-scope.json` and the corresponding scan logs.
+
 ## Open validation
 
 Candidate per-scenario semantic results, independent follower replay, final signer
