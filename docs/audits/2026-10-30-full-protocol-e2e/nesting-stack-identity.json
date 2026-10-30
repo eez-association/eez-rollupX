@@ -1,0 +1,10 @@
+{
+  "source_revision": "039b288cf03e039875f1f155d53035f665334732",
+  "stack_bytes": 2097152,
+  "sha256": {
+    "artifacts/full-protocol/candidate/nesting-stack-probe.rs": "b404ca731b88ccb6f373c2c2ca5079ab4dd2c168d3406bc4ae61ccd3e48b5447",
+    "artifacts/full-protocol/candidate/nesting-stack-probe": "271d37c44b6d728a19b3b1ee836972657b60067a1fdf0a6378b7f3a16ffe5e73",
+    "target/debug/deps/libeez_protocol-76cfb18c0ff2ed8b.rlib": "354befaa74e15d843438985c28e125ceb09812eaf8eb2bb400b4cb4c94897ac1",
+    "artifacts/full-protocol/candidate/nesting-stack-verifier-results.log": "234abd7368e02ef8c843cdb7c7a6b7ab6d856220d60f0222f50572a76676ce4e"
+  }
+}

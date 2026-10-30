@@ -120,7 +120,10 @@ regexes = ['''^(0x)?808c11d36e6b7c4db0c94d9b6ee3443fc5d58b705342966c5e654f2f5fea
 [[allowlists]]
 description = "Version-8 Bidirectional fixture verification key"
 condition = "AND"
-paths = ['''^crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity\.json$''']
+paths = [
+  '''^crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity\.json$''',
+  '''^crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history(-import)?\.json$''',
+]
 regexTarget = "secret"
 regexes = ['''^(0x)?e73373cf1cfce235ba8d57d05c420bbb3ca83f363fa0d42cf1cc58bad2a9df84$''']
 

@@ -46,6 +46,9 @@ class SecretScanTest(unittest.TestCase):
                 "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity.json"]),
         ]
         verification_key_fixtures.extend([
+            ("Version-8 Bidirectional fixture verification key", "verification_key", [
+                "crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history.json",
+                "crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history-import.json"]),
             ("Version-8 Bidirectional fixture verification key", "vkey", [
                 "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity.json"]),
             ("Version-8 History-observation fixture verification key", "vkey", [

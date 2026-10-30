@@ -522,6 +522,55 @@ A repository-relative scan of the changed/new files passes with no findings
 and its redacted findings are retained separately; no operator credentials were
 read or modified.
 
+## Initial release qualification
+
+Implementation commit `039b288cf03e039875f1f155d53035f665334732` passed
+the subsequent complete workspace unit lane: 1,632 tests passed, with six
+explicitly ignored fixture-generation/manual-profile utilities. Workspace
+Clippy, signer all-feature Clippy and rustdoc, seven SDK tests, 29 conformance
+vectors, and both vendored Reth shutdown/quota regressions passed. Dependency
+deny passed; audit retained 19 existing allowed warnings.
+
+A separate [stack probe](nesting-stack-probe.rs) exercised static and mutable
+trees on an explicit 2 MiB thread stack. Materialization and independent table
+verification passed through depth 1,024; depth 1,025 rejected before recursion.
+The [results](nesting-stack-results.txt) are manual diagnostic evidence, not an
+additional CI regression. The probe links this checkout's debug `eez_protocol`
+rlib; its local executable/library identities are retained under
+`candidate/nesting-stack-identity.json`. The recorded command used
+`rustc +1.95.0 --edition=2024 -L dependency=target/debug/deps --extern
+eez_protocol=target/debug/deps/libeez_protocol-76cfb18c0ff2ed8b.rlib` and passed
+each depth as the first argument, with `mutable` as the optional second argument.
+
+The CI release producer built shipping binaries in 1,002 seconds and the test
+archive in 101 seconds, enforcing six CPUs and 28 GiB and preserving the shipping
+dependency-feature guard. Local image/archive identity checks and the generated
+genesis check passed. No images were published. The first archived producer run
+executed 53 tests: 47 passed and six prefix-history tests failed. Both captured
+prefix fixtures still held their version-7 derived verification key. Independent
+Solidity ABI encoding and Keccak reproduced the version-8 key from the existing
+bidirectional fixture oracle. Only the two `verification_key` fields changed;
+blocks, witnesses, receipts and accepted-root evidence remain identical. The
+fixture provenance and narrowly scoped secret-scan exceptions were updated.
+The failed run is retained in `candidate/release-producer-tests.log`; it does not
+qualify the candidate or permit E2E artifact export.
+After correcting the fixture keys, all 20 blob-verifier example tests passed
+with `cargo +1.95.0 test --locked -p eez-l1 --features chain-spec --example
+verify_blob_evidence`; no tests were skipped. The initial focused command omitted
+the example's required `chain-spec` feature and selected no tests. Both secret-scan
+regressions pass with the updated exact-path exceptions.
+
+The initial runtime is running a diagnostic network campaign in the new enclave
+`eez-full-protocol-candidate-20261030`. A local copy of `run-ci.sh` preserves all
+selection and validation assertions, resolves `HERE` to the original script
+directory, and leaves the owned enclave running on exit for diagnostics and
+independent replay. Its source/copy hashes and exact two changes are recorded in
+`candidate/run-ci-retain-identity.json`. This runtime remains bound to commit
+`039b288`; the corrected candidate must pass release qualification separately.
+All 64 scenario paths and hashes were rechecked against the unchanged pin before
+startup. Existing operator deployments and the stopped baseline enclave remain
+untouched.
+
 ## Open validation
 
 Candidate per-scenario semantic results, independent follower replay, final signer
