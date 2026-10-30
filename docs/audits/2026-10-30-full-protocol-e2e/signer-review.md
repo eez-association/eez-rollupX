@@ -57,6 +57,33 @@ fixture-generation/inventory utilities are not validation coverage. The standalo
 protocol run passes 222 unit tests and 15 call-pattern tests, plus the independent
 public-input and rolling-hash vectors. First failures remain in the audit logs.
 
+## Follow-up review prompted by protocol qualification
+
+The network campaign found redundant forced rollback wrappers on naturally
+reverting callbacks. The correction coalesces only a complete child range with
+an already open natural failed-frame scope of the same parent, chain and end.
+Partial inner ranges remain explicit: their state rollback can affect subsequent
+callbacks. This changes canonical materialization, not the authority of a decoded
+outcome. Exact native ABI binding, authenticated target execution and observation
+result comparison remain mandatory before attestation. Both root/nested failures
+and both origins are covered by the new table regression; the partial-range
+regression checks that the middle callback still rolls back before the third.
+
+The manifest's root-only cardinality assertion contradicted the shared projection
+for recursive static pools. Removing that assertion does not remove forest/table
+validation: `composition_fifo_actions` validates exact mutable/static coverage;
+manifest user identity, physical checkpoint coverage and transaction ownership
+checks remain. The new manifest test checks that recursive observations neither
+advance mutable source indices nor invent producing effects.
+
+A process regression also found checkpoints retained after their temporary
+reentrant session was replaced. Checkpoint ownership matters even when concrete
+snapshot types happen to match. The dispatcher now retires those descendants'
+checkpoints at outer-session restoration and retains the actual outer anchor.
+The focused before/after test reproduces the ownership mismatch and verifies a
+later enclosing rollback still restores the outer state. Final process, signer
+adversarial and complete network validation of these follow-ups is outstanding.
+
 ## Required closure
 
 Recheck the final diff after remaining changes. Review complete-group selection
@@ -65,3 +92,8 @@ rollback boundaries against the pinned resolver. Finish current-runtime process
 regressions, full CI qualification and all 64 Kurtosis scenarios with independent
 follower replay. Bind final findings to the committed source and exact binaries;
 positive network results cannot replace the adversarial checks above.
+
+The four follow-up pinned-actor process regressions passed, including canonical
+settlement and independent fresh follower replay. Workspace library/binary checks
+passed, including the forged-outcome and missing-manager-code pre-sign rejection
+regressions. Full protocol qualification of a sealed updated release remains open.

@@ -608,6 +608,85 @@ the candidate ancestry or fetched remote/tag refs. No unrelated branch or
 allowlist was modified; redacted findings and ref-scope evidence are retained in
 `revision-4c506078/secret-scan-scope.json` and the corresponding scan logs.
 
+## Protocol campaign findings after native qualification
+
+The `4c506078` native campaign completed all 185 default tests: 184 passed and
+one failed solely on the superseded unsupported-descendant assertion. The revised
+regression at `86aa6ee43e60b5694f02bbf05998a663de276f25` passed both its source run
+and the new sealed release archive's cross-chain slice. It checks canonical
+settlement, rollback, subsequent execution and fresh follower reconstruction.
+The `86aa6ee4` release producer passed all 53 tests, the shipping-feature guard,
+consumer verification and generated-genesis verification. Its Composer and
+follower hashes differ from `4c506078`; its signer hash is identical. Its full
+native campaign remains in progress. Source equality alone was not treated as
+executable qualification.
+
+The full `4c506078` Kurtosis run selected 64/64 protocol scenarios, passed its
+network prechecks and bridge prerequisite, then exposed two implementation gaps:
+
+1. Caught remote/nested reverts add a forced rollback wrapper inside a naturally
+   reverting frame. In `catchNestedRevertAfterCallback`, independent ABI decoding
+   found the expected and actual L2 entry identical except for a callback's
+   `revertNextNCalls` (`0` expected, `1` actual). The exact revert payload and
+   rolling hash agreed; the scenario's strict field assertion correctly failed.
+   The pinned execution-entry specification requires natural frame rollback here.
+   The inspector's complete failed-frame annotation duplicated the materializer's
+   natural rollback scope. A focused regression failed before correction. The
+   correction coalesces only coincident complete natural scopes; an explicit
+   partial-callback rollback regression preserves earlier rollback before later
+   execution. Both directions and root/nested failures are covered. The protocol
+   and codec run passed, including 224 protocol unit tests and independent vectors.
+2. Recursive static-pool reads exposed an obsolete manifest check equating FIFO
+   projection length with top-level root count. Four admitted scenarios remained
+   queued while the Composer repeatedly reported `source forest and FIFO action
+   counts differ`. The shared projection already validates exact mutable/static
+   materialized coverage and intentionally includes recursive pool reads. The
+   manifest now uses that projection without the contradictory root-only check.
+   Its new regression verifies that recursive observations neither consume mutable
+   queue indices nor add physical checkpoints. All 225 protocol unit tests pass.
+
+Local evidence includes `candidate/revert-table-diff.json`, the before/after
+`natural-frame-duplicate-*` logs, `natural-frame-codecs.log`,
+`recursive-static-manifest.log`, `static-network-pending.json`, and retained
+Composer/signer service logs. The combined-revert scenarios also reported fee
+estimation failures; whether the rollback correction resolves those remains to
+be established by process and network execution. New process regressions compile
+the pinned `CallPatternActor` unchanged and check combined reversions and recursive
+static reads in both directions, including independent follower replay.
+
+A separate detached validation checkout was created at `86aa6ee4`, with its own
+pinned protocol checkout and lock, to avoid sharing compilation or wallet files.
+Its duplicate Kurtosis preparation was stopped with exit 143 during Solidity
+compilation after these failures were found; no enclave was created. Its logs
+and interruption record remain under `revision-86aa6ee4/kurtosis-final/`.
+The original 64-scenario campaign continues on its original binaries so that
+first failures and any timeout/omission accounting remain attributable.
+
+The first new pinned-actor process run failed in both directions. The inbound
+case reached `InboundL2TargetSession::rollback: snapshot type mismatch`; the
+outbound case failed source simulation. This exposed a third defect: after a
+checked-out outer target session resumes, retained checkpoints from temporary
+same-chain reentrant sessions can be applied to the outer session. Concrete type
+equality would not establish correct checkpoint ownership either. The correction
+retires those temporary checkpoints when the outer session replaces their owner,
+while retaining the outer call's own checkpoint for an enclosing source revert.
+A focused nested-session regression reproduced `wrong checkpoint owner` before
+the change and verifies both retirement and later outer restoration afterwards.
+All 226 protocol unit tests pass. All four pinned-actor process regressions now
+pass, with semantic state assertions, canonical settlement and fresh follower
+replay in each direction. This is not yet full network qualification. First process failures and
+logs/datadirs remain under `candidate/combined-reverts/`; owner regression logs
+are `candidate/checkpoint-owner-before.log` and `checkpoint-owner-after.log`.
+
+The follow-up workspace checks passed: 1,298 library tests and 338 binary tests,
+with six explicitly ignored diagnostic/fixture utilities; all 153 integration
+contract tests passed without skips. Workspace formatting and Clippy passed.
+The four new process tests passed without skips (191 unrelated tests filtered).
+Logs and checksums are retained under `candidate/qualification-followup-*` and
+`candidate/call-pattern-regressions/`. These source checks cover the three
+follow-up corrections; a newly sealed release and full protocol qualification
+are still required.
+
 ## Open validation
 
 Candidate per-scenario semantic results, independent follower replay, final signer

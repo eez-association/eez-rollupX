@@ -51,7 +51,11 @@ round-trip those boundaries; destination call-array markers follow the pinned
 an already reverted prefix when assigning an outer marker.
 
 Session checkpoints must remain usable by an enclosing scope after an inner
-rollback. When several scopes queue restoration before the next dispatch, the
+rollback while their owning session remains live. Resuming an outer session
+retires checkpoints belonging to temporary same-chain reentrant sessions; their
+writes are already owned by the suspended EVM journal. Retain the outer session
+anchor for later enclosing rollback. Concrete snapshot type equality does not
+establish ownership. When several scopes queue restoration before the next dispatch, the
 earliest applicable checkpoint for each destination must win. Current queue
 insertion order and consuming checkpoints need regressions for both inner-then-
 outer restoration and continuation between the two. Restoring source rolling

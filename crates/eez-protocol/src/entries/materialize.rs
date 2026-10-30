@@ -825,7 +825,24 @@ impl<'a> Materializer<'a> {
 
     fn begin_region(&mut self, node_index: usize) {
         for region in self.regions.get(&node_index).cloned().unwrap_or_default() {
-            self.open_region(region, None);
+            // The inspector records the failed target's complete descendant
+            // scope as well as its failed outcome. execute_call already opened
+            // that natural rollback on both chains. Repeating it as a forced
+            // scope adds wrappers that also erase proxy creation and logs.
+            // Keep inner/partial scopes: their earlier rollback can affect a
+            // later callback before the target's terminal revert.
+            let repeats_natural_frame = region.parent_index.is_some_and(|parent| {
+                self.children[parent].first() == Some(&node_index)
+                    && self.active_regions.iter().any(|active| {
+                        active.other_natural.is_some()
+                            && active.parent_index == region.parent_index
+                            && active.host_chain == region.host_chain
+                            && active.end == region.end
+                    })
+            });
+            if !repeats_natural_frame {
+                self.open_region(region, None);
+            }
         }
     }
 
@@ -2121,6 +2138,90 @@ mod tests {
             assert!(
                 error.to_string().contains("different callback array"),
                 "{error}"
+            );
+        }
+    }
+
+    /// Pinned catch{Remote,Nested}RevertAfterCallback tables use natural frame
+    /// rollback, with no forced-revert wrapper around the successful callback.
+    #[test]
+    fn natural_frame_revert_does_not_force_rollback_its_callbacks_again() {
+        let l2 = RollupId(1);
+        for origin in [RollupId::MAINNET, l2] {
+            let remote = if origin.is_mainnet() {
+                l2
+            } else {
+                RollupId::MAINNET
+            };
+            for failed in [0, 1] {
+                let mut calls = vec![
+                    action(0, None, origin, remote),
+                    action(1, Some(0), remote, origin),
+                    action(2, Some(1), origin, remote),
+                ];
+                calls[failed].outcome = crate::ExecutionOutcome::Resolved {
+                    success: false,
+                    return_data: vec![0xde, 0xad],
+                    gas_used: 30_000,
+                };
+                let natural = materialize_batches(&calls, origin).unwrap();
+                // The execution inspector also brackets the failed target's
+                // complete descendants when its EVM frame unwinds.
+                calls[failed + 1].revert_spans = vec![(2 - failed) as u32];
+                let annotated = materialize_batches(&calls, origin).unwrap();
+                assert_eq!(annotated.len(), natural.len());
+                for (chain, expected) in &natural {
+                    let actual = &annotated[chain];
+                    assert_eq!(actual.batch.entries.len(), expected.batch.entries.len());
+                    for (actual, expected) in
+                        actual.batch.entries.iter().zip(&expected.batch.entries)
+                    {
+                        assert_eq!(
+                            actual.abi_encode(),
+                            expected.abi_encode(),
+                            "origin {origin}, failed frame {failed}, chain {chain}: natural rollback must not add a forced wrapper"
+                        );
+                    }
+                    assert_eq!(
+                        actual.source_outbound_hashes,
+                        expected.source_outbound_hashes
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn natural_frame_revert_preserves_an_earlier_partial_callback_rollback() {
+        let l2 = RollupId(1);
+        for origin in [RollupId::MAINNET, l2] {
+            let remote = if origin.is_mainnet() {
+                l2
+            } else {
+                RollupId::MAINNET
+            };
+            let mut calls = vec![
+                action(0, None, origin, remote),
+                action(1, Some(0), remote, origin),
+                action(2, Some(0), remote, origin),
+                action(3, Some(0), remote, origin),
+            ];
+            calls[0].outcome = crate::ExecutionOutcome::Resolved {
+                success: false,
+                return_data: vec![0xde, 0xad],
+                gas_used: 30_000,
+            };
+            calls[1].revert_spans = vec![3];
+            calls[2].revert_spans = vec![1];
+            let batches = materialize_batches(&calls, origin).unwrap();
+            let callbacks = &batches[&origin].batch.entries[0].l2ToL1Calls;
+            assert_eq!(
+                callbacks
+                    .iter()
+                    .map(|call| call.revertNextNCalls)
+                    .collect::<Vec<_>>(),
+                [0, 1, 0],
+                "the second callback must roll back before the third executes"
             );
         }
     }

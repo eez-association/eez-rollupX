@@ -1,5 +1,6 @@
 //! Cross-chain integration and nonce-gap regression tests.
 
+mod call_patterns;
 mod capture_prefixes;
 mod combined_history;
 mod history_observations;

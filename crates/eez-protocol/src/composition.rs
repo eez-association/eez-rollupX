@@ -156,9 +156,9 @@ pub struct CompositionBuilder {
     pub(crate) rollups: HashMap<RollupId, Rollup>,
     pub(crate) recorded: Vec<ExecutedAction>,
     /// Per-call checkpoint keyed by `recorded[..]` index. Checkpoints remain
-    /// available while enclosing EVM frames may still revert; reverted spans
-    /// queue their indices for rollback. Unused checkpoints are dropped with
-    /// the builder.
+    /// available while their owning session is live and enclosing EVM frames
+    /// may still revert. Reverted spans queue their indices for rollback;
+    /// replacing a temporary reentrant session retires its checkpoints.
     pub(crate) pending_snapshots: HashMap<usize, crate::executor::SessionSnapshot>,
     /// Open cross-chain frames, in call-stack order. The top becomes the
     /// parent of the next recursively dispatched call.
@@ -368,10 +368,27 @@ impl CompositionBuilder {
         // Restore the checked-out session before propagating the execution
         // result. Controlled EVM reverts arrive as `ExecutionOutcome`, not
         // `Err`.
-        self.rollups
+        let replaced_temporary_session = self
+            .rollups
             .get_mut(&target_rollup_id)
             .expect("rollup not removable")
-            .session = Some(session);
+            .session
+            .replace(session)
+            .is_some();
+        // Reentry while this session was checked out uses a temporary session
+        // on the same chain. Its writes have already flowed through the
+        // suspended EVM frame, whose journal owns their rollback. Restoring the
+        // outer session also ends those temporary checkpoints' lifetime: even
+        // if their concrete types agree, they do not belong to this session.
+        // Keep this call's own anchor for a later enclosing source-frame revert.
+        if replaced_temporary_session {
+            let recorded = &self.recorded;
+            self.pending_snapshots.retain(|index, _| {
+                *index <= idx || recorded[*index].target_rollup_id != target_rollup_id
+            });
+            self.pending_rollbacks
+                .retain(|index| self.pending_snapshots.contains_key(index));
+        }
 
         let response = match response_res {
             Ok(response) => response,
@@ -1665,6 +1682,96 @@ mod tests {
         // The completed call's checkpoint remains available in case an
         // enclosing frame later reverts.
         assert!(builder.pending_snapshots.contains_key(&1));
+    }
+
+    #[test]
+    fn resumed_outer_session_retires_temporary_callback_checkpoints() {
+        struct Outer(Arc<AtomicUsize>);
+        impl TargetExecutionSession for Outer {
+            fn execute(
+                &mut self,
+                _: ExecutionRequest,
+                dispatcher: &mut CompositionBuilder,
+            ) -> ExecutorResult<ExecutionOutcome> {
+                let failed =
+                    dispatcher.dispatch_call(RollupId(0), make_request_from(0, RollupId(1)))?;
+                assert!(!failed.is_success());
+                self.0.store(1, Ordering::SeqCst);
+                Ok(ExecutionOutcome::Resolved {
+                    return_data: vec![],
+                    gas_used: 0,
+                    success: true,
+                })
+            }
+            fn checkpoint(&mut self) -> ExecutorResult<crate::SessionSnapshot> {
+                Ok(Box::new(self.0.load(Ordering::SeqCst)))
+            }
+            fn rollback(&mut self, snapshot: &crate::SessionSnapshot) -> ExecutorResult<()> {
+                let value = snapshot.downcast_ref::<usize>().ok_or_else(|| {
+                    ExecutorError::from(ExecutorErrorKind::Encoding(
+                        "wrong checkpoint owner".into(),
+                    ))
+                })?;
+                self.0.store(*value, Ordering::SeqCst);
+                Ok(())
+            }
+        }
+        struct Callback;
+        impl ChainClient for Callback {
+            fn begin_execution_session(
+                &self,
+            ) -> ExecutorResult<Box<dyn TargetExecutionSession + Send>> {
+                Ok(Box::new(Self))
+            }
+        }
+        impl TargetExecutionSession for Callback {
+            fn execute(
+                &mut self,
+                _: ExecutionRequest,
+                dispatcher: &mut CompositionBuilder,
+            ) -> ExecutorResult<ExecutionOutcome> {
+                let first = dispatcher.recorded_count();
+                dispatcher.dispatch_call(RollupId(1), make_request_from(1, RollupId(0)))?;
+                dispatcher.annotate_revert_span(first, 1);
+                Ok(ExecutionOutcome::Resolved {
+                    return_data: vec![],
+                    gas_used: 0,
+                    success: false,
+                })
+            }
+            fn checkpoint(&mut self) -> ExecutorResult<crate::SessionSnapshot> {
+                Ok(Box::new(()))
+            }
+            fn rollback(&mut self, _: &crate::SessionSnapshot) -> ExecutorResult<()> {
+                Ok(())
+            }
+        }
+        let state = Arc::new(AtomicUsize::new(0));
+        let mut target = rollup_with_session([0x11; 32]);
+        target.session = Some(Box::new(Outer(Arc::clone(&state))));
+        let mut source = entry_rollup([0; 32]);
+        source.client = Arc::new(Callback);
+        let mut builder = CompositionBuilder::new(
+            RollupId(0),
+            HashMap::from([(RollupId(0), source), (RollupId(1), target)]),
+        );
+        builder.dispatch_call(RollupId(1), make_request(1)).unwrap();
+        assert_eq!(builder.recorded_count(), 3);
+        builder
+            .process_pending_rollbacks()
+            .expect("temporary snapshot cannot roll back the resumed outer session");
+        assert_eq!(state.load(Ordering::SeqCst), 1);
+        assert!(
+            builder.pending_snapshots.contains_key(&0),
+            "retain the actual outer anchor"
+        );
+        builder.annotate_revert_span(0, 3);
+        builder.process_pending_rollbacks().unwrap();
+        assert_eq!(
+            state.load(Ordering::SeqCst),
+            0,
+            "later enclosing rollback still restores the outer anchor"
+        );
     }
 
     #[test]
