@@ -577,7 +577,7 @@ fn resolve_static_callbacks(
         let callback = crate::system_tx::lift_call_from_l2(callback);
         let callback_hash = source_call_hash(&callback, RollupId::MAINNET, l2_rollup_id)?;
         let row_index = l1
-            .next_static_row(position_key(callback_hash, l1.rolling.current()))
+            .next_matching_row(position_key(callback_hash, l1.rolling.current()))
             .ok_or_else(|| {
                 crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
                     if l1.entry.expectedL1ToL2Calls.is_empty() {
@@ -751,18 +751,7 @@ fn execute_next_nested_call(
     let source_hash = source_call_hash(&next_call, destination.chain, source.chain)?;
     let recomputed_position = position_key(source_hash, destination.rolling.current());
     let saved_cursor = destination.next_row;
-    let row_index = if next_call.isStatic {
-        destination.next_static_row(recomputed_position)
-    } else {
-        destination
-            .entry
-            .expectedL1ToL2Calls
-            .iter()
-            .enumerate()
-            .skip(destination.next_row)
-            .find(|(_, row)| row.expectedL1toL2Hash == recomputed_position)
-            .map(|(index, _)| index)
-    };
+    let row_index = destination.next_matching_row(recomputed_position);
     let Some(row_index) = row_index else {
         return Ok(false);
     };
@@ -775,7 +764,6 @@ fn execute_next_nested_call(
             )
             .into());
         }
-        destination.mark_static_row(row_index)?;
         let next_call = source.take_current_call().ok_or_else(|| {
             crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
                 "nested pair call cursor changed while resolving a static row".into(),
@@ -786,7 +774,9 @@ fn execute_next_nested_call(
             destination.chain,
             source.chain,
         )?);
-        verify_static_row_callbacks(destination, source, row_index, depth + 1)?;
+        let selected =
+            resolve_static_row_pair(destination, source, recomputed_position, depth + 1)?;
+        let row = &destination.entry.expectedL1ToL2Calls[selected];
         source.rolling.call_end(row.success, &row.returnData);
         return Ok(true);
     }
@@ -819,61 +809,163 @@ fn execute_next_nested_call(
     Ok(true)
 }
 
-/// Bind callbacks within a static read when both chains already have mutable
-/// hosts. These pending reads use rows on both sides, never a top-level pool.
-/// Their callbacks leave both tagged host hashes unchanged.
-fn verify_static_row_callbacks(
-    lookup: &mut ChainState<'_>,
-    executing: &mut ChainState<'_>,
-    row_index: usize,
-    depth: usize,
-) -> ProtocolResult<()> {
-    if depth > MAX_NESTING_DEPTH {
-        return Err(ProtocolErrorKind::Unsupported(
-            "static callback depth exceeds the verifier limit",
-        )
-        .into());
-    }
-    let row = lookup.entry.expectedL1ToL2Calls[row_index].clone();
-    let mut results = StaticCallRollingHash::new();
-    for callback in &row.l2ToL1Calls {
-        let callback_key = position_key(
-            source_call_hash(callback, executing.chain, lookup.chain)?,
-            executing.rolling.current(),
-        );
-        let callback_row = executing.next_static_row(callback_key).ok_or_else(|| {
-            crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
-                "nested static callback has no matching row".into(),
-            ))
-        })?;
-        let resolved = executing.entry.expectedL1ToL2Calls[callback_row].clone();
-        if !callback.isStatic
-            || !callback.value.is_zero()
-            || callback.gas != 0
-            || callback.revertNextNCalls != 0
-            || resolved.expectedL1toL2Hash
-                != position_key(
-                    source_call_hash(callback, executing.chain, lookup.chain)?,
-                    executing.rolling.current(),
-                )
-        {
-            return Err(ProtocolErrorKind::InvalidEncoding(
-                "nested static callback does not match its host row".into(),
+/// Resolve a pending read against fixed host positions. Static callbacks change
+/// neither tagged hashes nor mutable cursors, so the result for a (chain, key)
+/// is stable for this read. Memoizing it bounds candidate exploration by the
+/// table's rows and callbacks rather than by the number of recursive paths.
+/// A new resolver is required after every direct call's CALL_BEGIN fold.
+struct StaticRowResolver<'a> {
+    entries: [&'a ExecutionEntrySol; 2],
+    chains: [RollupId; 2],
+    positions: [B256; 2],
+    cursors: [usize; 2],
+    resolutions: std::collections::HashMap<(usize, B256), StaticResolution>,
+    children: std::collections::HashMap<(usize, usize), Vec<usize>>,
+}
+
+#[derive(Clone, Copy)]
+enum StaticResolution {
+    Pending,
+    Resolved(Option<ResolvedStaticRow>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ResolvedStaticRow {
+    row: usize,
+    /// Longest callback path below this row. Cached suffixes still count
+    /// against the nesting bound when reached through a different prefix.
+    height: usize,
+}
+
+impl StaticRowResolver<'_> {
+    fn resolve(
+        &mut self,
+        side: usize,
+        key: B256,
+        depth: usize,
+    ) -> ProtocolResult<Option<ResolvedStaticRow>> {
+        if depth > MAX_NESTING_DEPTH {
+            return Err(ProtocolErrorKind::Unsupported(
+                "static callback depth exceeds the verifier limit",
             )
             .into());
         }
-        executing.mark_static_row(callback_row)?;
-        lookup.call_cursors[row_index + 1] += 1;
-        verify_static_row_callbacks(executing, lookup, callback_row, depth + 1)?;
-        results.append(resolved.success, &resolved.returnData);
+        if let Some(resolution) = self.resolutions.get(&(side, key)) {
+            return match resolution {
+                StaticResolution::Resolved(Some(row)) if row.height > MAX_NESTING_DEPTH - depth => {
+                    Err(ProtocolErrorKind::Unsupported(
+                        "static callback depth exceeds the verifier limit",
+                    )
+                    .into())
+                }
+                StaticResolution::Resolved(row) => Ok(*row),
+                StaticResolution::Pending => Err(ProtocolErrorKind::InvalidEncoding(
+                    "static callback table contains a resolution cycle".into(),
+                )
+                .into()),
+            };
+        }
+        self.resolutions
+            .insert((side, key), StaticResolution::Pending);
+        let entry = self.entries[side];
+        let other = 1 - side;
+        for (index, row) in entry
+            .expectedL1ToL2Calls
+            .iter()
+            .enumerate()
+            .skip(self.cursors[side])
+        {
+            if row.expectedL1toL2Hash != key {
+                continue;
+            }
+            let mut results = StaticCallRollingHash::new();
+            let mut children = Vec::with_capacity(row.l2ToL1Calls.len());
+            let mut height = 0;
+            for callback in &row.l2ToL1Calls {
+                if !callback.isStatic
+                    || !callback.value.is_zero()
+                    || callback.gas != 0
+                    || callback.revertNextNCalls != 0
+                {
+                    return Err(ProtocolErrorKind::InvalidEncoding(
+                        "nested static callback does not match its host row".into(),
+                    )
+                    .into());
+                }
+                let child_key = position_key(
+                    source_call_hash(callback, self.chains[other], self.chains[side])?,
+                    self.positions[other],
+                );
+                let child = self.resolve(other, child_key, depth + 1)?.ok_or_else(|| {
+                    crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
+                        "nested static callback has no matching row".into(),
+                    ))
+                })?;
+                let result = &self.entries[other].expectedL1ToL2Calls[child.row];
+                results.append(result.success, &result.returnData);
+                height = height.max(child.height + 1);
+                children.push(child.row);
+            }
+            if results.current() == row.revertedOrStaticRollingHash {
+                self.children.insert((side, index), children);
+                let resolved = ResolvedStaticRow { row: index, height };
+                self.resolutions
+                    .insert((side, key), StaticResolution::Resolved(Some(resolved)));
+                return Ok(Some(resolved));
+            }
+        }
+        self.resolutions
+            .insert((side, key), StaticResolution::Resolved(None));
+        Ok(None)
     }
-    if results.current() != row.revertedOrStaticRollingHash {
-        return Err(ProtocolErrorKind::InvalidEncoding(
-            "nested static callback results differ from the row rolling hash".into(),
-        )
-        .into());
+}
+
+fn resolve_static_row_pair(
+    lookup: &mut ChainState<'_>,
+    executing: &mut ChainState<'_>,
+    key: B256,
+    depth: usize,
+) -> ProtocolResult<usize> {
+    let mut resolver = StaticRowResolver {
+        entries: [lookup.entry, executing.entry],
+        chains: [lookup.chain, executing.chain],
+        positions: [lookup.rolling.current(), executing.rolling.current()],
+        cursors: [lookup.next_row, executing.next_row],
+        resolutions: Default::default(),
+        children: Default::default(),
+    };
+    let selected = resolver
+        .resolve(0, key, depth)?
+        .ok_or_else(|| {
+            crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
+                "nested static callback results differ from the row rolling hash".into(),
+            ))
+        })?
+        .row;
+    // Only successfully resolved rows in the selected callback graph establish
+    // coverage. Candidate probing cannot mark an unchecked row as validated.
+    // Shared subgraphs need one coverage update, not exponential traversal.
+    let mut pending = vec![(0, selected)];
+    let mut covered = std::collections::HashSet::new();
+    while let Some((side, row)) = pending.pop() {
+        if !covered.insert((side, row)) {
+            continue;
+        }
+        if side == 0 {
+            lookup.mark_static_row(row)?;
+            lookup.call_cursors[row + 1] = lookup.entry.expectedL1ToL2Calls[row].l2ToL1Calls.len();
+        } else {
+            executing.mark_static_row(row)?;
+            executing.call_cursors[row + 1] =
+                executing.entry.expectedL1ToL2Calls[row].l2ToL1Calls.len();
+        }
+        pending.extend(
+            resolver.children[&(side, row)]
+                .iter()
+                .map(|&child| (1 - side, child)),
+        );
     }
-    Ok(())
+    Ok(selected)
 }
 
 struct ChainState<'a> {
@@ -930,17 +1022,15 @@ impl<'a> ChainState<'a> {
         call
     }
 
-    /// Construction records one row per static observation. Bind those rows
-    /// in order within the live mutable window, without advancing its cursor.
-    /// Exact replay checks candidate resolution; repeated commitments must
-    /// agree on the cached outcome (checked by `mark_static_row`).
-    fn next_static_row(&self, key: B256) -> Option<usize> {
+    /// Lookup starts at the mutable cursor; coverage does not consume a row.
+    /// The caller advances the cursor only after selecting a mutable call.
+    fn next_matching_row(&self, key: B256) -> Option<usize> {
         self.entry
             .expectedL1ToL2Calls
             .iter()
             .enumerate()
             .skip(self.next_row)
-            .find(|(index, row)| !self.seen_rows[*index] && row.expectedL1toL2Hash == key)
+            .find(|(_, row)| row.expectedL1toL2Hash == key)
             .map(|(index, _)| index)
     }
 
@@ -1140,4 +1230,167 @@ fn position_key(call_hash: B256, rolling_hash: B256) -> B256 {
     input[..32].copy_from_slice(call_hash.as_slice());
     input[32..].copy_from_slice(rolling_hash.as_slice());
     keccak256(input)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn static_callback(level: u8) -> L2ToL1CallSol {
+        L2ToL1CallSol {
+            isStatic: true,
+            sourceRollupId: u64::from(level % 2),
+            data: Bytes::from(vec![level]),
+            sourceAddress: alloy_primitives::Address::ZERO,
+            targetAddress: alloy_primitives::Address::ZERO,
+            value: U256::ZERO,
+            gas: 0,
+            revertNextNCalls: 0,
+        }
+    }
+
+    fn callback_key(level: u8) -> B256 {
+        position_key(
+            source_call_hash(
+                &static_callback(level),
+                RollupId(u64::from(level % 2)),
+                RollupId(u64::from(1 - level % 2)),
+            )
+            .unwrap(),
+            B256::ZERO,
+        )
+    }
+
+    #[test]
+    fn static_resolution_memoizes_shared_callback_subgraphs() {
+        let mut entries = [ExecutionEntrySol::default(), ExecutionEntrySol::default()];
+        const DEPTH: u8 = 40;
+        for level in 0..=DEPTH {
+            let callbacks = if level == DEPTH {
+                vec![]
+            } else {
+                vec![static_callback(level + 1); 2]
+            };
+            let mut results = StaticCallRollingHash::new();
+            for _ in &callbacks {
+                results.append(true, &[level + 1]);
+            }
+            entries[usize::from(level % 2)].expectedL1ToL2Calls.push(
+                crate::abi::ExpectedL1ToL2CallSol {
+                    expectedL1toL2Hash: callback_key(level),
+                    l2ToL1Calls: callbacks,
+                    revertedOrStaticRollingHash: results.current(),
+                    success: true,
+                    returnData: Bytes::from(vec![level]),
+                },
+            );
+        }
+        let mut resolver = StaticRowResolver {
+            entries: [&entries[0], &entries[1]],
+            chains: [RollupId::MAINNET, RollupId(1)],
+            positions: [B256::ZERO; 2],
+            cursors: [0; 2],
+            resolutions: Default::default(),
+            children: Default::default(),
+        };
+        assert_eq!(
+            resolver.resolve(0, callback_key(0), 0).unwrap(),
+            Some(ResolvedStaticRow {
+                row: 0,
+                height: usize::from(DEPTH)
+            })
+        );
+        // Expanding this graph as a tree would visit more than 2^40 frames.
+        assert_eq!(resolver.resolutions.len(), usize::from(DEPTH) + 1);
+        assert_eq!(resolver.children.len(), usize::from(DEPTH) + 1);
+    }
+
+    #[test]
+    fn static_resolution_rejects_cycles_before_claiming_coverage() {
+        let mut entries = [ExecutionEntrySol::default(), ExecutionEntrySol::default()];
+        for side in 0..2_u8 {
+            entries[usize::from(side)].expectedL1ToL2Calls.push(
+                crate::abi::ExpectedL1ToL2CallSol {
+                    expectedL1toL2Hash: callback_key(side),
+                    l2ToL1Calls: vec![static_callback(1 - side)],
+                    success: true,
+                    revertedOrStaticRollingHash: B256::ZERO,
+                    returnData: Bytes::new(),
+                },
+            );
+        }
+        let mut resolver = StaticRowResolver {
+            entries: [&entries[0], &entries[1]],
+            chains: [RollupId::MAINNET, RollupId(1)],
+            positions: [B256::ZERO; 2],
+            cursors: [0; 2],
+            resolutions: Default::default(),
+            children: Default::default(),
+        };
+        let error = resolver.resolve(0, callback_key(0), 0).unwrap_err();
+        assert!(error.to_string().contains("resolution cycle"), "{error}");
+        assert!(
+            resolver.children.is_empty(),
+            "no callback graph was validated"
+        );
+    }
+
+    #[test]
+    fn static_resolution_cached_suffix_retains_its_depth_bound() {
+        // Resolve a long suffix through a shortcut first, then reach that
+        // cached suffix through a longer prefix. Memoization must not hide
+        // the latter path's depth from the bounded verifier.
+        let callback = |level: usize| {
+            let mut call = static_callback((level % 2) as u8);
+            call.data = Bytes::copy_from_slice(&level.to_be_bytes());
+            call
+        };
+        let key = |level: usize| {
+            position_key(
+                source_call_hash(
+                    &callback(level),
+                    RollupId((level % 2) as u64),
+                    RollupId((1 - level % 2) as u64),
+                )
+                .unwrap(),
+                B256::ZERO,
+            )
+        };
+        let mut entries = [ExecutionEntrySol::default(), ExecutionEntrySol::default()];
+        for level in 0..=MAX_NESTING_DEPTH + 1 {
+            let next = if level == 0 {
+                vec![3, 1]
+            } else if level == MAX_NESTING_DEPTH + 1 {
+                vec![]
+            } else {
+                vec![level + 1]
+            };
+            let mut results = StaticCallRollingHash::new();
+            for child in &next {
+                results.append(true, &child.to_be_bytes());
+            }
+            entries[level % 2]
+                .expectedL1ToL2Calls
+                .push(crate::abi::ExpectedL1ToL2CallSol {
+                    expectedL1toL2Hash: key(level),
+                    l2ToL1Calls: next.into_iter().map(callback).collect(),
+                    revertedOrStaticRollingHash: results.current(),
+                    success: true,
+                    returnData: Bytes::copy_from_slice(&level.to_be_bytes()),
+                });
+        }
+        let mut resolver = StaticRowResolver {
+            entries: [&entries[0], &entries[1]],
+            chains: [RollupId::MAINNET, RollupId(1)],
+            positions: [B256::ZERO; 2],
+            cursors: [0; 2],
+            resolutions: Default::default(),
+            children: Default::default(),
+        };
+        let error = resolver
+            .resolve(0, key(0), 0)
+            .expect_err("a cached suffix cannot bypass the nesting bound");
+        assert!(error.to_string().contains("depth exceeds"), "{error}");
+        assert!(!resolver.children.contains_key(&(0, 0)));
+    }
 }

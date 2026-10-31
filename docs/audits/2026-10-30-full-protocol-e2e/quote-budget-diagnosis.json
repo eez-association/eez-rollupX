@@ -1,0 +1,90 @@
+{
+  "baseline": "f091f437594581ca7c9302471002fe5b4cfdc721",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "scenario": "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+  "selector": "0xf9f67f65",
+  "procedure": "Read-only eez_debugQuoteFee against the retained task-owned enclave; no transaction submission or state mutation.",
+  "finding": "Each type executes two fee-simulation passes of nine cross-chain target frames. Each individual type passes at 18 frames; both types fail at 32 cumulative frames, before completing the required 36. Explicit gas reproduces the same failure, isolating pricing from gas estimation.",
+  "correction": "One aggregate allowance of 32 frames per requested type (32 or 64), with unchanged shared deadline, depth and worker permit. Signed admission remains at 32.",
+  "corrected_validation": "PASS: boundary unit test (32/64 frames), and source-built outbound_static_nested_reverts_quote_both_types_settle_and_replay with both transaction types, canonical settlement and fresh follower replay. Full sealed-runtime protocol campaign remains pending.",
+  "evidence_availability": "Raw evidence is local-only under candidate/revision-f091f437/quote-frame-diagnosis; not retrievable from another checkout.",
+  "cases": [
+    {
+      "case": "both-estimate",
+      "result": "failed",
+      "error": "quote work limit: nested frame budget",
+      "requested_types": [
+        "0x0",
+        "0x2"
+      ],
+      "returned_types": [],
+      "local_evidence": "both-estimate.json",
+      "sha256": "969ca984dcb110fa517efe3a2c06e20477ecafdc6a373e652e11f592746df280"
+    },
+    {
+      "case": "both-explicit",
+      "result": "failed",
+      "error": "quote work limit: nested frame budget",
+      "requested_types": [
+        "0x0",
+        "0x2"
+      ],
+      "returned_types": [],
+      "local_evidence": "both-explicit.json",
+      "sha256": "c29a32a910168071e4809ff37c4b791da6efc5960660b9736e5f5a8e8496912f"
+    },
+    {
+      "case": "eip1559-estimate",
+      "result": "passed",
+      "error": null,
+      "requested_types": [
+        "0x2"
+      ],
+      "returned_types": [
+        "0x2"
+      ],
+      "local_evidence": "eip1559-estimate.json",
+      "sha256": "e2924f69acc380a60ba2cd14b6d9697bb4800a70aa6f20b89167b54c3a1712fc"
+    },
+    {
+      "case": "eip1559-explicit",
+      "result": "passed",
+      "error": null,
+      "requested_types": [
+        "0x2"
+      ],
+      "returned_types": [
+        "0x2"
+      ],
+      "local_evidence": "eip1559-explicit.json",
+      "sha256": "1d5fbe13ca79a9784054e277e56fcf32816f5c74ec1cb1756210ee424b305700"
+    },
+    {
+      "case": "legacy-estimate",
+      "result": "passed",
+      "error": null,
+      "requested_types": [
+        "0x0"
+      ],
+      "returned_types": [
+        "0x0"
+      ],
+      "local_evidence": "legacy-estimate.json",
+      "sha256": "876289d561510aa20459e222de2ad12b510c55b28c162e297ae5289bededcc5a"
+    },
+    {
+      "case": "legacy-explicit",
+      "result": "passed",
+      "error": null,
+      "requested_types": [
+        "0x0"
+      ],
+      "returned_types": [
+        "0x0"
+      ],
+      "local_evidence": "legacy-explicit.json",
+      "sha256": "d6070e56fdf39b9e7e6edd924ef9f2edd43501c54e85ca748dae7539cc641436"
+    }
+  ],
+  "corrected_process_log_sha256": "86941bba096e3d18fbe459a5b663b0b480df09296e96b2de4513b6f25888053e"
+}

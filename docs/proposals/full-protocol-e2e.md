@@ -104,6 +104,15 @@ static read. Cover that sequence with both an identical retry and a conflicting
 cached outcome; table traversal order is not authority to skip the first
 matching mutable candidate.
 
+Static candidate reuse must also preserve the pinned local-write sequence
+1 → 2 → 1 in both directions. Equal position keys are not enough to merge rows:
+callbacks, callback-result commitment and cached outcome must all match. The
+inverse verifier resolves candidates against fixed read-only host contexts and
+memoizes only within one pending read; cyclic graphs reject and shared subgraphs
+must not expand exponentially. Coverage of a row does not advance the static
+cursor. Positive permutations and forged outcomes, callback commitments and
+identities must reach the independent verification checks before authorization.
+
 The nested rollback decoder collects inner-to-outer spans and reverses once at
 the transaction boundary, preserving canonical order without repeatedly shifting
 vectors for snapshots sharing a first action. Keep exact

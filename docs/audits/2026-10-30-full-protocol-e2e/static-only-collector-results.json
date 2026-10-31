@@ -1,0 +1,70 @@
+{
+  "runtime_revision": "f091f437594581ca7c9302471002fe5b4cfdc721",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "status": "Six read-only diagnostic checks passed with corrected, uncommitted collector; original 52/12 full-campaign result is preserved and a new full campaign remains required.",
+  "source_sha256": {
+    "scripts/ci/select-protocol-l2-transactions.py": "731216de8d295f8a08d80fc382ada72a54d20d296777ef5f66d95b1ec509aa1e",
+    "testing/kurtosis/scripts/collect-protocol-e2e-evidence.sh": "51cc07d22ba286de97ef79fee3493516f15f0b06849411a9708bff6ac865f50c",
+    "crates/eez-protocol/examples/e2e-causal-verify.rs": "a9edb2e75af9690c3ba076cc918a63e0721573c576b0c84ce1aa29fe2d2c5a27",
+    "crates/eez-protocol/src/entries/verify.rs": "8e76c2423a604ebe7003de2f97184de443b4de57d5899aac5f2c034cd61abcaa"
+  },
+  "causal_binary_sha256": "3032b373675cb35cf0ee40b6b2be9f7782ce2c630a7d0c03f79dc42ca03ed0dc",
+  "evidence_availability": "Full canonical inputs and outputs are local-only under candidate/revision-f091f437/static-only-diagnosis/qualified-paths.",
+  "initial_diagnostic_error": "First invocation used unresolved protocol-relative scenario paths; all six stopped before evidence collection. Those diagnostics are retained in the parent directory.",
+  "scenarios": [
+    {
+      "scenario": "staticLocalWriteL2",
+      "result": "PASS",
+      "system_transactions": 1,
+      "static_entries": 3,
+      "causal_verified": true,
+      "blob_verified": true,
+      "evidence_sha256": "96bfc9db1662eb005fd5249d0a774224a0b40241416597203712282aa21c293b"
+    },
+    {
+      "scenario": "topLevelStaticReentrantMissingProxyL2",
+      "result": "PASS",
+      "system_transactions": 1,
+      "static_entries": 1,
+      "causal_verified": true,
+      "blob_verified": true,
+      "evidence_sha256": "43fa0d642c31b5f111eecab8b0f08ad95ad14c28b2a90f6b443a7b09c1de6586"
+    },
+    {
+      "scenario": "staticReadCallsBackAndReadsAgainL2",
+      "result": "PASS",
+      "system_transactions": 1,
+      "static_entries": 2,
+      "causal_verified": true,
+      "blob_verified": true,
+      "evidence_sha256": "f2573be8e57e144b8654e00a423d3d7f89fd1b6fbe9b4d546256c1fe6fc2f7e5"
+    },
+    {
+      "scenario": "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+      "result": "PASS",
+      "system_transactions": 1,
+      "static_entries": 2,
+      "causal_verified": true,
+      "blob_verified": true,
+      "evidence_sha256": "3c76f69991d8a869789e19accf024cdc589271a4042c3b1f59810c71d24da1db"
+    },
+    {
+      "scenario": "staticReadHandlesFailedCallbackL2",
+      "result": "PASS",
+      "system_transactions": 1,
+      "static_entries": 1,
+      "causal_verified": true,
+      "blob_verified": true,
+      "evidence_sha256": "761fd16995c53b4bf409b8ac7313861ab8f7a67f7ac860ee11c0d3acd39588f5"
+    },
+    {
+      "scenario": "staticReadPropagatesFailedCallbackL2",
+      "result": "PASS",
+      "system_transactions": 1,
+      "static_entries": 1,
+      "causal_verified": true,
+      "blob_verified": true,
+      "evidence_sha256": "c3563feca85ddb9abed23b26d8ec2eba2d544ed3aa68b3f3dac12d239a61bfd7"
+    }
+  ]
+}

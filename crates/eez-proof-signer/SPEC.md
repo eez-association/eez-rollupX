@@ -845,12 +845,32 @@ The corresponding batch entry MUST:
   below.
 
 Starting from the L1 root-update seed and the L2 proxy seed, the signer MUST
-inverse-execute both tables. It MUST consume unified rows in forward order,
-require each row key to equal
-`keccak256(sourceCallHash || currentDestinationRollingHash)`, apply the exact
-`CALL_BEGIN`, `NESTED_BEGIN`, `CALL_END`, and `NESTED_END` transitions, and
-consume every flat call and row exactly once. Both final rolling hashes and
-every nested outcome MUST match. The update's `etherDelta` MUST equal the sum
+inverse-execute both tables. Mutable lookups MUST select the first matching row
+at or after the live cursor, advance that cursor, and restore it when the frame
+reverts. Each row key MUST equal
+`keccak256(sourceCallHash || currentDestinationRollingHash)`. Verification MUST
+apply the exact `CALL_BEGIN`, `NESTED_BEGIN`, `CALL_END`, and `NESTED_END`
+transitions and account for every row and complete callback array. Row coverage
+is not a consumption cursor: reverted mutable calls and static reads may reuse
+rows. Both final rolling hashes and every nested outcome MUST match.
+
+Static lookups MUST scan from the unchanged mutable cursor, recompute each
+candidate's callback-result commitment, and select the first matching candidate.
+A later read MAY reuse an earlier candidate, including one skipped by an
+intervening read after local writes. Construction deduplicates only completed
+candidates with identical position key, complete callback array, callback-result
+commitment, success and return bytes. During one pending read, both host hashes
+and cursors are fixed; verification MAY memoize recursively checked `(chain,
+position key)` resolutions within that read. It MUST discard that memoization
+before a subsequent direct call changes the host position. Cyclic resolution
+graphs and depth beyond the supported nesting bound MUST reject; shared
+subgraphs MUST NOT cause exponential verification work. A memoized resolution
+MUST retain its maximum descendant depth and recheck it against the current
+prefix; reaching a cached suffix through a longer path MUST NOT bypass the bound.
+Only a successfully
+resolved candidate and its checked callback graph establish row coverage.
+Independent execution and semantic observation replay remain required; table
+resolution alone does not establish that cached results are authentic. The update's `etherDelta` MUST equal the sum
 of values on all L1-to-L2 calls minus the sum on all L2-to-L1 calls, within the
 `int192` range.
 
@@ -894,7 +914,8 @@ L2 ABI (without L1 routing or root-pin fields). A static source MAY carry
 `incomingCalls`: the callbacks to L2 made by the L1 target of the read. Each
 MUST be static, with zero value, zero gas and no revert span, and a source
 without callbacks MUST have a zero rolling hash. While verifying the static
-root, each callback MUST resolve the host's next row, whose position key is
+root, each callback MUST resolve a host row at or after the unchanged mutable
+cursor, allowing reuse; its position key is
 the callback's hash and the host rolling hash after the root's `CALL_BEGIN`
 (static rows do not advance it). A row MAY return or revert. Its static
 sub-calls recursively resolve further source pool entries at the same mutable

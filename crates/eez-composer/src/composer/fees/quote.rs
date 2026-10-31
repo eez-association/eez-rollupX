@@ -35,7 +35,7 @@ mod diagnostics;
 pub(super) const MAX_SOURCE_GAS: u64 = revm::primitives::eip7825::TX_GAS_LIMIT_CAP;
 const MAX_CALLDATA: usize = 64 * 1024;
 const MAX_ITERATIONS: usize = 4;
-const MAX_FRAMES: usize = 32;
+const MAX_FRAMES_PER_TYPE: usize = 32;
 const MAX_DEPTH: usize = 8;
 const MAX_DA_BYTES: usize = 2 * 1024 * 1024;
 const QUOTE_LIFETIME_SECONDS: u64 = 30;
@@ -534,7 +534,7 @@ where
         prepared: PreparedL2FeeQuote,
         cancelled: Arc<AtomicBool>,
     ) -> Result<Value, FeeQuoteError> {
-        let budget = Arc::new(Budget::new(cancelled));
+        let budget = Arc::new(Budget::new(cancelled, 1));
         let mut snapshot = self.fee_snapshot(&prepared, &budget)?;
         let result = (|| {
             let (_, predecessors) = self.replay_quote_predecessors(
@@ -1276,7 +1276,7 @@ pub(in crate::composer) fn tariff_history_size<L2: BlockReader<Header = Header>>
         endpoint,
         beneficiary,
         max_history,
-        &Budget::new(Arc::new(AtomicBool::new(false))),
+        &Budget::new(Arc::new(AtomicBool::new(false)), 1),
     )
 }
 
@@ -1499,15 +1499,24 @@ pub(in crate::composer) struct Budget {
     cancelled: Arc<AtomicBool>,
     deadline: Instant,
     frames: AtomicUsize,
+    frame_limit: usize,
     depth: AtomicUsize,
     exhausted: AtomicBool,
 }
 impl Budget {
-    fn new(cancelled: Arc<AtomicBool>) -> Self {
+    fn new(cancelled: Arc<AtomicBool>, transaction_types: usize) -> Self {
+        // CompactFeeRequest::parse admits one or two distinct types. Signed
+        // admission and history-only callers always request one. Keep one
+        // aggregate budget: iterations and predecessor replay never reset it.
+        assert!(
+            (1..=2).contains(&transaction_types),
+            "validated quote type count"
+        );
         Self {
             cancelled,
             deadline: Instant::now() + Duration::from_secs(10),
             frames: AtomicUsize::new(0),
+            frame_limit: MAX_FRAMES_PER_TYPE * transaction_types,
             depth: AtomicUsize::new(0),
             exhausted: AtomicBool::new(false),
         }
@@ -1563,7 +1572,7 @@ impl TargetExecutionSession for BoundedSession {
         dispatcher: &mut CompositionBuilder,
     ) -> ExecutorResult<eez_protocol::ExecutionOutcome> {
         self.budget.executor_check()?;
-        if self.budget.frames.fetch_add(1, Ordering::Relaxed) >= MAX_FRAMES
+        if self.budget.frames.fetch_add(1, Ordering::Relaxed) >= self.budget.frame_limit
             || self.budget.depth.load(Ordering::Relaxed) >= MAX_DEPTH
         {
             self.budget.exhausted.store(true, Ordering::Relaxed);

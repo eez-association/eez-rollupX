@@ -799,7 +799,11 @@ struct Materializer<'a> {
 enum StaticFrame {
     L1Pool(usize),
     L2Pool(usize),
-    Row { entry: usize, row: usize },
+    Row {
+        entry: usize,
+        row: usize,
+        reused: bool,
+    },
 }
 
 impl<'a> Materializer<'a> {
@@ -1028,7 +1032,10 @@ impl<'a> Materializer<'a> {
         let output = Bytes::copy_from_slice(call.outcome.return_data().expect("resolved outcome"));
         let location = if let Some(context) = self.active.get(&source) {
             let entry = context.entry_index;
-            let (row, _) = self.push_row(source, &call)?;
+            let (row, reused) = match self.reusable_static_row(node) {
+                Some(row) => (row, true),
+                None => self.push_row(source, &call)?,
+            };
             self.push_event(
                 source,
                 TraceEvent::StaticLookup {
@@ -1036,7 +1043,7 @@ impl<'a> Materializer<'a> {
                     call_hash: source_call_hash(&call),
                 },
             );
-            Some(StaticFrame::Row { entry, row })
+            Some(StaticFrame::Row { entry, row, reused })
         } else if source == origin {
             let table = self.outputs.entry(source).or_default();
             if source.is_mainnet() {
@@ -1086,9 +1093,13 @@ impl<'a> Materializer<'a> {
                 StaticFrame::L2Pool(index) => table.l2_static_entries[index]
                     .incomingCalls
                     .push(lower_call_to_l2(&encoded)),
-                StaticFrame::Row { entry, row } => table.entries[entry].expectedL1ToL2Calls[row]
-                    .l2ToL1Calls
-                    .push(encoded),
+                StaticFrame::Row { entry, row, reused } => {
+                    if !reused {
+                        table.entries[entry].expectedL1ToL2Calls[row]
+                            .l2ToL1Calls
+                            .push(encoded);
+                    }
+                }
             }
             hash.append(call.outcome.is_success(), &output);
         } else if direct {
@@ -1127,13 +1138,67 @@ impl<'a> Materializer<'a> {
                 StaticFrame::L2Pool(index) => {
                     table.l2_static_entries[index].rollingHash = hash.current()
                 }
-                StaticFrame::Row { entry, row } => {
+                StaticFrame::Row { entry, row, .. } => {
                     table.entries[entry].expectedL1ToL2Calls[row].revertedOrStaticRollingHash =
                         hash.current()
                 }
             }
         }
         Ok(())
+    }
+
+    /// Static reads retain the mutable cursor. Reuse a completed candidate
+    /// only when its complete callback array, callback commitment and cached
+    /// outcome match this observation. Equal position keys alone are not
+    /// enough: local writes can change the callback results between reads.
+    fn reusable_static_row(&self, node: usize) -> Option<usize> {
+        let call = &self.recorded[node];
+        let chain = call.source_rollup_id;
+        let context = &self.active[&chain];
+        let output = &self.outputs[&chain];
+        let key = nested_position_key(
+            source_call_hash(call),
+            output.positions[context.entry_index].rolling.current(),
+        );
+        let callbacks: Vec<_> = self.children[node]
+            .iter()
+            .map(|&child| l1_call_from_action(&self.recorded[child]))
+            .collect();
+        let mut hash = StaticCallRollingHash::new();
+        for &child in &self.children[node] {
+            let outcome = &self.recorded[child].outcome;
+            hash.append(
+                outcome.is_success(),
+                outcome.return_data().expect("resolved outcome"),
+            );
+        }
+        output.entries[context.entry_index]
+            .expectedL1ToL2Calls
+            .iter()
+            .enumerate()
+            .skip(context.next_row)
+            .find(|(index, row)| {
+                let pending = self.static_frames.get(&chain).is_some_and(|frames| {
+                    frames.iter().any(|(frame, _)| {
+                        matches!(frame,
+                        StaticFrame::Row { entry, row, .. }
+                            if *entry == context.entry_index && row == index)
+                    })
+                });
+                !pending
+                    && row.expectedL1toL2Hash == key
+                    && row.revertedOrStaticRollingHash == hash.current()
+                    && row.success == call.outcome.is_success()
+                    && row.returnData.as_ref()
+                        == call.outcome.return_data().expect("resolved outcome")
+                    && row.l2ToL1Calls.len() == callbacks.len()
+                    && row
+                        .l2ToL1Calls
+                        .iter()
+                        .zip(&callbacks)
+                        .all(|(actual, expected)| actual.abi_encode() == expected.abi_encode())
+            })
+            .map(|(index, _)| index)
     }
 
     fn install_context(&mut self, chain: RollupId, entry_index: usize) {
@@ -1574,6 +1639,116 @@ mod tests {
                 success: true,
             },
             revert_spans: vec![],
+        }
+    }
+
+    #[test]
+    fn static_local_write_reuses_an_earlier_candidate_in_both_directions() {
+        let l2 = RollupId(1);
+        for (origin, reader, values) in [(RollupId::MAINNET, l2), (l2, RollupId::MAINNET)]
+            .into_iter()
+            .flat_map(|(origin, reader)| {
+                [vec![1_u8, 2, 1], vec![1, 1, 2, 1], vec![1, 2, 2, 1]]
+                    .map(move |values| (origin, reader, values))
+            })
+        {
+            let mut root = action(0, None, origin, reader);
+            root.value = U256::ZERO;
+            let mut calls = vec![root];
+            for &value in &values {
+                let quote_index = calls.len();
+                let mut quote = action(1, Some(0), reader, origin);
+                quote.call_mode = CallMode::Static;
+                quote.value = U256::ZERO;
+                quote.outcome = crate::ExecutionOutcome::Resolved {
+                    return_data: vec![value],
+                    gas_used: 21_000,
+                    success: true,
+                };
+                let mut rate = action(2, Some(quote_index), origin, reader);
+                rate.call_mode = CallMode::Static;
+                rate.value = U256::ZERO;
+                rate.outcome = quote.outcome.clone();
+                calls.extend([quote, rate]);
+            }
+            let mut batches =
+                materialize_batches(&calls, origin).expect("materialize local writes");
+            let rows = &batches[&reader].batch.entries[0].expectedL1ToL2Calls;
+            assert_eq!(
+                rows.len(),
+                2,
+                "reader {reader:?}: reuse first candidate on third read"
+            );
+            assert_eq!(rows[0].returnData.as_ref(), [1]);
+            assert_eq!(rows[1].returnData.as_ref(), [2]);
+            assert_ne!(
+                rows[0].revertedOrStaticRollingHash,
+                rows[1].revertedOrStaticRollingHash
+            );
+            assert_eq!(rows[0].expectedL1toL2Hash, rows[1].expectedL1toL2Hash);
+            assert_eq!(
+                batches[&origin].batch.entries[0].expectedL1ToL2Calls.len(),
+                values.len()
+            );
+            let mut l1 = batches.remove(&RollupId::MAINNET).expect("L1 table");
+            let l2_table = batches.remove(&l2).expect("L2 table");
+            l1.batch.entries[0].rootUpdates.push(RootUpdateSol {
+                rollupId: l2.0,
+                currentRoot: B256::with_last_byte(0x51),
+                newRoot: B256::with_last_byte(0x52),
+                etherDelta: EtherDeltaSol::ZERO,
+            });
+            finalize_l1_entry_traces(&mut l1.batch, &l1.entry_traces).expect("finalize L1");
+            let direction = if origin.is_mainnet() {
+                crate::entries::NestedPairDirection::Inbound
+            } else {
+                crate::entries::NestedPairDirection::Outbound
+            };
+            crate::entries::verify_nested_group(
+                &l1.batch.entries[0],
+                &l2_table.batch.entries,
+                direction,
+                l2,
+            )
+            .expect("independently verify reused static candidate");
+            for mutation in 0..5 {
+                let mut forged_l1 = l1.batch.entries[0].clone();
+                let mut forged_l2 = l2_table.batch.entries.clone();
+                let rows = if reader.is_mainnet() {
+                    &mut forged_l1.expectedL1ToL2Calls
+                } else {
+                    &mut forged_l2[0].expectedL1ToL2Calls
+                };
+                let expected = match mutation {
+                    0 => {
+                        rows[0].returnData = Bytes::from_static(&[0xff]);
+                        "callback has no matching row"
+                    }
+                    1 => {
+                        rows[0].revertedOrStaticRollingHash = B256::with_last_byte(0xff);
+                        "callback results differ from the row rolling hash"
+                    }
+                    2 => {
+                        rows[0].l2ToL1Calls[0].data = Bytes::from_static(&[0xff]);
+                        "callback has no matching row"
+                    }
+                    3 => {
+                        rows[0].success = false;
+                        "callback has no matching row"
+                    }
+                    _ => {
+                        rows[0].l2ToL1Calls[0].isStatic = false;
+                        "static callback does not match its host row"
+                    }
+                };
+                let error =
+                    crate::entries::verify_nested_group(&forged_l1, &forged_l2, direction, l2)
+                        .expect_err("forged static candidate must be rejected");
+                assert!(
+                    error.to_string().contains(expected),
+                    "mutation {mutation}: {error}"
+                );
+            }
         }
     }
 
@@ -2691,10 +2866,13 @@ mod tests {
                 etherDelta: EtherDeltaSol::ZERO,
             });
             finalize_l1_entry_traces(&mut host.batch, &host.entry_traces).expect("finalize host");
-            let [row_a, row_b] = host.batch.entries[0].expectedL1ToL2Calls.as_slice() else {
-                panic!("expected one host row per callback");
-            };
-            assert_eq!(row_a.expectedL1toL2Hash, row_b.expectedL1toL2Hash);
+            let rows = &host.batch.entries[0].expectedL1ToL2Calls;
+            if accepted {
+                assert_eq!(rows.len(), 1, "identical callbacks reuse their candidate");
+            } else {
+                assert_eq!(rows.len(), 2);
+                assert_eq!(rows[0].expectedL1toL2Hash, rows[1].expectedL1toL2Hash);
+            }
             let verified =
                 verify_l2_static_round_trip(&host.batch.entries[0], &source.l2_static_entries[0]);
             if accepted {
@@ -2704,7 +2882,7 @@ mod tests {
                 assert!(
                     error
                         .to_string()
-                        .contains("repeat a lookup key with different results"),
+                        .contains("callback results differ from the L2 static rolling hash"),
                     "{error}"
                 );
             }

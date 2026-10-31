@@ -26,6 +26,23 @@ fn static_call(parent: Option<usize>, source: RollupId, target: RollupId) -> Exe
     }
 }
 
+fn recursive_read(
+    parent: Option<usize>,
+    source: RollupId,
+    target: RollupId,
+    depth: u8,
+) -> ExecutedAction {
+    let mut call = static_call(parent, source, target);
+    // Like the pinned readChain(uint8), recursive reads must distinguish their
+    // remaining depth. Identical calldata at every level creates a cyclic
+    // static lookup rather than the finite callback chain under test.
+    let mut data = vec![0x48, 0x54, 0x3e, 0x5e];
+    data.extend([0; 31]);
+    data.push(depth);
+    call.data = data.into();
+    call
+}
+
 #[test]
 fn static_failed_callback_preserves_revert_bytes_and_binds_success_bit() {
     // staticReadHandlesFailedCallbackL2 / staticReadPropagatesFailedCallbackL2:
@@ -72,6 +89,74 @@ fn static_failed_callback_preserves_revert_bytes_and_binds_success_bit() {
             .expect_err("changing callback success cannot retain the signed static outcome");
         assert!(error.to_string().contains("static"), "{error}");
     }
+}
+
+#[test]
+fn static_pool_callbacks_reuse_within_a_read_and_separate_local_write_contexts() {
+    // L2 reads L1 around local writes (1 -> 2 -> 1). Each L1 read calls the
+    // same L2 getter twice. Repeated callbacks share a row, but different
+    // top-level reads have different L1 host positions even when L2's mutable
+    // entry cursor stays at zero. This is distinct from nested local writes
+    // inside one mutable host, which require candidate scanning at one key.
+    let l2 = RollupId(1);
+    let mut calls = Vec::new();
+    for value in [1_u8, 2, 1] {
+        let root_index = calls.len();
+        let outcome = ExecutionOutcome::Resolved {
+            success: true,
+            return_data: vec![value],
+            gas_used: 21_000,
+        };
+        let mut root = static_call(None, l2, RollupId::MAINNET);
+        root.outcome = outcome.clone();
+        calls.push(root);
+        let mut callback = static_call(Some(root_index), RollupId::MAINNET, l2);
+        callback.outcome = outcome;
+        calls.extend([callback.clone(), callback]);
+    }
+    let mut composition = materialize_actions(l2, calls).unwrap();
+    let target = &mut composition.targets[0];
+    target.batch.entries[0].rootUpdates.push(RootUpdateSol {
+        rollupId: l2.0,
+        currentRoot: B256::with_last_byte(1),
+        newRoot: B256::with_last_byte(2),
+        etherDelta: EtherDeltaSol::ZERO,
+    });
+    finalize_l1_entry_traces(&mut target.batch, &target.entry_traces).unwrap();
+    let host = &target.batch.entries[0];
+    assert_eq!(host.expectedL1ToL2Calls.len(), 3);
+    let keys = host
+        .expectedL1ToL2Calls
+        .iter()
+        .map(|row| row.expectedL1toL2Hash)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        keys.len(),
+        3,
+        "local writes cannot reuse another read's host position"
+    );
+    assert_eq!(composition.source.l2_static_entries.len(), 3);
+    for source in &composition.source.l2_static_entries {
+        assert_eq!(source.expectedEntryIndex, U256::ZERO);
+        assert_eq!(source.incomingCalls.len(), 2);
+    }
+    let sources = composition
+        .source
+        .l2_static_entries
+        .into_iter()
+        .map(OutboundSourceEntry::Static)
+        .collect::<Vec<_>>();
+    verify_outbound_source_group(host, &sources, l2).unwrap();
+
+    let mut forged = host.clone();
+    forged.expectedL1ToL2Calls[1].expectedL1toL2Hash =
+        forged.expectedL1ToL2Calls[0].expectedL1toL2Hash;
+    let error = verify_outbound_source_group(&forged, &sources, l2)
+        .expect_err("a previous read's row cannot answer the next read");
+    assert!(
+        error.to_string().contains("does not match its L1 host row"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -505,10 +590,10 @@ fn failed_root_retry_keeps_one_complete_source_group() {
 fn recursive_static_reads_use_the_innermost_static_frame() {
     let l2 = RollupId(1);
     let calls = vec![
-        static_call(None, l2, RollupId::MAINNET),
-        static_call(Some(0), RollupId::MAINNET, l2),
-        static_call(Some(1), l2, RollupId::MAINNET),
-        static_call(Some(2), RollupId::MAINNET, l2),
+        recursive_read(None, l2, RollupId::MAINNET, 3),
+        recursive_read(Some(0), RollupId::MAINNET, l2, 2),
+        recursive_read(Some(1), l2, RollupId::MAINNET, 1),
+        recursive_read(Some(2), RollupId::MAINNET, l2, 0),
     ];
     let mut composition =
         materialize_actions(l2, calls).expect("recursive static protocol support");
@@ -585,10 +670,10 @@ fn inbound_recursive_reads_pin_and_observe_every_source_pool_entry() {
     use eez_protocol::settlement::{FifoTransactionRootPlan, fifo_observation_claims};
     let l2 = RollupId(1);
     let calls = vec![
-        static_call(None, RollupId::MAINNET, l2),
-        static_call(Some(0), l2, RollupId::MAINNET),
-        static_call(Some(1), RollupId::MAINNET, l2),
-        static_call(Some(2), l2, RollupId::MAINNET),
+        recursive_read(None, RollupId::MAINNET, l2, 3),
+        recursive_read(Some(0), l2, RollupId::MAINNET, 2),
+        recursive_read(Some(1), RollupId::MAINNET, l2, 1),
+        recursive_read(Some(2), l2, RollupId::MAINNET, 0),
     ];
     let composition = materialize_actions(RollupId::MAINNET, calls).unwrap();
     let root = B256::with_last_byte(0x42);
@@ -622,7 +707,7 @@ fn static_callbacks_inside_mutable_hosts_bind_both_row_stacks() {
     for read_success in [true, false] {
         let mut root = static_call(None, l2, RollupId::MAINNET);
         root.call_mode = CallMode::Mutable;
-        let mut read = static_call(Some(0), RollupId::MAINNET, l2);
+        let mut read = recursive_read(Some(0), RollupId::MAINNET, l2, 2);
         read.outcome = ExecutionOutcome::Resolved {
             success: read_success,
             return_data: vec![0x77],
@@ -631,8 +716,8 @@ fn static_callbacks_inside_mutable_hosts_bind_both_row_stacks() {
         let calls = vec![
             root,
             read,
-            static_call(Some(1), l2, RollupId::MAINNET),
-            static_call(Some(2), RollupId::MAINNET, l2),
+            recursive_read(Some(1), l2, RollupId::MAINNET, 1),
+            recursive_read(Some(2), RollupId::MAINNET, l2, 0),
         ];
         let mut composition = materialize_actions(l2, calls).unwrap();
         assert!(composition.source.l2_static_entries.is_empty());

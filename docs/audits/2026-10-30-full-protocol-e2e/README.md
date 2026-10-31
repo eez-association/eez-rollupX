@@ -687,6 +687,99 @@ Logs and checksums are retained under `candidate/qualification-followup-*` and
 follow-up corrections; a newly sealed release and full protocol qualification
 are still required.
 
+## Complete f091f437 campaign and remaining failures
+
+The sealed `f091f437594581ca7c9302471002fe5b4cfdc721` candidate ran all 64
+pinned protocol scenarios in the owned `eez-full-protocol-final-f091f437` enclave.
+Discovery and accounting report no skipped, excluded, missing, duplicate or
+unexpected scenarios. Upstream assertions passed for 61 scenarios and failed
+for three. Independent collection qualified 52 scenarios and failed 12: the
+three scenario failures plus nine evidence-collector failures. This campaign
+is **failed**, not complete qualification. Its retained enclave is available
+for read-only evidence diagnosis; no operator deployment was changed.
+
+- `nestedStaticLocalWriteL1` and `nestedStaticLocalWriteL2` reach semantic state
+  assertions but emit three static candidates where the pinned assertions
+  require two. `STATIC_ENTRY.md` sections 3 and 4.1 explicitly allow the third
+  read in a 1 → 2 → 1 sequence to reuse the first candidate. The pinned scenario
+  builds this table explicitly; the generic `TableGenerator` appends a row for
+  each observation and is not sufficient as the canonical shape for this case.
+  A new bidirectional materializer regression reproduced the three-versus-two
+  mismatch. Candidate reuse now passes that construction check, but its
+  independent inverse-verification assertion still fails because verification
+  assumes each read consumes a previously unseen row. This follow-up is in
+  progress and is not soundness-qualified.
+- `staticReadThenNestedWriteCaughtRevertAndRollbackL2` fails during fee quoting
+  at the nested-frame work budget, before transaction submission. The aggregate
+  frame/depth budget and iteration costs still need measurement and a bounded
+  correction, with the owning policy updated if its contract changes.
+- Nine upstream-passing cases fail collection: `catchRemoteRevertAfterCallback`,
+  `staticReadCallsBackAndReadsAgain`, `topLevelStaticReentrantMissingProxy`,
+  `staticLocalWriteL2`, `staticReadCallsBackAndReadsAgainL2`,
+  `staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2`,
+  `staticReadHandlesFailedCallbackL2`, `staticReadPropagatesFailedCallbackL2`,
+  and `topLevelStaticReentrantMissingProxyL2`. Four are rejected for having no
+  mutable L2 entries despite legitimate static-only loads; five fail expected
+  field-check log markers. Missing evidence is not counted as success. Canonical
+  calldata, causal and blob checks must remain intact when these cases are added.
+
+All 189 default native process tests have passing results on the same sealed
+candidate: 146 cross-chain and 43 embedded tests, with complete disjoint suite
+and partition accounting. The first cross-chain slice-1 attempt failed one
+fixture before its intended assertion because the signer port was already in
+use. That failure remains recorded as a flake. An explicit rerun of the entire
+37-test partition in a dedicated Docker network namespace passed, with no
+network access beyond its private loopback. The other partitions passed on
+first execution. Artifact integrity was rechecked after completion. Six
+explicitly ignored live/manual tests are outside this default selection; the
+required full-campaign cold follower replay remains outstanding.
+
+Local-only evidence is under `candidate/revision-f091f437/`: the immutable
+`kurtosis-final/protocol-e2e/summary.json`, per-scenario logs, service diagnostics,
+`kurtosis-final/campaign-results.json`, `completed-native-partitions.json`,
+and the three `static-row-reuse-*.log` files. These results do not qualify
+subsequent source edits. The original failed network summary is preserved.
+
+## Quote and collector follow-up (uncommitted)
+
+[Read-only quote diagnostics](quote-budget-diagnosis.json) reproduce the remaining
+quote failure on f091f437. Legacy and EIP-1559 each need two nine-frame pricing
+passes and pass individually. Requesting both needs 36 frames and fails at the
+shared 32-frame cap, with or without explicit source gas. The correction scales
+the aggregate allowance by the one or two validated requested types, preserving
+the shared deadline, depth cap, cancellation and worker permit. Signed admission
+keeps 32 frames. The owning policy and boundary tests are updated; the pinned
+actor regression requires both quote options, canonical settlement, exact
+continuation/error state and fresh follower replay. That runtime check is pending.
+
+Static-only L2 evidence discovery now requires the complete load immediately
+preceding the canonical same-block user transaction. It rejects missing, empty,
+replaced or mixed loads. The causal verifier is extended to verify the entire
+static pool against exactly one L1 host, retaining exact callback, position,
+result, event and native-blob checks. The Python collector suite passes all 12
+tests, including new static-only and downstream verifier-rejection cases. Rust
+causal-tool checks and read-only verification of the retained network cases are
+pending. This is not yet evidence qualification.
+
+Canonical call traces and independently authenticated semantic blobs have also
+been captured for the three remaining L1 lookup cases: caught remote revert,
+recursive static read, and missing callback proxy followed by deployment/retry.
+Each maps to one L1-origin semantic bracket; the blob checks pass. Trigger-to-
+semantic trace binding and canonical L2 absence checks still need collector
+support before these cases can be marked verified. Raw diagnosis remains local-
+only under `candidate/revision-f091f437/lookup-diagnosis/`.
+
+The causal diagnostic tool subsequently passed all 11 tests. The corrected
+collector then [verified all six retained static-only L2 cases](static-only-collector-results.json)
+with complete source pools, independent causal checks and KZG/native semantics.
+The first diagnostic invocation stopped on unresolved protocol-relative source
+paths; those command errors are preserved. The successful checks use resolved
+pinned paths and separate output files. The original 52-pass/12-failure campaign
+summary remains unchanged; these diagnostics do not qualify the edited runtime.
+Both new pinned local-write process tests passed, including canonical settlement
+and fresh follower replay. The combined seven-test pinned-actor run, including
+the quote-budget regression, is in progress.
+
 ## Open validation
 
 Candidate per-scenario semantic results, independent follower replay, final signer
@@ -697,3 +790,81 @@ Exercise complete callback trees in the current runtime, then qualify all 64
 scenarios through Kurtosis with no omissions. Local ignored diagnostics are not
 retrievable evidence from another checkout; retain a compact final record and
 artifact locations/digests before delivery.
+
+### Nested L1 lookup evidence follow-up
+
+The three remaining L1 lookup collectors now bind the authenticated native
+semantic bracket to exact canonical call-tracer frames: a reverted remote call
+with a successful callback inside its rollback, recursive static reads, and a
+missing-proxy probe followed by creation and retry. The persistent Python helper
+fills a concrete gap in the previous fixed-shape jq trace checks: it validates
+an action forest, effective static context and exact registry/proxy dispatch
+across these nested forms. The existing canonical-receipt, native blob/KZG,
+execution-prefix root and pinned `VerifyL2Absent` checks remain shared in the
+shell collector. This is evidence tooling, not an authorization input to the
+signer.
+
+The trace/entry helper passes seven tests, including forged outcomes/identities,
+omitted callbacks, changed ancestry/registry context, invalid missing-proxy
+retries, ambiguous or immediate table entries, wrong root pins and non-neutral
+mutable root/balance updates. Captured fixtures omit unrelated batch entries and
+CREATE2 bytecode; their scope is documented beside them. These fixture tests do
+not establish KZG authentication or execution soundness.
+
+The seven-test process run passed six tests, including both unchanged pinned
+static local-write actors with canonical settlement and fresh follower replay.
+The new quote test initially stopped at `quotes_disabled`: its fixture had not
+configured a fee policy. It now uses the existing shadow-pricing fixture settings.
+The first configured attempt could not reserve loopback ports inside the sandbox
+and executed no scenario; its log is retained. A run with the required local
+network access is pending. Neither failure is counted as a passing quote check.
+The earlier 32-frame production failure remains reproduced in the read-only
+quote diagnosis; the 32/64-frame boundary unit test passes.
+
+Local-only logs are under `artifacts/full-protocol/candidate/`:
+`static-followup-process/run.log`, `quote-configured-process/run.log`,
+`quote-configured-process/network-run.log`, and
+`revision-f091f437/lookup-trace-entry-tests.log`. Full final-source CI, signer
+review closure, all 64 network scenarios and aggregate cold follower replay
+remain outstanding. The original f091f437 52/64 collector summary is unchanged.
+
+The configured quote process regression subsequently **passed**: one selected
+test, zero ignored, both transaction types returned successful quotes, exact
+pinned actor state/errors matched, settlement completed and a fresh follower
+replayed the canonical result. Log: `quote-configured-process/network-run.log`
+(140.73 seconds including runtime build). This supersedes the pending status
+above without erasing the earlier fixture and sandbox failures.
+
+All three L1 collectors also pass through the aggregate collector entrypoint;
+[l1-lookup-collector-results.json](l1-lookup-collector-results.json) records exact
+source/evidence digests and limits. Each used stateless execution-prefix replay,
+not merely a root supplied by the Composer. These diagnostic passes resolve the
+three previously missing lookup evidence paths; they do not overwrite the old
+full-run result or qualify a newly built runtime.
+
+The complete existing lookup-tooling regression file passes again: 33 tests,
+zero skipped, including preservation of prefix-replay inputs. Its first run
+reported one lost-input error; that failure and the corrected rerun are retained
+as `revision-f091f437/lookup-collector-legacy-tests.log` and
+`lookup-collector-preserved-root-tests.log`. Formatting, shell syntax and
+`git diff --check` also pass for this follow-up.
+
+The full Python tooling run selected 430 tests: 420 passed, one failed because
+the sandbox prohibited socket creation, and nine were explicitly skipped.
+The two offline signer network-filter tests then passed with the required local
+socket access; the two Gitleaks tests also passed with CI's installed tool on
+`PATH`. Seven opt-in real Docker/Kurtosis/relocation fixture tests remain excluded
+from this default tooling invocation and are not reported as coverage. No
+protocol E2E scenario was skipped by this tooling choice. Logs are
+`followup-tooling-full.log`, `followup-offline-network-tests.log` and
+`followup-secret-tests.log` under `candidate/revision-f091f437/`.
+
+Final follow-up source checks before the next sealed producer: workspace Clippy
+passes with warnings denied; protocol/codec packages pass with 230 protocol unit
+tests, 16 call-pattern regressions and the independent commitment/KZG vectors;
+SDK fee tests pass. The 2 MiB stack probe was rebuilt against the corrected memo
+and again accepts tested depths through 1,024 and rejects 1,025 in static,
+mutable and mixed modes (`nesting-stack-final.log`). Workspace unit/binary tests
+and contract tests are running separately. The cached-depth finding and fixture
+corrections are recorded in the signer review; no protocol pin or upstream
+scenario assertion changed.

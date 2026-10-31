@@ -180,6 +180,131 @@ fn outbound_authorizer_accepts_four_hop_nested_tables_and_rejects_row_tampering(
     ));
 }
 
+/// Build the pinned local-write pattern independently of the materializer:
+/// L1 runs the reader, L2 runs three quotes, and L1 reuses two static candidates.
+fn static_candidate_reuse_fixture() -> (CanonicalPostBatch, ExecutionEntrySol, B256) {
+    use eez_protocol::rolling_hash::StaticCallRollingHash;
+    let call = |tag: u8, source: u64, is_static: bool| L2ToL1CallSol {
+        revertNextNCalls: 0,
+        isStatic: is_static,
+        gas: 0,
+        sourceAddress: Address::with_last_byte(tag),
+        sourceRollupId: source,
+        targetAddress: Address::with_last_byte(tag + 16),
+        value: U256::ZERO,
+        data: Bytes::from(vec![tag]),
+    };
+    let root = call(1, 1, false);
+    let quote = call(2, 0, true);
+    let rate = call(3, 1, true);
+    let hash = |call: &L2ToL1CallSol| {
+        common_cross_chain_call_hash(CallHashInput {
+            call_mode: CallMode::from_is_static(call.isStatic),
+            source_address: call.sourceAddress,
+            source_rollup_id: RollupId(call.sourceRollupId),
+            target_address: call.targetAddress,
+            target_rollup_id: RollupId(1 - call.sourceRollupId),
+            value: U256::ZERO,
+            data: &call.data,
+        })
+    };
+    let root_hash = hash(&root);
+    let mut batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
+    let host = &mut batch.entries[1];
+    host.rootUpdates[0].etherDelta = EtherDeltaSol::ZERO;
+    host.l2ToL1Calls = vec![root];
+    host.expectedL1ToL2Calls.clear();
+    let mut l1_hash = EntryRollingHash::seed_for_l1([(1, B256::ZERO)], B256::ZERO);
+    l1_hash.call_begin(root_hash);
+    for value in [1_u8, 2] {
+        let mut callbacks = StaticCallRollingHash::new();
+        callbacks.append(true, &[value]);
+        host.expectedL1ToL2Calls.push(ExpectedL1ToL2CallSol {
+            expectedL1toL2Hash: nested_position_key(hash(&quote), l1_hash.current()),
+            l2ToL1Calls: vec![rate.clone()],
+            revertedOrStaticRollingHash: callbacks.current(),
+            success: true,
+            returnData: Bytes::from(vec![value]),
+        });
+    }
+    l1_hash.call_end(true, &[]);
+    host.rollingHash = l1_hash.current();
+    let mut source = ExecutionEntrySol {
+        proxyEntryHash: root_hash,
+        success: true,
+        ..Default::default()
+    };
+    let mut l2_hash = EntryRollingHash::seed_for_l2(root_hash);
+    for value in [1_u8, 2, 1] {
+        source.l2ToL1Calls.push(quote.clone());
+        l2_hash.call_begin(hash(&quote));
+        source.expectedL1ToL2Calls.push(ExpectedL1ToL2CallSol {
+            expectedL1toL2Hash: nested_position_key(hash(&rate), l2_hash.current()),
+            l2ToL1Calls: vec![],
+            revertedOrStaticRollingHash: B256::ZERO,
+            success: true,
+            returnData: Bytes::from(vec![value]),
+        });
+        l2_hash.call_end(true, &[value]);
+    }
+    source.rollingHash = l2_hash.current();
+    (batch, source, root_hash)
+}
+
+#[test]
+fn outbound_authorizer_checks_reused_static_candidates_before_authorizing() {
+    let (batch, source, event) = static_candidate_reuse_fixture();
+    let settling = || {
+        let mut observed = SettlingBlockObservations::for_test(
+            vec![true, false],
+            vec![],
+            vec![OutboundEventObservation::decoded_for_test(1, 0, event, 0)],
+        );
+        observed
+            .outbound_load_candidates_mut_for_test()
+            .push(OutboundLoadCandidate::decoded_for_test(0, source.clone()));
+        observed
+    };
+    let observed = settling();
+    let plan = effect_plan(&batch, &observed);
+    assert_eq!(
+        authorize_outbound_effects(&plan)
+            .expect("valid reused candidates")
+            .len(),
+        1
+    );
+    for mutation in 0..3 {
+        let mut forged = batch.clone();
+        let row = &mut forged.entries[1].expectedL1ToL2Calls[0];
+        let expected = match mutation {
+            0 => {
+                row.returnData = Bytes::from_static(&[0xff]);
+                "callback has no matching row"
+            }
+            1 => {
+                row.revertedOrStaticRollingHash = B256::with_last_byte(0xff);
+                "callback results differ from the row rolling hash"
+            }
+            _ => {
+                row.l2ToL1Calls[0].data = Bytes::from_static(&[0xff]);
+                "callback has no matching row"
+            }
+        };
+        let observed = settling();
+        let plan = effect_plan(&forged, &observed);
+        match authorize_outbound_effects(&plan) {
+            Err(OutboundEffectError::ExecutionTableMismatch {
+                entry_index: 1,
+                reason,
+            }) => {
+                assert!(reason.contains(expected), "mutation {mutation}: {reason}");
+            }
+            Err(error) => panic!("static forgery reached the wrong gate: {error:?}"),
+            Ok(_) => panic!("static forgery was authorized"),
+        }
+    }
+}
+
 #[test]
 fn outbound_load_funds_exactly_its_committed_callback_value() {
     use super::super::outbound::OutboundLoadObservationError;
