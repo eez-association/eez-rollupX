@@ -40,7 +40,7 @@ case "$SCENARIO_NAME" in
         (( ${#refused_submissions[@]} == 0 )) || die "lookup collector cannot reconcile submission errors"
         exec bash "$(dirname "$0")/verify-static-counter-l2.sh" "$SCENARIO_LOG" "$OUTPUT_JSON" "$SCENARIO_NAME"
         ;;
-    topLevelStaticCounter|topLevelStaticReentrantCounter|staticLocalWrite|revertCounter)
+    topLevelStaticCounter|topLevelStaticReentrantCounter|staticLocalWrite|revertCounter|catchRemoteRevertAfterCallback|staticReadCallsBackAndReadsAgain|topLevelStaticReentrantMissingProxy)
         (( ${#refused_submissions[@]} == 0 )) || die "lookup collector cannot reconcile submission errors"
         exec bash "$(dirname "$0")/verify-l1-lookup.sh" \
             "$SCENARIO_NAME" "$SCENARIO_SOL" "$SCENARIO_LOG" "$OUTPUT_JSON"
@@ -48,8 +48,19 @@ case "$SCENARIO_NAME" in
 esac
 grep -Fq 'PASS: posted batch calldata matches expected table' "$SCENARIO_LOG" \
     || die "posted L1 table was not field-matched"
-grep -Fq 'PASS: L2 field checks on' "$SCENARIO_LOG" \
-    || die "loaded L2 table was not field-matched"
+# Pure static loads have no mutable-entry field-check marker. Their complete
+# pool is selected immediately before the canonical user transaction, then
+# checked against the independently verified L1 host and native semantic blob.
+static_only=false
+if grep -qE 'contract ExecuteNetworkL2 ' "$SCENARIO_SOL" \
+    && grep -q '^L2 table expected: \[\]$' "$SCENARIO_LOG"; then
+    static_only=true
+fi
+if ! grep -Fq 'PASS: L2 field checks on' "$SCENARIO_LOG"; then
+    [[ "$static_only" == true ]] || die "loaded L2 table was not field-matched"
+    grep -Eq 'PASS: all 0 expected entries and static rows checked across [1-9][0-9]* L2 block' "$SCENARIO_LOG" \
+        || die "static-only upstream verification is absent"
+fi
 if ! grep -Eq 'PASS: L1 field checks on|PASS: [1-9][0-9]* settlement tx\(s\) with BatchPosted' "$SCENARIO_LOG"; then
     die "no successful L1 settlement verification was recorded"
 fi
@@ -283,7 +294,8 @@ done < <(jq -r '.[]' <<<"$l2_blocks")
 jq -s . "$causal_tmp/l2-blocks.jsonl" >"$causal_tmp/l2-blocks.json"
 selected_systems="$(python3 "$REPO/scripts/ci/select-protocol-l2-transactions.py" \
     --abi "$REPO/eez-core-protocol/out/EEZL2.sol/EEZL2.json" --manager "$MANAGER_L2" \
-    --expected "$expected_l2_json" <"$causal_tmp/l2-blocks.json")" \
+    --expected "$expected_l2_json" --users "$(jq '[.[].hash]' <<<"$user_receipts_json")" \
+    <"$causal_tmp/l2-blocks.json")" \
     || die "cannot select exact scenario table transactions from canonical L2 blocks"
 system_hashes=()
 system_receipts=()

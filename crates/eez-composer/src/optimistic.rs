@@ -788,7 +788,7 @@ mod tests {
                         gas_used: 1,
                         success: true,
                     },
-                    revert_span: None,
+                    revert_spans: vec![],
                 }],
             })
             .collect::<Vec<_>>();

@@ -95,7 +95,7 @@ mod tests {
             data: Bytes::new(),
             value: U256::ZERO,
             outcome: ExecutionOutcome::Pending,
-            revert_span: None,
+            revert_spans: vec![],
         }
     }
 

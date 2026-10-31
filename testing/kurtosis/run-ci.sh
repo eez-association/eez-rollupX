@@ -321,6 +321,11 @@ exec {preparation_lock}>&-
 
 echo "==> running eez-core-protocol network scenario suite"
 timed_phase protocol-suite bash "$HERE/scripts/run-protocol-e2e.sh"
+jq -e '.suite.complete == true and .suite.excluded_from_all == [] and
+    .skipped == []' "$RESULT_DIR/protocol-e2e/summary.json" >/dev/null || {
+    echo "CI requires the complete pinned protocol suite with no exclusions or skips" >&2
+    exit 1
+}
 
 capture_service_log eez-proof-signer
 capture_service_log eez-node
@@ -338,7 +343,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
         echo "- Deploy image: \`$EEZ_DEPLOY_IMAGE\`"
         echo "- Inbound, outbound, mixed, and mixed-pure waves: pass"
         echo "- Inbound, outbound, and mixed-direction state chaining: pass"
-        echo "- Supported protocol network scenarios: pass"
+        echo "- Complete pinned protocol network suite: pass"
         echo "- Signed windows observed: $signed_window_count"
         echo "- Remote attestations observed: $remote_attestation_count"
         echo "- L1/L2 root divergence: 0"

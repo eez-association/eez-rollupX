@@ -55,7 +55,11 @@ impl NetworkProfile {
     pub fn canonical_bytes(&self) -> Bytes {
         (
             keccak256("EEZ_ROLLUPX_NETWORK_PROFILE_V1"),
-            crate::l2::VALIDATION_VERSION,
+            // Preserve the deployed signing domain for compatible extensions.
+            // RPC validation capabilities have their own version; changing them
+            // must not revoke otherwise valid signatures. Change this domain only
+            // with an explicit incompatible-rule/key migration.
+            7u64,
             HISTORY_ADDRESS,
             MAX_IMPORT_HEADERS as u64,
             IMPORT_GAS_LIMIT,

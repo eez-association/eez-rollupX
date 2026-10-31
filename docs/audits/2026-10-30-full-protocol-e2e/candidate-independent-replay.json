@@ -1,0 +1,9 @@
+{
+  "checked_blocks": 150,
+  "checked_derived_blocks": 150,
+  "checked_receipts": 101,
+  "safe_l2_block": 1974,
+  "safe_l2_block_hash": "0x2e66bec2f4963f1e6ce57bcc2829e72a569d81a631a4557e3519d4c829a2bfee",
+  "source": "canonical_l1_only",
+  "verified": true
+}

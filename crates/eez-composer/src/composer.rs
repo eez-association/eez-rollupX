@@ -3509,41 +3509,22 @@ where
                     }
                     let source_entries = &composition.source.batch.entries;
                     let source_static_entries = &composition.source.l2_static_entries;
-                    let settlement_root_counts =
-                        match eez_protocol::system_tx::outbound_settlement_root_counts(&l1_entries)
-                        {
-                            Ok(counts) => counts,
-                            Err(error) => {
-                                event!(
-                                    name: "eez.composer.cc_compose.outbound_root_shape",
-                                    Level::WARN,
-                                    rollup_id,
-                                    tx_idx = idx,
-                                    tx_hash = %held.hash,
-                                    error = %error,
-                                    "outbound settlement commitment partition is unsupported; evicting",
-                                );
-                                selection.block(idx);
-
-                                push_poison_root(&mut poison, &mut poison_gaps, held);
-                                continue;
-                            }
-                        };
-                    let settlement_source_count = settlement_root_counts.iter().sum::<usize>();
-                    if source_entries.len() + source_static_entries.len() != settlement_source_count
-                    {
+                    if let Err(error) = eez_protocol::system_tx::outbound_settlement_source_counts(
+                        &l1_entries,
+                        [(
+                            source_entries.len() + source_static_entries.len(),
+                            !source_static_entries.is_empty(),
+                        )]
+                        .into_iter(),
+                    ) {
                         event!(
-                            name: "eez.composer.cc_compose.outbound_root_mismatch",
+                            name: "eez.composer.cc_compose.outbound_root_shape",
                             Level::WARN,
-                            event_name = "eez.composer.cc_compose.outbound_root_mismatch",
                             rollup_id,
                             tx_idx = idx,
                             tx_hash = %held.hash,
-                            source_entries = source_entries.len(),
-                            source_static_entries = source_static_entries.len(),
-                            settlement_entries = l1_entries.len(),
-                            settlement_source_count,
-                            "outbound source roots are not fully covered by the L1 settlement hosts; evicting",
+                            error = %error,
+                            "outbound settlement commitment partition is unsupported; evicting",
                         );
                         selection.block(idx);
 
@@ -6588,23 +6569,18 @@ where
                 }
                 Ok(eez_protocol::abi::EtherDeltaSol::from(delta))
             };
-        let outbound_effect_count = outbound_l2_groups
-            .iter()
-            .map(|group| group.effects.len())
-            .sum::<usize>();
         let outbound_settlement_root_counts =
-            eez_protocol::system_tx::outbound_settlement_root_counts(outbound_entries)?;
-        let covered_outbound_roots = outbound_settlement_root_counts.iter().sum::<usize>();
-        if covered_outbound_roots != outbound_effect_count {
-            return Err(format!(
-                "outbound settlement hosts cover {covered_outbound_roots} roots, but Sync groups carry {outbound_effect_count}",
-            )
-            .into());
-        }
+            eez_protocol::system_tx::outbound_settlement_source_counts(
+                outbound_entries,
+                outbound_l2_groups
+                    .iter()
+                    .map(eez_protocol::system_tx::OutboundSyncGroup::source_shape),
+            )?;
         let outbound_effects = outbound_l2_groups
             .iter()
             .flat_map(|group| group.effects.iter())
             .collect::<Vec<_>>();
+        let outbound_effect_count = outbound_effects.len();
         let fifo_actions_by_composition = compositions
             .iter()
             .enumerate()
@@ -8415,7 +8391,7 @@ mod tests {
                 gas_used,
                 success,
             },
-            revert_span: None,
+            revert_spans: vec![],
         }
     }
 
@@ -8455,7 +8431,7 @@ mod tests {
             gas_action(1, 0, Some(1), 70_000, true),
             gas_action(1, 0, None, 80_000, true),
         ];
-        actions[0].revert_span = Some(3);
+        actions[0].revert_spans = vec![3];
         assert_eq!(l1_target_gas(&actions), 210_000);
         actions[0] = gas_action(1, 0, None, u64::MAX, false);
         assert_eq!(l1_target_gas(&actions), u64::MAX);
@@ -9268,6 +9244,8 @@ mod tests {
                 expected_success,
                 expected_output,
                 callbacks: Vec::new(),
+                delivery: None,
+                rollback_spans: Vec::new(),
             },
         };
         let schedule = vec![

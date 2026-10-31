@@ -7,7 +7,7 @@
     "These synthetic inputs do not certify runtime, signature, ancestry, schedule or settlement validity.",
     "Public test recipients are not production defaults.",
     "Independent manual Python ABI/RLP construction was cross-checked with Foundry cast 1.7.1.",
-    "Network profiles and verification keys use validation version 7. The Core manager returns exactly two words; it stores no profile or rule-period schedule."
+    "Network profiles and verification keys preserve signing domain 7; RPC validation identity uses version 8. The Core manager returns exactly two words; it stores no profile or rule-period schedule."
   ],
   "vectors": [
     {
@@ -176,7 +176,7 @@
       "encoding": "rlp",
       "fields": [
         "0x65657a2e76616c69646174696f6e2d6964656e74697479",
-        "0x07",
+        "0x08",
         "0x07",
         "0x0385",
         "0xfffffffffffffffffffffffffffffffffffffffe",
@@ -187,8 +187,8 @@
         "0x2222222222222222222222222222222222222222"
       ],
       "prefix": "0x",
-      "expectedBytes": "0xf8b39765657a2e76616c69646174696f6e2d6964656e74697479070782038594fffffffffffffffffffffffffffffffffffffffe944b2760f84b83d6b3829e30a7573b0172b6d6402ca03f2104d6f3b09185e7c9cca79d2ef998338d379522b5b601f2f09832a7d5f281a0d15fef1511d0a720ee7c45e950aa861e9648857bb15c82fd02f0c645910d086a944b2760f84b83d6b3829e30a7573b0172b6d6402c942222222222222222222222222222222222222222",
-      "expectedKeccak256": "0x010185465c21c81b350864f345c05322fe184a97d25b7b2cb04f57bdedb5588a",
+      "expectedBytes": "0xf8b39765657a2e76616c69646174696f6e2d6964656e74697479080782038594fffffffffffffffffffffffffffffffffffffffe944b2760f84b83d6b3829e30a7573b0172b6d6402ca03f2104d6f3b09185e7c9cca79d2ef998338d379522b5b601f2f09832a7d5f281a0d15fef1511d0a720ee7c45e950aa861e9648857bb15c82fd02f0c645910d086a944b2760f84b83d6b3829e30a7573b0172b6d6402c942222222222222222222222222222222222222222",
+      "expectedKeccak256": "0x388a713c36d740e238a74e2dbc78f479efbbc506b06784f20f96c58e0fc4d4ff",
       "meaning": "Toy document, not an admissible genesis: {\"config\":{\"chainId\":901,\"rollupX\":{\"feeCollector\":\"0x1111111111111111111111111111111111111111\"}}}"
     },
     {
@@ -196,7 +196,7 @@
       "encoding": "rlp",
       "fields": [
         "0x65657a2e76616c69646174696f6e2d6964656e74697479",
-        "0x07",
+        "0x08",
         "0x07",
         "0x0385",
         "0xfffffffffffffffffffffffffffffffffffffffe",
@@ -207,8 +207,8 @@
         "0x2222222222222222222222222222222222222222"
       ],
       "prefix": "0x",
-      "expectedBytes": "0xf8b39765657a2e76616c69646174696f6e2d6964656e74697479070782038594fffffffffffffffffffffffffffffffffffffffe944b2760f84b83d6b3829e30a7573b0172b6d6402ca0a25e8611ab6da57e3dac1eddfa523fbde87a5f5ac36234064e3f27cb3b43c51ba0cb2d20b54a8be64c703c41a85c9e9a226a60ac079101dd54c03cff68ac395f5d944b2760f84b83d6b3829e30a7573b0172b6d6402c942222222222222222222222222222222222222222",
-      "expectedKeccak256": "0x56bc05fc31388a8e9261bca6700a80e9bb924132bc8fd64e66813b8a22b42f5b",
+      "expectedBytes": "0xf8b39765657a2e76616c69646174696f6e2d6964656e74697479080782038594fffffffffffffffffffffffffffffffffffffffe944b2760f84b83d6b3829e30a7573b0172b6d6402ca0a25e8611ab6da57e3dac1eddfa523fbde87a5f5ac36234064e3f27cb3b43c51ba0cb2d20b54a8be64c703c41a85c9e9a226a60ac079101dd54c03cff68ac395f5d944b2760f84b83d6b3829e30a7573b0172b6d6402c942222222222222222222222222222222222222222",
+      "expectedKeccak256": "0xecb88dbcdf619efd4fce709a7cc465261330b53dcdb161992ff96e4cccf89008",
       "meaning": "Toy document, not an admissible genesis: {\"config\":{\"chainId\":901,\"rollupX\":{\"feeCollector\":\"0x1212121212121212121212121212121212121212\"}}}"
     },
     {
@@ -712,7 +712,7 @@
       "comparison": "different"
     }
   ],
-  "validationVersion": 7,
+  "validationVersion": 8,
   "historyEnvelopeVersion": 1,
   "historyTransactionType": "0x46",
   "crossChainFields": [

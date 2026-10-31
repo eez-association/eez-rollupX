@@ -902,7 +902,7 @@ fn same_actions(
                 && a.source_rollup_id == b.source_rollup_id
                 && a.data == b.data
                 && a.value == b.value
-                && a.revert_span == b.revert_span
+                && a.revert_spans == b.revert_spans
                 && a.outcome.is_success() == b.outcome.is_success()
                 && a.outcome.return_data() == b.outcome.return_data()
         })

@@ -1,0 +1,210 @@
+{
+  "source_revision": "e51a2477d98662be2b33c0f17b3bc4c0f0921d20",
+  "protocol_pin": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "local_qualification_complete": true,
+  "hosted_ci": {
+    "status": "pending for the follow-up PR head; prior green run does not qualify this source",
+    "previous_run": "https://github.com/eez-association/eez-rollupX/actions/runs/41187306318"
+  },
+  "runtime_manifest": {
+    "schema": 2,
+    "root_commit": "e51a2477d98662be2b33c0f17b3bc4c0f0921d20",
+    "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "cargo_lock_sha256": "cc34ca4e57394e7fa6951f3397786952bcf59a842baac443f2972d03836a29df",
+    "platform": "linux/amd64",
+    "profile": "release",
+    "rustflags": "-C link-arg=-fuse-ld=mold",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)\n",
+    "base_images": {
+      "rust": "rust@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1",
+      "runtime": "debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3"
+    },
+    "published": false,
+    "images": {
+      "node": {
+        "reference": "ghcr.io/eez-association/eez-rollupx-node:sha-e51a2477d98662be2b33c0f17b3bc4c0f0921d20-local-perf-20261031-1",
+        "image_id": "sha256:d3a2917e25fb2559307c62629f97eaa5e29f6bb0f340cc2a1aa6417ea8a54741"
+      },
+      "signer": {
+        "reference": "ghcr.io/eez-association/eez-rollupx-proof-signer:sha-e51a2477d98662be2b33c0f17b3bc4c0f0921d20-local-perf-20261031-1",
+        "image_id": "sha256:237ba7b88be87361aeda4822398697f0bb6133ae79dbd8d5256b707d127826aa"
+      },
+      "deploy": {
+        "reference": "ghcr.io/eez-association/eez-rollupx-deploy:sha-e51a2477d98662be2b33c0f17b3bc4c0f0921d20-local-perf-20261031-1",
+        "image_id": "sha256:147c7f177ea76e48685ffe456f409e45bfd51bb46e15314184703f70932f5587"
+      }
+    },
+    "binaries_sha256": "3fe754c2bcf57953f68bd55cf9d5f7a75e81cd2f30fed8f0178ee0987a8979ac"
+  },
+  "test_archive_manifest": {
+    "schema": 4,
+    "cargo_lock_sha256": "cc34ca4e57394e7fa6951f3397786952bcf59a842baac443f2972d03836a29df",
+    "platform": "linux/amd64",
+    "profile": "release",
+    "rustflags": "-C link-arg=-fuse-ld=mold",
+    "nextest": "0.9.143",
+    "rust": "1.95.0",
+    "archives_sha256": {
+      "native-tests.tar.zst": "6afa8d20a29e0cbbb38a00fdef858d215b92d03872d72f0e1490beeedc697ac1"
+    },
+    "runtime_sha256": {
+      "eez-composer": "d543c33002c209543d9bc1b3a46ca056b43c8653d36619a6b42db62a5f1ed82b",
+      "eez-follower": "7a4a03f7ee1b02ba0d95be718757975b9d2240e4a46fed31d417d30a29b32553",
+      "eez-proof-signer": "677fa634244d7f4089d2e0f693905341c1a87a16199412f6feccfe99aa992a09"
+    },
+    "glibc": "glibc 2.36",
+    "root_commit": "e51a2477d98662be2b33c0f17b3bc4c0f0921d20",
+    "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "runtime_archive_sha256": "3fe754c2bcf57953f68bd55cf9d5f7a75e81cd2f30fed8f0178ee0987a8979ac"
+  },
+  "checks": {
+    "workspace_units": {
+      "passed": 1641,
+      "optional_skipped": 6,
+      "reason": "Five fixture/inventory utilities and one manual timing profile."
+    },
+    "affected_packages": {
+      "passed": 1149,
+      "optional_skipped": 6
+    },
+    "signer": {
+      "passed": 338,
+      "optional_fixture_utilities": 5
+    },
+    "rpc_conformance_vectors": 29,
+    "native_e2e": {
+      "executed": 192,
+      "passed": 191,
+      "failures": [
+        "derivable_operations::multipart::expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay"
+      ],
+      "missing": [],
+      "duplicates": [],
+      "unexpected": [],
+      "wrapper_exits": {
+        "embedded": 0,
+        "cross-chain14": 0,
+        "cross-chain24": 0,
+        "cross-chain34": 0,
+        "cross-chain44": 100
+      },
+      "diagnostic_reruns": {
+        "baseline": 0,
+        "candidate": 0
+      },
+      "flaky_result": "fail"
+    },
+    "release_protocol_blob_tests": {
+      "passed": 55,
+      "skipped": 0
+    },
+    "ci_tooling": {
+      "discovered": 430,
+      "passed": 423,
+      "optional_skipped": 7,
+      "skip_details": [
+        "test_scratch_payload_copies_out_without_execution_or_permission_loss (test_ci_payload.DockerPayloadTest.test_scratch_payload_copies_out_without_execution_or_permission_loss) ... skipped 'opt-in real data-only Docker image'",
+        "test_overrides_apply_before_creation_and_preserve_memory_and_command (test_kurtosis_ci.RealRelayResourcesTest.test_overrides_apply_before_creation_and_preserve_memory_and_command) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+        "test_readiness_wait_blocks_the_following_instruction_until_ready (test_kurtosis_ci.RealRelayResourcesTest.test_readiness_wait_blocks_the_following_instruction_until_ready) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+        "test_real_producer_and_all_consumers_without_build_machine_or_compiler (test_native_artifacts.NativeRelocationTest.test_real_producer_and_all_consumers_without_build_machine_or_compiler) ... skipped 'set EEZ_TEST_NATIVE_ARCHIVE=1 for real tiny-workspace relocation'",
+        "test_deploy_context_preserves_history_identity (test_runtime_docker.RuntimeDockerTest.test_deploy_context_preserves_history_identity) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+        "test_real_build_and_same_job_execution (test_runtime_docker.RuntimeDockerTest.test_real_build_and_same_job_execution) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+        "test_repository_source_context_preserves_genesis (test_runtime_docker.RuntimeDockerTest.test_repository_source_context_preserves_genesis) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'"
+      ],
+      "note": "Two Gitleaks tests initially skipped for missing PATH; both passed with the installed tool. The other 421 passed in the full run."
+    },
+    "format_clippy_signer_all_features_rustdoc": "pass",
+    "genesis_and_artifact_identity": "pass",
+    "sdk_settlement_configuration_secret_scan": "pass",
+    "protocol_e2e": {
+      "scenarios": 64,
+      "passed": 64,
+      "failed": 0,
+      "skipped": 0,
+      "excluded": 0,
+      "missing": 0,
+      "duplicates": 0,
+      "evidence_complete": true,
+      "causal_coverage_complete": true,
+      "semantic_blob_coverage_complete": true,
+      "workers": 4,
+      "result": "complete confirmation run passed; first high-concurrency run failed evidence validation"
+    },
+    "network_prerequisites": {
+      "traffic_modes": [
+        "inbound",
+        "outbound",
+        "mixed",
+        "mixed-pure"
+      ],
+      "state_chaining": "pass",
+      "evidence": "kurtosis-final/timings.jsonl and kurtosis-final.log; all prerequisite phases exited zero before the first protocol-suite failure"
+    },
+    "proof_path": {
+      "signed_windows": 97,
+      "remote_attestations": 97,
+      "l1_l2_root_divergence": 0,
+      "proof_path": "pass"
+    },
+    "cold_follower": {
+      "checked_blocks": 150,
+      "checked_derived_blocks": 150,
+      "checked_receipts": 101,
+      "safe_l2_block": 1974,
+      "safe_l2_block_hash": "0x2e66bec2f4963f1e6ce57bcc2829e72a569d81a631a4557e3519d4c829a2bfee",
+      "source": "canonical_l1_only",
+      "verified": true,
+      "scenario_count": 64,
+      "settlement_batches": 25
+    },
+    "performance": {
+      "baseline": "1ff8619d0be29c0f1ab4376d2a76737552d3c61f",
+      "candidate": "e51a2477d98662be2b33c0f17b3bc4c0f0921d20",
+      "workloads": 7,
+      "pairs": 10,
+      "scope": "partitioner only, not whole-node throughput or entire feature PR versus fork main",
+      "no_regression_observed": true,
+      "complete_group_reduction_percent": [
+        37.89,
+        99.97
+      ],
+      "split_paths": "within sample variation"
+    },
+    "partition_differential": {
+      "cases": 100000,
+      "accepted": 21091,
+      "rejected": 78909,
+      "exact_result_or_error_matches": 100000
+    }
+  },
+  "optional_native_not_run": [
+    "cross_chain::combined_history::kurtosis_combined_history_observations_replay_offline",
+    "derivable_operations::ethereum_native_large_history_cold_checkpoint",
+    "derivable_operations::gnosis_native_large_history_cold_checkpoint",
+    "derivable_operations::multipart::four_days_settle_in_parts_with_cold_offline_provers_and_independent_replay",
+    "derivable_operations::retained_native_history_cold_checkpoint"
+  ],
+  "unchanged_checks": "Pinned Anvil 64, Solidity, dependencies and Reth compatibility retain their prior qualification; those sources and dependency pins did not change. Hosted CI must qualify the follow-up head.",
+  "previous_record": "https://github.com/eez-association/eez-rollupX/blob/1ff8619d0be29c0f1ab4376d2a76737552d3c61f/docs/audits/2026-10-30-full-protocol-e2e/candidate-validation.json",
+  "raw_artifacts": "local-only: artifacts/full-protocol/candidate/revision-e51a2477; component measurements and differential diagnostics: artifacts/full-protocol/simplification-performance",
+  "first_failures": [
+    "Benchmark harness initially used an unavailable Default implementation; corrected explicit fixture fields before timing.",
+    "Clippy caught redundant closures and benchmark casts; corrected before final lint and measurements.",
+    "Workspace event-schema test found the unused declaration for a removed duplicate check; removed that declaration and reran all 1641 units successfully.",
+    "Shared Cargo target directory initially reused the baseline benchmark executable alias; hash comparison caught this before final timing. Scoped protocol release clean/rebuild produced distinct verified binaries.",
+    "Native first run: expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay missed its explicit L1 submission target. The unchanged test passed diagnostic runs on prior qualified binaries and the candidate. Retain flaky-result=fail; do not relabel the first full run green.",
+    "Initial 64-worker protocol run: all 64 upstream assertions passed, but one underfunded L1 fee quote followed by a successful fresh quote left an ERROR in catchRemoteAndNestedRevertsAfterSuccessfulCallbacks. Strict evidence validation rejected it. No collector/test rule changed. Complete 4-worker confirmation passed all 64 with full evidence; original run remains failed.",
+    "Confirmation upstream Forge invocation rebuilt Solidity fixtures before launching scenarios; runtime binaries were not rebuilt or substituted."
+  ],
+  "evidence_sha256": {
+    "kurtosis-final/result.json": "dff81336e47c4a1b971b7912b9e9d7e5f52dff8056f384e38747fa27eff74414",
+    "kurtosis-final/protocol-e2e/summary.json": "79e4657b20db4b34101c68703ab07aa35acf14702800cc2e3de28d1773b5a4a2",
+    "kurtosis-final/timings.jsonl": "d0b3101bdefa9b1a502ffde8b86af1b2ad521d03ea96459f189814841468b551",
+    "kurtosis-confirmation/protocol-e2e/summary.json": "40b710c046dd3e482487cea0d3b23284fd35f8f5ea23e6a3d8e99d4c83bc8fe6",
+    "kurtosis-confirmation/proof-path.json": "48777b255eb9fd7c6f950e5bf762943b46863e57b4a1016e4baee7b3f8112344",
+    "independent-replay.json": "8d5b4f9fb32f64354a7d688cdca796510a881da5ffd376515f0ea84c6fd3751a",
+    "native-results.json": "945576074d12ee1e49407b26cb0c3109319917700e383954a1cd0e786cc7fcc1",
+    "benchmark-results-final.json": "af63082e64a9b8c5aa4cf92d8065228d79d617c08f6d202e96f0fdbdc9ec64af"
+  }
+}

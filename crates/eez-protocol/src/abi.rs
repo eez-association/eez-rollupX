@@ -9,6 +9,9 @@ use alloy_sol_types::sol;
 pub type EtherDeltaSol = alloy_primitives::Signed<192, 3>;
 
 sol! {
+    /// The static resolver cannot create a callback proxy inside a read frame.
+    error StaticCallProxyNotDeployed(address proxy);
+
     /// One rollup state transition carried by an L1 entry.
     ///
     /// Solidity names this `RollupUpdate`; the field order and `int192` width

@@ -508,13 +508,13 @@ impl TargetExecutionSession for LocalExecutionSession {
         Ok(Box::new(self.state.cache.clone()) as Box<dyn std::any::Any + Send>)
     }
 
-    fn rollback(&mut self, snapshot: eez_protocol::SessionSnapshot) -> ExecutorResult<()> {
-        let cache = snapshot.downcast::<CacheState>().map_err(|_e| {
+    fn rollback(&mut self, snapshot: &eez_protocol::SessionSnapshot) -> ExecutorResult<()> {
+        let cache = snapshot.downcast_ref::<CacheState>().ok_or_else(|| {
             ExecutorError::from(ExecutorErrorKind::Encoding(
                 "LocalExecutionSession::rollback: snapshot type mismatch".into(),
             ))
         })?;
-        self.state.cache = *cache;
+        self.state.cache = cache.clone();
         Ok(())
     }
 }

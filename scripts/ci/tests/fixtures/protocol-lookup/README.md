@@ -72,3 +72,22 @@ exactly two serialized rows. The regression uses independently encoded expected
 calldata, and mutations must fail the real shell/jq consumer. RPC, KZG and Forge
 boundaries are mocked in unit tests; the audit records their separate live
 read-only validation.
+
+## Nested lookup semantic traces
+
+`catchRemoteRevertAfterCallback-trace.json`,
+`staticReadCallsBackAndReadsAgain-trace.json` and
+`topLevelStaticReentrantMissingProxy-trace.json` come from the task-owned Kurtosis
+network running fork `f091f437594581ca7c9302471002fe5b4cfdc721` and protocol
+`84a5b5207880f192a6a5896cbfe0bac5249db47f`, captured on 2026-10-31. Each fixture
+includes its trigger identity, one decoded native semantic bracket, the matching
+deferred settlement entries (unrelated batch entries omitted), and registry
+proxy mappings queried at the trigger's historical block. Addresses are public
+local test identities. Gas diagnostics are removed. The CREATE2 frame's initcode
+is omitted and its runtime output is reduced to a nonempty byte: these tests
+check creation identity and ordering, not proxy bytecode authentication.
+
+The fixtures test exact trace ancestry, registry dispatch, forwarding identities,
+callback results, recursive static context and the missing-proxy probe/create/retry
+sequence. They do not independently prove canonicality, KZG authentication or
+execution soundness; the live collector and signer perform those separate checks.

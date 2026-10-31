@@ -276,7 +276,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                         "success": success,
                         "result_kind": if success { "ReturnSuccess" } else { "ReturnFail" },
                         "return_data": format!("0x{}", hex::encode(return_data)),
-                        "revert_span": action.revert_span,
+                        "revert_spans": action.revert_spans,
                     })
                 }).collect::<Vec<_>>(),
             })

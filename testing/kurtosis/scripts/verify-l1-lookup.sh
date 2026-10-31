@@ -21,9 +21,11 @@ die() { echo "$SCENARIO evidence error: $*" >&2; exit 1; }
 field() { sed -n "s/^$1=//p" "$SCENARIO_LOG" | tail -1; }
 grep -Fq '====== Done ======' "$SCENARIO_LOG" || die "upstream did not complete"
 ! grep -q '^ERROR:' "$SCENARIO_LOG" || die "upstream recorded an error"
-grep -Fq 'PASS: none of 1 absent key(s) appears on L2' "$SCENARIO_LOG" \
+grep -Eq 'PASS: none of [1-9][0-9]* absent key\(s\) appears on L2' "$SCENARIO_LOG" \
     || die "upstream absence verification is absent"
 
+semantic_trace=false
+call_data=""
 callback_source=""; callback_target=""; callback_proxy=""
 result_two=""; callback_rolling_hash_two=""; callback_forward_input=""
 case "$SCENARIO" in
@@ -63,11 +65,36 @@ case "$SCENARIO" in
         # This scenario has no EXPECTED_L1_STEPS, so upstream does not replay
         # rolling hashes. Independently check the posted hash below instead.
         ;;
+    catchRemoteRevertAfterCallback|staticReadCallsBackAndReadsAgain)
+        semantic_trace=true
+        source="$(field ACTOR_L1)"; destination="$(field ACTOR_L2)"
+        grep -Fq 'PASS: posted batch calldata matches expected table' "$SCENARIO_LOG" \
+            || die "upstream table verification is absent"
+        if [[ "$SCENARIO" == catchRemoteRevertAfterCallback ]]; then
+            trigger_sig='runCatchRemoteRevertAfterCallback()'; call_sig='failAfterChild()'
+            result="$(cast calldata 'FrameFailed(uint256)' 2)"; static=false; kind=Call; success=false
+        else
+            trigger_sig='runStaticReadCallsBackAndReadsAgain()'; call_sig='readChain(uint8)'
+            call_data="$(cast calldata "$call_sig" 2)"
+            result="$(cast abi-encode 'f(uint256)' 2)"; static=true; kind=StaticCall; success=true
+            grep -Fq 'PASS: posted batch static entries match expected static table' "$SCENARIO_LOG" \
+                || die "upstream static-table verification is absent"
+        fi
+        ;;
+    topLevelStaticReentrantMissingProxy)
+        semantic_trace=true
+        source="$(field READER_L1)"; destination="$(field COUNTER_L2)"
+        trigger_sig='increment()'; call_sig='counter()'
+        result="$(cast abi-encode 'f(uint256)' 1)"; static=true; kind=StaticCall; success=true
+        grep -Fq 'PASS: posted batch static entries match expected static table' "$SCENARIO_LOG" \
+            || die "upstream static-table verification is absent"
+        ;;
     *) die "unsupported lookup scenario" ;;
 esac
 for address in "$source" "$destination"; do
     [[ "$address" =~ ^0x[[:xdigit:]]{40}$ ]] || die "invalid scenario address"
 done
+[[ -n "$call_data" ]] || call_data="$(cast sig "$call_sig")"
 callback_sig="$call_sig"
 [[ "$SCENARIO" != staticLocalWrite ]] || callback_sig='rate()'
 callback_rolling_hash=""; proxy_query_input=""; proxy_query_output=""
@@ -100,12 +127,12 @@ for hash in "$trigger_hash" "$post_hash"; do
 done
 key="$(cast call "$ROLLUPS" \
     'computeCrossChainCallHash(bool,address,uint64,address,uint64,uint256,uint64,bytes)(bytes32)' \
-    "$static" "$source" 0 "$destination" "$ROLLUP_ID" 0 0 "$(cast sig "$call_sig")" --rpc-url "$L1_RPC")"
+    "$static" "$source" 0 "$destination" "$ROLLUP_ID" 0 0 "$call_data" --rpc-url "$L1_RPC")"
 [[ "$key" =~ ^0x[[:xdigit:]]{64}$ ]] || die "invalid lookup key"
 if [[ "$SCENARIO" == staticLocalWrite ]]; then
     local_key="$(cast keccak "$(cast abi-encode \
         'f(bool,address,uint64,address,uint64,uint256,uint64,bytes)' \
-        true "$source" 0 "$destination" "$ROLLUP_ID" 0 0 "$(cast sig "$call_sig")")")"
+        true "$source" 0 "$destination" "$ROLLUP_ID" 0 0 "$call_data")")"
     [[ "${key,,}" == "${local_key,,}" ]] || die "lookup identity differs from canonical ABI hash"
 fi
 
@@ -148,6 +175,73 @@ jq -e --arg registry "${ROLLUPS,,}" --arg selector "$post_selector" \
       | select(.input | startswith($selector))] | length == 0
     ' <<<"$block" >/dev/null || die "another batch replaced the lookup before its trigger"
 decoded="$(cast decode-calldata --json "$post_sig" "$(jq -er '.input' <<<"$post")")"
+mkdir -p "$(dirname "$OUTPUT_JSON")"
+trace_file="${OUTPUT_JSON%.json}.lookup-trace.json"
+cast rpc debug_traceTransaction "$trigger_hash" '{"tracer":"callTracer","timeout":"30s"}' \
+    --rpc-url "$L1_RPC" >"$trace_file" || die "canonical lookup trace unavailable"
+scratch="$(mktemp -d)"
+trap 'rm -rf "$scratch"' EXIT
+bash "$HERE/verify-semantic-settlement-blob.sh" "$post_hash" L1 \
+    "$scratch/blob.json" "${OUTPUT_JSON%.json}.blob-sidecars.json" "$trigger_hash"
+if [[ "$semantic_trace" == true ]]; then
+    bracket="$(jq -ce --arg source "${source,,}" '
+      if .verified != true or .semantic_evidence.semantics_bound_to_settlement != true
+      then error("unauthenticated semantics") else . end
+      | [.payload.semantic_transactions[] | select(.origin_chain == 0 and .tx_data == "0x")
+          | select(any(.actions[]; .parent_index == null and (.from_address | ascii_downcase) == $source))]
+      | if length == 1 then .[0] else error("ambiguous trigger semantics") end
+    ' "$scratch/blob.json")" || die "lookup has no unique authenticated semantic bracket"
+    jq -e --arg source "${source,,}" --arg destination "${destination,,}" --arg data "${call_data,,}" \
+        --arg result "${result,,}" --arg kind "$kind" --argjson success "$success" '
+        [.actions[] | select(.parent_index == null)] | length == 1
+        and (.[0] | (.from_address | ascii_downcase) == $source
+             and (.to_address | ascii_downcase) == $destination and .data == $data
+             and .kind == $kind and .success == $success and .return_data == $result)
+    ' <<<"$bracket" >/dev/null || die "root action differs from the pinned scenario"
+    proxies='{}'
+    while IFS= read -r actor; do
+        proxy="$(cast call "$ROLLUPS" 'computeCrossChainProxyAddress(address,uint64)(address)' \
+            "$actor" "$ROLLUP_ID" --block "$block_hex" --rpc-url "$L1_RPC")"
+        [[ "$proxy" =~ ^0x[[:xdigit:]]{40}$ ]] || die "invalid registry-derived proxy"
+        proxies="$(jq -c --arg actor "${actor,,}" --arg proxy "${proxy,,}" '. + {($actor): $proxy}' <<<"$proxies")"
+    done < <(jq -r '[.actions[] | if .source_chain == 0 then .to_address else .from_address end] | unique[]' <<<"$bracket")
+    trace_input="${OUTPUT_JSON%.json}.lookup-input.json"
+    jq -n --slurpfile trace "$trace_file" --argjson trigger "$trigger" --argjson bracket "$bracket" \
+        --arg registry "${ROLLUPS,,}" --argjson rollup "$ROLLUP_ID" --argjson proxies "$proxies" \
+        --argjson decoded "$decoded" \
+        '{trace: $trace[0], trigger: $trigger, semantic_transaction: $bracket, registry: $registry,
+          rollup_id: $rollup, proxies: $proxies, decoded_settlement: $decoded}' >"$trace_input"
+    bound="$(python3 "$REPO/scripts/ci/verify-protocol-lookup-trace.py" "$trace_input")" \
+        || die "canonical lookup trace or deferred entries differ from authenticated semantics"
+    entry="$(jq -ce '.lookup_entry' <<<"$bound")"
+    trace_evidence="$(jq -ce '.lookup_trace' <<<"$bound")"
+    keys="$(jq -ce '.keys' <<<"$entry")"; roots="$(jq -ce '.roots' <<<"$entry")"
+    expected_absence="$(jq 'length' <<<"$keys")"
+    grep -Fq "PASS: none of $expected_absence absent key(s) appears on L2" "$SCENARIO_LOG" \
+        || die "upstream did not verify every lookup key's absence"
+    if [[ "$SCENARIO" == topLevelStaticReentrantMissingProxy ]]; then
+        [[ "$(jq '.missing_proxy_probes | length' <<<"$trace_evidence")" == 1 ]] \
+            || die "missing-proxy scenario did not execute its probe and retry"
+        for read in 'counter:1' 'lastRead:1'; do
+            [[ "$(cast call "$source" "${read%:*}()(uint256)" --block "$block_hex" --rpc-url "$L1_RPC")" == "${read#*:}" ]] \
+                || die "reader persisted the wrong state"
+        done
+    else
+        for read in 'completed:1' 'total:0'; do
+            [[ "$(cast call "$source" "${read%:*}()(uint256)" --block "$block_hex" --rpc-url "$L1_RPC")" == "${read#*:}" ]] \
+                || die "source persisted the wrong state"
+        done
+        if [[ "$SCENARIO" == catchRemoteRevertAfterCallback ]]; then
+            [[ "$(cast call "$source" 'failure()(bytes)' --block "$block_hex" --rpc-url "$L1_RPC")" == "$result" ]] \
+                || die "source persisted the wrong failure"
+        else
+            [[ "$(cast call "$source" 'firstRead()(uint256)' --block "$block_hex" --rpc-url "$L1_RPC")" == 2 ]] \
+                || die "source persisted the wrong recursive read"
+        fi
+    fi
+else
+grep -Fq 'PASS: none of 1 absent key(s) appears on L2' "$SCENARIO_LOG" \
+    || die "upstream absence verification is absent"
 entry="$(jq -ce --arg scenario "$SCENARIO" --arg key "${key,,}" --arg result "${result,,}" \
     --arg callback_source "${callback_source,,}" --arg callback_target "${callback_target,,}" \
     --arg callback_data "$(cast sig "$callback_sig")" --arg callback_rolling_hash "${callback_rolling_hash,,}" \
@@ -174,18 +268,14 @@ if [[ "$static" == true ]]; then
     lookup_method='staticCrossChainCall(address,bytes)'
     trace_output="$(cast abi-encode 'f(bytes)' "$result")"
 fi
-lookup_input="$(cast calldata "$lookup_method" "$source" "$(cast sig "$call_sig")")"
-mkdir -p "$(dirname "$OUTPUT_JSON")"
-trace_file="${OUTPUT_JSON%.json}.lookup-trace.json"
-cast rpc debug_traceTransaction "$trigger_hash" '{"tracer":"callTracer","timeout":"30s"}' \
-    --rpc-url "$L1_RPC" >"$trace_file" || die "canonical lookup trace unavailable"
+lookup_input="$(cast calldata "$lookup_method" "$source" "$call_data")"
 trace_evidence="$(jq -ce --arg scenario "$SCENARIO" --arg source "${source,,}" --arg registry "${ROLLUPS,,}" \
     --arg proxy "${proxy,,}" --arg trigger_input "$(cast sig "$trigger_sig")" \
     --arg lookup_input "${lookup_input,,}" --arg output "${trace_output,,}" --argjson static "$static" \
     --arg static_check_gas_input "$(cast sig 'STATIC_CHECK_GAS()')" \
     --arg callback_proxy "${callback_proxy,,}" --arg callback_target "${callback_target,,}" \
     --arg callback_input "$(cast sig "$callback_sig")" --arg callback_output "${result,,}" \
-    --arg call_input "$(cast sig "$call_sig")" --arg result_two "${result_two,,}" \
+    --arg call_input "$call_data" --arg result_two "${result_two,,}" \
     --arg callback_forward_input "${callback_forward_input,,}" \
     --argjson selected_candidates "$(jq -c '.selected_candidate_indices // []' <<<"$entry")" \
     --arg proxy_query_input "${proxy_query_input,,}" --arg proxy_query_output "${proxy_query_output,,}" \
@@ -219,29 +309,25 @@ else
     fi
 fi
 
-scratch="$(mktemp -d)"
-trap 'rm -rf "$scratch"' EXIT
-bash "$HERE/verify-semantic-settlement-blob.sh" "$post_hash" L1 \
-    "$scratch/blob.json" "${OUTPUT_JSON%.json}.blob-sidecars.json" "$trigger_hash"
 # L1-origin brackets carry no transaction bytes. The blob verifier bound every
 # bracket to the posted settlement tables; this trigger's traced lookup
 # (scenario-unique source/destination) must be exactly one of those brackets,
 # not an unrelated transaction in an otherwise valid blob.
 jq -e --arg scenario "$SCENARIO" --arg source "${source,,}" --arg destination "${destination,,}" --arg kind "$kind" \
-    --arg data "$(cast sig "$call_sig")" --arg result "${result,,}" --argjson success "$success" \
+    --arg data "$call_data" --arg result "${result,,}" --argjson success "$success" \
     --arg callback_data "$(cast sig "$callback_sig")" --arg result_two "${result_two,,}" \
     --arg callback_source "${callback_source,,}" --arg callback_target "${callback_target,,}" \
     --argjson rollup "$ROLLUP_ID" '
     def root_action: .parent_index == null and .kind == $kind and .source_chain == 0
       and .target_chain == $rollup and (.from_address | ascii_downcase) == $source
       and (.to_address | ascii_downcase) == $destination and .value == "0" and .data == $data
-      and .success == $success and (.return_data | ascii_downcase) == $result and .revert_span == null;
+      and .success == $success and (.return_data | ascii_downcase) == $result and .revert_spans == [];
     # The one static callback returns the L1 producer value, which is also the
     # read result.
     def callback_action: .parent_index == 0 and .kind == "StaticCall" and .source_chain == $rollup
       and .target_chain == 0 and (.from_address | ascii_downcase) == $callback_source
       and (.to_address | ascii_downcase) == $callback_target and .value == "0" and .data == $data
-      and .success == true and (.return_data | ascii_downcase) == $result and .revert_span == null;
+      and .success == true and (.return_data | ascii_downcase) == $result and .revert_spans == [];
     .semantic_evidence.semantics_bound_to_settlement == true
     and ([.payload.semantic_transactions[] | select(.origin_chain == 0 and .tx_data == "0x"
       and (if $scenario == "staticLocalWrite" then
@@ -252,13 +338,13 @@ jq -e --arg scenario "$SCENARIO" --arg source "${source,,}" --arg destination "$
                      and (.from_address | ascii_downcase) == $source
                      and (.to_address | ascii_downcase) == $destination and .value == "0"
                      and .data == $data and .success == true and .result_kind == "ReturnSuccess"
-                     and .return_data == $results[$i] and .revert_span == null)
+                     and .return_data == $results[$i] and .revert_spans == [])
                  and ($actions[2*$i+1] | .index == 2*$i+1 and .parent_index == 2*$i
                      and .kind == "StaticCall" and .source_chain == $rollup and .target_chain == 0
                      and (.from_address | ascii_downcase) == $callback_source
                      and (.to_address | ascii_downcase) == $callback_target and .value == "0"
                      and .data == $callback_data and .success == true and .result_kind == "ReturnSuccess"
-                     and .return_data == $results[$i] and .revert_span == null))
+                     and .return_data == $results[$i] and .revert_spans == []))
            elif $callback_target == "" then
              (.actions | length) == 1 and (.actions[0] | root_action)
            else
@@ -266,6 +352,9 @@ jq -e --arg scenario "$SCENARIO" --arg source "${source,,}" --arg destination "$
            end))]
       | length == 1)
     ' "$scratch/blob.json" >/dev/null || die "lookup is not bound to the authenticated semantic action"
+keys="$(jq -nc --arg key "$key" '[$key]')"
+roots="$(jq -c '[.root]' <<<"$entry")"
+fi
 # V0 carries counts and ordinary transaction bytes, not block headers. Bind
 # the calldata's endpoint claims to canonical L2 headers before using its range.
 # A successful post alone does not establish that all deferred entries settled.
@@ -301,13 +390,26 @@ count="$(jq -er '.payload.block_count' "$scratch/blob.json")"
    && "$(cast block "$last" --field hash --rpc-url "$L2_RPC")" == "$terminal_hash" ]] \
     || die "claimed window endpoints are not canonical on L2"
 root_file="${OUTPUT_JSON%.json}.lookup-root.json"
-bash "$HERE/verify-lookup-root.sh" "$scratch/blob.json" "$(jq -er '.root' <<<"$entry")" "$root_file" \
-    || die "lookup root is not bound to the authenticated L2 execution"
+root_index=0
+root_parts=()
+root_count="$(jq 'length' <<<"$roots")"
+while IFS= read -r root; do
+    root_part="${OUTPUT_JSON%.json}.lookup-root-$root_index.json"
+    (( root_count != 1 )) || root_part="$root_file"
+    bash "$HERE/verify-lookup-root.sh" "$scratch/blob.json" "$root" "$root_part" \
+        || die "lookup root is not bound to the authenticated L2 execution"
+    root_parts+=("$root_part")
+    root_index=$((root_index + 1))
+done < <(jq -r '.[]' <<<"$roots")
+(( root_index > 0 )) || die "no lookup roots were checked"
+if (( root_index > 1 )); then
+    jq -s '{verified: all(.[]; .verified == true), roots: .}' "${root_parts[@]}" >"$root_file"
+fi
 end="$(cast block-number --rpc-url "$L2_RPC")"
 (
     cd "$REPO/eez-core-protocol"
     forge script script/e2e/scenarios/shared/Verify.s.sol:VerifyL2Absent --rpc-url "$L2_RPC" \
-        --sig 'run(uint256,uint256,address,bytes32[])' "$first" "$end" "$MANAGER_L2" "[$key]"
+        --sig 'run(uint256,uint256,address,bytes32[])' "$first" "$end" "$MANAGER_L2" "$(jq -r '"[" + join(",") + "]"' <<<"$keys")"
 ) >"$scratch/absence.log" 2>&1 || { cat "$scratch/absence.log" >&2; die "lookup appeared on L2"; }
 # Detect a reorg while collecting evidence; no retroactive eth_call of the
 # static pool is used because later batches may legitimately replace its pins.

@@ -19,7 +19,6 @@ pub const COMPOSER_SYNC_SLOT_DRAIN: &str = "eez.composer.sync_slot.drain";
 pub const COMPOSER_PHASE1_BUNDLE_DISPATCHED: &str = "eez.composer.phase1.bundle.dispatched";
 pub const COMPOSER_SETTLEMENT_RECONCILED: &str = "eez.composer.settlement.reconciled";
 pub const COMPOSER_BUNDLE_OBSERVED: &str = "eez.composer.bundle.observed";
-pub const COMPOSER_OUTBOUND_ROOT_MISMATCH: &str = "eez.composer.cc_compose.outbound_root_mismatch";
 pub const COMPOSER_POISON_EVICTION_COMPLETED: &str =
     "eez.composer.cc_compose.poison_eviction_completed";
 pub const FOLLOWER_HEAD_ADVANCED: &str = "eez.node.follower.head.advanced";
