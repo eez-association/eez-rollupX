@@ -4,8 +4,8 @@
 
 - Fork baseline: `c702f90da19cc149890d0a17a4ef6c200dcb6a21`.
 - Unchanged protocol: `84a5b5207880f192a6a5896cbfe0bac5249db47f`.
-- Qualified implementation: `6808f13b45176291b8cfaa8e5effbc31ee01f504`.
-- Qualified PR head: `f0f40401d491ddaf4e1190e408dba92963b9118f` (audit-only addition).
+- Locally qualified simplified implementation: `0ffc0b8dcfa211222df79f7c8f53de4dc869b429`.
+- Previously hosted-qualified PR head: `f0f40401d491ddaf4e1190e408dba92963b9118f`.
 - [Design and compatibility](../../proposals/full-protocol-e2e.md),
   [64-scenario inventory](scenarios.md), [signer review](signer-review.md).
 
@@ -31,12 +31,8 @@ passed all 13 jobs. Its merge tree exactly matches `f0f40401`.
 | Integration contracts | 153 passed |
 | Applicable lint, codecs, RPC, SDK, configuration and dependency checks | Passed; existing audit warnings and optional exclusions recorded below |
 
-[Compact local validation record](candidate-validation.json) retains exact source,
-artifact identities, commands, optional skips and limitations.
-[Cold follower result](candidate-independent-replay.json) records the replayed safe
-head. Bulk logs/datadirs remain local-only under the task worktree's
-`artifacts/full-protocol/candidate/revision-6808f13b`; they are not available from
-another checkout. Compact evidence and hosted logs remain independently accessible.
+The [original validation record](https://github.com/eez-association/eez-rollupX/blob/f0f40401d491ddaf4e1190e408dba92963b9118f/docs/audits/2026-10-30-full-protocol-e2e/candidate-validation.json)
+retains the source and artifact identities for those earlier results.
 
 ## Simplification and signing identity: 2026-10-31
 
@@ -53,8 +49,25 @@ This does not remove network/registry/proof-system binding or authorize signing
 before independent execution. No contract/key/genesis migration is required by
 this compatible extension. Earlier pre-baseline deployment boundaries still apply.
 
-**Current validation: pending for the simplified revision.** The green results
-above apply to the stated source identities, not automatically to later changes.
+**Simplified revision locally qualified:** 1,640 workspace units, 192 native E2Es
+(149 cross-chain + 43 embedded, each exactly once), 338 signer tests, 55 release
+protocol/blob tests and 29 RPC conformance vectors passed. All 64 pinned scenarios
+passed through Kurtosis with zero skips/exclusions, complete semantic/causal
+evidence and 54 signed windows. A fresh canonical-L1 follower replayed through
+L2 block 960, checking 78 scenario-range blocks and 101 receipts across 11 batches.
+Formatting, Clippy, signer rustdoc, genesis and artifact identity checks passed.
+The unit count decreased by one because the obsolete RPC/signing-domain version
+equality assertion was removed; no behavioral regression test was removed.
+
+[Current validation record](candidate-validation.json) and
+[follower result](candidate-independent-replay.json) retain exact identities,
+optional skips and first failures. Raw logs/datadirs are local-only under
+`artifacts/full-protocol/candidate/revision-0ffc0b8d`; static/unit diagnostics are
+under `artifacts/full-protocol/key-rotation-review`. They are unavailable from
+another checkout. The unchanged Anvil/Solidity/dependency checks retain their
+earlier qualification. Hosted CI for the simplified update must be checked on
+[PR #123](https://github.com/eez-association/eez-rollupX/pull/123); the earlier green
+run does not qualify a later head.
 
 ## Material limitations
 

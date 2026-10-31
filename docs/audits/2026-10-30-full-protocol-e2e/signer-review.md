@@ -47,6 +47,9 @@ identified that requires domain revocation. An incompatible rule change or signe
 compromise would require a separate revocation decision.
 
 The ECDSA contract authenticates a key holder, not the binary performing validation.
-The simplified revision must retain the exact baseline vkey/proof expectations and
-rerun positive fixtures, forged-outcome/missing-code rejection and RPC mismatch
-checks. Validation status is tracked in [the audit summary](README.md).
+The simplified revision `0ffc0b8d` passed 338 signer tests, including positive
+fixtures, forged-outcome/missing-code rejection and RPC mismatch checks. All three
+retained native signatures/public-input hashes and the independent baseline
+profile/key vectors are unchanged. Only the obsolete RPC/signing-domain version
+equality assertion was removed. All 64 network scenarios and independent follower
+replay passed again; see [the audit summary](README.md).

@@ -1,11 +1,11 @@
 {
-  "source_revision": "6808f13b45176291b8cfaa8e5effbc31ee01f504",
+  "source_revision": "0ffc0b8dcfa211222df79f7c8f53de4dc869b429",
   "protocol_pin": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
-  "qualification_complete": true,
-  "remaining": [],
+  "local_qualification_complete": true,
+  "hosted_ci": "Pending publication; follow PR #123 checks.",
   "runtime_manifest": {
     "schema": 2,
-    "root_commit": "6808f13b45176291b8cfaa8e5effbc31ee01f504",
+    "root_commit": "0ffc0b8dcfa211222df79f7c8f53de4dc869b429",
     "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
     "cargo_lock_sha256": "cc34ca4e57394e7fa6951f3397786952bcf59a842baac443f2972d03836a29df",
     "platform": "linux/amd64",
@@ -20,21 +20,21 @@
     "published": false,
     "images": {
       "node": {
-        "reference": "ghcr.io/eez-association/eez-rollupx-node:sha-6808f13b45176291b8cfaa8e5effbc31ee01f504-2026103101-1",
-        "image_id": "sha256:f9d2c81b9fef200fab22091caa839c4d49298e3be4054e01ecab48d047e74717"
+        "reference": "ghcr.io/eez-association/eez-rollupx-node:sha-0ffc0b8dcfa211222df79f7c8f53de4dc869b429-local-simplify-20261031-1",
+        "image_id": "sha256:cba7e16dd740f95d6c2f4cb931411325de9e282f8613c422b82ed475e20ce9e6"
       },
       "signer": {
-        "reference": "ghcr.io/eez-association/eez-rollupx-proof-signer:sha-6808f13b45176291b8cfaa8e5effbc31ee01f504-2026103101-1",
-        "image_id": "sha256:0b92f49ba25a7a291b3bf03f233426f017110f340fa93953f434a1a0ed194899"
+        "reference": "ghcr.io/eez-association/eez-rollupx-proof-signer:sha-0ffc0b8dcfa211222df79f7c8f53de4dc869b429-local-simplify-20261031-1",
+        "image_id": "sha256:2f4246309a0e4d70624b001545f7da8fd0a6471f6096c45a02866ea00634a364"
       },
       "deploy": {
-        "reference": "ghcr.io/eez-association/eez-rollupx-deploy:sha-6808f13b45176291b8cfaa8e5effbc31ee01f504-2026103101-1",
-        "image_id": "sha256:5abbfc12e525629459228067ccccbe7b3954a34dba47d859141fc8f3b3b42882"
+        "reference": "ghcr.io/eez-association/eez-rollupx-deploy:sha-0ffc0b8dcfa211222df79f7c8f53de4dc869b429-local-simplify-20261031-1",
+        "image_id": "sha256:e20a569ac5627dd50198e66bcd948724df7eb6994487dd549d44f3326cac3926"
       }
     },
-    "binaries_sha256": "71ed5cc71ce42fb0f21b5bb5d89fb44cd601176717757470345d7e17015f2ff3"
+    "binaries_sha256": "301d53accae302b8181e0f4dd4521c143032ae779a66a78fc7d03ac9d9bdda0c"
   },
-  "test_manifest": {
+  "test_archive_manifest": {
     "schema": 4,
     "cargo_lock_sha256": "cc34ca4e57394e7fa6951f3397786952bcf59a842baac443f2972d03836a29df",
     "platform": "linux/amd64",
@@ -43,108 +43,52 @@
     "nextest": "0.9.143",
     "rust": "1.95.0",
     "archives_sha256": {
-      "native-tests.tar.zst": "870860992466e532aa6ee0906c617881786e0dd6f9f07cba6ea44c3fd00c8f80"
+      "native-tests.tar.zst": "fa0b9cf1d81d3b6ec7af7ce0d7dbfd3c4bd04aad355b107c1d8e8de1879a09e2"
     },
     "runtime_sha256": {
-      "eez-composer": "09e0bd7fb6a9d53f31ce256fa1111b70de7b329da92d4ede4cd35f9ffb14dbfe",
-      "eez-follower": "291dc26facf3995db73a9ecd94f21795acf4fcade0f368262b706601b3a66c7d",
-      "eez-proof-signer": "69f25acfba20bbfb9a793529706b27c7d834cd67660c84c96850e103dd1111f9"
+      "eez-composer": "f6da08d6be83b48240e7f20bd41bb9819c19be19ae2ab06178f2148bb7bb2b8f",
+      "eez-follower": "1fbbb808fb5c76ee4c148b26984c54dabf806f6ed82ed68b9e39d55a49868bd8",
+      "eez-proof-signer": "ef0f23977d93fb286c4be6a377b90ccb829d617b3372ceeb74bc5a8fda7e69b7"
     },
     "glibc": "glibc 2.36",
-    "root_commit": "6808f13b45176291b8cfaa8e5effbc31ee01f504",
+    "root_commit": "0ffc0b8dcfa211222df79f7c8f53de4dc869b429",
     "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
-    "runtime_archive_sha256": "71ed5cc71ce42fb0f21b5bb5d89fb44cd601176717757470345d7e17015f2ff3"
+    "runtime_archive_sha256": "301d53accae302b8181e0f4dd4521c143032ae779a66a78fc7d03ac9d9bdda0c"
   },
   "checks": {
-    "revision": "6808f13b45176291b8cfaa8e5effbc31ee01f504",
-    "workspace_unit_tests": {
-      "exit_code": 0,
-      "passed": 1641,
-      "failed": 0,
-      "ignored": 6,
-      "log": "artifacts/full-protocol/candidate/revision-f091f437/followup-workspace-unit-tests.log",
-      "sha256": "69d897d9deb80842b9eb651f4547cfc2ac485f8ccffa30156abd1555ea9b66fa"
+    "workspace_units": {
+      "passed": 1640,
+      "optional_skipped": 6,
+      "reason": "Five fixture/inventory utilities and one manual timing profile."
     },
-    "signer_all_features_clippy": {
-      "exit_code": 0,
-      "log": "signer-all-features-clippy.log"
+    "signer": {
+      "passed": 338,
+      "optional_fixture_utilities": 5
     },
-    "signer_rustdoc": {
-      "exit_code": 0,
-      "log": "signer-rustdoc.log"
-    },
-    "rpc_conformance": {
-      "exit_code": 0,
-      "vectors": 29,
-      "log": "rpc-conformance.log"
-    },
-    "replay_adapter": {
-      "unit_tests": 5,
-      "live_retained_receipts": 3,
-      "qualification": false
-    },
-    "required_validation_complete": true,
-    "protocol_anvil": {
-      "exit_code": 0,
-      "passed": 64,
-      "failed": 0,
-      "omitted": 0,
-      "log": "protocol-anvil.log"
-    },
-    "workspace_nextest_ci": {
-      "exit_code": 0,
-      "passed": 1641,
-      "seconds": 39.667,
-      "log": "workspace-nextest-ci.log",
-      "prebuilt_only_guard": true,
-      "skipped": 6,
-      "skip_reasons": {
-        "fixture_generation_or_inventory_utilities": 5,
-        "manual_timing_profile": 1
+    "rpc_conformance_vectors": 29,
+    "native_e2e": {
+      "passed": 192,
+      "cross_chain": 149,
+      "embedded": 43,
+      "missing": 0,
+      "duplicates": 0,
+      "failures": 0,
+      "runner_exits": {
+        "cross-chain-24": 0,
+        "cross-chain-34": 0,
+        "cross-chain-44": 0,
+        "cross-chain-14": 0,
+        "embedded": 0
       }
     },
-    "release_producer": {
-      "exit_code": 0,
-      "log": "build.log"
-    },
-    "runtime_identity": {
-      "exit_code": 0,
-      "log": "verify-runtime.log"
-    },
-    "genesis": {
-      "exit_code": 0,
-      "log": "genesis-check.log"
-    },
-    "native_producer": {
-      "exit_code": 0,
+    "release_protocol_blob_tests": {
       "passed": 55,
-      "skipped": 0,
-      "log": "native-producer.log",
-      "first_preflight_failure": "native-producer-ownership-failure.log"
-    },
-    "e2e_export": {
-      "exit_code": 0,
-      "files": 30,
-      "log": "export-e2e.log",
-      "first_preflight_failure": "export-e2e-missing-target.log"
-    },
-    "protocol_core": {
-      "exit_code": 0,
-      "passed": 778,
-      "skipped": 3,
-      "log": "protocol-core-tests.log",
-      "exclusions": [
-        "script/*",
-        "test_Doc_OriginalValue_SeedInSetup",
-        "test_PostCost_Incremental"
-      ],
-      "scope": "Repository-prescribed unit suite; separate from 64 unfiltered E2E scenarios"
+      "skipped": 0
     },
     "ci_tooling": {
-      "exit_code": 0,
       "discovered": 430,
       "passed": 423,
-      "skipped": 7,
+      "optional_skipped": 7,
       "skip_details": [
         "test_scratch_payload_copies_out_without_execution_or_permission_loss (test_ci_payload.DockerPayloadTest.test_scratch_payload_copies_out_without_execution_or_permission_loss) ... skipped 'opt-in real data-only Docker image'",
         "test_overrides_apply_before_creation_and_preserve_memory_and_command (test_kurtosis_ci.RealRelayResourcesTest.test_overrides_apply_before_creation_and_preserve_memory_and_command) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
@@ -153,95 +97,77 @@
         "test_deploy_context_preserves_history_identity (test_runtime_docker.RuntimeDockerTest.test_deploy_context_preserves_history_identity) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
         "test_real_build_and_same_job_execution (test_runtime_docker.RuntimeDockerTest.test_real_build_and_same_job_execution) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
         "test_repository_source_context_preserves_genesis (test_runtime_docker.RuntimeDockerTest.test_repository_source_context_preserves_genesis) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'"
-      ],
-      "seconds": 406.718,
-      "log": "ci-tooling.log",
-      "scope": "Complete default CI invocation; seven opt-in integration probes are disabled in CI and not counted as executed coverage."
+      ]
     },
-    "reth_ci_regressions": {
-      "exit_code": 0,
-      "shutdown_cleanup": {
-        "passed": 1,
-        "log": "reth-shutdown.log"
+    "format_clippy_signer_all_features_rustdoc": "pass",
+    "genesis_and_artifact_identity": "pass",
+    "baseline_signing_identity": "Both profile vectors, five key vectors and all three native signatures/public-input hashes preserved.",
+    "kurtosis": {
+      "network": {
+        "result": "pass",
+        "exit_code": 0,
+        "candidate_image": "ghcr.io/eez-association/eez-rollupx-node:sha-0ffc0b8dcfa211222df79f7c8f53de4dc869b429-local-simplify-20261031-1",
+        "commits": {
+          "root": "0ffc0b8dcfa211222df79f7c8f53de4dc869b429",
+          "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f"
+        },
+        "images": {
+          "node": "ghcr.io/eez-association/eez-rollupx-node:sha-0ffc0b8dcfa211222df79f7c8f53de4dc869b429-local-simplify-20261031-1",
+          "proof_signer": "ghcr.io/eez-association/eez-rollupx-proof-signer:sha-0ffc0b8dcfa211222df79f7c8f53de4dc869b429-local-simplify-20261031-1",
+          "deploy": "ghcr.io/eez-association/eez-rollupx-deploy:sha-0ffc0b8dcfa211222df79f7c8f53de4dc869b429-local-simplify-20261031-1"
+        },
+        "proof_flow": {
+          "signed_windows": 54,
+          "remote_attestations": 54
+        },
+        "modes": [
+          "inbound",
+          "outbound",
+          "mixed",
+          "mixed-pure"
+        ],
+        "cross_chain_convergence": "pass",
+        "state_chaining": "pass",
+        "l1_l2_root_divergence": 0,
+        "safe_head_convergence": "pass"
       },
-      "shared_debug_quota": {
-        "passed": 1,
-        "log": "reth-quota.log"
-      },
-      "other_tests": "Filtered, not executed coverage"
-    },
-    "kurtosis_full_protocol": {
-      "exit_code": 0,
-      "passed": 64,
+      "scenarios": 64,
       "failed": 0,
       "skipped": 0,
-      "evidence_complete": true,
-      "log": "kurtosis-final.log"
+      "excluded": 0,
+      "evidence_complete": true
     },
-    "cold_follower_replay": {
-      "exit_code": 0,
-      "checked_blocks": 84,
-      "checked_derived_blocks": 84,
+    "cold_follower": {
+      "checked_blocks": 78,
+      "checked_derived_blocks": 78,
       "checked_receipts": 101,
-      "safe_l2_block": 966,
-      "safe_l2_block_hash": "0x182c0cf0afb35e92a19695f6e6e6fcd45b563235e7374ec304debc7829cf9c9c",
+      "safe_l2_block": 960,
+      "safe_l2_block_hash": "0x1f8b928f9b9dded9ac338b60f12fee40b773893d3e366c6cb6ffff3ffa060a3c",
       "source": "canonical_l1_only",
-      "verified": true,
-      "scenario_coverage": 64,
-      "verified_blob_batches": 12,
-      "log": "cold-follower.log"
-    },
-    "native_embedded": {
-      "exit_code": 0,
-      "passed": 43,
-      "log": "native-embedded.log",
-      "seconds": 2693.777
-    },
-    "native_cross_chain": {
-      "passed": 149,
-      "missing": 0,
-      "test_failures": 0,
-      "outer_wrapper_exit": 127,
-      "details": "candidate-native-results.json"
+      "verified": true
     }
   },
-  "raw_artifacts": "local-only: artifacts/full-protocol/candidate/revision-6808f13b",
-  "local_adapter_sha256": {
-    "assemble-protocol-replay.py": "78b9d8bae5d462cdc7bb580024e6fb8f83a9f3808002f64fc8299f7c9ac412cb",
-    "run-ci-retain.sh": "9f1f6fc244dd34a302564f09d319d68131be11c76a1989e15e90b4104e48367a",
-    "verify-policy-replay-archive.sh": "6fd94c71a5b7d059a22b84ad2e4114cb15219643c3439d2d8c4bced2ab64c906",
-    "revision-6808f13b/run-isolated-native.sh": "a1e912e81a8c6f95116e10bb79bea6d6fa85bd9ac358de58008b0185158cf316"
-  },
-  "native_harness_failure": {
-    "revision": "6808f13b45176291b8cfaa8e5effbc31ee01f504",
-    "failure": "External kill command missing in the deploy image used as the task-local native test container",
-    "first_log": "native-embedded-missing-kill.log",
-    "first_run_exit": 137,
-    "exit_reason": "Task-owned container deliberately stopped after preserving harness failure; incomplete run is not coverage",
-    "failed_test": "settlement_policy::blob_overflow_drains_largest_empty_prefixes_without_resetting_the_interval",
-    "gate": "send composer SIGTERM: No such file or directory",
-    "fix": "Unmodified Debian Bookworm procps-ng 4.0.2 kill executable added to the already-mounted task tools directory; verified --version and signal-0 inside all five test containers",
-    "utility_sha256": "a8a91d026a8b8e49685ab9e83bdbb37d3b20f3949ed8e6c97e34e66c0dc54b83",
-    "runtime_or_tests_changed": false,
-    "cross_chain_lanes": "Continued, with no observed failure before the utility became available",
-    "embedded_rerun": "Complete 43-test rerun passed with exit 0; original failed/interrupted run remains preserved.",
-    "recorded_at": "2026-10-31T02:47:17.716301+00:00",
-    "corrected_test_result": "PASS [  81.675s] ( 7/43) eez-node-e2e::node_e2e settlement_policy::blob_overflow_drains_largest_empty_prefixes_without_resetting_the_interval"
-  },
-  "repository": "https://github.com/eez-association/eez-rollupX",
-  "fork_main_at_final_check": "c702f90da19cc149890d0a17a4ef6c200dcb6a21",
-  "scope": "Local qualification of the recorded code revision; PR-hosted CI status is tracked by GitHub.",
-  "native_inventory": {
-    "total": 198,
-    "default_executed": 192,
-    "additional_live_cold_replay_executed": 1,
-    "optional_not_run": [
-      "cross_chain::combined_history::kurtosis_combined_history_observations_replay_offline",
-      "derivable_operations::ethereum_native_large_history_cold_checkpoint",
-      "derivable_operations::gnosis_native_large_history_cold_checkpoint",
-      "derivable_operations::multipart::four_days_settle_in_parts_with_cold_offline_provers_and_independent_replay",
-      "derivable_operations::retained_native_history_cold_checkpoint"
-    ],
-    "optional_scope": "Explicit retained-capture/large-history/four-day stress probes, disabled in default CI; not part of the 64 pinned protocol scenarios."
+  "optional_native_not_run": [
+    "cross_chain::combined_history::kurtosis_combined_history_observations_replay_offline",
+    "derivable_operations::ethereum_native_large_history_cold_checkpoint",
+    "derivable_operations::gnosis_native_large_history_cold_checkpoint",
+    "derivable_operations::multipart::four_days_settle_in_parts_with_cold_offline_provers_and_independent_replay",
+    "derivable_operations::retained_native_history_cold_checkpoint"
+  ],
+  "unchanged_checks": "Pinned Anvil 64, core and integration Solidity, SDK, dependencies and Reth checks were qualified before simplification; see immutable prior record. Their sources did not change.",
+  "previous_record": "https://github.com/eez-association/eez-rollupX/blob/f0f40401d491ddaf4e1190e408dba92963b9118f/docs/audits/2026-10-30-full-protocol-e2e/candidate-validation.json",
+  "raw_artifacts": "local-only: artifacts/full-protocol/candidate/revision-0ffc0b8d; static/unit diagnostics: artifacts/full-protocol/key-rotation-review",
+  "first_failures": [
+    "Binary-only signer invoked with --lib; corrected target before tests executed.",
+    "Sandbox socket denial caused 60 package failures; rerun with local socket access.",
+    "One history fixture still encoded RPC version 7; regenerated identity 8 and reran all package tests.",
+    "Initial E2E export omitted GITHUB_SHA; corrected environment and verified export.",
+    "Local all-ref secret scan found two unrelated public-vkey records outside PR ancestry; PR ancestry scan clean. No private credentials found in those records."
+  ],
+  "evidence_sha256": {
+    "kurtosis-final/result.json": "bcf99bb0c8ba9b554f6c55103d7c2e508c85094e0979d3e4f72aff28d5eb434c",
+    "kurtosis-final/protocol-e2e/summary.json": "0bb871acfe583ca010e5bab7e8e26bd2d159b7fa509859152f4376c3cf5416e9",
+    "independent-replay.json": "663645088f9b8ce6ded392324cf9fab3595d39fa8937fb5f4759b89ca1457314",
+    "native-results.json": "f41c688941f3e255365eff1f76ce8b7e161b718f96e9bc946d6c6471cae2717f"
   }
 }
