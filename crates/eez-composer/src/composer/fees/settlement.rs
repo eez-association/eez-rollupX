@@ -224,21 +224,7 @@ fn batch(runtime: &PostingRuntime, input: &SettlementInput<'_>) -> Result<EvmBat
     }
     let counts = eez_protocol::system_tx::outbound_settlement_source_counts(
         input.entries,
-        &input
-            .groups
-            .iter()
-            .map(|group| {
-                (
-                    group.effects.len(),
-                    group.effects.iter().any(|effect| {
-                        matches!(
-                            effect.source_entry,
-                            eez_protocol::system_tx::OutboundSourceEntry::Static(_)
-                        )
-                    }),
-                )
-            })
-            .collect::<Vec<_>>(),
+        input.groups.iter().map(OutboundSyncGroup::source_shape),
     )
     .map_err(unavailable)?;
     let effects = input
@@ -246,9 +232,6 @@ fn batch(runtime: &PostingRuntime, input: &SettlementInput<'_>) -> Result<EvmBat
         .iter()
         .flat_map(|g| &g.effects)
         .collect::<Vec<_>>();
-    if counts.iter().sum::<usize>() != effects.len() {
-        return Err(FeeQuoteError::Unsupported("settlement effect coverage"));
-    }
     let prefix = placeholder(0)?;
     let checkpoints = (0..input.entries.len())
         .map(|i| placeholder(i + 1))

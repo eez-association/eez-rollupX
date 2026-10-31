@@ -53,3 +53,19 @@ retained native signatures/public-input hashes and the independent baseline
 profile/key vectors are unchanged. Only the obsolete RPC/signing-domain version
 equality assertion was removed. All 64 network scenarios and independent follower
 replay passed again; see [the audit summary](README.md).
+
+## Partitioning cleanup review
+
+The follow-up keeps fallible native-load decoding before partitioning and validates
+every host before accepting complete-group boundaries. Nonempty call arrays always
+have a cursor/static slot, so removing discarded cursor inference changes no host
+shape decision. Successful partitions consume every supplied source group exactly;
+removed caller sum checks repeated that guarantee, not execution authorization.
+The inverse verifier and receipt/commitment binding remain mandatory. Successful
+nested calls previously created a fact snapshot that was never restored; making
+that snapshot conditional leaves failure restoration unchanged.
+
+The baseline/candidate partition functions returned identical vectors or errors
+on 100,000 generated cases. Focused malformed-host and split-group tests passed.
+See the [performance and qualification record](performance.md) for the final scope
+and source-bound validation; this remains a manual review, not an external audit.

@@ -117,6 +117,23 @@ the transaction boundary, preserving canonical order without repeatedly shifting
 vectors for snapshots sharing a first action. Keep exact
 Snapshot/Return context validation and round-trip evidence.
 
+### Partitioning simplification
+
+Complete source groups already establish partition boundaries when their count
+equals the settlement-host count. Validate every host's shape first, then use
+those boundaries directly; computing discarded call-hash cursor counts adds work
+without strengthening this decision. Unequal counts retain cursor-based
+partitioning. Stream group metadata through the shared helper instead of building
+temporary vectors in Composer and reconstruction. Successful partitions already
+cover the supplied source groups, so callers need not repeat that sum check.
+Successful nested calls do not need snapshots used only after failure. The signer's fallible load
+decoding and independent execution binding remain mandatory.
+
+This cleanup preserves accepted inputs, error precedence, wire formats and
+signing identity. Qualification compares exact results against the previous
+implementation and measures ordinary, static, rollback and split-host workloads
+with the same release profile. See the [performance record](../audits/2026-10-30-full-protocol-e2e/performance.md).
+
 ## Compatibility and recovery
 
 This extends the accepted proof/execution profile without authorizing a protocol

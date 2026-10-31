@@ -788,7 +788,7 @@ fn execute_next_nested_call(
             "nested pair call cursor changed while opening a row".into(),
         ))
     })?;
-    let saved_facts = facts.clone();
+    let saved_facts = (!row.success).then(|| facts.clone());
     facts.record_value(destination.chain, next_call.value)?;
     if !destination.chain.is_mainnet() {
         facts.l2_outbound_hashes.push(source_hash);
@@ -803,7 +803,7 @@ fn execute_next_nested_call(
         depth + 1,
     )?;
     destination.close_row(row_index, row.success)?;
-    if !row.success {
+    if let Some(saved_facts) = saved_facts {
         *facts = saved_facts;
     }
     Ok(true)

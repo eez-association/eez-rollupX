@@ -295,6 +295,19 @@ pub struct OutboundSyncGroup {
     pub user_tx: Bytes,
 }
 
+impl OutboundSyncGroup {
+    /// Table size and static-pool presence, derived from this complete load.
+    /// These describe partition boundaries; they do not authorize its effects.
+    pub fn source_shape(&self) -> (usize, bool) {
+        (
+            self.effects.len(),
+            self.effects
+                .iter()
+                .any(|effect| matches!(effect.source_entry, OutboundSourceEntry::Static(_))),
+        )
+    }
+}
+
 /// Number of source-L2 roots represented by each outbound L1 settlement host.
 ///
 /// Each live source cursor slot is backed by one seed-only execution-table
@@ -316,24 +329,29 @@ pub fn outbound_settlement_root_counts<'a>(
         .into_iter()
         .enumerate()
         .map(|(index, entry)| {
-            if entry.proxyEntryHash != alloy_primitives::B256::ZERO {
-                return Err(format!(
-                    "outbound settlement entry {index} has a non-zero proxy hash"
-                ));
-            }
-            check_call_array_shape(
-                &entry.l2ToL1Calls,
-                &format!("outbound settlement entry {index} flat calls"),
-            )?;
+            check_outbound_host(entry, index)?;
             let roots = call_array_cursor_slots(&entry.l2ToL1Calls);
-            if roots == 0 {
-                return Err(format!(
-                    "outbound settlement entry {index} has no top-level L2-to-L1 root"
-                ));
-            }
             Ok(roots)
         })
         .collect()
+}
+
+fn check_outbound_host(entry: &ExecutionEntrySol, index: usize) -> Result<(), String> {
+    if entry.proxyEntryHash != B256::ZERO {
+        return Err(format!(
+            "outbound settlement entry {index} has a non-zero proxy hash"
+        ));
+    }
+    check_call_array_shape(
+        &entry.l2ToL1Calls,
+        &format!("outbound settlement entry {index} flat calls"),
+    )?;
+    if entry.l2ToL1Calls.is_empty() {
+        return Err(format!(
+            "outbound settlement entry {index} has no top-level L2-to-L1 root"
+        ));
+    }
+    Ok(())
 }
 
 fn call_array_cursor_slots(calls: &[crate::abi::L2ToL1CallSol]) -> usize {
@@ -384,18 +402,27 @@ fn call_array_cursor_slots(calls: &[crate::abi::L2ToL1CallSol]) -> usize {
 /// calls. Mutable-only loads retain their cursor-based partition, including
 /// multiple hosts in one signed transaction. Counts establish boundaries only;
 /// callers must independently bind every host to the selected source tables.
-pub fn outbound_settlement_source_counts<'a>(
-    entries: impl IntoIterator<Item = &'a ExecutionEntrySol>,
-    groups: &[(usize, bool)],
-) -> Result<Vec<usize>, String> {
-    let root_counts = outbound_settlement_root_counts(entries)?;
-    if groups.len() == root_counts.len() {
-        // Every load owns at least one host, so equal cardinalities uniquely
-        // identify complete-group boundaries. Do not infer slot counts from
-        // root attempts: terminal reverts can reuse the same source slot.
+/// On success, the returned counts cover exactly all supplied source entries,
+/// with one nonempty partition per host. Callers need not recompute that total.
+pub fn outbound_settlement_source_counts<'a, E>(
+    entries: E,
+    groups: impl ExactSizeIterator<Item = (usize, bool)>,
+) -> Result<Vec<usize>, String>
+where
+    E: IntoIterator<Item = &'a ExecutionEntrySol>,
+    E::IntoIter: ExactSizeIterator,
+{
+    let entries = entries.into_iter();
+    if groups.len() == entries.len() {
+        // Every nonempty load owns at least one host, so equal cardinalities
+        // fix complete-group boundaries. Validate all hosts without inferring
+        // cursor slots, which reverts can reuse. Callers still bind execution
+        // independently; these counts alone cannot authorize effects.
+        for (index, entry) in entries.enumerate() {
+            check_outbound_host(entry, index)?;
+        }
         return groups
-            .iter()
-            .map(|&(count, _)| {
+            .map(|(count, _)| {
                 if count == 0 {
                     Err("outbound source group is empty".into())
                 } else {
@@ -404,8 +431,9 @@ pub fn outbound_settlement_source_counts<'a>(
             })
             .collect();
     }
+    let root_counts = outbound_settlement_root_counts(entries)?;
     let mut counts = Vec::with_capacity(root_counts.len());
-    for &(source_count, has_static) in groups {
+    for (source_count, has_static) in groups {
         if source_count == 0 {
             return Err("outbound source group is empty".into());
         }
@@ -1075,8 +1103,70 @@ mod tests {
             outbound_settlement_root_counts(&[host.clone()]).unwrap(),
             [2]
         );
+        assert_eq!(
+            outbound_settlement_source_counts(
+                &[host.clone(), host.clone()],
+                [(4, false)].into_iter(),
+            )
+            .unwrap(),
+            [2, 2],
+        );
+        assert_eq!(
+            outbound_settlement_source_counts(
+                &[host.clone(), host.clone()],
+                [(3, false)].into_iter(),
+            )
+            .unwrap_err(),
+            "outbound settlement host splits signed source groups",
+        );
         host.l2ToL1Calls[0].revertNextNCalls = 1;
         assert_eq!(outbound_settlement_root_counts(&[host]).unwrap(), [1]);
+    }
+
+    #[test]
+    fn complete_source_groups_reject_malformed_hosts_before_partitioning() {
+        let mut host = inbound(1, U256::ZERO).as_abi_entry().clone();
+        host.proxyEntryHash = B256::ZERO;
+        let mut hosts = vec![host.clone(), host];
+        let groups = [(1, false), (1, false)];
+        assert_eq!(
+            outbound_settlement_source_counts(&hosts, groups.into_iter()).unwrap(),
+            [1, 1]
+        );
+        hosts[1].l2ToL1Calls[0].gas = 1;
+        assert_eq!(
+            outbound_settlement_source_counts(&hosts, [(0, false), (1, false)].into_iter())
+                .unwrap_err(),
+            "outbound settlement entry 1 flat calls call 0 uses explicit-gas semantics"
+        );
+        hosts[1].l2ToL1Calls[0].gas = 0;
+        hosts[1].l2ToL1Calls[0].isStatic = true;
+        hosts[1].l2ToL1Calls[0].value = U256::from(1);
+        assert_eq!(
+            outbound_settlement_source_counts(&hosts, groups.into_iter()).unwrap_err(),
+            "outbound settlement entry 1 flat calls static call 0 carries non-zero value"
+        );
+        hosts[1].l2ToL1Calls[0].value = U256::ZERO;
+        hosts[1].l2ToL1Calls[0].revertNextNCalls = 2;
+        assert_eq!(
+            outbound_settlement_source_counts(&hosts, groups.into_iter()).unwrap_err(),
+            "outbound settlement entry 1 flat calls call 0 revert span 2 exceeds the 1-call array"
+        );
+        hosts[1].proxyEntryHash = B256::repeat_byte(1);
+        assert_eq!(
+            outbound_settlement_source_counts(&hosts, groups.into_iter()).unwrap_err(),
+            "outbound settlement entry 1 has a non-zero proxy hash"
+        );
+        hosts[1].proxyEntryHash = B256::ZERO;
+        hosts[1].l2ToL1Calls.clear();
+        assert_eq!(
+            outbound_settlement_source_counts(&hosts, groups.into_iter()).unwrap_err(),
+            "outbound settlement entry 1 has no top-level L2-to-L1 root"
+        );
+        assert_eq!(
+            outbound_settlement_source_counts(&hosts[..1], [(0, false)].into_iter()).unwrap_err(),
+            "outbound source group is empty"
+        );
     }
 
     #[test]

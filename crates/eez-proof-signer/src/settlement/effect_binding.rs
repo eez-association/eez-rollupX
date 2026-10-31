@@ -241,9 +241,11 @@ fn derive_effect_positions(
             ))
         })
         .collect::<Result<Vec<_>, EffectPrefixError>>()?;
-    let source_counts =
-        outbound_settlement_source_counts(outbound_entries.iter().copied(), &group_shapes)
-            .map_err(&invalid)?;
+    let source_counts = outbound_settlement_source_counts(
+        outbound_entries.iter().copied(),
+        group_shapes.into_iter(),
+    )
+    .map_err(&invalid)?;
     let mut positions = Vec::with_capacity(outbound_count + inbound_count);
     let mut host_index = 0;
     let mut next_position = loads

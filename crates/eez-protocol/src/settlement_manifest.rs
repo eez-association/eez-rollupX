@@ -250,19 +250,8 @@ impl SettlementManifest {
         let group_shapes = input
             .outbound_groups
             .iter()
-            .map(|group| {
-                (
-                    group.effects.len(),
-                    group.effects.iter().any(|effect| {
-                        matches!(
-                            effect.source_entry,
-                            crate::system_tx::OutboundSourceEntry::Static(_)
-                        )
-                    }),
-                )
-            })
-            .collect::<Vec<_>>();
-        let root_counts = outbound_settlement_source_counts(input.outbound_hosts, &group_shapes)?;
+            .map(OutboundSyncGroup::source_shape);
+        let root_counts = outbound_settlement_source_counts(input.outbound_hosts, group_shapes)?;
         let mut effects = Vec::new();
         let mut root_cursor = 0usize;
         let mut host_cursor = 0usize;

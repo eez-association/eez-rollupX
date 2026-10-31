@@ -973,21 +973,10 @@ where
                 .map_err(DeriverError::l2_provider)?;
             let counts = eez_protocol::system_tx::outbound_settlement_source_counts(
                 &posted.batch.entries[1..immediate],
-                &actions
+                actions
                     .outbound()
                     .iter()
-                    .map(|group| {
-                        (
-                            group.effects.len(),
-                            group.effects.iter().any(|effect| {
-                                matches!(
-                                    effect.source_entry,
-                                    eez_protocol::system_tx::OutboundSourceEntry::Static(_)
-                                )
-                            }),
-                        )
-                    })
-                    .collect::<Vec<_>>(),
+                    .map(eez_protocol::system_tx::OutboundSyncGroup::source_shape),
             )
             .map_err(DeriverError::l2_provider)?;
             let groups = actions
@@ -2370,20 +2359,9 @@ where
                 let outbound_settlement_root_counts =
                     eez_protocol::system_tx::outbound_settlement_source_counts(
                         &settlement_outbound,
-                        &all_outbound
+                        all_outbound
                             .iter()
-                            .map(|group| {
-                                (
-                                    group.effects.len(),
-                                    group.effects.iter().any(|effect| {
-                                        matches!(
-                                            effect.source_entry,
-                                            eez_protocol::system_tx::OutboundSourceEntry::Static(_)
-                                        )
-                                    }),
-                                )
-                            })
-                            .collect::<Vec<_>>(),
+                            .map(eez_protocol::system_tx::OutboundSyncGroup::source_shape),
                     )
                     .map_err(|error| {
                         DeriverError::l2_provider(format!(
@@ -2468,20 +2446,9 @@ where
                 let selected_root_counts =
                     eez_protocol::system_tx::outbound_settlement_source_counts(
                         &settlement_outbound,
-                        &outbound
+                        outbound
                             .iter()
-                            .map(|group| {
-                                (
-                                    group.effects.len(),
-                                    group.effects.iter().any(|effect| {
-                                        matches!(
-                                            effect.source_entry,
-                                            eez_protocol::system_tx::OutboundSourceEntry::Static(_)
-                                        )
-                                    }),
-                                )
-                            })
-                            .collect::<Vec<_>>(),
+                            .map(eez_protocol::system_tx::OutboundSyncGroup::source_shape),
                     )
                     .map_err(|error| {
                         DeriverError::l2_provider(format!(
@@ -2493,13 +2460,6 @@ where
                     .flat_map(|group| group.effects.iter())
                     .map(|effect| effect.source_entry.clone())
                     .collect::<Vec<_>>();
-                if selected_root_counts.iter().sum::<usize>() != selected_sources.len() {
-                    return Err(DeriverError::l2_provider(format!(
-                        "postBatch({tx_hash}) selected outbound hosts cover {} roots, but reconstruction selected {} source entries",
-                        selected_root_counts.iter().sum::<usize>(),
-                        selected_sources.len(),
-                    )));
-                }
                 // Static lookups share one pool for the whole signed user
                 // transaction. Match the signer's whole-load boundary before
                 // independently verifying the reconstructed source tables.

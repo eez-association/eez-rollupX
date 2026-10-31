@@ -579,7 +579,7 @@ fn failed_root_retry_keeps_one_complete_source_group() {
     assert_eq!(
         eez_protocol::system_tx::outbound_settlement_source_counts(
             &host.batch.entries,
-            &[(sources.len(), false)]
+            [(sources.len(), false)].into_iter()
         )
         .unwrap(),
         [1]
@@ -616,7 +616,7 @@ fn recursive_static_reads_use_the_innermost_static_frame() {
     assert_eq!(
         eez_protocol::system_tx::outbound_settlement_source_counts(
             std::slice::from_ref(host),
-            &[(2, true)],
+            [(2, true)].into_iter(),
         )
         .unwrap(),
         vec![2],

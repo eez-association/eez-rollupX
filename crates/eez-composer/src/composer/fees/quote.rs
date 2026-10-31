@@ -1457,17 +1457,15 @@ fn outbound_group(
         return Err(FeeQuoteError::Unsupported("no L1 settlement entries"));
     }
     let source = &composition.source;
-    let roots = eez_protocol::system_tx::outbound_settlement_source_counts(
+    eez_protocol::system_tx::outbound_settlement_source_counts(
         entries,
-        &[(
+        [(
             source.batch.entries.len() + source.l2_static_entries.len(),
             !source.l2_static_entries.is_empty(),
-        )],
+        )]
+        .into_iter(),
     )
     .map_err(|e| unavailable("settlement roots", e))?;
-    if roots.iter().sum::<usize>() != source.batch.entries.len() + source.l2_static_entries.len() {
-        return Err(FeeQuoteError::Unsupported("incomplete settlement roots"));
-    }
     let mut effects = source
         .batch
         .entries
