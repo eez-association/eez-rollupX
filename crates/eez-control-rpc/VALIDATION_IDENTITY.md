@@ -6,22 +6,24 @@ No Rust dependency, Cargo lockfile, source revision, binary hash, transport URL,
 signing key or resource limit participates.
 
 Version 8 retains the unmodified Core `Rollup` manager and timestamp/hash
-context introduced in version 7. The registered vkey binds the validation program and network profile.
-It removes automatic accepted-root/rule-period proof expiry. The L2 execution
+context introduced in version 7. The registered vkey binds the deployed signing domain and network profile.
+Version 7 already removed automatic accepted-root/rule-period proof expiry. The L2 execution
 rules, including the upgradeable history store, 0x46 imports and block-end balance
 cleanup, remain unchanged. Known compatible L1 fork crossings are allowed;
 incompatible changes require coordinated on-chain key revocation/replacement.
 
-Use matching node, follower, signer and deployment artifacts for fresh networks.
-Previous manager/context/key formats and sessions are unsupported. The v2
+Use matching Composer, follower and signer artifacts. Version-7 proving sessions
+are unsupported; the deployed signing domain and registered keys remain unchanged.
+Earlier manager/context/genesis migration boundaries are unaffected. The v2
 protobuf, cross-chain 0x45 and protocol pin are unchanged.
 
 Version 8 extends the accepted cross-chain profile to recursive static callbacks,
 failed mutable calls with descendants, nested rollback scopes and authenticated
 mutable lookup replay. Reused rows retain exact callback and execution
 commitments. The protobuf, protocol pin and native encodings remain unchanged.
-The version is bound into the network profile and registered key, so version-7
-runtime artifacts and keys cannot be mixed with this profile. The coordinated
+RPC version 8 is not hashed into the registered key. The signing domain remains
+7 because this extension does not change the meaning of valid prior attestations.
+Old runtime artifacts cannot process all newly supported shapes. The runtime
 upgrade boundary is documented in the
 [full protocol proposal](../../docs/proposals/full-protocol-e2e.md#compatibility-and-recovery).
 
@@ -59,7 +61,7 @@ The network profile commitment is Ethereum Keccak over this static ABI tuple:
 
 ```text
 abi.encode(
-  keccak256("EEZ_ROLLUPX_NETWORK_PROFILE_V1"), uint64(8),
+  keccak256("EEZ_ROLLUPX_NETWORK_PROFILE_V1"), uint64(7),
   address(historyAddress), uint64(64), uint64(2000000),
   keccak256(historyProxyRuntime),
   (uint256 l1ChainId, uint256 l2ChainId, bytes32 genesisHash,
@@ -67,6 +69,10 @@ abi.encode(
    uint32 updateOffset, bytes32 l1ConfigHash, address feeCollector)
 )
 ```
+
+The signing-domain version changes only for an explicitly incompatible rule
+change or attestation revocation, not for additional compatible runtime support.
+It identifies a policy; ECDSA does not attest which binary holds the private key.
 
 The registered verification key is:
 
@@ -163,10 +169,9 @@ Block. The remote hash is never an input to the local calculation. To diagnose a
 mismatch compare each local preimage field; the unchanged wire hash does not
 identify a differing field.
 
-Different validation-contract versions fail the exact comparison.
-Deploy matching Composer/prover/follower artifacts and newly generated genesis
-and registered verification key together. The network profile binds the collector and execution profile;
-the service uses v2 and validation-contract version 8. Discard retained sessions
-when changing identity. This is a fresh-network profile, with no migration or
-rollback path for existing blocks/databases.
+Different RPC validation versions fail the exact comparison. Upgrade matching
+Composer/prover/follower artifacts and discard retained sessions. Compatible
+support extensions retain the signing domain, registered key and existing genesis;
+the RPC version is not an on-chain key version. Earlier incompatible manager or
+execution-profile migrations remain outside this compatibility boundary.
 Pending requests/counters remain in memory; restart is not durable queue recovery.

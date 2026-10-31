@@ -56,7 +56,8 @@ equivalent. Independently check the unmodified terminal execution output against
 its header root. The validation identity distinguishes execution semantics
 without changing the v2 protobuf. Version 8 additionally requires authenticated
 manager-table replay for mutable lookups, complete recursive static callbacks and
-nested source rollback scopes; see the [signer contract](../../eez-proof-signer/SPEC.md).
+nested source rollback scopes. The on-chain signing domain remains 7; this RPC
+version does not rotate the registered verification key. See the [signer contract](../../eez-proof-signer/SPEC.md).
 For each native group compute standard ABI
 `keccak256(abi.encode(string("SOURCE_ENTRY_V1"), uint256(chainId),
 bytes32(l1ParentHash), uint64(entryIndex)))`. Use the L2 EVM chain ID from the

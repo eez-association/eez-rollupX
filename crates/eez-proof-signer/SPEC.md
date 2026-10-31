@@ -979,9 +979,14 @@ all roots covered by that host, within the `int192` range.
 
 ### Fresh-network profile boundary
 
-Deploy matching contracts, genesis, Composer, signer and followers together with
-fresh datadirs. There is no old/new activation height or migration. Validation-contract version 8 and capability profile 2 identify the
-current contract before proving. Configuration and wire inputs must match it. Restart may require client
+The baseline manager/genesis profile remains required. This extension preserves
+its signing domain 7 and registered verification key; it requires no contract,
+genesis or datadir replacement. RPC validation version 8 and capability profile 2
+identify the extended runtime contract before proving. Upgrade Composer, signer
+and followers together and discard old sessions; older lookup requests may need
+additional manager witnesses. Old followers cannot replay newly admitted shapes.
+No live migration of a pre-baseline network is established by these tests.
+Configuration and wire inputs must match the runtime identity. Restart may require client
 resubmission because queue ownership remains in memory; this feature does not
 add durable request recovery or change retry attribution.
 

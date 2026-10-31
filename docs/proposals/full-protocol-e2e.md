@@ -131,18 +131,21 @@ Once newly admitted data is canonical, a downgrade to a follower lacking its
 support cannot safely replay it. Restarts retain the existing volatile-queue
 limits; clients may need to resubmit unsettled work.
 
-Validation contract 8 identifies the extended acceptance rules. The version
-is included in both RPC identity and the network-profile commitment, so the
-registered verification key changes even though the protobuf, protocol pin,
-Solidity ABI and native transaction encoding do not. This requires matching
-node/follower/signer/deploy artifacts and newly derived identities/keys; it is
-not a binary-only change to an existing version-7 deployment. Follow the
-[coordinated-upgrade boundary](../runbooks/chiado-deployment.md#rollup-manager-and-coordinated-upgrades)
-for existing networks. No live key rotation, public deployment or operator data
-migration is part of this local validation effort. Fresh test enclaves use their
-own version-8 deployment bindings. Record historical replay evidence separately;
-identity regeneration alone cannot prove compatibility or permit rollback after
-newly supported data has become canonical.
+RPC validation version 8 identifies the extended runtime acceptance rules. It
+remains separate from the deployed signing domain, whose encoded version stays
+7. Compatible protocol-support extensions do not revoke existing signatures:
+the registered verification key, attester, contracts and genesis stay unchanged.
+Network, registry and proof-system bindings remain mandatory. Only an explicitly
+incompatible rule change or a need to revoke old attestations warrants on-chain
+key replacement; this PR establishes neither.
+
+Upgrade Composer, signer and followers together, drain/discard old proving
+sessions and rebuild requests with complete witnesses. The caught-lookup replay
+now reads authenticated manager state absent from older request witnesses. Old
+followers cannot replay newly admitted shapes, so downgrade after their canonical
+inclusion is unsupported. This is a compatibility policy, not a rehearsed live
+migration of an arbitrary older network. Existing pre-baseline manager/genesis
+boundaries still apply.
 
 ## Evidence
 

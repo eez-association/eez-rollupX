@@ -70,7 +70,7 @@ The [bidirectional](../../eez-proof-signer/tests/fixtures/native-offline-bidirec
 fixtures supply exact fresh-network genesis, deployment identity, full v2 inputs
 and expected proof digests. Execution bytes come from the original native process
 scenarios; the lookup fixture supplements its terminal witness by exact replay
-from genesis, as documented in its README. Version-8 keys and proof expectations
+from genesis, as documented in its README. Stable signing-domain-7 keys and proof expectations
 are recomputed from those inputs,
 then checked against the pinned Core Solidity verifier. Their READMEs distinguish
 these adaptations from new on-chain captures. The signing key is intentionally public test material.

@@ -9,8 +9,9 @@ use std::num::NonZeroU64;
 use alloy_primitives::{Address, B256, Bytes, keccak256};
 use alloy_rlp::RlpEncodable;
 
-/// One contract version for identity encoding, JSON canonicalization and accepted
-/// execution/settlement semantics. These rules cannot be selected independently.
+/// Runtime compatibility version for identity encoding, canonicalization and
+/// accepted execution/settlement evidence. Independent of the stable on-chain
+/// signing domain: compatible support extensions do not revoke old signatures.
 /// See VALIDATION_IDENTITY.md; implementation/build metadata never participates.
 pub const VALIDATION_VERSION: u64 = 8;
 
