@@ -4,8 +4,8 @@
 
 - Fork baseline: `c702f90da19cc149890d0a17a4ef6c200dcb6a21`.
 - Unchanged protocol: `84a5b5207880f192a6a5896cbfe0bac5249db47f`.
-- Locally qualified simplified implementation: `0ffc0b8dcfa211222df79f7c8f53de4dc869b429`.
-- Previously hosted-qualified PR head: `f0f40401d491ddaf4e1190e408dba92963b9118f`.
+- Locally qualified simplified implementation: `e51a2477d98662be2b33c0f17b3bc4c0f0921d20`.
+- Previously hosted-qualified PR head: `1ff8619d0be29c0f1ab4376d2a76737552d3c61f`.
 - [Design and compatibility](../../proposals/full-protocol-e2e.md),
   [64-scenario inventory](scenarios.md), [signer review](signer-review.md).
 
@@ -15,59 +15,59 @@ adds nested static/mutable callbacks, caught-revert continuation, rollback owner
 and reusable static candidates throughout composition, independent validation,
 settlement and follower reconstruction. No pinned scenario assertion was weakened.
 
-## Qualification before simplification
+## Current local qualification
 
-[Hosted CI run 41165154202](https://github.com/eez-association/eez-rollupX/actions/runs/41165154202)
-passed all 13 jobs. Its merge tree exactly matches `f0f40401`.
+The cleanup removes 86 production lines, six temporary metadata vectors, repeated
+coverage totals and discarded call hashing. Successful nested calls no longer copy
+rollback facts they never restore. Host-shape validation and independent execution,
+receipt and commitment binding remain mandatory. The [performance record](performance.md)
+contains the matched measurements and their limits: no regression in seven
+partitioner workloads; this is not a whole-node throughput claim.
 
-| Evidence | Result |
+| Check | Result on `e51a2477` |
 | --- | --- |
-| Complete pinned reference Anvil suite | 64 passed, zero omissions |
-| Local and hosted Kurtosis protocol suites | 64 passed each, zero failures/skips/exclusions; complete semantic and causal evidence |
-| Local independent cold follower | Canonical L1 only through L2 block 966; 84 scenario-range blocks and 101 receipts checked across 12 batches |
-| Hosted native E2E inventory | 192 passed exactly once: 149 cross-chain + 43 embedded, all eight shards successful |
 | Workspace units | 1,641 passed; six optional fixture/timing utilities skipped |
-| Release protocol/blob evidence | 55 passed, zero skipped |
-| Integration contracts | 153 passed |
-| Applicable lint, codecs, RPC, SDK, configuration and dependency checks | Passed; existing audit warnings and optional exclusions recorded below |
+| Affected packages / signer | 1,149 / 338 passed, respectively |
+| Native E2Es | All 192 executed exactly once: 191 first-run passes and one timing flake; targeted baseline and candidate diagnostics passed |
+| Release protocol/blob checks | 55 passed, zero skipped |
+| Network traffic and state chaining | All four traffic modes and state-chaining assertions passed |
+| Complete protocol confirmation | 64 passed, zero failures/skips/exclusions/omissions; semantic and causal evidence complete |
+| Independent cold follower | Canonical L1 only through L2 block 1,974; 150 scenario-range blocks and 101 receipts checked across 25 batches covering all 64 scenarios |
+| Real proof path | 97 signed windows, 97 remote attestations, zero canonical divergence events |
+| CI tooling | 423 passed; seven optional infrastructure probes not run |
+| Formatting, Clippy, signer rustdoc, SDK, configuration, genesis, artifact identity and PR-history secret scan | Passed |
 
-The [original validation record](https://github.com/eez-association/eez-rollupX/blob/f0f40401d491ddaf4e1190e408dba92963b9118f/docs/audits/2026-10-30-full-protocol-e2e/candidate-validation.json)
-retains the source and artifact identities for those earlier results.
+The native flake missed a fixture's explicit L1 submission target. Its unchanged
+test passed on both prior and candidate binaries in isolated diagnostics; the
+original full run remains failed (`flaky-result = fail`). The first 64-worker
+protocol run passed upstream assertions but failed strict evidence collection:
+one scenario retried an underfunded fee quote, leaving an unreconciled `ERROR`.
+The complete confirmation used CI's four-worker concurrency and passed all checks.
+No test, evidence rule, timeout or scenario selection was weakened. Both first
+failures and successful confirmations are retained.
 
-## Simplification and signing identity: 2026-10-31
+[Validation identities and results](candidate-validation.json),
+[follower result](candidate-independent-replay.json) and the
+[scenario inventory](scenarios.md) bind the evidence to this source. Raw logs,
+datadirs and measurement samples are local-only under
+`artifacts/full-protocol/candidate/revision-e51a2477` and
+`artifacts/full-protocol/simplification-performance`; they are unavailable from
+another checkout. The task-owned enclave was stopped with its data retained.
+Hosted CI for this follow-up must still be checked on [PR #123](https://github.com/eez-association/eez-rollupX/pull/123).
 
-The initial implementation unnecessarily coupled RPC validation version 8 to
-on-chain key rotation. Review found no changed ECDSA verifier, core protocol pin,
-key-derivation algorithm, production Solidity ABI or genesis. Two retained native
-request fixtures are byte-identical; the caught-lookup fixture adds authenticated
-manager witness material without changing its execution history.
+## Signing identity and compatibility
 
-The correction keeps RPC identity 8 for runtime compatibility and preserves the
-existing signing-domain version 7 and registered vkey. Independent Foundry ABI/hash
-checks reproduced both baseline profile vectors and all five baseline key vectors.
-This does not remove network/registry/proof-system binding or authorize signing
-before independent execution. No contract/key/genesis migration is required by
-this compatible extension. Earlier pre-baseline deployment boundaries still apply.
+RPC compatibility remains version 8; signing domain 7 and the registered vkey
+remain unchanged. No verifier, core pin, production ABI, genesis or storage format
+changes are introduced by this cleanup. No contract/key/genesis migration is
+required for the baseline-compatible extension. Network, registry, proof-system
+and independent execution checks remain mandatory. Earlier pre-baseline deployment
+boundaries still apply.
 
-**Simplified revision locally qualified:** 1,640 workspace units, 192 native E2Es
-(149 cross-chain + 43 embedded, each exactly once), 338 signer tests, 55 release
-protocol/blob tests and 29 RPC conformance vectors passed. All 64 pinned scenarios
-passed through Kurtosis with zero skips/exclusions, complete semantic/causal
-evidence and 54 signed windows. A fresh canonical-L1 follower replayed through
-L2 block 960, checking 78 scenario-range blocks and 101 receipts across 11 batches.
-Formatting, Clippy, signer rustdoc, genesis and artifact identity checks passed.
-The unit count decreased by one because the obsolete RPC/signing-domain version
-equality assertion was removed; no behavioral regression test was removed.
-
-[Current validation record](candidate-validation.json) and
-[follower result](candidate-independent-replay.json) retain exact identities,
-optional skips and first failures. Raw logs/datadirs are local-only under
-`artifacts/full-protocol/candidate/revision-0ffc0b8d`; static/unit diagnostics are
-under `artifacts/full-protocol/key-rotation-review`. They are unavailable from
-another checkout. The unchanged Anvil/Solidity/dependency checks retain their
-earlier qualification. Hosted CI for the simplified update must be checked on
-[PR #123](https://github.com/eez-association/eez-rollupX/pull/123); the earlier green
-run does not qualify a later head.
+The [prior qualified record](https://github.com/eez-association/eez-rollupX/blob/1ff8619d0be29c0f1ab4376d2a76737552d3c61f/docs/audits/2026-10-30-full-protocol-e2e/candidate-validation.json) preserves the
+signing-identity vectors, all 64 scenario results, cold replay and earlier checks.
+[Hosted run 41187306318](https://github.com/eez-association/eez-rollupX/actions/runs/41187306318)
+passed all 13 jobs on that earlier source, not this follow-up.
 
 ## Material limitations
 

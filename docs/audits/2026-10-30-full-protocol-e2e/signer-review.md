@@ -1,6 +1,6 @@
 # Signer soundness review
 
-Reviewed source: `6808f13b45176291b8cfaa8e5effbc31ee01f504`; protocol
+Initial reviewed source: `6808f13b45176291b8cfaa8e5effbc31ee01f504`; protocol
 `84a5b5207880f192a6a5896cbfe0bac5249db47f`. This is a separate manual adversarial
 source review, not an external audit. [Original findings, source hashes and dated
 follow-ups](https://github.com/eez-association/eez-rollupX/blob/f0f40401d491ddaf4e1190e408dba92963b9118f/docs/audits/2026-10-30-full-protocol-e2e/signer-review.md) retain the full investigation.
@@ -56,6 +56,8 @@ replay passed again; see [the audit summary](README.md).
 
 ## Partitioning cleanup review
 
+Reviewed implementation: `e51a2477d98662be2b33c0f17b3bc4c0f0921d20`.
+
 The follow-up keeps fallible native-load decoding before partitioning and validates
 every host before accepting complete-group boundaries. Nonempty call arrays always
 have a cursor/static slot, so removing discarded cursor inference changes no host
@@ -67,5 +69,7 @@ that snapshot conditional leaves failure restoration unchanged.
 
 The baseline/candidate partition functions returned identical vectors or errors
 on 100,000 generated cases. Focused malformed-host and split-group tests passed.
+The final source passed 338 signer tests, the complete protocol confirmation and
+independent follower replay; local timing/quote flakes remain recorded.
 See the [performance and qualification record](performance.md) for the final scope
 and source-bound validation; this remains a manual review, not an external audit.

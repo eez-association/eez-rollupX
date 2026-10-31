@@ -1,6 +1,7 @@
 # Partitioning simplification and performance
 
 Comparison baseline: `1ff8619d0be29c0f1ab4376d2a76737552d3c61f` (the green PR before this cleanup).
+Measured implementation: `e51a2477d98662be2b33c0f17b3bc4c0f0921d20`.
 Protocol remains `84a5b5207880f192a6a5896cbfe0bac5249db47f`.
 
 The cleanup centralizes complete-load metadata, removes six temporary metadata
@@ -50,8 +51,11 @@ compatibility path. Focused regressions cover malformed hosts on the optimized p
 All 1,149 affected-package tests and 1,641 workspace unit tests passed; five fixture
 utilities and one manual timing probe were ignored as in existing CI. Formatting,
 workspace Clippy, signer all-feature Clippy and warnings-denied rustdoc passed.
-Full runtime qualification is pending;
-see the [audit summary](README.md) for source-bound final evidence.
+Release checks, the complete 64-scenario confirmation and independent follower
+replay passed. All 192 native E2Es executed; one first-run timing failure passed
+its diagnostic rerun. The first protocol run also failed evidence collection after
+a fee-quote retry. See the [audit summary](README.md) for both retained failures,
+confirmation evidence and hosted-CI status.
 
 ## Evidence
 
