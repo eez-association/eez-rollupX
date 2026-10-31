@@ -1,0 +1,247 @@
+{
+  "source_revision": "6808f13b45176291b8cfaa8e5effbc31ee01f504",
+  "protocol_pin": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "qualification_complete": true,
+  "remaining": [],
+  "runtime_manifest": {
+    "schema": 2,
+    "root_commit": "6808f13b45176291b8cfaa8e5effbc31ee01f504",
+    "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "cargo_lock_sha256": "cc34ca4e57394e7fa6951f3397786952bcf59a842baac443f2972d03836a29df",
+    "platform": "linux/amd64",
+    "profile": "release",
+    "rustflags": "-C link-arg=-fuse-ld=mold",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)\n",
+    "base_images": {
+      "rust": "rust@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1",
+      "runtime": "debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3"
+    },
+    "published": false,
+    "images": {
+      "node": {
+        "reference": "ghcr.io/eez-association/eez-rollupx-node:sha-6808f13b45176291b8cfaa8e5effbc31ee01f504-2026103101-1",
+        "image_id": "sha256:f9d2c81b9fef200fab22091caa839c4d49298e3be4054e01ecab48d047e74717"
+      },
+      "signer": {
+        "reference": "ghcr.io/eez-association/eez-rollupx-proof-signer:sha-6808f13b45176291b8cfaa8e5effbc31ee01f504-2026103101-1",
+        "image_id": "sha256:0b92f49ba25a7a291b3bf03f233426f017110f340fa93953f434a1a0ed194899"
+      },
+      "deploy": {
+        "reference": "ghcr.io/eez-association/eez-rollupx-deploy:sha-6808f13b45176291b8cfaa8e5effbc31ee01f504-2026103101-1",
+        "image_id": "sha256:5abbfc12e525629459228067ccccbe7b3954a34dba47d859141fc8f3b3b42882"
+      }
+    },
+    "binaries_sha256": "71ed5cc71ce42fb0f21b5bb5d89fb44cd601176717757470345d7e17015f2ff3"
+  },
+  "test_manifest": {
+    "schema": 4,
+    "cargo_lock_sha256": "cc34ca4e57394e7fa6951f3397786952bcf59a842baac443f2972d03836a29df",
+    "platform": "linux/amd64",
+    "profile": "release",
+    "rustflags": "-C link-arg=-fuse-ld=mold",
+    "nextest": "0.9.143",
+    "rust": "1.95.0",
+    "archives_sha256": {
+      "native-tests.tar.zst": "870860992466e532aa6ee0906c617881786e0dd6f9f07cba6ea44c3fd00c8f80"
+    },
+    "runtime_sha256": {
+      "eez-composer": "09e0bd7fb6a9d53f31ce256fa1111b70de7b329da92d4ede4cd35f9ffb14dbfe",
+      "eez-follower": "291dc26facf3995db73a9ecd94f21795acf4fcade0f368262b706601b3a66c7d",
+      "eez-proof-signer": "69f25acfba20bbfb9a793529706b27c7d834cd67660c84c96850e103dd1111f9"
+    },
+    "glibc": "glibc 2.36",
+    "root_commit": "6808f13b45176291b8cfaa8e5effbc31ee01f504",
+    "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "runtime_archive_sha256": "71ed5cc71ce42fb0f21b5bb5d89fb44cd601176717757470345d7e17015f2ff3"
+  },
+  "checks": {
+    "revision": "6808f13b45176291b8cfaa8e5effbc31ee01f504",
+    "workspace_unit_tests": {
+      "exit_code": 0,
+      "passed": 1641,
+      "failed": 0,
+      "ignored": 6,
+      "log": "artifacts/full-protocol/candidate/revision-f091f437/followup-workspace-unit-tests.log",
+      "sha256": "69d897d9deb80842b9eb651f4547cfc2ac485f8ccffa30156abd1555ea9b66fa"
+    },
+    "signer_all_features_clippy": {
+      "exit_code": 0,
+      "log": "signer-all-features-clippy.log"
+    },
+    "signer_rustdoc": {
+      "exit_code": 0,
+      "log": "signer-rustdoc.log"
+    },
+    "rpc_conformance": {
+      "exit_code": 0,
+      "vectors": 29,
+      "log": "rpc-conformance.log"
+    },
+    "replay_adapter": {
+      "unit_tests": 5,
+      "live_retained_receipts": 3,
+      "qualification": false
+    },
+    "required_validation_complete": true,
+    "protocol_anvil": {
+      "exit_code": 0,
+      "passed": 64,
+      "failed": 0,
+      "omitted": 0,
+      "log": "protocol-anvil.log"
+    },
+    "workspace_nextest_ci": {
+      "exit_code": 0,
+      "passed": 1641,
+      "seconds": 39.667,
+      "log": "workspace-nextest-ci.log",
+      "prebuilt_only_guard": true,
+      "skipped": 6,
+      "skip_reasons": {
+        "fixture_generation_or_inventory_utilities": 5,
+        "manual_timing_profile": 1
+      }
+    },
+    "release_producer": {
+      "exit_code": 0,
+      "log": "build.log"
+    },
+    "runtime_identity": {
+      "exit_code": 0,
+      "log": "verify-runtime.log"
+    },
+    "genesis": {
+      "exit_code": 0,
+      "log": "genesis-check.log"
+    },
+    "native_producer": {
+      "exit_code": 0,
+      "passed": 55,
+      "skipped": 0,
+      "log": "native-producer.log",
+      "first_preflight_failure": "native-producer-ownership-failure.log"
+    },
+    "e2e_export": {
+      "exit_code": 0,
+      "files": 30,
+      "log": "export-e2e.log",
+      "first_preflight_failure": "export-e2e-missing-target.log"
+    },
+    "protocol_core": {
+      "exit_code": 0,
+      "passed": 778,
+      "skipped": 3,
+      "log": "protocol-core-tests.log",
+      "exclusions": [
+        "script/*",
+        "test_Doc_OriginalValue_SeedInSetup",
+        "test_PostCost_Incremental"
+      ],
+      "scope": "Repository-prescribed unit suite; separate from 64 unfiltered E2E scenarios"
+    },
+    "ci_tooling": {
+      "exit_code": 0,
+      "discovered": 430,
+      "passed": 423,
+      "skipped": 7,
+      "skip_details": [
+        "test_scratch_payload_copies_out_without_execution_or_permission_loss (test_ci_payload.DockerPayloadTest.test_scratch_payload_copies_out_without_execution_or_permission_loss) ... skipped 'opt-in real data-only Docker image'",
+        "test_overrides_apply_before_creation_and_preserve_memory_and_command (test_kurtosis_ci.RealRelayResourcesTest.test_overrides_apply_before_creation_and_preserve_memory_and_command) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+        "test_readiness_wait_blocks_the_following_instruction_until_ready (test_kurtosis_ci.RealRelayResourcesTest.test_readiness_wait_blocks_the_following_instruction_until_ready) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+        "test_real_producer_and_all_consumers_without_build_machine_or_compiler (test_native_artifacts.NativeRelocationTest.test_real_producer_and_all_consumers_without_build_machine_or_compiler) ... skipped 'set EEZ_TEST_NATIVE_ARCHIVE=1 for real tiny-workspace relocation'",
+        "test_deploy_context_preserves_history_identity (test_runtime_docker.RuntimeDockerTest.test_deploy_context_preserves_history_identity) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+        "test_real_build_and_same_job_execution (test_runtime_docker.RuntimeDockerTest.test_real_build_and_same_job_execution) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+        "test_repository_source_context_preserves_genesis (test_runtime_docker.RuntimeDockerTest.test_repository_source_context_preserves_genesis) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'"
+      ],
+      "seconds": 406.718,
+      "log": "ci-tooling.log",
+      "scope": "Complete default CI invocation; seven opt-in integration probes are disabled in CI and not counted as executed coverage."
+    },
+    "reth_ci_regressions": {
+      "exit_code": 0,
+      "shutdown_cleanup": {
+        "passed": 1,
+        "log": "reth-shutdown.log"
+      },
+      "shared_debug_quota": {
+        "passed": 1,
+        "log": "reth-quota.log"
+      },
+      "other_tests": "Filtered, not executed coverage"
+    },
+    "kurtosis_full_protocol": {
+      "exit_code": 0,
+      "passed": 64,
+      "failed": 0,
+      "skipped": 0,
+      "evidence_complete": true,
+      "log": "kurtosis-final.log"
+    },
+    "cold_follower_replay": {
+      "exit_code": 0,
+      "checked_blocks": 84,
+      "checked_derived_blocks": 84,
+      "checked_receipts": 101,
+      "safe_l2_block": 966,
+      "safe_l2_block_hash": "0x182c0cf0afb35e92a19695f6e6e6fcd45b563235e7374ec304debc7829cf9c9c",
+      "source": "canonical_l1_only",
+      "verified": true,
+      "scenario_coverage": 64,
+      "verified_blob_batches": 12,
+      "log": "cold-follower.log"
+    },
+    "native_embedded": {
+      "exit_code": 0,
+      "passed": 43,
+      "log": "native-embedded.log",
+      "seconds": 2693.777
+    },
+    "native_cross_chain": {
+      "passed": 149,
+      "missing": 0,
+      "test_failures": 0,
+      "outer_wrapper_exit": 127,
+      "details": "candidate-native-results.json"
+    }
+  },
+  "raw_artifacts": "local-only: artifacts/full-protocol/candidate/revision-6808f13b",
+  "local_adapter_sha256": {
+    "assemble-protocol-replay.py": "78b9d8bae5d462cdc7bb580024e6fb8f83a9f3808002f64fc8299f7c9ac412cb",
+    "run-ci-retain.sh": "9f1f6fc244dd34a302564f09d319d68131be11c76a1989e15e90b4104e48367a",
+    "verify-policy-replay-archive.sh": "6fd94c71a5b7d059a22b84ad2e4114cb15219643c3439d2d8c4bced2ab64c906",
+    "revision-6808f13b/run-isolated-native.sh": "a1e912e81a8c6f95116e10bb79bea6d6fa85bd9ac358de58008b0185158cf316"
+  },
+  "native_harness_failure": {
+    "revision": "6808f13b45176291b8cfaa8e5effbc31ee01f504",
+    "failure": "External kill command missing in the deploy image used as the task-local native test container",
+    "first_log": "native-embedded-missing-kill.log",
+    "first_run_exit": 137,
+    "exit_reason": "Task-owned container deliberately stopped after preserving harness failure; incomplete run is not coverage",
+    "failed_test": "settlement_policy::blob_overflow_drains_largest_empty_prefixes_without_resetting_the_interval",
+    "gate": "send composer SIGTERM: No such file or directory",
+    "fix": "Unmodified Debian Bookworm procps-ng 4.0.2 kill executable added to the already-mounted task tools directory; verified --version and signal-0 inside all five test containers",
+    "utility_sha256": "a8a91d026a8b8e49685ab9e83bdbb37d3b20f3949ed8e6c97e34e66c0dc54b83",
+    "runtime_or_tests_changed": false,
+    "cross_chain_lanes": "Continued, with no observed failure before the utility became available",
+    "embedded_rerun": "Complete 43-test rerun passed with exit 0; original failed/interrupted run remains preserved.",
+    "recorded_at": "2026-10-31T02:47:17.716301+00:00",
+    "corrected_test_result": "PASS [  81.675s] ( 7/43) eez-node-e2e::node_e2e settlement_policy::blob_overflow_drains_largest_empty_prefixes_without_resetting_the_interval"
+  },
+  "repository": "https://github.com/eez-association/eez-rollupX",
+  "fork_main_at_final_check": "c702f90da19cc149890d0a17a4ef6c200dcb6a21",
+  "scope": "Local qualification of the recorded code revision; PR-hosted CI status is tracked by GitHub.",
+  "native_inventory": {
+    "total": 198,
+    "default_executed": 192,
+    "additional_live_cold_replay_executed": 1,
+    "optional_not_run": [
+      "cross_chain::combined_history::kurtosis_combined_history_observations_replay_offline",
+      "derivable_operations::ethereum_native_large_history_cold_checkpoint",
+      "derivable_operations::gnosis_native_large_history_cold_checkpoint",
+      "derivable_operations::multipart::four_days_settle_in_parts_with_cold_offline_provers_and_independent_replay",
+      "derivable_operations::retained_native_history_cold_checkpoint"
+    ],
+    "optional_scope": "Explicit retained-capture/large-history/four-day stress probes, disabled in default CI; not part of the 64 pinned protocol scenarios."
+  }
+}

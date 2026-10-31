@@ -1,13 +1,15 @@
 # Signer soundness review
 
-Status: interim review; final source and network qualification remain outstanding.
+Status: source review completed for `6808f13b45176291b8cfaa8e5effbc31ee01f504`.
 This is a separate manual adversarial review of the authorization path, not an
-external audit or a claim that positive E2E coverage proves soundness.
+external audit. The final closure below supersedes the historical pending-check
+notes retained in this investigation record. Overall CI completion is tracked in
+[candidate validation](candidate-validation.json).
 
 Scope: changes from fork `c702f90da19cc149890d0a17a4ef6c200dcb6a21`, with protocol
-`84a5b5207880f192a6a5896cbfe0bac5249db47f` unchanged. The current runtime source
-snapshot is recorded locally in `candidate/version8-process-source.json`; a final
-committed revision must replace that local-only identity before this review closes.
+`84a5b5207880f192a6a5896cbfe0bac5249db47f` unchanged. The reviewed source and executed adversarial regressions are bound to the
+[committed source identity](candidate-source-review.json); runtime and archive
+identities are retained in [candidate validation](candidate-validation.json).
 
 ## Authorization trace
 
@@ -192,3 +194,46 @@ The signer/RPC/client package run before the cached-depth correction passed
 34 prover-client tests. Both forged native outcome and missing-manager-bytecode
 service tests reached `observation_replay` and asserted zero signing calls. This
 is supporting evidence, not qualification of the later memo-depth edit.
+
+## Review closure: 2026-10-31
+
+The final source review found no unresolved authorization defect in the reviewed
+change. The memoized-depth finding is fixed: every cached suffix retains its
+longest descendant height and is checked against the remaining depth before
+reuse. Candidate probes establish no coverage unless their rows belong to the
+selected graph. Missing rows, cycles, malformed callback fields and altered
+commitments still reject. The separate static-pool path was checked against
+canonical host positions; repeated callbacks within a read can reuse a row,
+while intervening source calls bind distinct host positions.
+
+The final 339-test signer run includes the two service regressions that reach
+`observation_replay` and assert zero signing calls for a consistently forged
+lookup outcome and missing manager bytecode. The independently assembled static
+candidate fixture accepts valid reuse and rejects three mutations at
+`ExecutionTableMismatch` before authorization. These authorizer-unit checks are
+distinct from the service-level signing-count checks. The final workspace CI
+profile passes 1,641 tests, including the cached-suffix depth regression. Five
+signer fixture utilities and one workspace timing profile remain explicitly
+ignored and are not evidence.
+
+The [final stack probe](candidate-stack-identity.json) matches the reviewed
+materializer and verifier hashes. On a 2 MiB stack, static, mutable and mixed
+chains pass at depths 64, 256, 512 and 1,024; depth 1,025 rejects. This is a tested
+stack bound, not a general complexity guarantee. Shared-DAG memoization and
+cycle rejection have their own regressions.
+
+The exact release passes all 64 pinned network scenarios with complete causal
+and native-blob evidence and zero skipped, excluded or missing cases. A fresh
+follower independently replays canonical L1 data through block 966 and checks
+84 scenario-range blocks and 101 receipts across 12 batches. These positive
+results corroborate support; they do not replace the adversarial authorization
+checks. See the [complete inventory](scenarios.json) and
+[replay result](candidate-independent-replay.json).
+
+The authorization path still derives public inputs independently, binds execution
+and submission to one L1 target, authenticates native DA and canonical execution,
+and replays observations before constructing attestation material. Cancellation
+and deadline checks remain before signing authority is obtained. Validation
+contract 8/capability profile 2 requires the coordinated identity and deployment
+boundary documented in the signer specification and proposal. No existing
+operator deployment or key rotation was performed.

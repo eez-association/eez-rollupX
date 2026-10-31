@@ -1,0 +1,24 @@
+{
+  "source_revision": "6808f13b45176291b8cfaa8e5effbc31ee01f504",
+  "stack_bytes": 2097152,
+  "accepted_depths": [
+    64,
+    256,
+    512,
+    1024
+  ],
+  "rejected_depth": 1025,
+  "modes": [
+    "static",
+    "mutable",
+    "mixed"
+  ],
+  "sha256": {
+    "crates/eez-protocol/src/entries/materialize.rs": "c9eb2c168a5a8cffe1a5791af601bd6dc1b5d3e77d0664a55ea1b5a5eef45eac",
+    "crates/eez-protocol/src/entries/verify.rs": "f40e77ef062b102aadf48a88c295ba7f8e4171539761176f48599f0451a7edcd",
+    "artifacts/full-protocol/candidate/revision-f091f437/nesting-stack-followup.rs": "ab97faf371ca4f2a0e5208cb987da7751243436d4a5fc938f9b10d52f8728ecb",
+    "artifacts/full-protocol/candidate/revision-f091f437/nesting-stack-final": "464a7ad09b8b28ef1b15fcaa16967a96a8550fb77496d879a922a6c253122445",
+    "artifacts/full-protocol/candidate/revision-f091f437/nesting-stack-final.log": "98819d709cea1aca6c0e65da195922ae61671257037db3ac67af7da00bef730b",
+    "artifacts/full-protocol/diagnostic-tools-target/debug/deps/libeez_protocol-3c09784dc564d722.rlib": "4d324b4e48e98f41b37897d67bf270698cef327699624daf9790240471e6a051"
+  }
+}

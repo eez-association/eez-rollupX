@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Scope authorized by the owner on 2026-10-30; implementation and validation in progress. Detailed changes require matching normative specifications and adversarial regressions. |
+| Status | Scope authorized by the owner on 2026-10-30; implemented and locally qualified on 2026-10-31. All 64 pinned scenarios, independent signer regressions and cold follower replay pass; see the audit for exact source and validation limits. |
 | Fork baseline | `c702f90da19cc149890d0a17a4ef6c200dcb6a21` |
 | Protocol | `84a5b5207880f192a6a5896cbfe0bac5249db47f`, unchanged |
 | Related issues | #85, #81, #13 |
@@ -73,8 +73,7 @@ protocol's callback and rollback execution. Replay must separately
 observe the intended target frame's outcome: a manager validation error must
 never count as the target's claimed revert merely because both transactions
 failed. Group scheduling and exact table coverage must derive from bound native
-semantics, with no extra Composer-controlled authorization path. Local regression
-evidence is recorded in the audit; complete network qualification remains due.
+semantics, with no extra Composer-controlled authorization path. The audit records local regressions and complete network qualification.
 
 For a failed inbound root, preserve its full L1 callback table even though the
 L2 execution is noncanonical. The shared materializer's destination entry already
@@ -92,7 +91,7 @@ writes. Derive observation span counts from the bound native action ranges,
 keep all scopes within one canonical prefix, and restore nested snapshots in
 reverse order. A separate disposable State overlay reads through the canonical
 state for witness collection and prevents temporary commits from contaminating
-canonical execution. Full network qualification remains required.
+canonical execution. The final audit records passing full network qualification.
 
 
 ### Cursor and parser requirements
@@ -148,5 +147,4 @@ newly supported data has become canonical.
 ## Evidence
 
 The [audit](../audits/2026-10-30-full-protocol-e2e/README.md) records baseline,
-implementation, independent soundness review and validation separately. These
-requirements are not a claim of completed support or passing tests.
+implementation, independent soundness review and validation separately. The final candidate section records completion evidence and explicit limits.

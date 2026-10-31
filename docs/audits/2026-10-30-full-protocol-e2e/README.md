@@ -1,6 +1,9 @@
 # Complete protocol E2E support: implementation record
 
-Status: in progress. No complete-suite or signer-soundness qualification yet.
+Status: all 64 pinned network scenarios and independent cold follower replay pass
+on `6808f13b45176291b8cfaa8e5effbc31ee01f504`. Local qualification is complete. See the candidate qualification section below
+for current evidence; the enclosing PR tracks integration status. Earlier sections retain the investigation
+history and the pending status that applied at each earlier revision.
 
 | Field | Value |
 | --- | --- |
@@ -9,7 +12,7 @@ Status: in progress. No complete-suite or signer-soundness qualification yet.
 | Protocol gitlink | `84a5b5207880f192a6a5896cbfe0bac5249db47f` |
 | Branch | `codex/full-protocol-e2e-20261030` |
 | Scope | [Authorized proposal](../../proposals/full-protocol-e2e.md) |
-| Signer review | [Interim findings and remaining closure](signer-review.md) |
+| Signer review | [Final source review and historical findings](signer-review.md) |
 | Inventory | [64 exact scenario paths and SHA-256 hashes](scenarios.json); 34 default enabled, 30 excluded by upstream comments |
 | Toolchain | Rust 1.95.0; Foundry 1.7.1; Kurtosis CLI 1.20.0 |
 
@@ -868,3 +871,104 @@ mutable and mixed modes (`nesting-stack-final.log`). Workspace unit/binary tests
 and contract tests are running separately. The cached-depth finding and fixture
 corrections are recorded in the signer review; no protocol pin or upstream
 scenario assertion changed.
+
+## Candidate qualification: 6808f13b (2026-10-31)
+
+The code revision is `6808f13b45176291b8cfaa8e5effbc31ee01f504`; the protocol
+remains `84a5b5207880f192a6a5896cbfe0bac5249db47f`. Exact runtime image IDs,
+archive checksums, binary hashes and validation results are recorded in
+[candidate validation](candidate-validation.json). These results qualify that
+code revision. Subsequent audit-only edits do not identify new runtime bytes.
+
+| Acceptance evidence | Result |
+| --- | --- |
+| Pinned reference Anvil scenarios | 64 passed; zero missing, failed or timed out |
+| Complete Kurtosis protocol inventory | 64 discovered, eligible and selected; 64 passed; zero exclusions, skips, missing, duplicate or unexpected records |
+| Independent semantic evidence | All 64 have verified causal coverage, authenticated native blobs and semantic trigger binding |
+| Fresh follower from canonical L1 | Replayed through block 966; explicitly checked 84 scenario-range blocks and 101 receipts across 12 batches |
+| Sealed release producer tests | 55 passed, zero skipped; generated genesis matches the verified release helper |
+| Native cross-chain tests | 149 intended names each passed once across four isolated shards; task-wrapper errors are recorded below |
+| Embedded native CI lane | 43 passed; clean wrapper exit 0 after correcting the harness prerequisite |
+| Workspace units under the CI Nextest profile | 1,641 passed; six explicit fixture/profile utilities not executed |
+| Signer checks | Final 339-test signer coverage, all-features Clippy, rustdoc and RPC conformance pass; adversarial pre-sign rejections pass |
+| Reth CI regressions | Shutdown cleanup and shared tracing quota each passed the intended test |
+| CI tooling | 423 passed; seven optional integration probes skipped by the default CI invocation |
+
+The [scenario inventory](scenarios.json) preserves the baseline exclusions and
+failures alongside each final scenario result, unchanged source hash, evidence
+hash and replay coverage. The full network run also passed all four workload
+modes and state-chaining checks, with 56 signed windows, 56 remote attestations
+and zero reported L1/L2 root divergence. No upstream scenario assertion was
+weakened. The [independent replay result](candidate-independent-replay.json) is
+separate from upstream success and collector success. Its follower received
+canonical L1 data and the deployed genesis, not the Composer database or unsafe
+overlay. The source review and adversarial findings are closed in
+[signer-review.md](signer-review.md).
+
+Other applicable checks pass: workspace formatting and Clippy, protocol/codec
+tests and independent commitment vectors, 153 integration contract tests, SDK
+fee tests, settlement configuration propagation, dependency policy and advisory
+checks, and the CI-visible Git-history secret scan (1,151 commits, zero leaks).
+The advisory check retains 19 allowed pre-existing warnings. The pinned core
+unit command passes 778 tests, skips three external-RPC fork tests, and retains
+the two named AGENTS.md exclusions plus `script/*`. Those unit limits do not
+apply to or reduce the unfiltered 64-scenario E2E qualification.
+
+### First failures and local execution adapters
+
+The native suites executed the unchanged repository artifact verifier and test
+filters inside separate containers to isolate ephemeral ports. The deployment
+image was a test-tool host; all tests used the sealed release runtime archive.
+Its first producer invocation failed before tests because of Git ownership
+checks. Trust was then granted only to the two read-only task checkout paths
+inside the container; the producer passed all 55 tests. An export invocation
+also stopped before work because `CARGO_TARGET_DIR` was absent; specifying the
+producer's verified extraction allowed the unchanged export procedure to pass.
+
+The first embedded run reached a restart test but could not spawn external
+`kill`, which the minimal deployment image lacks. The failed log and datadir
+were retained, and that lane was deliberately stopped (exit 137). The real
+Debian Bookworm procps-ng 4.0.2 utility was added to the task tools mount. The
+full embedded lane restarted with that prerequisite present; the originally
+failing test passed. This changed neither runtime nor test bytes. The original
+failure remains in the validation record.
+
+While the four cross-chain wrappers were waiting for Docker, an in-place edit
+added the utility preflight to their task-local shell script. All 149 tests
+passed, but Bash subsequently reread a trailing command fragment and each outer
+wrapper exited 127. A synchronized minimal reproducer confirms this shell
+read-offset failure after a successful command. The retained Docker event for
+the last shard records container exit 0; earlier events had aged out of the
+daemon's retained window. All four wrappers used `set -e` and reached the stray
+command only after `docker run` succeeded. Every intended test name is matched
+exactly once to a PASS record in [native results](candidate-native-results.json).
+The record distinguishes test success from wrapper failure; it does not relabel
+the outer commands as successful. The embedded rerun started after the edit.
+
+The Kurtosis adapter differs from the repository runner only by its absolute
+path and retaining the owned enclave for diagnostics/replay instead of deleting
+it on exit. The replay adapter requires a complete 64-case summary and rechecks
+canonical receipts before preparing the existing cold-follower schema. Its five
+receipt-binding tests pass; three retained live L1 receipts separately checked
+the raw-transaction schema. Adapter digests are in candidate validation. These
+adapters and raw logs/datadirs are local-only under
+`artifacts/full-protocol/candidate/revision-6808f13b`; this audit commits compact
+results and digests, not bulk diagnostics or operator inputs.
+
+### Compatibility and remaining work
+
+Validation contract 8/capability profile 2 changes registered validation
+identity. The [proposal's compatibility boundary](../../proposals/full-protocol-e2e.md#compatibility-and-recovery)
+and signer specification require coordinated artifacts and fresh or explicitly
+migrated deployment bindings; this is not a binary-only upgrade of an existing
+version-7 network. The protocol pin, Solidity ABI and native transaction encoding
+remain unchanged. Existing operator work, deployments, wallets and datadirs were
+not modified.
+
+The native archive contains 198 tests: all 192 default CI cases and the explicit
+live cold-replay case executed. Five optional retained-capture/large-history or
+four-day stress probes were not run; their names are listed in candidate
+validation. These are separate from the complete, unfiltered 64 protocol E2Es.
+Documentation links, structured records and whitespace checks pass. The
+enclosing PR supplies publication and hosted CI status; this audit qualifies
+the recorded local code and runtime artifacts.

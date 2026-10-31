@@ -11,7 +11,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -45,6 +45,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "f313e153fc96668ff3cb7697ee11e26c0385a9261af4347b12e50e331ddf4630",
+        "evidence_sha256": "abeb450306696edbb379dcca9da5966c4bef72a6cff86f1f11cf865ecbffd49c",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xd265f471dee752ed5b7847efe24df1e646690ca202bee9b9fec68e5aca8e3692"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -54,7 +83,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -88,6 +117,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "f761dec525758725e1d8563dec0ad627ee94379e074220c3ce798eb924374b59",
+        "evidence_sha256": "7b64d7c8d949de642358584c7db1a5ee2ab7fadeade214eb168644300d0fad94",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xd265f471dee752ed5b7847efe24df1e646690ca202bee9b9fec68e5aca8e3692"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -97,7 +155,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -131,6 +189,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "9165017e8fb37f005cef7b5e93a2032c1add54b3ec8282ce88b64936969faf0f",
+        "evidence_sha256": "553878fb3bf8d2850506152508549597a75694d13249468e04fb18e03494d0b3",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x7169bf5b37be797056cffb576242ab7da1e9a189dfc974214484603f10b164a7"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -140,7 +227,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -174,6 +261,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "d86ff213623d981028b2ce77be221ac3bea3ae58ba5eb4dea508f6ca515579a8",
+        "evidence_sha256": "52485291d6f90ff636e027d0862ddaed46174653a94cec7cbfac44dcdbdf6bd2",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x227fdb0bb7a0fd96f8a56908a6773e3fe7a35b243be69c7d71d5556c2863f92c"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -183,7 +299,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -217,6 +333,36 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "5d468a5bef929a22c6bc1ca9bcec4a992f2ca1368a3a7f3478ee533b2db5abed",
+        "evidence_sha256": "45fa158a5a6f4d4d64d9ceb98f6f69e7894c7766fb31d96120276d79ef681f0b",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xd265f471dee752ed5b7847efe24df1e646690ca202bee9b9fec68e5aca8e3692",
+            "0x574881ed55687babd7a7d52282a8f1c48e96a65e759a6a0fb75435653c56252f"
+          ],
+          "checked_l2_receipts": 3
+        }
       }
     },
     {
@@ -226,7 +372,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -263,6 +409,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "624b4a6c7476c9a59a3b044796c2e9ae3cda881e3b3d6b644e0385988cd1cac6",
+        "evidence_sha256": "8f744c97587e7c8141c65978ceb2633d1c604248cb0050522211fa005fe31792",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xf54e948350c1ea1e620de2d81f9a7f765e8e9214ff534e12fb077096303791f6"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -272,7 +447,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -306,6 +481,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "294fc6e6e85df3d56b095ba4420c8b6393a49207bbc7b5a3148f2af0e8f2546a",
+        "evidence_sha256": "d10727a2e0b533ce309b63c201829bd90b4368c277dfde1c8f14da69d73af61c",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xf078f53f0a399fe84806ab6398d12c6f91b0d59f4c1932059ba5f567b4816432"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -315,7 +519,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -350,6 +554,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "cffb52107deb3b40c4f5592d1e5eb2648a8efb4d3aa2aef2a676de5fbc5a6932",
+        "evidence_sha256": "7bdfa459757f6a66f11bfed80116f6d674cb089dc405bfb1f859db52ba1db8ea",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x227fdb0bb7a0fd96f8a56908a6773e3fe7a35b243be69c7d71d5556c2863f92c"
+          ],
+          "checked_l2_receipts": 3
+        }
       }
     },
     {
@@ -359,7 +592,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -395,6 +628,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "1b2df558815c5ddce0c1bc64af4ede6139c864730efdf15a9fc5366a60ce0301",
+        "evidence_sha256": "c8c577b75074634f2e076756b2e7dfbeb7b0767b745d8da6f3836f1c19d525b9",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xf54e948350c1ea1e620de2d81f9a7f765e8e9214ff534e12fb077096303791f6"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -404,7 +666,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -438,6 +700,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "e65c7a2e3235854cb28e6392541d37fc16d41d2b069f5b76c4877b47db7003b0",
+        "evidence_sha256": "3a4508765c52a7756774302be1e8ebb77efb4ad6b843ed9bec9c9bf9c4f2ae52",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x227fdb0bb7a0fd96f8a56908a6773e3fe7a35b243be69c7d71d5556c2863f92c"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -447,7 +738,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -483,6 +774,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "f7fd8874517c9b6fc98eb21db1b24340470bdce8e32ebf209388e94790560735",
+        "evidence_sha256": "c8aafbf22e23b20221fe41467b1fddb85f4e45ba8634d533fbd90069d1cef6fc",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x227fdb0bb7a0fd96f8a56908a6773e3fe7a35b243be69c7d71d5556c2863f92c"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -492,7 +812,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -529,6 +849,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "950ab223fe0bdd1ae45e4a4a777c3f9fd9d2cb2d2827e817f15b0969585b772b",
+        "evidence_sha256": "197524d32973018a5de594615148da2ba6a1b14d4e78e623c0a065199c09f85e",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x39248fb5c0acae7b22eaf1a3236eae4c9172db273b81593115db0df7e3d21f85"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -538,7 +887,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -572,6 +921,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "811ca5dca6b5ff02721775f96a3f60e53874c56b31477f6afddc9dfd2b3a92bd",
+        "evidence_sha256": "7a34081869ef525ebbd41c89f500f85e2338e77d987b4bf64029878e5c8b7013",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x0ac7e3ccd09acb323a1c0481a7ace6cef5fec3bc1d7c42eefabe04defd40610b"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -581,7 +959,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -620,6 +998,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "815bece431c41b3eabedc716491665d3ceeaaf59f2054224f8ebe7b4bff63478",
+        "evidence_sha256": "c2fcfc0b974aa940753a1608908a39831aa9a2c38002c53f4d4681a9278752ea",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x7169bf5b37be797056cffb576242ab7da1e9a189dfc974214484603f10b164a7"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -629,7 +1036,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -663,6 +1070,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "dec00b1e13416d588f3f5928142929080da8c374c976d5dd86b4e4483821107e",
+        "evidence_sha256": "854338c29bd4d866662aa349b512eda6320ce8afbcee3e0ad660c527afb5c06c",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x7169bf5b37be797056cffb576242ab7da1e9a189dfc974214484603f10b164a7"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -672,7 +1108,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -710,6 +1146,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "da085bdc131781247271176fb785deeecc976fba5ecc6173e0ecf3827085f8e7",
+        "evidence_sha256": "41e44f922c0b963dbf6c5534c1ed24820d0a1bea6baed4f065b1fce1e27b4b8a",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xf54e948350c1ea1e620de2d81f9a7f765e8e9214ff534e12fb077096303791f6"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -719,7 +1184,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -748,6 +1213,35 @@
         "source_log_sha256": "203048830ac0d789fdd8df4a5e439d26bab1106a35952982baed70f40577acd2",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "9b0a671a7e0122c90e99c4c1533ae16e4749b6f4299ecd4e74c7f5200bf89378",
+        "evidence_sha256": "37d112bc832ffc45b3c25b21f3af912c7d1aae6ecfbd32eaedb0e4a88257035d",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xd265f471dee752ed5b7847efe24df1e646690ca202bee9b9fec68e5aca8e3692"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -757,7 +1251,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -791,6 +1285,35 @@
         "source_log_sha256": "7b69a12a1576fc7ff81e0c13b7c1a3089f6e1f673bae5e0d1d1ac3e0e7548e3b",
         "failure_category": "fee_quote_unavailable",
         "failure_excerpt": "eez_quoteFee failed: Error: server returned an error response: error code -32004: quote unavailable: gas estimation, data: {\"code\":\"quote_unavailable\",\"message\":\"quote unavailable: gas estimation\"}"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "2e107a5126b9f9307f86fcfc74ee8682147176fde3dc1bd11ebdf58aa2f17d19",
+        "evidence_sha256": "02ca07e827630925ca353505483010e1edbf420b673f76c4001ed92b7a334999",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x886ba196986b50108d9bb9a4573bdfd0f5ca32ab174c189ae5fec31119c429de"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -800,7 +1323,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -832,6 +1355,32 @@
         "source_log_sha256": "2d3827279f0043f0c9038f1bff97fd2f612f65036736e3ecf97bfcaaebbd3eb4",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-lookup-only",
+        "source_log_sha256": "bc73b2ad0257071b8cfe571b267c72eec400fef799a49c5f3a0f06f97d096cb8",
+        "evidence_sha256": "206604148db937658041e73bfc9253756ac070f18492a6876c79c3de427bd896",
+        "claims": {
+          "upstream_pass_required": true,
+          "receipts_revalidated": true,
+          "post_batch_preceded_trigger": true,
+          "no_destination_delivery_required": true,
+          "l2_absence_verified": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "actual_lookup_result_traced": true,
+          "lookup_root_bound": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xd265f471dee752ed5b7847efe24df1e646690ca202bee9b9fec68e5aca8e3692"
+          ],
+          "checked_l2_receipts": 0
+        }
       }
     },
     {
@@ -841,7 +1390,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -881,6 +1430,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "c0d4a4e7424f77db14ee2819e7f4b0fe0bbcc18d1d98386a38d85b6048b3ec74",
+        "evidence_sha256": "32fb9e3e498f2c0324f85bcd1b7fb8b0b568acab05ac9d60b67d0b96eeb23a8c",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x7169bf5b37be797056cffb576242ab7da1e9a189dfc974214484603f10b164a7"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -890,7 +1468,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -924,6 +1502,32 @@
           "actual_lookup_result_traced": true,
           "lookup_root_bound": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-lookup-only",
+        "source_log_sha256": "6cc6b62e15b29902578bcc6a75bcfd89a1e9e0df9a875b67c96e54eb3abc2505",
+        "evidence_sha256": "9c1ed3e2249fcf5f763bfa16e4714d6baa347cf5f8a656183dc98402b1963978",
+        "claims": {
+          "upstream_pass_required": true,
+          "receipts_revalidated": true,
+          "post_batch_preceded_trigger": true,
+          "no_destination_delivery_required": true,
+          "l2_absence_verified": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "actual_lookup_result_traced": true,
+          "lookup_root_bound": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x02c6d1126033d41d6057e7f82fb22a6c3183e69e09790986c6095b058db60979"
+          ],
+          "checked_l2_receipts": 0
+        }
       }
     },
     {
@@ -933,7 +1537,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -972,6 +1576,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "6129663a353f61a41308ead5b09f57836535f485a483be0511ec059993778fb9",
+        "evidence_sha256": "3143cdb97b3f6f748306ec4382feab65520d45ffd133d3a7d2ebd5855cff4e16",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x7169bf5b37be797056cffb576242ab7da1e9a189dfc974214484603f10b164a7"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -981,7 +1614,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1014,6 +1647,35 @@
         "source_log_sha256": "79e9912047f9d6d581b0ce4ecdd26c2b2b1e2a8ddb2e65a5d8bdea4dfb1b3c96",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "b436123e144306076922ddbf0d235a626f0dc5bcf9c6876754183f68804e2458",
+        "evidence_sha256": "63345b77446b7bb3fb9236cd011144d77876be5d48be1d6728289d3fb718cf00",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x574881ed55687babd7a7d52282a8f1c48e96a65e759a6a0fb75435653c56252f"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -1023,7 +1685,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1058,6 +1720,35 @@
         "source_log_sha256": "7850a4f88a94268f7e3ea939bae40f89b89820f7529f4683484f2f52eed197f9",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "f674f0f2ba53fa1e29e3788d9343cad4df5bc795cd325e3b1a56dc987270f289",
+        "evidence_sha256": "fb9d5ab957d314e1c0934a27badc6825137e88dfec9717cdc2309fc1a62777da",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xd265f471dee752ed5b7847efe24df1e646690ca202bee9b9fec68e5aca8e3692"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -1067,7 +1758,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1100,6 +1791,35 @@
         "source_log_sha256": "1821e9dad40b52ff19a453b3f83c9038e026116331c7c679b9b8cafe1662034c",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "c0ef0f01a4e49d52a51796ac8a6ceb61010c697cf7c94badf86c23b17f29b0bf",
+        "evidence_sha256": "774397344495d201030d0694faf0498008e62f92675e35b79cd3019c5a612685",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": false
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x837d9e5efaa9fce276815fa429129600f6c517032864bf908e1b62ebdf6c6bed"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -1109,7 +1829,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1149,6 +1869,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "2aac38a22e4a55acb873c0922e24e61034b3e70abb7a089b6e66be8620f4a155",
+        "evidence_sha256": "b94c9472bd34296be9f6c63cb0501e6ddb53bb8fa167e60c12c3eb162b8d525b",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x574881ed55687babd7a7d52282a8f1c48e96a65e759a6a0fb75435653c56252f"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -1158,7 +1907,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1190,6 +1939,35 @@
         "source_log_sha256": "2bc7907282556e1433f6735aa859e90eb321036b618ab68382affb4b77dc9a49",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "b8bd4d71a0a3b2df96b57531cc619327ec890c6048bda7db102b8fb15c12da00",
+        "evidence_sha256": "108658707a33a7e85a202b434ff27e400b76fb7bea2c6112dc1cb4dbbd3832de",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x18b7850276ab3530deb43bb72f50d2fff9871ff9bb15abadb918d83aaae3be94"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -1199,7 +1977,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1231,6 +2009,35 @@
         "source_log_sha256": "b560c49841d27816a8137d57f68c2e5f13e655b6607dafe3ae1e596ac009d200",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "75917df3195c58b9f3bc18fcc3f9db07b0e5b8d2e15c0d5568229740208515b8",
+        "evidence_sha256": "a69c8b02a483a9b36f64be1c0050f6572d495c13232ea7b1472c28679633487c",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": false
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x7169bf5b37be797056cffb576242ab7da1e9a189dfc974214484603f10b164a7"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -1240,7 +2047,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1277,6 +2084,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": false
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "117a3b75871090a3a76b9e83a2f11e08bac8b38f2efa88059a9866719bdbc2d1",
+        "evidence_sha256": "6fcd67520852fe7d1ae668821b31d3553582dbbb144d8363e08438e65ac3f9b4",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": false
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x227fdb0bb7a0fd96f8a56908a6773e3fe7a35b243be69c7d71d5556c2863f92c"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -1286,7 +2122,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1323,6 +2159,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "dbe551444c09f45d9bc6d2ba14d60a09f174c6c7df6c5a58bc5938639a391eeb",
+        "evidence_sha256": "26187d6b6ec2fab2267be4eb217b2879b5cd8cb5fe304a1d5db9799d6baa19db",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x227fdb0bb7a0fd96f8a56908a6773e3fe7a35b243be69c7d71d5556c2863f92c"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -1332,7 +2197,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1369,6 +2234,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": false
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "7a31b21f1b60f4981a3f1b58f6854e8e01e87885f5d4e34345310199e7a04cd8",
+        "evidence_sha256": "255879b9d7d424c053d93cee477d620cac0a6365aad957dd8eb3bbb546f19427",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": false
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x7169bf5b37be797056cffb576242ab7da1e9a189dfc974214484603f10b164a7"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -1378,7 +2272,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1416,6 +2310,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "931aed7a0cd7fd1c0339420196a392a5250cb1b7049b6fd0a72fc205ebe81784",
+        "evidence_sha256": "43a444cb85b664e539e9af1466c59863f3ec0410f123db5aa6d5288f56256d0b",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x0ac7e3ccd09acb323a1c0481a7ace6cef5fec3bc1d7c42eefabe04defd40610b"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -1425,7 +2348,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1457,6 +2380,35 @@
         "source_log_sha256": "b0ae4a99b1d1acee8fa50adffa9e40763d3f9a86c35ffe4add8d2016da169fba",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "dbac0103ff8cf2c31672ab0b536f3cf2862bd249de6fdb2b108b2f4045fe1b8a",
+        "evidence_sha256": "4f5bde4375b076806269e35120bbdb171d1e2504b98d192b10a28509f6294fad",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x18b7850276ab3530deb43bb72f50d2fff9871ff9bb15abadb918d83aaae3be94"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -1466,7 +2418,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1499,6 +2451,35 @@
         "source_log_sha256": "3a00af741f0e58cd1bee7f77aa0398cfeafc3075e1ad181e193eca6a0eb06bf7",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "b51af827e9cdc5eb9cf0303cfb111eea5eb8e06e00a720ecdfe3b916347e4e6f",
+        "evidence_sha256": "fadcb29fc717a6df8c92edf321f5a2c8141760c8a27d829cb8c6e6823ba983ba",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x18b7850276ab3530deb43bb72f50d2fff9871ff9bb15abadb918d83aaae3be94"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -1508,7 +2489,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1537,6 +2518,35 @@
         "source_log_sha256": "189c19f667ba3b3724ba819ec6b32f81a845a510a461b65d16be1b90b77de00b",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "5815293f8d5450be4223c711fa7a0fc1e938149cdf897a473439d33556313d33",
+        "evidence_sha256": "11b7e9a9ab0c6ca31332b49c01f3993292b0abe966ece8d02b40a4fb48282da0",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x574881ed55687babd7a7d52282a8f1c48e96a65e759a6a0fb75435653c56252f"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -1546,7 +2556,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1586,6 +2596,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "cd409939ce16cbb9d9fce2b6de7f5e955a2084843bca864cf93e31a7fdfa573b",
+        "evidence_sha256": "7f74a97e5102ebc9b29b462b3dad4cbdfb85b2dde4ea0529966b9d2a31861d67",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x227fdb0bb7a0fd96f8a56908a6773e3fe7a35b243be69c7d71d5556c2863f92c"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -1595,7 +2634,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "NOT LIVE YET (staged/parallel network tests).",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1626,6 +2665,35 @@
         "source_log_sha256": "13903ae35dd09b488c68a29c64ab79101a3c917689fa4b47b4123e5590cca0c4",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "10fefc023b5da7671d16954a1daa74298a10884922f47eecfe2123ca05eb42f6",
+        "evidence_sha256": "76d8bb126d3284aa6f8617f920e040a1a5aaec5a818229bb7ac84b9d7a854f81",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x7169bf5b37be797056cffb576242ab7da1e9a189dfc974214484603f10b164a7"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -1635,7 +2703,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "NOT LIVE YET (staged/parallel network tests).",
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1676,6 +2744,32 @@
           "actual_lookup_result_traced": true,
           "lookup_root_bound": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-lookup-only",
+        "source_log_sha256": "03a9894cafc756f1380798b4e7a73d7c0123ba46d2a119ab822e1093a5f24c4d",
+        "evidence_sha256": "d3242e6d56540687e00a4f8eb1bbaff48c88d938ced84d6a3bd24bba39b74a70",
+        "claims": {
+          "upstream_pass_required": true,
+          "receipts_revalidated": true,
+          "post_batch_preceded_trigger": true,
+          "no_destination_delivery_required": true,
+          "l2_absence_verified": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "actual_lookup_result_traced": true,
+          "lookup_root_bound": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x18b7850276ab3530deb43bb72f50d2fff9871ff9bb15abadb918d83aaae3be94"
+          ],
+          "checked_l2_receipts": 0
+        }
       }
     },
     {
@@ -1685,7 +2779,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1717,6 +2811,32 @@
         "source_log_sha256": "50b1695e0bb6e85f8c1594f90a69a3da5cdf7ba3bc311b39efd9590c349a14fc",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-lookup-only",
+        "source_log_sha256": "5113aedf66b8d421698a8b4e142fb688c4b55b03b6d4607960ce45cabe9b3e5a",
+        "evidence_sha256": "169d14b7b246c963129fa5a5d2e9867f4e2d56b3490fab5e78ed4108cf303712",
+        "claims": {
+          "upstream_pass_required": true,
+          "receipts_revalidated": true,
+          "post_batch_preceded_trigger": true,
+          "no_destination_delivery_required": true,
+          "l2_absence_verified": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "actual_lookup_result_traced": true,
+          "lookup_root_bound": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x574881ed55687babd7a7d52282a8f1c48e96a65e759a6a0fb75435653c56252f"
+          ],
+          "checked_l2_receipts": 0
+        }
       }
     },
     {
@@ -1726,7 +2846,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1772,6 +2892,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "f463288d0342f8e5bd99d1ac903e2ac49962e93f6d6f8b8bb0eef682436b3a74",
+        "evidence_sha256": "22580a7e1165fd98978cebd3856c0c87a7a89026e6fd081dc3e047d012bc905c",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xd265f471dee752ed5b7847efe24df1e646690ca202bee9b9fec68e5aca8e3692"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -1781,7 +2930,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1829,6 +2978,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "0a8efdf65852d55e65351e6364d4c553729e44784180a848136c5745ee32cb33",
+        "evidence_sha256": "90974d315f956319514feecfe6938acaccab2e2c121c0399416a42feb3894195",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x0ac7e3ccd09acb323a1c0481a7ace6cef5fec3bc1d7c42eefabe04defd40610b"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -1838,7 +3016,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "Explicit selection only pending live validation.",
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1894,6 +3072,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "4d5dacecff4e02aea8056312e7b1e6c71c2f0121d4d7b8e92dde5888ab51fe08",
+        "evidence_sha256": "260b4a141596e4879c90ede67a147df2e178450c30a007a6ecf825bddba7d8f4",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xd265f471dee752ed5b7847efe24df1e646690ca202bee9b9fec68e5aca8e3692"
+          ],
+          "checked_l2_receipts": 1
+        }
       }
     },
     {
@@ -1903,7 +3110,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1939,6 +3146,32 @@
           "actual_lookup_result_traced": true,
           "lookup_root_bound": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-lookup-only",
+        "source_log_sha256": "044fe514ca141403be4650138f539a17b798d864908c086d2c0ecb67f4c28bd6",
+        "evidence_sha256": "0550f2167dabe939fa4d41fc55e537ff9c611faf84c808bc5cbfe4c26b230977",
+        "claims": {
+          "upstream_pass_required": true,
+          "receipts_revalidated": true,
+          "post_batch_preceded_trigger": true,
+          "no_destination_delivery_required": true,
+          "l2_absence_verified": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "actual_lookup_result_traced": true,
+          "lookup_root_bound": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x0ac7e3ccd09acb323a1c0481a7ace6cef5fec3bc1d7c42eefabe04defd40610b"
+          ],
+          "checked_l2_receipts": 0
+        }
       }
     },
     {
@@ -1948,7 +3181,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -1990,6 +3223,32 @@
           "actual_lookup_result_traced": true,
           "lookup_root_bound": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-lookup-only",
+        "source_log_sha256": "a6e9790e8880588b95dd4f688278e0e4697e20df93177f4fa0d910b73f8aa9e5",
+        "evidence_sha256": "73fa5fa63620ca83c8f8c82a7421c9b9ff0dc88fbf8044c519f9acfa67597a1f",
+        "claims": {
+          "upstream_pass_required": true,
+          "receipts_revalidated": true,
+          "post_batch_preceded_trigger": true,
+          "no_destination_delivery_required": true,
+          "l2_absence_verified": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "actual_lookup_result_traced": true,
+          "lookup_root_bound": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x837d9e5efaa9fce276815fa429129600f6c517032864bf908e1b62ebdf6c6bed"
+          ],
+          "checked_l2_receipts": 0
+        }
       }
     },
     {
@@ -1999,7 +3258,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "NOT READY. Missing-proxy cases remain explicit-only pending live staged validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2031,6 +3290,32 @@
         "source_log_sha256": "56ad15c3feef9dd8167718265a9f544a495cdfb482b2e9396dc0cc0b28ec8486",
         "failure_category": "fee_quote_unavailable",
         "failure_excerpt": "eez_quoteFee failed: Error: server returned an error response: error code -32004: quote unavailable: gas estimation, data: {\"code\":\"quote_unavailable\",\"message\":\"quote unavailable: gas estimation\"}"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-lookup-only",
+        "source_log_sha256": "ec89fe8266c0c09d7f9b303d7ed12d42baa7afc050d95d542752873dcfd9ec9e",
+        "evidence_sha256": "f2127ab52881c51e54fde88266709acdc2f4faabce9983577699b05d20643751",
+        "claims": {
+          "upstream_pass_required": true,
+          "receipts_revalidated": true,
+          "post_batch_preceded_trigger": true,
+          "no_destination_delivery_required": true,
+          "l2_absence_verified": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "actual_lookup_result_traced": true,
+          "lookup_root_bound": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xf54e948350c1ea1e620de2d81f9a7f765e8e9214ff534e12fb077096303791f6"
+          ],
+          "checked_l2_receipts": 0
+        }
       }
     },
     {
@@ -2040,7 +3325,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2073,6 +3358,35 @@
         "source_log_sha256": "b4f48728e701da526cccc60bec2b5a968ab7bb7f46f7daa803c27ecd86096da6",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "68840b59bc10c3ebba4001fcf2ae72aed1bc1d1b31923cc7160ce1ac04cafd94",
+        "evidence_sha256": "d67d60910e4ae97a53ddb017f446903fa57f7d58b4e5dea3cc23e2ea697920b9",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xf54e948350c1ea1e620de2d81f9a7f765e8e9214ff534e12fb077096303791f6"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2082,7 +3396,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2115,6 +3429,35 @@
         "source_log_sha256": "e7c95e7111d70e0ddc580ecfd07dea0e567453f174238917b697527d4187ed0a",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "76080d42156eb9bd350cf4b8b4581bc4363d70344c77bc8afa264a8eee357b59",
+        "evidence_sha256": "85b6f2db3bf95813b07d665853f5466fd0a91545585e74fe94c651d803f0799f",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x18b7850276ab3530deb43bb72f50d2fff9871ff9bb15abadb918d83aaae3be94"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2124,7 +3467,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2165,6 +3508,35 @@
           "l2_table_field_match": true,
           "l2_calls_verified": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "a7e566312a13cd2c3d43b77527b4197f67189844e51892aab5f5f96ab8636ebe",
+        "evidence_sha256": "3d1849d86887283b4fd79a8a804e44c1106d4638f08fc9f28c27d078353b3ff8",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x886ba196986b50108d9bb9a4573bdfd0f5ca32ab174c189ae5fec31119c429de"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2174,7 +3546,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "NOT LIVE YET (staged/parallel network tests).",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2205,6 +3577,35 @@
         "source_log_sha256": "924e4d18eb021d310423b7cfdc4574fa5abd1912eada5bd3f42c1ddc30ef560e",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "0075c8a35c2e55cf3cab13d3f6e637aa5c7ff26f827a637163ea406c9d941e88",
+        "evidence_sha256": "1724730f2f1a950a06ba0f80305cb140d44bf38159cd89f47ca5366748a21982",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x7169bf5b37be797056cffb576242ab7da1e9a189dfc974214484603f10b164a7"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2214,7 +3615,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "PASS",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2252,6 +3653,34 @@
           "rolling_hashes_replayed": true,
           "producer_remained_read_only": true
         }
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-static-pool",
+        "source_log_sha256": "32e565539e6ba591e61c9ba064f6985581ef313e31a06081d9282949b909f329",
+        "evidence_sha256": "b071b85ce2ba6cd44ab7081f7bf1c03a76931b3ebededc9ba5fc6a0990abc021",
+        "claims": {
+          "upstream_pass_required": true,
+          "receipts_revalidated": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "exact_same_block_static_table_decoded": true,
+          "table_load_preceded_trigger": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "producer_remained_read_only": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x7169bf5b37be797056cffb576242ab7da1e9a189dfc974214484603f10b164a7"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2261,7 +3690,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "NOT LIVE YET (staged/parallel network tests).",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2292,6 +3721,35 @@
         "source_log_sha256": "c6444864b8ff69c3e1ce2da334cff072f7531a5fa66e2ec53ff259d751167006",
         "failure_category": "receipt_wait",
         "failure_excerpt": "Waiting for receipt: 0x7bc9658643b0e7cf53e665663c7fc7591e04491c83bb24851cf22fd708f19863 (13s remaining)"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "48f7900a37b64d35027a1acbdb94163cb44478621ac0402a6f98c8df3a872675",
+        "evidence_sha256": "71f36491ed9a3f5433bac2ce348e448d5bcd4208f5c349d82f7f7e2794b067ef",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": false
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x18b7850276ab3530deb43bb72f50d2fff9871ff9bb15abadb918d83aaae3be94"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2301,7 +3759,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2333,6 +3791,35 @@
         "source_log_sha256": "a7241b50b2f1fba3ce01c8c4c095a32543091a6917e22708969da925ccd0c900",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "494711ee6d7ba22e62648758a3dfe4eaced07179b84ad087cc3c393479e6847c",
+        "evidence_sha256": "46f819e3a5f6b89ffa6310cb3e2194296dfa4e2dbc5e30243cb5585d64af5a44",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": false
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x886ba196986b50108d9bb9a4573bdfd0f5ca32ab174c189ae5fec31119c429de"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2342,7 +3829,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2375,6 +3862,35 @@
         "source_log_sha256": "e76306eb46cfe19e0f19e7c52b4c717e1eb040c691438506cdad75fa3f90d859",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "a787fbab9c720eb0af5040eaee0b6b5dc9823249fb9967da4a76092cf9f38935",
+        "evidence_sha256": "99a07bbe25358587a7c5949237bfa3f9e6b71213cf32f7f965eb378d647aa669",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": false
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x18b7850276ab3530deb43bb72f50d2fff9871ff9bb15abadb918d83aaae3be94"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2384,7 +3900,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2417,6 +3933,35 @@
         "source_log_sha256": "ecdcb68ed9e720ea2f0f516b417cf1f203c38419111910043a428026131ed2c6",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "b2c8a835e0e92a2398042f35afb250051ae5f24d7e091fa5959c9ff65a77df6f",
+        "evidence_sha256": "f277d836696bed95030312b09849b55d3747b05da2396c989ac449240a21bebe",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": false
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x7169bf5b37be797056cffb576242ab7da1e9a189dfc974214484603f10b164a7"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2426,7 +3971,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2459,6 +4004,35 @@
         "source_log_sha256": "74fb5580592a03100d1b9a042a950acd6fd02556c4b76f2e3228abd6abb8e838",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "645b4035ebea97c2482bddcab365f5088ced9364e7a306418f937d2a6534c6c0",
+        "evidence_sha256": "1569f1bea54dd4683e3e214e5016cb27356eac7a4543697fa6e7262e58b0df52",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": false
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x574881ed55687babd7a7d52282a8f1c48e96a65e759a6a0fb75435653c56252f"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2468,7 +4042,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2500,6 +4074,35 @@
         "source_log_sha256": "58dd5bc947bbf7b74e017235116eb91833bb0300403f2212cea7268c04129e9f",
         "failure_category": "receipt_wait",
         "failure_excerpt": "Waiting for receipt: 0xff1ba21078eee92bbedbbf26af03e46b2ecaefb2b47ef2ad03feaf87dec87500 (13s remaining)"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "64076237fdf34058a1c07593d7af9dcf47ac4cefc83efc9fa40a80b9bfa281cc",
+        "evidence_sha256": "e60677924fda00af53fb72fefb2f0d0a11d9b8cf3dfc5b1216536bf7126868a9",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": false
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x574881ed55687babd7a7d52282a8f1c48e96a65e759a6a0fb75435653c56252f"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2509,7 +4112,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2542,6 +4145,35 @@
         "source_log_sha256": "c14ecb924730aa25a0bd3b1ff00c917caf97275b0d1449f49053a6c4cdcc44cd",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: gas estimation or final effect validation failed"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "8d81b4534ddfc0c24aca61a2784fb6da415c07abd9bcdd605b80dc19cd0a38fa",
+        "evidence_sha256": "fd4e0a85d0a5610fe52a6b34695a113b6e60f6840842e0c1730e28ebe11b7c65",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x227fdb0bb7a0fd96f8a56908a6773e3fe7a35b243be69c7d71d5556c2863f92c"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2551,7 +4183,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2583,6 +4215,35 @@
         "source_log_sha256": "a236ddfb85acd98078165e5191d4d9a1bde6bf265bd24b5da4f096bc249be642",
         "failure_category": "fee_quote_rejected",
         "failure_excerpt": "Fee quote option rejected: unsupported_transaction: unsupported quote: incomplete settlement roots"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "0eb59be7974ee0e812d82e268140c38d0c026255ab8b44610aff7fb7bc86ed22",
+        "evidence_sha256": "3d2941588bb79e77fc2ca04701f30f187009dcbf96388d8382539c1a7ee3d0ed",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": false
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x574881ed55687babd7a7d52282a8f1c48e96a65e759a6a0fb75435653c56252f"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2592,7 +4253,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2624,6 +4285,35 @@
         "source_log_sha256": "cfbb2f42c3fc61873e64f0845ac2c60422c3d1694130731632aeee3e5789d348",
         "failure_category": "receipt_wait",
         "failure_excerpt": "Waiting for receipt: 0x5691f28e5b28a6ffa23fad4da90c67f6133aae2ff317f30dbab25ee5b5d111f3 (13s remaining)"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "0466d599026fb7cfb700b97951a34d6ee921670a4065f6b0630888db55e11ba9",
+        "evidence_sha256": "53f677b18f1a24d8b8be237ef3df39489a1efc499ff4d200d1a1b5ab395a8823",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x18b7850276ab3530deb43bb72f50d2fff9871ff9bb15abadb918d83aaae3be94"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2633,7 +4323,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2664,6 +4354,35 @@
         "source_log_sha256": "b234b076c5b833117d9f11867ab0c609f17db02f3c001beccc33fdbd08c3288e",
         "failure_category": "receipt_wait",
         "failure_excerpt": "Waiting for receipt: 0x9114923cdf781fcb16c5139ae6a7bd5f6e794a81ec12b50934785fc5b6904f9c (13s remaining)"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "2ae916d6dcd2dfce7e7e52ddaff0250dc0cee40403c156e041676c8e3a1bc8a3",
+        "evidence_sha256": "d788edd8b3f5e7dd2a14c0415d7deea1f0762cfb8b8216ad68b184804201fd9d",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x227fdb0bb7a0fd96f8a56908a6773e3fe7a35b243be69c7d71d5556c2863f92c"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2673,7 +4392,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2706,6 +4425,35 @@
         "source_log_sha256": "664093468eb1662c8b3cdd5b4616c76c3df529eb4c5196f9c66c98cb7d77c844",
         "failure_category": "receipt_wait",
         "failure_excerpt": "Waiting for receipt: 0xbe8611949421b4dd4ce0c0646bcfd9cf5b52bf5d95140c8fae1333c72ac4c10f (14s remaining)"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "f45b880fe2937c978a885c3dd93e4b6d06b477b55461dfa87d88a4834eac6e8b",
+        "evidence_sha256": "1f4d8fd44b65afb19f665b0624802f672ce9206657034ed74178eba3a77c27cd",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x7169bf5b37be797056cffb576242ab7da1e9a189dfc974214484603f10b164a7"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2715,7 +4463,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "Explicit selection only pending live validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2755,6 +4503,35 @@
         "source_log_sha256": "6b082f95ba89322ee6c664d0224137e6768ce2bd2538f8d7f7198136b9cfc8d9",
         "failure_category": "receipt_wait",
         "failure_excerpt": "Waiting for receipt: 0x89fceb1147e91150943affb7cbf1293b71efacd64e64a11a5ac49abe121c4a0f (13s remaining)"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "b91a3d2aa703e96ba003fd079921c74f68b47bdd52778f02a3c0771a92ef5b12",
+        "evidence_sha256": "33ac31db7866e617f7063836b22cd2cfac17d8f0c1faece27628c9dec6d92173",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0x7169bf5b37be797056cffb576242ab7da1e9a189dfc974214484603f10b164a7"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2764,7 +4541,7 @@
       "baseline_default_selected": true,
       "baseline_exclusion_reason": null,
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2794,6 +4571,34 @@
         "source_log_sha256": "e3b7e477a3a7bf25c51357b4e5dc9a01a649c2956e9db73ab15ed964607eba49",
         "failure_category": "receipt_wait",
         "failure_excerpt": "Waiting for receipt: 0x0c58ffdfde4b4e4158bebad91fb02399fd092093fded3e672281162a21157177 (14s remaining)"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-static-pool",
+        "source_log_sha256": "cf3ca3be13aac3685b1fbf55f4bd2129f251f5e081881047b909403b88377a8a",
+        "evidence_sha256": "ed03458b6678b895e395a8da3a3c1ed62d66283071c46a7639493a9224193a35",
+        "claims": {
+          "upstream_pass_required": true,
+          "receipts_revalidated": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "exact_same_block_static_table_decoded": true,
+          "table_load_preceded_trigger": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "producer_remained_read_only": true
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xf54e948350c1ea1e620de2d81f9a7f765e8e9214ff534e12fb077096303791f6"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     },
     {
@@ -2803,7 +4608,7 @@
       "baseline_default_selected": false,
       "baseline_exclusion_reason": "NOT READY. Missing-proxy cases remain explicit-only pending live staged validation.",
       "baseline_network_result": "FAIL",
-      "candidate_network_result": "not_run",
+      "candidate_network_result": "PASS",
       "reference_anvil_runs": [
         {
           "run": 1,
@@ -2833,6 +4638,35 @@
         "source_log_sha256": "2e952c8c3708342be5f4ab28ba7669b878e753296353a65d2e9016f831fa5baa",
         "failure_category": "fee_quote_unavailable",
         "failure_excerpt": "eez_quoteFee failed: Error: server returned an error response: error code -32004: quote unavailable: gas estimation, data: {\"code\":\"quote_unavailable\",\"message\":\"quote unavailable: gas estimation\"}"
+      },
+      "candidate_network_evidence": {
+        "verification_mode": "upstream-direct",
+        "source_log_sha256": "76ac205b46e1fa692977f16dffcc6ba86f5911d336834505b0816b5bd43dfb82",
+        "evidence_sha256": "13f52472c7df809c678a5dcea4c2c714d1a3a12d7bacab2e83d4f131213070df",
+        "claims": {
+          "upstream_completed": true,
+          "receipts_revalidated": true,
+          "scenario_tables_selected_from_canonical_calldata": true,
+          "upstream_summary_blocks_match_receipts": true,
+          "causal_graph_bijection": true,
+          "blob_kzg_authenticated": true,
+          "native_semantics_decoded": true,
+          "semantic_trigger_bound": true,
+          "l1_settlement_verified": true,
+          "posted_table_field_match": true,
+          "rolling_hashes_replayed": true,
+          "l2_table_field_match": true,
+          "l2_calls_verified": false
+        },
+        "causal_graph_verified": true,
+        "blob_da_verified": true,
+        "independent_replay": {
+          "verified": true,
+          "settlements": [
+            "0xf54e948350c1ea1e620de2d81f9a7f765e8e9214ff534e12fb077096303791f6"
+          ],
+          "checked_l2_receipts": 2
+        }
       }
     }
   ],
@@ -2871,5 +4705,188 @@
       "receipt_wait": 7
     },
     "diagnostics": "Local-only artifacts/full-protocol/baseline/kurtosis; compact claims and log hashes retained per scenario. Failed scenarios require targeted diagnosis, not inference from their names."
+  },
+  "candidate_network_run": {
+    "root_commit": "6808f13b45176291b8cfaa8e5effbc31ee01f504",
+    "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "enclave": "eez-full-protocol-final-6808f13b",
+    "passed": 64,
+    "failed": 0,
+    "skipped": 0,
+    "suite": {
+      "discovered": 64,
+      "eligible": 64,
+      "selected": 64,
+      "excluded_from_all": [],
+      "complete": true
+    },
+    "accounting": {
+      "valid": true,
+      "missing": [],
+      "duplicates": [],
+      "unexpected": []
+    },
+    "evidence_complete": true,
+    "causal_coverage": {
+      "complete": true,
+      "missing": [],
+      "paired": [
+        "multi-call-twice",
+        "multi-call-two-diff",
+        "multi-call-twiceL2",
+        "multi-call-two-diffL2",
+        "counter-multi-tx",
+        "deepNested",
+        "flash-loan",
+        "multi-call-nested",
+        "nestedCounter",
+        "multi-call-nestedL2",
+        "nestedCounterL2",
+        "bridge",
+        "counter",
+        "bridgeL2",
+        "counterL2",
+        "reentrant",
+        "catchNestedRevertAfterCallback",
+        "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+        "nestedCallRevert",
+        "revertFromOtherChain",
+        "catchNestedRevertAfterCallbackL2",
+        "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+        "catchRemoteRevertAfterCallbackL2",
+        "nestedCallRevertL2",
+        "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+        "nestedRollbackRestoresInnerThenOuterStateL2",
+        "revertCounterL2",
+        "revertFromOtherChainAndCallAgainL2",
+        "revertFromOtherChainL2",
+        "revertFromOtherChainNested",
+        "rollbackGroupWithStaticReadThenWriteL2",
+        "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+        "mutableCallMakesReadThatCallsBack",
+        "nestedStaticCounter",
+        "nestedStaticLocalWriteL2",
+        "staticReadWrite",
+        "staticReadX2Write",
+        "staticThenNestedWrites",
+        "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+        "mutableCallMakesReadThatCallsBackL2",
+        "nestedStaticCounterL2",
+        "nestedStaticLocalWriteL1",
+        "staticCounterL2",
+        "staticLocalWriteL2",
+        "staticReadCallsBackAndReadsAgainL2",
+        "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+        "staticReadHandlesFailedCallbackL2",
+        "staticReadPropagatesFailedCallbackL2",
+        "staticReadThenCatchFailedWriteL2",
+        "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+        "staticReadThenRollbackWriteL2",
+        "staticReadThenWriteWithCallbackL2",
+        "staticReadWriteL2",
+        "staticReadX2WriteL2",
+        "staticThenNestedWritesL2",
+        "topLevelStaticReentrantCounterL2",
+        "topLevelStaticReentrantMissingProxyL2"
+      ],
+      "no_destination_required": [
+        "catchRemoteRevertAfterCallback",
+        "revertCounter",
+        "staticLocalWrite",
+        "staticReadCallsBackAndReadsAgain",
+        "topLevelStaticCounter",
+        "topLevelStaticReentrantCounter",
+        "topLevelStaticReentrantMissingProxy"
+      ]
+    },
+    "semantic_blob_coverage": {
+      "complete": true,
+      "missing": [],
+      "authenticated": [
+        "multi-call-twice",
+        "multi-call-two-diff",
+        "multi-call-twiceL2",
+        "multi-call-two-diffL2",
+        "counter-multi-tx",
+        "deepNested",
+        "flash-loan",
+        "multi-call-nested",
+        "nestedCounter",
+        "multi-call-nestedL2",
+        "nestedCounterL2",
+        "bridge",
+        "counter",
+        "bridgeL2",
+        "counterL2",
+        "reentrant",
+        "catchNestedRevertAfterCallback",
+        "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+        "catchRemoteRevertAfterCallback",
+        "nestedCallRevert",
+        "revertCounter",
+        "revertFromOtherChain",
+        "catchNestedRevertAfterCallbackL2",
+        "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+        "catchRemoteRevertAfterCallbackL2",
+        "nestedCallRevertL2",
+        "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+        "nestedRollbackRestoresInnerThenOuterStateL2",
+        "revertCounterL2",
+        "revertFromOtherChainAndCallAgainL2",
+        "revertFromOtherChainL2",
+        "revertFromOtherChainNested",
+        "rollbackGroupWithStaticReadThenWriteL2",
+        "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+        "mutableCallMakesReadThatCallsBack",
+        "nestedStaticCounter",
+        "nestedStaticLocalWriteL2",
+        "staticLocalWrite",
+        "staticReadCallsBackAndReadsAgain",
+        "staticReadWrite",
+        "staticReadX2Write",
+        "staticThenNestedWrites",
+        "topLevelStaticCounter",
+        "topLevelStaticReentrantCounter",
+        "topLevelStaticReentrantMissingProxy",
+        "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+        "mutableCallMakesReadThatCallsBackL2",
+        "nestedStaticCounterL2",
+        "nestedStaticLocalWriteL1",
+        "staticCounterL2",
+        "staticLocalWriteL2",
+        "staticReadCallsBackAndReadsAgainL2",
+        "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+        "staticReadHandlesFailedCallbackL2",
+        "staticReadPropagatesFailedCallbackL2",
+        "staticReadThenCatchFailedWriteL2",
+        "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+        "staticReadThenRollbackWriteL2",
+        "staticReadThenWriteWithCallbackL2",
+        "staticReadWriteL2",
+        "staticReadX2WriteL2",
+        "staticThenNestedWritesL2",
+        "topLevelStaticReentrantCounterL2",
+        "topLevelStaticReentrantMissingProxyL2"
+      ]
+    },
+    "independent_replay": {
+      "checked_blocks": 84,
+      "checked_derived_blocks": 84,
+      "checked_receipts": 101,
+      "safe_l2_block": 966,
+      "safe_l2_block_hash": "0x182c0cf0afb35e92a19695f6e6e6fcd45b563235e7374ec304debc7829cf9c9c",
+      "source": "canonical_l1_only",
+      "verified": true
+    },
+    "verified_blob_batches": 12,
+    "raw_artifacts": "local-only: artifacts/full-protocol/candidate/revision-6808f13b",
+    "artifacts_sha256": {
+      "kurtosis-final/protocol-e2e/summary.json": "0264a7d385a3f65ddad163ddc31e2982838153049bc4c60abbc2fab6748d5b6a",
+      "kurtosis-final/result.json": "f0768433ea21ecf1ffb3b0a6aaca6f78da6ab309b0ef3871df851de7d704d0cc",
+      "protocol-replay-input.json": "8df731c3a1da0467db25e8bbb43a8347fd98b8554a84ac78b5b9da33db56d97f",
+      "independent-replay.json": "2017d263182575ed8b85aff18b755cb81772e1adf44a5474751e8aa14043bfe8",
+      "runtime/manifest.json": "2de10fb0b631169327ea72cc10194dd8a93a1f653ef7837f0a8c49b2885b010a",
+      "tests/manifest.json": "b10a7806176d78c300d639c632634bcd89cadc4821e6e9545ca3e60170af4f98"
+    }
   }
 }
