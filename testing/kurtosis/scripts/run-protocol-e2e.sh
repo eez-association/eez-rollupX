@@ -165,10 +165,7 @@ mapfile -t all_scenario_paths < <(
 (( ${#all_scenario_paths[@]} > 0 )) || { echo "no upstream protocol E2Es discovered" >&2; exit 1; }
 
 declare -A all_path_by_name=()
-declare -A eligible_path_by_name=()
 all_scenario_names=()
-eligible_scenario_paths=()
-excluded_names=()
 for path in "${all_scenario_paths[@]}"; do
     name="$(basename "$(dirname "$path")")"
     if [[ -n "${all_path_by_name[$name]+x}" ]]; then
@@ -177,12 +174,6 @@ for path in "${all_scenario_paths[@]}"; do
     fi
     all_path_by_name["$name"]="$path"
     all_scenario_names+=("$name")
-    if grep -q '^// E2E_EXCLUDE_FROM_ALL:' "$PROTOCOL/$path"; then
-        excluded_names+=("$name")
-    else
-        eligible_path_by_name["$name"]="$path"
-        eligible_scenario_paths+=("$path")
-    fi
 done
 
 if [[ -n "${EEZ_PROTOCOL_SCENARIOS:-}" ]]; then
@@ -195,7 +186,9 @@ selected_paths=()
 for target in "${targets[@]}"; do
     matches=()
     if [[ "$target" == "all" ]]; then
-        matches=("${eligible_scenario_paths[@]}")
+        # Pass exact names to the upstream runner so its pending-integration
+        # markers cannot silently reduce this fork's qualification inventory.
+        matches=("${all_scenario_paths[@]}")
     elif [[ -d "$PROTOCOL/script/e2e/scenarios/$target" ]]; then
         mapfile -t matches < <(
             find "$PROTOCOL/script/e2e/scenarios/$target" -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
@@ -225,16 +218,10 @@ for path in "${selected_paths[@]}"; do
 done
 
 suite_complete=false
-if (( ${#selected_names[@]} == ${#eligible_scenario_paths[@]} )); then
+if (( ${#selected_names[@]} == ${#all_scenario_paths[@]} )); then
     suite_complete=true
-    for name in "${selected_names[@]}"; do
-        if [[ -z "${eligible_path_by_name[$name]+x}" ]]; then
-            suite_complete=false
-            break
-        fi
-    done
 fi
-echo "==> discovered ${#all_scenario_names[@]} upstream E2Es; ${#eligible_scenario_paths[@]} live in 'all'; selected ${#selected_names[@]} (complete=$suite_complete)"
+echo "==> discovered ${#all_scenario_names[@]} upstream E2Es; selected ${#selected_names[@]} (complete=$suite_complete)"
 
 json_array() {
     jq -cn --args '$ARGS.positional' "$@"
@@ -398,9 +385,9 @@ evidence_index="$evidence_dir/index.json"
 jq \
     --arg protocol_commit "$actual_protocol" \
     --argjson discovered_count "${#all_scenario_names[@]}" \
-    --argjson eligible_count "${#eligible_scenario_paths[@]}" \
+    --argjson eligible_count "${#all_scenario_paths[@]}" \
     --argjson selected_count "${#selected_names[@]}" \
-    --argjson excluded_from_all "$(json_array ${excluded_names[@]+"${excluded_names[@]}"})" \
+    --argjson excluded_from_all '[]' \
     --argjson suite_complete "$suite_complete" \
     --argjson accounting_ok "$accounting_ok" \
     --argjson upstream_exit_status "$status" \

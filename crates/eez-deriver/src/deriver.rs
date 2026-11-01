@@ -962,10 +962,6 @@ where
                     "invalid immediate entry count in evidence",
                 ));
             }
-            let counts = eez_protocol::system_tx::outbound_settlement_root_counts(
-                &posted.batch.entries[1..immediate],
-            )
-            .map_err(DeriverError::l2_provider)?;
             let actions = eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
                 semantic_transactions,
                 eez_protocol::RollupId(cfg.this_rollup_id),
@@ -975,6 +971,14 @@ where
             actions
                 .bind_settlement(&posted.batch)
                 .map_err(DeriverError::l2_provider)?;
+            let counts = eez_protocol::system_tx::outbound_settlement_source_counts(
+                &posted.batch.entries[1..immediate],
+                actions
+                    .outbound()
+                    .iter()
+                    .map(eez_protocol::system_tx::OutboundSyncGroup::source_shape),
+            )
+            .map_err(DeriverError::l2_provider)?;
             let groups = actions
                 .outbound()
                 .iter()
@@ -2353,12 +2357,17 @@ where
                 // Rebuild exactly the steps L1 ran; `skip > 0` = it resumed
                 // mid-chain (see `ProducingSlice`).
                 let outbound_settlement_root_counts =
-                    eez_protocol::system_tx::outbound_settlement_root_counts(&settlement_outbound)
-                        .map_err(|error| {
-                            DeriverError::l2_provider(format!(
-                                "postBatch({tx_hash}) has invalid outbound root partition: {error}"
-                            ))
-                        })?;
+                    eez_protocol::system_tx::outbound_settlement_source_counts(
+                        &settlement_outbound,
+                        all_outbound
+                            .iter()
+                            .map(eez_protocol::system_tx::OutboundSyncGroup::source_shape),
+                    )
+                    .map_err(|error| {
+                        DeriverError::l2_provider(format!(
+                            "postBatch({tx_hash}) has invalid outbound root partition: {error}"
+                        ))
+                    })?;
                 let original_outbound_settlement_count = settlement_outbound.len();
                 let slice = ProducingSlice::split(
                     settlement,
@@ -2435,8 +2444,11 @@ where
                 gate_should_verify =
                     !settlement_outbound.is_empty() || !settlement_inbound.is_empty();
                 let selected_root_counts =
-                    eez_protocol::system_tx::outbound_settlement_root_counts(
+                    eez_protocol::system_tx::outbound_settlement_source_counts(
                         &settlement_outbound,
+                        outbound
+                            .iter()
+                            .map(eez_protocol::system_tx::OutboundSyncGroup::source_shape),
                     )
                     .map_err(|error| {
                         DeriverError::l2_provider(format!(
@@ -2448,13 +2460,6 @@ where
                     .flat_map(|group| group.effects.iter())
                     .map(|effect| effect.source_entry.clone())
                     .collect::<Vec<_>>();
-                if selected_root_counts.iter().sum::<usize>() != selected_sources.len() {
-                    return Err(DeriverError::l2_provider(format!(
-                        "postBatch({tx_hash}) selected outbound hosts cover {} roots, but reconstruction selected {} source entries",
-                        selected_root_counts.iter().sum::<usize>(),
-                        selected_sources.len(),
-                    )));
-                }
                 // Static lookups share one pool for the whole signed user
                 // transaction. Match the signer's whole-load boundary before
                 // independently verifying the reconstructed source tables.

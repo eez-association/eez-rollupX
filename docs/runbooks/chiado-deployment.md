@@ -867,6 +867,15 @@ L1 configuration, then derives the key from the profile, registry, proof system
 and attester. `EEZ_VKEY` must equal this value; a padded signer address is invalid.
 The signer verifies this before serving. No L1 or L2 RPC is needed by the signer.
 
+The [complete pinned E2E support extension](../proposals/full-protocol-e2e.md)
+preserves signing domain 7 and the existing registered vkey, contracts and genesis
+for deployments already within that baseline compatibility boundary. Its RPC
+identity is version 8: upgrade Composer, signer/prover and followers together,
+discard old sessions, and rebuild lookup requests with complete manager witnesses.
+Old followers cannot replay newly admitted shapes; downgrade after their canonical
+inclusion is unsupported. This does not establish a live migration from the old
+custom manager or an arbitrary earlier genesis.
+
 For a future incompatible validation change, first identify pending proofs and
 canonical settlement progress. Revoke/replace the old registered vkey or proof
 system on L1 before incompatible rules activate, coordinate all runtime roles,

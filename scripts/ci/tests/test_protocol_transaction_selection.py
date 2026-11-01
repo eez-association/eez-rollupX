@@ -76,6 +76,42 @@ class SelectionTest(SelectionFixture, unittest.TestCase):
         # Discovery never removes the unrelated entry or edits selected calldata.
         self.assertEqual(len(self.inputs[first["input"]][0]), 2)
 
+    def test_static_only_uses_the_last_complete_load_before_the_canonical_user(self):
+        self.add_tx([9])
+        wanted = self.add_tx([])
+        self.inputs[wanted["input"]][1] = [["0", word(1), [], word(2), True, "0x"]]
+        user = self.add_tx([], "aaaaaaaa", to="0x" + "99" * 20)
+        self.add_tx([8])
+        result = MODULE.select_transactions([self.block], MANAGER, [], METHODS,
+                                            self.cast, users=[user["hash"]])
+        self.assertEqual(result, [wanted])
+        self.assertEqual(len(self.inputs[result[0]["input"]][1]), 1)
+        with self.assertRaisesRegex(ValueError, "missing the static user"):
+            MODULE.select_transactions([self.block], MANAGER, [], METHODS,
+                                       self.cast, users=[word(999)])
+
+    def test_static_only_rejects_missing_replaced_or_mixed_loads(self):
+        for shape in ("no-load", "empty", "mutable", "delivery"):
+            with self.subTest(shape=shape):
+                self.setUp()
+                if shape != "no-load":
+                    table = self.add_tx([1] if shape == "mutable" else [],
+                                        "22222222" if shape == "delivery" else "11111111")
+                    if shape != "empty":
+                        self.inputs[table["input"]][1] = [["0", word(1), [], word(2), True, "0x"]]
+                user = self.add_tx([], "aaaaaaaa", to="0x" + "99" * 20)
+                with self.assertRaisesRegex(ValueError, "no preceding|complete static-only"):
+                    MODULE.select_transactions([self.block], MANAGER, [], METHODS,
+                                               self.cast, users=[user["hash"]])
+        self.setUp()
+        earlier = self.add_tx([])
+        self.inputs[earlier["input"]][1] = [["0", word(1), [], word(2), True, "0x"]]
+        self.add_tx([])  # This empty load replaces the earlier static pool.
+        user = self.add_tx([], "aaaaaaaa", to="0x" + "99" * 20)
+        with self.assertRaisesRegex(ValueError, "complete static-only"):
+            MODULE.select_transactions([self.block], MANAGER, [], METHODS,
+                                       self.cast, users=[user["hash"]])
+
     def test_missing_wrong_or_duplicate_occurrences_fail(self):
         self.add_tx([1])
         for expected in ([], [2], [1, 1]):
@@ -246,8 +282,12 @@ L2 call exec: {other["hash"]}
                          "settlement-summary-hint", "outbound-receipt-snapshot", "split",
                          "oversize-evidence", "linked-delivery", "outbound-linked-load", "split-linked",
                          "refusal-recovered", "outbound-refusal-recovered", "split-refusal-recovered",
-                         "refusal-quote-busy", "refusal-stale-context"}
+                         "refusal-quote-busy", "refusal-stale-context", "outbound-static-only"}
             failures = {
+                "outbound-static-empty": "cannot select exact scenario table transactions",
+                "outbound-static-causal": "independent trigger/table/event causal verification failed",
+                "outbound-static-blob": "settlement blob semantic verification failed",
+                "outbound-static-marker": "static-only upstream verification is absent",
                 "orphan": "differs from the canonical block",
                 "causal_failure": "independent trigger/table/event causal verification failed",
                 "blob_failure": "settlement blob semantic verification failed",
@@ -343,6 +383,22 @@ L2 call exec: {other["hash"]}
                         block["transactions"].append(copy.deepcopy(user))
                         current["receipts"][trigger["hash"]].update(
                             blockHash=block["hash"], transactionIndex="0x2")
+                    if case.startswith("outbound-static-"):
+                        load = current["wanted"]
+                        old_input = load["input"]
+                        new_input = "0x11111111" + old_input[10:]
+                        load["input"] = new_input
+                        current["inputs"][new_input] = [[], [["0", word(1), [], word(2), True, "0x"]]]
+                        log.write_text(original_log.replace(f'L2 table expected: [{word(1)}]',
+                                                            'L2 table expected: []')
+                                       .replace('PASS: L2 field checks on 1 entry',
+                                                'PASS: all 0 expected entries and static rows checked across 1 L2 block(s)'))
+                        if case == "outbound-static-empty": current["inputs"][new_input][1] = []
+                        if case == "outbound-static-causal": current["causal_failure"] = True
+                        if case == "outbound-static-blob": current["blob_failure"] = True
+                        if case == "outbound-static-marker":
+                            log.write_text(log.read_text().replace(
+                                'PASS: all 0 expected entries and static rows checked across 1 L2 block(s)', ''))
                     if case == "outbound-without-call-search":
                         log.write_text(original_log.replace("L2 blocks to verify: [16]\n", ""))
                     if case == "linked-delivery":

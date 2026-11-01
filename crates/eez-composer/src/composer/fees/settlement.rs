@@ -222,16 +222,16 @@ fn batch(runtime: &PostingRuntime, input: &SettlementInput<'_>) -> Result<EvmBat
     if input.entries.is_empty() || input.entries.len() != input.traces.len() {
         return Err(FeeQuoteError::Unsupported("settlement trace coverage"));
     }
-    let counts = eez_protocol::system_tx::outbound_settlement_root_counts(input.entries)
-        .map_err(unavailable)?;
+    let counts = eez_protocol::system_tx::outbound_settlement_source_counts(
+        input.entries,
+        input.groups.iter().map(OutboundSyncGroup::source_shape),
+    )
+    .map_err(unavailable)?;
     let effects = input
         .groups
         .iter()
         .flat_map(|g| &g.effects)
         .collect::<Vec<_>>();
-    if counts.iter().sum::<usize>() != effects.len() {
-        return Err(FeeQuoteError::Unsupported("settlement effect coverage"));
-    }
     let prefix = placeholder(0)?;
     let checkpoints = (0..input.entries.len())
         .map(|i| placeholder(i + 1))
@@ -865,7 +865,7 @@ mod tests {
                         success,
                         gas_used: 100,
                     },
-                    revert_span: None,
+                    revert_spans: vec![],
                 }],
             }],
         )

@@ -615,7 +615,7 @@ mod tests {
                         gas_used: 0,
                         success: false,
                     },
-                    revert_span: None,
+                    revert_spans: vec![],
                 }],
                 source: eez_protocol::SourceComposition {
                     l2_static_entries: Vec::new(),

@@ -829,7 +829,7 @@ impl SyncBlockState {
 
 /// Restore point of a [`SyncBlockFork`]. The cache holds every state effect a
 /// rollback undoes; `applied` and `gas_used` ride along so both rewind too.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ForkSnapshot {
     cache: CacheState,
     applied: usize,

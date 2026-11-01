@@ -41,7 +41,7 @@ def fixture(scenario):
     callback_action = {
         "parent_index": 0, "kind": "StaticCall", "source_chain": 1, "target_chain": 0,
         "from_address": CALLBACK_SOURCE, "to_address": CALLBACK_TARGET, "value": "0",
-        "data": "0x61bc221a", "success": True, "return_data": result, "revert_span": None,
+        "data": "0x61bc221a", "success": True, "return_data": result, "revert_spans": [],
     }
     # callTracer shape: the registry STATICCALLs the callback's source proxy,
     # which forwards one CALL (read-only under the STATICCALL) to the producer.
@@ -72,7 +72,7 @@ def fixture(scenario):
                     "parent_index": None, "kind": "StaticCall" if static else "Call",
                     "source_chain": 0, "target_chain": 1, "from_address": SOURCE,
                     "to_address": DESTINATION, "value": "0", "data": "0x61bc221a" if static else "0xd09de08a",
-                    "success": static, "return_data": result, "revert_span": None,
+                    "success": static, "return_data": result, "revert_spans": [],
                 }] + ([callback_action] if callback else [])}],
             },
             "semantic_evidence": {"raw_trigger_transactions": [{"raw_transaction": "0xraw"}],
@@ -130,7 +130,7 @@ def local_write_fixture():
                             "to_address": SOURCE if callback_action else DESTINATION, "value": "0",
                             "data": "0x2c4e722e" if callback_action else "0x999b93af",
                             "success": True, "result_kind": "ReturnSuccess",
-                            "return_data": result, "revert_span": None})
+                            "return_data": result, "revert_spans": []})
     data["blob"]["payload"]["semantic_transactions"][0]["actions"] = actions
     return data
 

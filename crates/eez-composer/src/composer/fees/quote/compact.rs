@@ -183,7 +183,7 @@ where
                 "trace is available only in eez_debugQuoteFee",
             ));
         }
-        let budget = Arc::new(Budget::new(cancelled));
+        let budget = Arc::new(Budget::new(cancelled, request.types.len()));
         budget.check()?;
         let estimator = self
             .gas_estimator(prepared.rollup_id)

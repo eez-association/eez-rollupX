@@ -1,13 +1,11 @@
 //! Entry construction and ABI encoding for the pinned protocol.
 //!
-//! The materializer accepts mutable call trees, including terminal failed
-//! calls. Source-chain rollback regions are retained and lowered to canonical
-//! `revertNextNCalls` windows, and a terminal failed nested row is represented
-//! by its reverted rolling hash. Read-only roots and terminal read-only nested
-//! calls are represented by the protocol's static-entry pool / unified rows; a
-//! read-only root may carry terminal static callbacks to its own chain.
-//! Explicit call gas, other static calls with descendants, and failed calls
-//! with descendants remain fail-closed.
+//! The materializer retains mutable call trees and failed-frame descendants.
+//! Source-chain rollback regions are lowered to canonical nested
+//! `revertNextNCalls` windows, and a failed nested row is represented
+//! by its reverted rolling hash. Recursive reads use the protocol's static
+//! pools and unified rows, with a separate callback commitment per pending read.
+//! Runtime observation support is checked separately from table construction.
 
 mod inbound;
 mod materialize;
@@ -15,8 +13,8 @@ mod verify;
 
 pub use inbound::InboundSidecar;
 
-pub(crate) use materialize::materialize_batches;
 pub use materialize::{EntryTrace, finalize_l1_entry_traces};
+pub(crate) use materialize::{materialize_batches, materialize_lookup_execution};
 pub use verify::{
     NestedPairDirection, NestedPairVerification, verify_nested_group, verify_nested_pair,
     verify_outbound_source_group, verify_static_outbound_pair,
@@ -41,6 +39,7 @@ const STATIC_CALL: &str = "static cross-chain calls are not supported";
 const REVERT_SPAN: &str = "cross-chain call revert spans are not supported";
 const NESTED_TRACE_REQUIRED: &str = "nested L1 entries require symbolic trace finalization";
 const SELF_CALL: &str = "same-chain cross-chain calls are not supported";
+pub(crate) const MAX_NESTING_DEPTH: usize = 1024;
 
 /// Reject calls that the entry profile cannot represent exactly.
 ///
@@ -48,7 +47,7 @@ const SELF_CALL: &str = "same-chain cross-chain calls are not supported";
 /// dispatch exempts the entry rollup, so an injected entry-chain self-call
 /// (misconfigured self-proxy) would otherwise materialize.
 pub(crate) fn ensure_materializable_calls(calls: &[ExecutedAction]) -> ProtocolResult<()> {
-    for (index, call) in calls.iter().enumerate() {
+    for call in calls {
         if call.source_rollup_id == call.target_rollup_id {
             return Err(crate::ProtocolErrorKind::Unsupported(SELF_CALL).into());
         }
@@ -58,85 +57,18 @@ pub(crate) fn ensure_materializable_calls(calls: &[ExecutedAction]) -> ProtocolR
             )
             .into());
         }
-        if call.call_mode == CallMode::Static {
-            if !call.value.is_zero() {
-                return Err(crate::ProtocolErrorKind::InvalidEncoding(
-                    "static cross-chain calls must carry zero value".into(),
-                )
-                .into());
-            }
-            if call.revert_span.is_some() {
-                return Err(crate::ProtocolErrorKind::Unsupported(
-                    "static cross-chain calls cannot carry revert spans",
-                )
-                .into());
-            }
-            check_static_callbacks(calls, index)?;
-        }
-        if !call.outcome.is_success()
-            && calls
-                .iter()
-                .any(|candidate| candidate.parent_index == Some(index))
-        {
-            return Err(crate::ProtocolErrorKind::Unsupported(
-                "unsuccessful cross-chain calls with descendants are not supported",
+        if call.call_mode == CallMode::Static && !call.value.is_zero() {
+            return Err(crate::ProtocolErrorKind::InvalidEncoding(
+                "static cross-chain calls must carry zero value".into(),
             )
             .into());
         }
-    }
-    Ok(())
-}
-
-/// Accept the descendants of static call `index` only in the shape both
-/// managers can resolve: a successful top-level static read whose children are
-/// terminal, successful static callbacks to the read's source chain.
-///
-/// The callbacks run from the read's static entry (`l2ToL1Calls` on L1,
-/// `incomingCalls` on L2) under one untagged result fold. The protocol keeps
-/// no rows inside a static frame, so a callback cannot itself call out, and a
-/// failed callback would need a failed static row, which this profile does not
-/// emit.
-fn check_static_callbacks(calls: &[ExecutedAction], index: usize) -> ProtocolResult<()> {
-    let read = &calls[index];
-    let mut callbacks = calls
-        .iter()
-        .enumerate()
-        .filter(|(_, candidate)| candidate.parent_index == Some(index))
-        .peekable();
-    if callbacks.peek().is_none() {
-        return Ok(());
-    }
-    if read.parent_index.is_some() {
-        return Err(crate::ProtocolErrorKind::Unsupported(
-            "nested static cross-chain calls with descendants are not supported",
-        )
-        .into());
-    }
-    for (callback_index, callback) in callbacks {
-        if callback.call_mode != CallMode::Static {
+        if let Some(parent) = call.parent_index.and_then(|index| calls.get(index))
+            && parent.call_mode == CallMode::Static
+            && call.call_mode != CallMode::Static
+        {
             return Err(crate::ProtocolErrorKind::Unsupported(
                 "static cross-chain reads cannot make mutable callbacks",
-            )
-            .into());
-        }
-        if callback.target_rollup_id != read.source_rollup_id {
-            return Err(crate::ProtocolErrorKind::Unsupported(
-                "static cross-chain callbacks must return to the reading chain",
-            )
-            .into());
-        }
-        if !callback.outcome.is_success() {
-            return Err(crate::ProtocolErrorKind::Unsupported(
-                "failed static cross-chain callbacks are not supported",
-            )
-            .into());
-        }
-        if calls
-            .iter()
-            .any(|candidate| candidate.parent_index == Some(callback_index))
-        {
-            return Err(crate::ProtocolErrorKind::Unsupported(
-                "static cross-chain callbacks with descendants are not supported",
             )
             .into());
         }
@@ -154,8 +86,8 @@ fn check_static_callbacks(calls: &[ExecutedAction], index: usize) -> ProtocolRes
 ///
 /// # Errors
 ///
-/// Returns an error for pending, static, failed calls with descendants,
-/// unnormalized reverted spans, or structurally invalid calls.
+/// Returns an error for pending outcomes, malformed rollback scopes,
+/// unsupported row reuse, or structurally invalid calls.
 #[tracing::instrument(level = "debug", name = "build_batch", skip_all, fields(source = %source_rollup_id), err)]
 pub fn build_batch(
     recorded: &[ExecutedAction],
@@ -287,29 +219,28 @@ pub fn finalize_l1_rolling_hashes(batch: &mut EvmBatch) -> ProtocolResult<()> {
 ///
 /// A failed nested row rolls its complete frame back, so none of its recorded
 /// sub-calls contribute value even when the reverted-frame witness contains
-/// them. The reverted rolling hash is deliberately not validated here: L1
-/// entries use this projection before their root-dependent symbolic traces are
-/// finalized. Pair verification validates the completed commitment later.
-/// Returns `None` on arithmetic overflow, for an unsuccessful entry with
-/// nested rows, or for a malformed/unsupported call array.
+/// them. Row commitments are deliberately not validated here: successful
+/// static rows bind a nonzero callback hash, and L1 mutable rows use this
+/// projection before their root-dependent traces are finalized. Contextual
+/// pair verification checks each row's kind and completed commitment later.
+/// A failed top-level entry rolls every callback back and releases no value.
+/// All arrays are still validated before returning zero for that entry.
+/// Returns `None` on arithmetic overflow or a malformed/unsupported call array.
 #[must_use]
 pub fn entry_flat_value_sum(entry: &ExecutionEntrySol) -> Option<U256> {
-    if !entry.success && (entry.l2ToL1Calls.len() > 1 || !entry.expectedL1ToL2Calls.is_empty()) {
-        return None;
-    }
     let mut sum = committed_call_array_value(&entry.l2ToL1Calls)?;
     for row in &entry.expectedL1ToL2Calls {
+        let value = committed_call_array_value(&row.l2ToL1Calls)?;
         if row.success {
-            if row.revertedOrStaticRollingHash != B256::ZERO {
-                return None;
-            }
-            sum = sum.checked_add(committed_call_array_value(&row.l2ToL1Calls)?)?;
+            sum = sum.checked_add(value)?;
         }
     }
-    Some(sum)
+    Some(if entry.success { sum } else { U256::ZERO })
 }
 
 fn committed_call_array_value(calls: &[L2ToL1CallSol]) -> Option<U256> {
+    // Validate every interior marker before skipping the outer reverted window.
+    crate::system_tx::check_call_array_shape(calls, "value projection").ok()?;
     let mut sum = U256::ZERO;
     let mut index = 0usize;
     while index < calls.len() {
@@ -319,13 +250,6 @@ fn committed_call_array_value(calls: &[L2ToL1CallSol]) -> Option<U256> {
             index += 1;
         } else {
             let end = index.checked_add(span)?;
-            if end > calls.len()
-                || calls[index + 1..end]
-                    .iter()
-                    .any(|call| call.revertNextNCalls != 0)
-            {
-                return None;
-            }
             index = end;
         }
     }
@@ -629,7 +553,7 @@ fn supported_return_data(call: &ExecutedAction) -> ProtocolResult<&[u8]> {
     if call.call_mode == CallMode::Static {
         return Err(crate::ProtocolErrorKind::Unsupported(STATIC_CALL).into());
     }
-    if call.revert_span.is_some() {
+    if !call.revert_spans.is_empty() {
         return Err(crate::ProtocolErrorKind::Unsupported(REVERT_SPAN).into());
     }
     match &call.outcome {
@@ -723,7 +647,7 @@ mod tests {
                 gas_used: 21_000,
                 success: true,
             },
-            revert_span: None,
+            revert_spans: vec![],
         }
     }
 
@@ -762,6 +686,9 @@ mod tests {
         *success = false;
         let mut child = record(RollupId::MAINNET, RollupId(1));
         child.parent_index = Some(0);
+        ensure_materializable_calls(&[failed_parent.clone(), child.clone()])
+            .expect("failed frames retain their resolved descendants");
+        child.outcome = ExecutionOutcome::Pending;
         assert!(ensure_materializable_calls(&[failed_parent, child]).is_err());
 
         let mut terminal_failure = record(RollupId(1), RollupId::MAINNET);
@@ -773,7 +700,7 @@ mod tests {
             .expect("terminal top-level failures are representable");
 
         let mut reverted_span = record(RollupId(1), RollupId::MAINNET);
-        reverted_span.revert_span = Some(0);
+        reverted_span.revert_spans = vec![0];
         assert!(build_batch(&[reverted_span], RollupId::MAINNET).is_err());
     }
 
@@ -896,10 +823,13 @@ mod tests {
         assert_eq!(outbound_ether_out(&entry), Some(U256::from(9)));
 
         entry.success = false;
-        assert_eq!(outbound_ether_out(&entry), Some(U256::from(9)));
+        assert_eq!(outbound_ether_out(&entry), Some(U256::ZERO));
 
         entry.l2ToL1Calls.push(call);
+        assert_eq!(outbound_ether_out(&entry), Some(U256::ZERO));
+        entry.l2ToL1Calls[1].gas = 1;
         assert_eq!(outbound_ether_out(&entry), None);
+        entry.l2ToL1Calls[1].gas = 0;
 
         entry.success = true;
         assert_eq!(outbound_ether_out(&entry), Some(U256::from(18)));
@@ -929,6 +859,60 @@ mod tests {
             outbound_ether_out(&entry),
             Some(U256::from(18)),
             "a failed frame rolls back every value-bearing sub-call"
+        );
+    }
+
+    #[test]
+    fn value_projection_accepts_static_callback_commitments() {
+        let callback = L2ToL1CallSol {
+            revertNextNCalls: 0,
+            isStatic: true,
+            gas: 0,
+            sourceAddress: Address::ZERO,
+            sourceRollupId: 7,
+            targetAddress: Address::ZERO,
+            value: U256::ZERO,
+            data: Bytes::new(),
+        };
+        let entry = ExecutionEntrySol {
+            success: true,
+            expectedL1ToL2Calls: vec![ExpectedL1ToL2CallSol {
+                expectedL1toL2Hash: B256::with_last_byte(1),
+                l2ToL1Calls: vec![callback],
+                revertedOrStaticRollingHash: B256::with_last_byte(2),
+                success: true,
+                returnData: Bytes::new(),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(outbound_ether_out(&entry), Some(U256::ZERO));
+    }
+
+    #[test]
+    fn value_projection_excludes_complete_nested_rollback_windows() {
+        let call = L2ToL1CallSol {
+            revertNextNCalls: 0,
+            isStatic: false,
+            gas: 0,
+            sourceAddress: Address::ZERO,
+            sourceRollupId: 7,
+            targetAddress: Address::ZERO,
+            value: U256::from(9),
+            data: Bytes::new(),
+        };
+        let mut entry = ExecutionEntrySol {
+            success: true,
+            l2ToL1Calls: vec![call; 4],
+            ..Default::default()
+        };
+        entry.l2ToL1Calls[0].revertNextNCalls = 3;
+        entry.l2ToL1Calls[1].revertNextNCalls = 1;
+        assert_eq!(outbound_ether_out(&entry), Some(U256::from(9)));
+        entry.l2ToL1Calls[1].revertNextNCalls = 3;
+        assert_eq!(
+            outbound_ether_out(&entry),
+            None,
+            "crossing rollback windows are malformed"
         );
     }
 

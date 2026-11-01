@@ -2768,6 +2768,8 @@ sol! {
     }
     #[sol(rpc)]
     interface IStaticRoundTripReader {
+        function readAfterDeployingCallback(address manager, address callback, uint64 remoteRollup) external returns (uint256);
+        function missingProxyErrorHash() external view returns (bytes32);
         function read() external returns (uint256);
         function lastRead() external view returns (uint256);
         function reads() external view returns (uint256);

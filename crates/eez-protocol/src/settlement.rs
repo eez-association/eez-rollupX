@@ -2,6 +2,7 @@
 //! signer.
 
 use alloy_primitives::{Address, B256, Bytes, U256};
+use alloy_sol_types::SolCall as _;
 
 use crate::abi::{EtherDeltaSol, ExecutionEntrySol};
 use crate::{CallMode, Composition, EntryRollingHash, ExecutedAction, ExecutionOutcome};
@@ -29,32 +30,32 @@ pub fn is_root_only_entry(entry: &ExecutionEntrySol, settled_rollup: u64) -> boo
                 .current()
 }
 
-/// Whether a deferred entry is a canonical L1-origin lookup that changes no L2
-/// state.
+/// Whether a deferred entry has the shape of a non-applying L1-origin lookup.
 ///
-/// Lookup-only entries retain a nonzero proxy hash plus the source-visible
-/// outcome, but contain no destination execution trace and a zero-value no-op
-/// root update. Recomputing the rolling seed makes the classification exact;
-/// an arbitrary deferred entry cannot opt out of execution merely by setting
-/// `currentRoot == newRoot`.
+/// Callback tables may remain present even when the source frame rolls back.
+/// This classification establishes no execution authority: native semantic
+/// binding must reproduce the complete source table and destination observation
+/// replay must validate the claimed outcome. Empty tables additionally require
+/// the exact seed hash, since they contain no callbacks that could extend it.
 #[must_use]
 pub fn is_lookup_only_inbound_entry(entry: &ExecutionEntrySol, settled_rollup: u64) -> bool {
     let [update] = entry.rootUpdates.as_slice() else {
         return false;
     };
+    let empty_trace = entry.l2ToL1Calls.is_empty() && entry.expectedL1ToL2Calls.is_empty();
     entry.proxyEntryHash != B256::ZERO
-        && entry.l2ToL1Calls.is_empty()
-        && entry.expectedL1ToL2Calls.is_empty()
         && entry.destinationRollupId == settled_rollup
         && update.rollupId == settled_rollup
         && update.currentRoot == update.newRoot
         && update.etherDelta == EtherDeltaSol::ZERO
-        && entry.rollingHash
-            == EntryRollingHash::seed_for_l1(
-                [(settled_rollup, update.currentRoot)],
-                entry.proxyEntryHash,
-            )
-            .current()
+        && crate::system_tx::check_entry_shape(entry, "lookup").is_ok()
+        && (!empty_trace
+            || entry.rollingHash
+                == EntryRollingHash::seed_for_l1(
+                    [(settled_rollup, update.currentRoot)],
+                    entry.proxyEntryHash,
+                )
+                .current())
 }
 
 /// Mark the L1-origin root actions whose destination execution may be applied
@@ -84,7 +85,10 @@ pub fn l1_applied_root_mask(actions: &[ExecutedAction]) -> Result<Vec<bool>, Str
         }
 
         let own_revert_end = action
-            .revert_span
+            .revert_spans
+            .iter()
+            .copied()
+            .max()
             .map(|span| {
                 index
                     .checked_add(span as usize)
@@ -158,6 +162,24 @@ pub struct FifoObservationClaim {
     /// Static callbacks the target makes to the source chain, in call order.
     /// Always empty for a mutable lookup.
     pub callbacks: Vec<FifoObservationCallback>,
+    /// Shared-materializer delivery used only in discarded scratch execution.
+    /// Required for mutable observations; absent for static observations.
+    pub delivery: Option<FifoObservationDelivery>,
+    /// Nested source rollback scopes beginning here, outermost first. Each
+    /// length counts observation claims, including this one. Derived from
+    /// native action spans; never accepted as an independent RPC input.
+    pub rollback_spans: Vec<usize>,
+}
+
+/// Manager execution derived from bound native actions, never supplied over RPC.
+/// Its successful delivery checks the trace; the root target outcome is captured
+/// separately and compared with the semantic claim.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FifoObservationDelivery {
+    /// Exact executeIncomingCrossChainCall encoding from the shared materializer.
+    pub calldata: Bytes,
+    /// Checked native funding for the complete table.
+    pub value: U256,
 }
 
 /// One static callback a static observation makes to its source chain.
@@ -174,16 +196,19 @@ pub struct FifoObservationCallback {
     pub target_address: Address,
     /// Callback calldata.
     pub data: Bytes,
-    /// Callback return data. Supported callbacks succeed.
+    /// Success bit committed alongside the output by the static rolling hash.
+    pub success: bool,
+    /// Exact return data on success or revert data on failure.
     pub output: Bytes,
 }
 
 /// Recover the top-level source actions that must execute in FIFO order.
 ///
-/// Native semantics retain the exact call forest. Only root actions emitted by
-/// the composition's source transaction belong to its L1 execution frame;
-/// nested calls execute inside their parent entry and therefore do not get a
-/// separate root pin. This projection also cross-checks the materialized source
+/// Native semantics retain the exact call forest. Mutable roots advance the
+/// source schedule. Reads recursively reached from a static root have no mutable
+/// context: every source-chain pool lookup pins the same live root, including
+/// nested reads. Calls inside mutable entries retain their parent's context.
+/// This projection also cross-checks the materialized source
 /// arrays so a malformed semantic payload cannot silently change action kind,
 /// outcome, or cardinality.
 ///
@@ -210,15 +235,17 @@ fn composition_fifo_action_indices(
     let mut actions = Vec::new();
     let mut mutable_cursor = 0usize;
     let mut static_cursor = 0usize;
+    let mut static_root = false;
 
-    for (action_index, action) in composition
-        .actions
-        .iter()
-        .enumerate()
-        .filter(|(_, action)| {
-            action.parent_index.is_none() && action.source_rollup_id == composition.source.rollup_id
-        })
-    {
+    for (action_index, action) in composition.actions.iter().enumerate() {
+        if action.parent_index.is_none() {
+            static_root = action.call_mode == CallMode::Static;
+        }
+        if action.source_rollup_id != composition.source.rollup_id
+            || (action.parent_index.is_some() && !static_root)
+        {
+            continue;
+        }
         let semantic_success = action.outcome.is_success();
         match action.call_mode {
             CallMode::Mutable => {
@@ -275,7 +302,7 @@ fn composition_fifo_action_indices(
 pub struct FifoTransactionRootPlan {
     /// `newRoot` for each mutable source entry, in mutable-entry order.
     pub mutable_new_roots: Vec<B256>,
-    /// Root pin for each top-level static entry, in static-entry order.
+    /// Root pin for each source static-pool entry, in preorder.
     pub static_roots: Vec<B256>,
     /// Root live after the complete transaction.
     pub endpoint: B256,
@@ -285,20 +312,18 @@ pub struct FifoTransactionRootPlan {
 /// result.
 ///
 /// Applying mutable actions are omitted because their canonical system
-/// transaction is already re-executed by the signer. A lookup action with a
-/// semantic cross-chain descendant is rejected: proving such a child can
-/// require another chain's authenticated state, so accepting it from the
-/// Composer would recreate the unchecked-oracle gap this capability closes.
-/// A static action's static callbacks are the exception: the source chain
-/// executes them and checks their results (see [`FifoObservationCallback`]).
-/// Local EVM subcalls do not appear as semantic descendants and are replayed
-/// normally.
+/// transaction is already re-executed by the signer. Mutable lookups derive a
+/// complete destination table from the native action tree. The signer executes
+/// that table through the authenticated destination manager in discarded state;
+/// source callbacks are bound to the source entry checked on L1. Static lookups
+/// carry their source callbacks explicitly (see [`FifoObservationCallback`]).
+/// Local EVM subcalls are replayed normally.
 ///
 /// # Errors
 ///
 /// Returns an error if `plan` does not cover the exact FIFO projection, an
-/// observation outcome is unresolved, or a non-applying root contains a
-/// cross-chain descendant that this single-rollup proof cannot authenticate.
+/// observation outcome is unresolved, a rollback scope crosses canonical
+/// prefixes, or the action tree requires execution on a third chain.
 pub fn fifo_observation_claims(
     composition: &Composition,
     plan: &FifoTransactionRootPlan,
@@ -321,6 +346,7 @@ pub fn fifo_observation_claims(
     }
 
     let mut claims = Vec::new();
+    let mut claim_actions = Vec::new();
     let mut mutable_cursor = 0usize;
     let mut static_cursor = 0usize;
     for (action_index, fifo_action) in indexed {
@@ -341,33 +367,26 @@ pub fn fifo_observation_claims(
         }
         let action = &composition.actions[action_index];
 
-        // Strict preorder means an immediately following nested action belongs
-        // to this root's subtree. Its target may be another chain, whose state
-        // is not authenticated by this rollup's execution witness.
         let callbacks = if action.call_mode == CallMode::Static {
             static_observation_callbacks(&composition.actions, action_index)?
-        } else if composition
-            .actions
-            .get(action_index + 1)
-            .is_some_and(|next| next.parent_index.is_some())
-        {
-            return Err(format!(
-                "lookup source action {action_index} has cross-chain descendants; multi-chain observation replay is unsupported"
-            ));
         } else {
             Vec::new()
         };
-
-        // More than one semantic call inside a reverted source frame can
-        // observe transient writes from an earlier call even though every
-        // call pins the same canonical root. The current proof format carries
-        // canonical prefix roots only, so it cannot reproduce that transient
-        // ordering without an additional checkpoint/group commitment.
-        if action.revert_span.is_some_and(|span| span > 1) {
-            return Err(format!(
-                "lookup/static source action {action_index} begins a multi-action rollback region; transient observation checkpoints are unsupported"
-            ));
-        }
+        let delivery = if action.call_mode == CallMode::Mutable {
+            let entry =
+                crate::entries::materialize_lookup_execution(&composition.actions, action_index)
+                    .map_err(|error| error.to_string())?;
+            let value = crate::system_tx::committed_l2_table_value(std::slice::from_ref(&entry))?;
+            let calldata = crate::abi::executeIncomingCrossChainCallCall {
+                _entries: vec![entry],
+                _staticEntries: Vec::new(),
+            }
+            .abi_encode()
+            .into();
+            Some(FifoObservationDelivery { calldata, value })
+        } else {
+            None
+        };
 
         if action.call_mode == CallMode::Static && action.value != U256::ZERO {
             return Err(format!(
@@ -384,6 +403,7 @@ pub fn fifo_observation_claims(
                 "lookup/static source action {action_index} has an unresolved outcome"
             ));
         };
+        claim_actions.push(action_index);
         claims.push(FifoObservationClaim {
             pinned_block_hash,
             call_mode: action.call_mode,
@@ -395,13 +415,40 @@ pub fn fifo_observation_claims(
             expected_success: *success,
             expected_output: Bytes::copy_from_slice(return_data),
             callbacks,
+            delivery,
+            rollback_spans: Vec::new(),
         });
+    }
+    for (claim_index, &action_index) in claim_actions.iter().enumerate() {
+        let action = &composition.actions[action_index];
+        if action.parent_index.is_some() {
+            continue;
+        }
+        for &span in &action.revert_spans {
+            let end = action_index
+                .checked_add(span as usize)
+                .filter(|&end| span != 0 && end <= composition.actions.len())
+                .ok_or_else(|| {
+                    format!("invalid observation rollback span at action {action_index}")
+                })?;
+            let end_claim = claim_actions.partition_point(|&index| index < end);
+            if claims[claim_index..end_claim]
+                .iter()
+                .any(|claim| claim.pinned_block_hash != claims[claim_index].pinned_block_hash)
+            {
+                return Err("observation rollback scope crosses canonical prefixes".into());
+            }
+            claims[claim_index]
+                .rollback_spans
+                .push(end_claim - claim_index);
+        }
     }
     Ok(claims)
 }
 
-/// The static callbacks of static root `root`, which must be its complete
-/// subtree: terminal, successful static calls back to the root's chain.
+/// Direct static callbacks of this read. Deeper reads back into the witnessed
+/// chain have their own pool entries and observation claims at the same prefix;
+/// they must not be answered as if they were direct children of this read.
 fn static_observation_callbacks(
     actions: &[ExecutedAction],
     root: usize,
@@ -409,21 +456,26 @@ fn static_observation_callbacks(
     let source_rollup_id = actions[root].source_rollup_id;
     let mut callbacks = Vec::new();
     for (index, action) in actions.iter().enumerate().skip(root + 1) {
-        if action.parent_index.is_none() {
+        let Some(parent) = action.parent_index else {
             break;
+        };
+        if parent < root {
+            break;
+        }
+        if parent != root {
+            continue;
         }
         let ExecutionOutcome::Resolved {
             return_data,
-            success: true,
+            success,
             ..
         } = &action.outcome
         else {
             return Err(format!(
-                "static source action {root} has an unsuccessful or unresolved callback {index}"
+                "static source action {root} has an unresolved callback {index}"
             ));
         };
-        if action.parent_index != Some(root)
-            || action.call_mode != CallMode::Static
+        if action.call_mode != CallMode::Static
             || action.target_rollup_id != source_rollup_id
             || action.value != U256::ZERO
         {
@@ -435,6 +487,7 @@ fn static_observation_callbacks(
             source_address: action.source_address,
             target_address: action.target_address,
             data: action.data.clone(),
+            success: *success,
             output: Bytes::copy_from_slice(return_data),
         });
     }
@@ -612,7 +665,7 @@ mod tests {
                 gas_used: 0,
                 success,
             },
-            revert_span: None,
+            revert_spans: vec![],
         }
     }
 
@@ -740,6 +793,10 @@ mod tests {
             success: true,
             returnData: Default::default(),
         });
+        // Classification allows callback tables. Semantic binding and replay
+        // must independently reject an unbound or forged row.
+        assert!(is_lookup_only_inbound_entry(&entry, rollup_id));
+        entry.rootUpdates[0].etherDelta = EtherDeltaSol::ONE;
         assert!(!is_lookup_only_inbound_entry(&entry, rollup_id));
     }
 
@@ -765,7 +822,7 @@ mod tests {
             action(None, CallMode::Mutable, true),
             action(None, CallMode::Mutable, true),
         ];
-        actions[0].revert_span = Some(3);
+        actions[0].revert_spans = vec![3];
 
         assert_eq!(
             l1_applied_root_mask(&actions).unwrap(),
@@ -776,7 +833,7 @@ mod tests {
     #[test]
     fn applied_root_mask_rejects_out_of_bounds_source_revert_span() {
         let mut actions = [action(None, CallMode::Mutable, true)];
-        actions[0].revert_span = Some(2);
+        actions[0].revert_spans = vec![2];
 
         assert!(l1_applied_root_mask(&actions).is_err());
     }
@@ -965,7 +1022,7 @@ mod tests {
     }
 
     #[test]
-    fn observation_claims_reject_cross_chain_descendants_without_multichain_witnesses() {
+    fn observation_claims_reject_callbacks_to_an_unwitnessed_third_chain() {
         let plan = FifoTransactionRootPlan {
             mutable_new_roots: Vec::new(),
             static_roots: vec![B256::repeat_byte(0x51)],
@@ -989,7 +1046,88 @@ mod tests {
             endpoint: B256::repeat_byte(0x51),
         };
         let error = fifo_observation_claims(&lookup, &plan).unwrap_err();
-        assert!(error.contains("multi-chain observation replay is unsupported"));
+        assert!(
+            error.contains("lookup execution is not one complete destination table"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn mutable_lookup_derives_a_complete_callback_table() {
+        use crate::abi::executeIncomingCrossChainCallCall;
+        use alloy_sol_types::SolCall as _;
+
+        let root = action(None, CallMode::Mutable, false);
+        let mut callback = action(Some(0), CallMode::Mutable, true);
+        callback.source_rollup_id = RollupId(1);
+        callback.target_rollup_id = RollupId::MAINNET;
+        callback.data = Bytes::from_static(b"source callback");
+        let plan = FifoTransactionRootPlan {
+            mutable_new_roots: vec![B256::repeat_byte(0x51)],
+            static_roots: Vec::new(),
+            endpoint: B256::repeat_byte(0x51),
+        };
+        let claims = fifo_observation_claims(&composition(vec![root, callback]), &plan).unwrap();
+        assert_eq!(claims.len(), 1);
+        assert!(!claims[0].expected_success);
+        let delivery = claims[0].delivery.as_ref().unwrap();
+        let call = executeIncomingCrossChainCallCall::abi_decode(&delivery.calldata).unwrap();
+        assert_eq!(call._entries.len(), 1);
+        assert!(call._staticEntries.is_empty());
+        assert_eq!(call._entries[0].incomingCalls.len(), 1);
+        assert_eq!(call._entries[0].expectedOutgoingCalls.len(), 1);
+        assert!(call._entries[0].expectedOutgoingCalls[0].success);
+        assert_ne!(
+            call._entries[0].expectedOutgoingCalls[0].expectedOutgoingHash,
+            B256::ZERO
+        );
+        assert_eq!(delivery.value, U256::ZERO);
+    }
+
+    #[test]
+    fn observation_rollback_spans_preserve_nested_root_order() {
+        let pin = B256::repeat_byte(0x61);
+        let mut outer = action(None, CallMode::Mutable, true);
+        outer.revert_spans = vec![4];
+        let mut inner = action(None, CallMode::Mutable, true);
+        inner.revert_spans = vec![2];
+        let composition = composition(vec![
+            outer,
+            inner,
+            action(None, CallMode::Static, true),
+            action(None, CallMode::Static, true),
+            action(None, CallMode::Static, true),
+        ]);
+        let claims = fifo_observation_claims(
+            &composition,
+            &FifoTransactionRootPlan {
+                mutable_new_roots: vec![pin; 2],
+                static_roots: vec![pin; 3],
+                endpoint: pin,
+            },
+        )
+        .unwrap();
+        assert_eq!(claims.len(), 5);
+        assert_eq!(claims[0].rollback_spans, [4]);
+        assert_eq!(claims[1].rollback_spans, [2]);
+        assert!(
+            claims[2..]
+                .iter()
+                .all(|claim| claim.rollback_spans.is_empty())
+        );
+        let error = fifo_observation_claims(
+            &composition,
+            &FifoTransactionRootPlan {
+                mutable_new_roots: vec![pin; 2],
+                static_roots: vec![B256::ZERO, pin, pin],
+                endpoint: pin,
+            },
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("rollback scope crosses canonical prefixes"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -1023,31 +1161,30 @@ mod tests {
                 source_address: Address::repeat_byte(0x61),
                 target_address: Address::repeat_byte(0x62),
                 data: Bytes::from_static(b"callback input"),
+                success: true,
                 output: Bytes::from_static(b"callback output"),
             }]
         );
 
-        // The source chain cannot enforce a failed callback's result.
+        // The source chain binds failure and revert bytes in the same fold.
         callback.outcome = ExecutionOutcome::Resolved {
             return_data: Vec::new(),
             gas_used: 0,
             success: false,
         };
-        let error = fifo_observation_claims(
+        let claims = fifo_observation_claims(
             &composition(vec![action(None, CallMode::Static, true), callback]),
             &plan,
         )
-        .unwrap_err();
-        assert!(
-            error.contains("unsuccessful or unresolved callback"),
-            "{error}"
-        );
+        .unwrap();
+        assert!(!claims[0].callbacks[0].success);
+        assert!(claims[0].callbacks[0].output.is_empty());
     }
 
     #[test]
-    fn observation_claims_reject_multi_action_rollback_regions() {
+    fn observation_claims_bind_multi_action_rollback_regions() {
         let mut first = action(None, CallMode::Mutable, true);
-        first.revert_span = Some(2);
+        first.revert_spans = vec![2];
         let second = action(None, CallMode::Mutable, true);
         let composition = composition(vec![first, second]);
         let root = B256::repeat_byte(0x52);
@@ -1057,15 +1194,17 @@ mod tests {
             endpoint: root,
         };
 
-        let error = fifo_observation_claims(&composition, &plan).unwrap_err();
-
-        assert!(error.contains("transient observation checkpoints are unsupported"));
+        let claims = fifo_observation_claims(&composition, &plan).unwrap();
+        assert_eq!(claims.len(), 2);
+        assert_eq!(claims[0].rollback_spans, [2]);
+        assert!(claims[1].rollback_spans.is_empty());
+        assert!(claims.iter().all(|claim| claim.delivery.is_some()));
     }
 
     #[test]
     fn observation_claims_accept_single_action_rollback_regions() {
         let mut action = action(None, CallMode::Mutable, true);
-        action.revert_span = Some(1);
+        action.revert_spans = vec![1];
         action.outcome = ExecutionOutcome::Resolved {
             return_data: b"rolled back".to_vec(),
             gas_used: 31,

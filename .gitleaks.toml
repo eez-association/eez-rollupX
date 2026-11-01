@@ -116,3 +116,34 @@ condition = "AND"
 paths = ['''^crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity\.json$''']
 regexTarget = "secret"
 regexes = ['''^(0x)?808c11d36e6b7c4db0c94d9b6ee3443fc5d58b705342966c5e654f2f5fea9351$''']
+
+[[allowlists]]
+description = "Version-8 Bidirectional fixture verification key"
+condition = "AND"
+paths = [
+  '''^crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity\.json$''',
+  '''^crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history(-import)?\.json$''',
+]
+regexTarget = "secret"
+regexes = ['''^(0x)?e73373cf1cfce235ba8d57d05c420bbb3ca83f363fa0d42cf1cc58bad2a9df84$''']
+
+[[allowlists]]
+description = "Version-8 History-observation fixture verification key"
+condition = "AND"
+paths = ['''^crates/eez-proof-signer/tests/fixtures/native-history-observations/identity\.json$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?9e474259de614e7e31306ace6440ab502ac282dbc8d0af9321b33b461085b342$''']
+
+[[allowlists]]
+description = "Version-8 Osaka changing-static fixture verification key"
+condition = "AND"
+paths = ['''^crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/identity\.json$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?5bec2dc8b9fd3e32ecbf5e9882204601499bb379da5ad23dffcd0d3cea231c50$''']
+
+[[allowlists]]
+description = "Version-8 Osaka lookup fixture verification key"
+condition = "AND"
+paths = ['''^crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity\.json$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?9633449b3ab10ae43da3f5616fb927a680ae793dd9e073a92e094e98b194757c$''']

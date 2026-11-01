@@ -9,7 +9,7 @@ use alloy_eips::{
 };
 use alloy_primitives::{Address, B256, Bytes, U256};
 use alloy_provider::Provider as _;
-use alloy_sol_types::{SolCall, SolEvent};
+use alloy_sol_types::{SolCall, SolError, SolEvent};
 use eez_l1::{
     BundleTarget, L1BlockRef,
     posting_fees::{
@@ -971,6 +971,29 @@ impl<DB: Database, CTX: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<CTX
         } else {
             outcome.result.output.clone()
         };
+        // This resolver error occurs before a remote callback is executed.
+        // Read only the account already checked by the real manager so this
+        // observer does not change gas warming. A matching intended read must
+        // still execute: omitting this failed lookup cannot satisfy `verify`.
+        if mode == CallMode::Static
+            && !success
+            && let Ok(failure) = eez_protocol::abi::StaticCallProxyNotDeployed::abi_decode(&output)
+            && failure.abi_encode().as_slice() == output.as_ref()
+            && context
+                .journal()
+                .state
+                .get(&failure.proxy)
+                .is_some_and(|account| account.info.is_empty_code_hash())
+            && self.expected.iter().any(|expected| {
+                expected.mode == CallMode::Static
+                    && expected.source == source
+                    && expected.target == proxy.original_address
+                    && expected.data == data
+                    && expected.value == inputs.call_value()
+            })
+        {
+            return;
+        }
         self.observed[index] = Some(ObservedCall {
             source,
             target: proxy.original_address,
@@ -1456,7 +1479,7 @@ mod tests {
                     gas_used: 0,
                     success: true,
                 },
-                revert_span: None,
+                revert_spans: vec![],
             }],
         }]
     }
@@ -1526,6 +1549,80 @@ mod tests {
             inspector.verify().is_err(),
             "one lookup cannot satisfy two expected calls"
         );
+    }
+
+    #[test]
+    fn missing_static_proxy_lookup_is_not_a_remote_call_but_retry_is_required() {
+        let missing = Address::repeat_byte(0x77);
+        let exact = eez_protocol::abi::StaticCallProxyNotDeployed { proxy: missing }.abi_encode();
+        let (config, parent, attributes) = configuration(1_000_000);
+        let env = config.next_evm_env(&parent, &attributes).unwrap();
+        let data = eez_protocol::abi::staticCrossChainCallCall {
+            sourceAddress: signer().address(),
+            callData: Bytes::from_static(b"lookup"),
+        }
+        .abi_encode();
+        let tx_env = config.tx_env(tx(0, PROXY, 200_000, data.into()));
+        for (proxy_has_code, trailing, valid) in [
+            (false, false, true),
+            (true, false, false),
+            (false, true, false),
+        ] {
+            let mut state = static_call_database(42);
+            let key =
+                eez_protocol::proxy_mapping_key(PROXY, eez_protocol::EEZ_AUTHORIZED_PROXIES_SLOT);
+            let mut code = Vec::new();
+            push32(&mut code, key);
+            code.extend([0x54, 0x50, 0x73]);
+            code.extend(missing.0);
+            code.extend([0x3b, 0x50]); // the resolver checks callback code
+            let mut output = exact.clone();
+            if trailing {
+                output.push(0);
+            }
+            for (index, chunk) in output.chunks(32).enumerate() {
+                let mut word = [0; 32];
+                word[..chunk.len()].copy_from_slice(chunk);
+                push32(&mut code, B256::from(word));
+                code.extend([0x60, (index * 32) as u8, 0x52]);
+            }
+            code.extend([0x60, output.len() as u8, 0x5f, 0xfd]);
+            state.insert_account_info(
+                REGISTRY,
+                AccountInfo {
+                    code: Some(Bytecode::new_raw(code.into())),
+                    ..Default::default()
+                },
+            );
+            if proxy_has_code {
+                state.insert_account_info(
+                    missing,
+                    AccountInfo {
+                        code: Some(Bytecode::new_raw(vec![0].into())),
+                        ..Default::default()
+                    },
+                );
+            }
+            let mut inspector = EffectInspector::new(REGISTRY, 1, &static_semantics()).unwrap();
+            config
+                .evm_with_env_and_inspector(&mut state, env.clone(), &mut inspector)
+                .transact(tx_env.clone())
+                .unwrap();
+            assert!(
+                inspector.clone().verify().is_err(),
+                "a failed lookup alone cannot satisfy the expected read"
+            );
+            let mut retry = static_call_database(42);
+            config
+                .evm_with_env_and_inspector(&mut retry, env.clone(), &mut inspector)
+                .transact(tx_env.clone())
+                .unwrap();
+            assert_eq!(
+                inspector.verify().is_ok(),
+                valid,
+                "only exact missing-proxy lookup failures may precede a required matching retry"
+            );
+        }
     }
 
     #[test]

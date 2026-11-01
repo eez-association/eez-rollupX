@@ -58,7 +58,7 @@ def write_manifest():
     manifest = {
         "format": 2, "base_commit": revision(ROOT),
         "protocol_gitlink": revision(ROOT / "eez-core-protocol"),
-        "implementation": "Versionless cross-chain 0x45 with execution-group SOURCE_ENTRY_V1 identity, optional history 0x46/v1 with explicit pairs and an initially empty upgradeable store, complete-group and block-finalization cleanup, network-bound verification keys and unmodified Core Rollup context, validation-contract version 7, v2 capability profile 2; source digests include uncommitted changes at generation",
+        "implementation": "Versionless cross-chain 0x45 with execution-group SOURCE_ENTRY_V1 identity, optional history 0x46/v1 with explicit pairs and an initially empty upgradeable store, complete-group and block-finalization cleanup, network-bound verification keys and unmodified Core Rollup context, RPC validation version 8 with preserved signing domain 7, v2 capability profile 2; source digests include uncommitted changes at generation",
         "authority": "Captured execution/witness evidence; expected signatures recomputed from inputs for the Core Rollup context and independently checked against pinned Core verification",
         "generator": "crates/eez-proof-signer/src/service/sessions/tests/vectors.rs",
         "source_sha256": {str(p.relative_to(ROOT)): digest(p) for p in sorted(set(sources))},

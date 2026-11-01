@@ -184,6 +184,15 @@ pub fn decode_semantic_transactions(
                 let transaction = current
                     .as_mut()
                     .ok_or(BlobSemanticError::OutsideTransaction { message: "Return" })?;
+                if transaction
+                    .snapshots
+                    .last()
+                    .is_some_and(|(depth, _)| *depth >= transaction.open_calls.len())
+                {
+                    return Err(BlobSemanticError::InvalidRegion(
+                        "return crosses an open Snapshot",
+                    ));
+                }
                 let action_index = transaction
                     .open_calls
                     .pop()
@@ -225,22 +234,18 @@ pub fn decode_semantic_transactions(
                 if span == 0 {
                     return Err(BlobSemanticError::InvalidRegion("empty Snapshot region"));
                 }
-                if transaction.actions[first_action].revert_span.is_some() {
-                    return Err(BlobSemanticError::InvalidRegion(
-                        "overlapping Snapshot regions",
-                    ));
-                }
-                transaction.actions[first_action].revert_span = Some(
+                transaction.actions[first_action].revert_spans.push(
                     u32::try_from(span)
                         .map_err(|_| BlobSemanticError::InvalidRegion("region exceeds u32"))?,
                 );
             }
             Message::FinishCrossChainTransaction => {
-                let transaction = current
-                    .take()
-                    .ok_or(BlobSemanticError::OutsideTransaction {
-                        message: "FinishCrossChainTransaction",
-                    })?;
+                let mut transaction =
+                    current
+                        .take()
+                        .ok_or(BlobSemanticError::OutsideTransaction {
+                            message: "FinishCrossChainTransaction",
+                        })?;
                 if !transaction.open_calls.is_empty() || transaction.contexts.len() != 1 {
                     return Err(BlobSemanticError::TransactionBoundary(
                         "FinishCrossChainTransaction with open call",
@@ -250,6 +255,11 @@ pub fn decode_semantic_transactions(
                     return Err(BlobSemanticError::TransactionBoundary(
                         "FinishCrossChainTransaction with open Snapshot",
                     ));
+                }
+                // Scopes close inner-first. Reverse once rather than shifting
+                // every prior span for each Composer-controlled Revert marker.
+                for action in &mut transaction.actions {
+                    action.revert_spans.reverse();
                 }
                 let semantic = SemanticTransaction {
                     origin_chain: transaction.origin_chain,
@@ -303,7 +313,7 @@ fn push_call(
         data: data.clone(),
         value,
         outcome: ExecutionOutcome::Pending,
-        revert_span: None,
+        revert_spans: vec![],
     });
     transaction.open_calls.push(action_index);
     transaction.contexts.push(RollupId(to_chain));
@@ -399,26 +409,35 @@ fn emit_siblings(
     subtree_ends: &[usize],
     messages: &mut Vec<Message>,
 ) -> Result<(), BlobSemanticError> {
-    let mut active_region_end = None;
+    let mut region_ends = Vec::new();
     for &index in siblings {
-        if let Some(span) = actions[index].revert_span {
-            if active_region_end.is_some() || span == 0 {
+        for &span in &actions[index].revert_spans {
+            if span == 0 {
                 return Err(BlobSemanticError::InvalidRollbackSpan { index });
             }
             let end = index
                 .checked_add(span as usize)
                 .filter(|end| *end <= actions.len())
                 .ok_or(BlobSemanticError::InvalidRollbackSpan { index })?;
+            if end < subtree_ends[index] || region_ends.last().is_some_and(|outer| end > *outer) {
+                return Err(BlobSemanticError::InvalidRollbackSpan { index });
+            }
             messages.push(Message::Snapshot);
-            active_region_end = Some(end);
+            region_ends.push(end);
         }
         emit_subtree(index, actions, children, subtree_ends, messages)?;
-        if active_region_end == Some(subtree_ends[index]) {
+        while region_ends.last() == Some(&subtree_ends[index]) {
             messages.push(Message::Revert);
-            active_region_end = None;
+            region_ends.pop();
+        }
+        if region_ends
+            .last()
+            .is_some_and(|end| *end < subtree_ends[index])
+        {
+            return Err(BlobSemanticError::InvalidRollbackSpan { index });
         }
     }
-    if active_region_end.is_some() {
+    if !region_ends.is_empty() {
         return Err(BlobSemanticError::InvalidRollbackSpan {
             index: *siblings.last().unwrap_or(&0),
         });
@@ -490,7 +509,7 @@ mod tests {
                 gas_used: 21_000,
                 success: true,
             },
-            revert_span: None,
+            revert_spans: vec![],
         }
     }
 
@@ -581,7 +600,7 @@ mod tests {
     #[test]
     fn rollback_span_emits_snapshot_after_complete_sibling_subtrees() {
         let mut first = action(None, 1, 0, 1);
-        first.revert_span = Some(2);
+        first.revert_spans = vec![2];
         let transaction = SemanticTransaction {
             origin_chain: RollupId(1),
             tx_data: Bytes::new(),
@@ -591,7 +610,7 @@ mod tests {
         assert!(matches!(messages[1], Message::Snapshot));
         assert!(matches!(messages[6], Message::Revert));
         let decoded = decode_semantic_transactions(&messages).unwrap();
-        assert_eq!(decoded[0].actions[0].revert_span, Some(2));
+        assert_eq!(decoded[0].actions[0].revert_spans, vec![2]);
     }
 
     #[test]
@@ -618,5 +637,64 @@ mod tests {
             decode_semantic_transactions(&messages),
             Err(BlobSemanticError::UnsupportedCallGas { actual: 1 })
         ));
+    }
+
+    #[test]
+    fn nested_snapshots_sharing_first_call_round_trip_exactly() {
+        let transaction = SemanticTransaction {
+            origin_chain: RollupId(1),
+            tx_data: Bytes::new(),
+            actions: vec![action(None, 1, 0, 1), action(None, 1, 0, 2)],
+        };
+        let plain = encode_semantic_transaction(&transaction).unwrap();
+        let messages = vec![
+            plain[0].clone(),
+            Message::Snapshot,
+            Message::Snapshot,
+            plain[1].clone(),
+            plain[2].clone(),
+            Message::Revert,
+            plain[3].clone(),
+            plain[4].clone(),
+            Message::Revert,
+            plain[5].clone(),
+        ];
+        let decoded = decode_semantic_transactions(&messages)
+            .expect("the pinned blob grammar permits nested scopes with the same first call");
+        assert_eq!(encode_semantic_transaction(&decoded[0]).unwrap(), messages);
+        let composition = decoded[0].materialize().unwrap();
+        let calls = &composition.targets[0].batch.entries[0].l2ToL1Calls;
+        assert_eq!(
+            calls
+                .iter()
+                .map(|call| call.revertNextNCalls)
+                .collect::<Vec<_>>(),
+            vec![1, 1],
+            "outer rollback omits the prefix already reverted by the inner scope"
+        );
+    }
+
+    #[test]
+    fn snapshot_cannot_outlive_its_call_context() {
+        let transaction = SemanticTransaction {
+            origin_chain: RollupId(1),
+            tx_data: Bytes::new(),
+            actions: vec![action(None, 1, 0, 1), action(Some(0), 0, 1, 2)],
+        };
+        let plain = encode_semantic_transaction(&transaction).unwrap();
+        let messages = vec![
+            plain[0].clone(),
+            plain[1].clone(),
+            Message::Snapshot,
+            plain[2].clone(),
+            plain[3].clone(),
+            plain[4].clone(),
+            Message::Revert,
+            plain[5].clone(),
+        ];
+        assert_eq!(
+            decode_semantic_transactions(&messages).unwrap_err(),
+            BlobSemanticError::InvalidRegion("return crosses an open Snapshot")
+        );
     }
 }

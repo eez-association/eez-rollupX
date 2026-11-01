@@ -207,7 +207,49 @@ fn observation_claim(
         expected_success: false,
         expected_output: Bytes::new(),
         callbacks: Vec::new(),
+        delivery: None,
+        rollback_spans: Vec::new(),
     }
+}
+
+/// Derive the scratch delivery through the production semantic materializer.
+/// The claimed outcome is committed into the table, so a forged outcome must
+/// fail either manager validation or the independently captured target result.
+fn with_mutable_delivery(mut claim: FifoObservationClaim) -> FifoObservationClaim {
+    use eez_protocol::blob_semantics::SemanticTransaction;
+    use eez_protocol::settlement::{FifoTransactionRootPlan, fifo_observation_claims};
+    use eez_protocol::{ExecutedAction, ExecutionOutcome, RollupId};
+    let semantic = SemanticTransaction {
+        origin_chain: RollupId::MAINNET,
+        tx_data: Bytes::new(),
+        actions: vec![ExecutedAction {
+            parent_index: None,
+            call_mode: CallMode::Mutable,
+            source_rollup_id: claim.source_rollup_id,
+            target_rollup_id: RollupId(1),
+            source_address: claim.source_address,
+            target_address: claim.target_address,
+            value: claim.value,
+            data: claim.data.clone(),
+            outcome: ExecutionOutcome::Resolved {
+                success: claim.expected_success,
+                return_data: claim.expected_output.to_vec(),
+                gas_used: 0,
+            },
+            revert_spans: vec![1],
+        }],
+    };
+    let composition = semantic.materialize().unwrap();
+    let plan = FifoTransactionRootPlan {
+        mutable_new_roots: vec![claim.pinned_block_hash],
+        static_roots: Vec::new(),
+        endpoint: claim.pinned_block_hash,
+    };
+    claim.delivery = fifo_observation_claims(&composition, &plan)
+        .unwrap()
+        .remove(0)
+        .delivery;
+    claim
 }
 
 fn validated_observation_fixture() -> (
@@ -819,32 +861,54 @@ fn authenticated_observation_replay_rejects_forged_success_and_output() {
 
 #[test]
 fn authenticated_observation_replay_binds_mutable_lookup_output() {
-    let (validator, window, history) = validated_observation_fixture();
+    // Table execution reads more manager storage than the old direct-call
+    // capture. Use the fixture's complete proofs, including exclusion proofs.
+    let fixture = crate::testkit::history_observations::Fixture::new(false);
+    let admitted = fixture.admitted();
+    let history = crate::testkit::checked_history(&admitted).unwrap();
+    let validator = Validator::stateless_for_test(fixture.genesis.clone(), TEST_SYSTEM_ADDRESS);
+    let window = validator.validate(&admitted).unwrap();
     let Validator::Stateless(backend) = &validator else {
         unreachable!()
     };
-    let mut claim = observation_claim(
-        window
-            .settling_block()
-            .block()
-            .settlement_evidence()
-            .ordinary_prefix_hash(),
-        CallMode::Mutable,
-        alloy_primitives::keccak256("lastValue()")[..4]
-            .to_vec()
-            .into(),
-    );
-    let outcome = backend
-        .replay_observations(&window, std::slice::from_ref(&claim), Arc::clone(&history))
-        .unwrap()
-        .pop()
-        .unwrap();
-    assert!(outcome.success);
-    claim.expected_success = true;
-    claim.expected_output = outcome.output;
+    let pin = window
+        .settling_block()
+        .block()
+        .settlement_evidence()
+        .ordinary_prefix_hash();
+    let mut claim = history_observation_claim(pin, CallMode::Mutable, fixture.outcome(7, 1));
     backend
         .verify_observations(&window, std::slice::from_ref(&claim), Arc::clone(&history))
         .unwrap();
+
+    let mut missing_table = claim.clone();
+    missing_table.delivery = None;
+    let error = backend
+        .verify_observations(&window, &[missing_table], Arc::clone(&history))
+        .unwrap_err();
+    assert!(
+        matches!(error, ObservationValidationError::Replay(ref reason)
+        if reason.contains("mutable observation has no derived delivery table")),
+        "{error:?}"
+    );
+
+    let mut forged_table = claim.clone();
+    {
+        use alloy_sol_types::SolCall as _;
+        use eez_protocol::abi::executeIncomingCrossChainCallCall;
+        let delivery = forged_table.delivery.as_mut().unwrap();
+        let mut call = executeIncomingCrossChainCallCall::abi_decode(&delivery.calldata).unwrap();
+        call._entries[0].rollingHash = B256::repeat_byte(0xa5);
+        delivery.calldata = call.abi_encode().into();
+    }
+    let error = backend
+        .verify_observations(&window, &[forged_table], Arc::clone(&history))
+        .unwrap_err();
+    assert!(
+        matches!(error, ObservationValidationError::Replay(ref reason)
+        if reason.contains("lookup table validation reverted")),
+        "{error:?}"
+    );
 
     let mut forged_output = claim.expected_output.to_vec();
     forged_output.push(0x01);
@@ -855,8 +919,100 @@ fn authenticated_observation_replay_binds_mutable_lookup_output() {
     );
 }
 
+#[test]
+fn mutable_lookup_captures_target_revert_after_successful_manager_validation() {
+    let fixture = crate::testkit::history_observations::Fixture::reverting_probe();
+    let admitted = fixture.admitted();
+    let history = crate::testkit::checked_history(&admitted).unwrap();
+    let validator = Validator::stateless_for_test(fixture.genesis.clone(), TEST_SYSTEM_ADDRESS);
+    let window = validator.validate(&admitted).unwrap();
+    let Validator::Stateless(backend) = &validator else {
+        unreachable!()
+    };
+    let pin = window
+        .settling_block()
+        .block()
+        .settlement_evidence()
+        .ordinary_prefix_hash();
+    let mut claim = history_observation_claim(
+        pin,
+        CallMode::Static,
+        hex::decode("deadbeef").unwrap().into(),
+    );
+    claim.call_mode = CallMode::Mutable;
+    claim.expected_success = false;
+    claim = with_mutable_delivery(claim);
+    backend
+        .verify_observations(&window, std::slice::from_ref(&claim), Arc::clone(&history))
+        .unwrap();
+    claim.expected_success = true;
+    assert_eq!(
+        backend.verify_observations(&window, &[claim], history),
+        Err(ObservationValidationError::OutcomeMismatch { index: 0 })
+    );
+}
+
+#[test]
+fn observation_rollback_scopes_preserve_inner_writes_then_restore_each_parent() {
+    let fixture = crate::testkit::history_observations::Fixture::storage_probe();
+    let admitted = fixture.admitted();
+    let history = crate::testkit::checked_history(&admitted).unwrap();
+    let validator = Validator::stateless_for_test(fixture.genesis.clone(), TEST_SYSTEM_ADDRESS);
+    let window = validator.validate(&admitted).unwrap();
+    let Validator::Stateless(backend) = &validator else {
+        unreachable!()
+    };
+    let pin = window
+        .settling_block()
+        .block()
+        .settlement_evidence()
+        .ordinary_prefix_hash();
+    let word = |value: u64| Bytes::copy_from_slice(&U256::from(value).to_be_bytes::<32>());
+    let write = |value| {
+        let mut claim = history_observation_claim(pin, CallMode::Static, word(value));
+        claim.call_mode = CallMode::Mutable;
+        claim.data = word(value);
+        with_mutable_delivery(claim)
+    };
+    let mut outer = write(1);
+    outer.rollback_spans = vec![4];
+    let mut inner = write(2);
+    inner.rollback_spans = vec![2];
+    let claims = vec![
+        outer,
+        inner,
+        history_observation_claim(pin, CallMode::Static, word(2)),
+        history_observation_claim(pin, CallMode::Static, word(1)),
+        history_observation_claim(pin, CallMode::Static, word(0)),
+    ];
+    backend
+        .verify_observations(&window, &claims, Arc::clone(&history))
+        .unwrap();
+    let mut shared_boundaries = claims.clone();
+    shared_boundaries[1].rollback_spans = vec![2; 1024];
+    backend
+        .verify_observations(&window, &shared_boundaries, Arc::clone(&history))
+        .unwrap();
+    let mut forged = claims.clone();
+    forged[3].expected_output = word(2);
+    assert_eq!(
+        backend.verify_observations(&window, &forged, Arc::clone(&history)),
+        Err(ObservationValidationError::OutcomeMismatch { index: 3 })
+    );
+    let mut crossing = claims;
+    crossing[1].rollback_spans = vec![4];
+    let error = backend
+        .verify_observations(&window, &crossing, history)
+        .unwrap_err();
+    assert!(
+        matches!(&error, ObservationValidationError::Replay(reason)
+        if reason.contains("crossing observation rollback scopes")),
+        "{error:?}"
+    );
+}
+
 fn history_observation_claim(pin: B256, mode: CallMode, output: Bytes) -> FifoObservationClaim {
-    FifoObservationClaim {
+    let claim = FifoObservationClaim {
         pinned_block_hash: pin,
         call_mode: mode,
         target_address: crate::testkit::history_observations::PROBE,
@@ -867,6 +1023,13 @@ fn history_observation_claim(pin: B256, mode: CallMode, output: Bytes) -> FifoOb
         expected_success: true,
         expected_output: output,
         callbacks: Vec::new(),
+        delivery: None,
+        rollback_spans: Vec::new(),
+    };
+    if mode == CallMode::Mutable {
+        with_mutable_delivery(claim)
+    } else {
+        claim
     }
 }
 
@@ -915,11 +1078,20 @@ fn scheduled_history_observations_reject_both_earlier_states() {
         for mode in [CallMode::Static, CallMode::Mutable] {
             for (balance, origin) in [(0, 0), (0, 1)] {
                 let claim = history_observation_claim(pin, mode, fixture.outcome(balance, origin));
-                assert_eq!(
-                    backend.verify_observations(&window, &[claim], Arc::clone(&history)),
-                    Err(ObservationValidationError::OutcomeMismatch { index: 0 }),
-                    "suffix={suffix}, mode={mode:?}, earlier origin={origin}",
-                );
+                let error = backend
+                    .verify_observations(&window, &[claim], Arc::clone(&history))
+                    .unwrap_err();
+                match mode {
+                    CallMode::Static => assert_eq!(
+                        error,
+                        ObservationValidationError::OutcomeMismatch { index: 0 }
+                    ),
+                    CallMode::Mutable => assert!(
+                        matches!(&error, ObservationValidationError::Replay(reason)
+                        if reason.contains("lookup table validation reverted")),
+                        "suffix={suffix}, earlier origin={origin}: {error:?}"
+                    ),
+                }
             }
         }
     }
@@ -953,20 +1125,45 @@ fn authenticated_observation_replay_rejects_unknown_pins_and_missing_code() {
         calldata,
     );
 
-    // The caller is the source's CREATE2 proxy under EEZL2. This source is
-    // chosen so that the proxy's account path reaches a blinded node in the
-    // captured witness; a path whose absence the witness proves is a legitimate
-    // read, so the constant depends on the fixture and the EEZL2 address.
-    let mut missing_account = claim.clone();
-    missing_account.source_address = Address::repeat_byte(0x78);
+    // Blind the destination account explicitly. The complete capture proves
+    // absence for arbitrary other addresses, which is not missing evidence.
+    let complete_state = window.settling_block.replay_input.witness.state.clone();
+    let target_path: Vec<_> = alloy_primitives::keccak256(claim.target_address)
+        .iter()
+        .flat_map(|byte| [byte >> 4, byte & 0x0f])
+        .collect();
+    window
+        .settling_block
+        .replay_input
+        .witness
+        .state
+        .retain(|node| {
+            let Ok(parts) = alloy_rlp::decode_exact::<Vec<Bytes>>(node) else {
+                return true;
+            };
+            if parts.len() != 2 || parts[0].is_empty() || parts[0][0] >> 4 < 2 {
+                return true;
+            }
+            let path: Vec<_> = parts[0]
+                .iter()
+                .flat_map(|byte| [byte >> 4, byte & 0x0f])
+                .collect();
+            let prefix = if path[0] & 1 == 0 { 2 } else { 1 };
+            !target_path.ends_with(&path[prefix..])
+        });
+    assert_eq!(
+        window.settling_block.replay_input.witness.state.len() + 1,
+        complete_state.len()
+    );
     let error = backend
-        .verify_observations(&window, &[missing_account], Arc::clone(&history))
+        .verify_observations(&window, std::slice::from_ref(&claim), Arc::clone(&history))
         .unwrap_err();
     assert!(
         matches!(&error, ObservationValidationError::Replay(reason)
             if reason.contains("incomplete account witness")),
         "{error:?}"
     );
+    window.settling_block.replay_input.witness.state = complete_state;
 
     window.settling_block.replay_input.witness.codes.clear();
     let error = backend

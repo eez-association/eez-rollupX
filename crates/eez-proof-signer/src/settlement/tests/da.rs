@@ -55,7 +55,7 @@ fn fixture_semantics(
                 gas_used: 0,
                 success: entry.success,
             },
-            revert_span: None,
+            revert_spans: vec![],
         };
     let entries = batch
         .entries

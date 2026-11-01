@@ -102,8 +102,165 @@ fn database(alloc: &Genesis) -> InMemoryDB {
     db
 }
 
+/// Supplement an old capture's terminal witness by replaying its complete
+/// genesis-to-terminal history. Every reconstructed header must remain exact;
+/// only trie/code evidence changes, never transactions or expected proofs.
+/// This utility closes the gap left by captures made before manager-table
+/// observation reads were collected.
+pub(crate) fn complete_native_capture_witness(name: &str) {
+    use eez_control_rpc::v2::client_frame;
+    use prost::Message as _;
+    let (genesis, terminal) = super::native_block(name, None);
+    let history = super::checked_history(&[terminal]).unwrap();
+    let spec = Arc::new(eez_evm::profile::chain_spec(genesis.clone()).unwrap());
+    let config = EezEvmConfig::new(Arc::clone(&spec))
+        .with_l1_history(Arc::new(WitnessHistory(history)))
+        .unwrap();
+    let mut frames = super::native_frames(name);
+    let block_count = frames
+        .iter()
+        .filter(|frame| matches!(frame.kind, Some(client_frame::Kind::Block(_))))
+        .count();
+    let mut alloc = genesis;
+    let mut parent = spec.genesis_header().clone();
+    let mut ancestors = vec![(parent.number, parent.hash_slow())];
+    let mut ordinal = 0;
+    for frame in &mut frames {
+        let Some(client_frame::Kind::Block(frame)) = &mut frame.kind else {
+            continue;
+        };
+        let wire = frame.data.as_mut().unwrap();
+        let block: Block = alloy_rlp::decode_exact(&wire.rlp).unwrap();
+        assert_eq!(
+            block.header.number,
+            parent.number + 1,
+            "capture must start at genesis and remain contiguous"
+        );
+        assert_eq!(block.header.parent_hash, parent.hash_slow());
+        let (pre_root, nodes, codes) = witness(&alloc);
+        assert_eq!(
+            pre_root, parent.state_root,
+            "pre-state at block {}",
+            block.header.number
+        );
+        let mut database = database(&alloc);
+        for &(number, hash) in &ancestors {
+            database.cache.block_hashes.insert(U256::from(number), hash);
+        }
+        let mut db = State::builder()
+            .with_database(database)
+            .with_bundle_update()
+            .build();
+        let recovered = block.clone().try_into_recovered().unwrap();
+        let result = {
+            let mut executor = config
+                .executor_for_block(&mut db, recovered.sealed_block())
+                .unwrap();
+            executor.apply_pre_execution_changes().unwrap();
+            for transaction in recovered.transactions_recovered() {
+                executor.execute_transaction(transaction).unwrap();
+            }
+            executor.finish().unwrap().1
+        };
+        db.merge_transitions(BundleRetention::PlainState);
+        let bundle = db.take_bundle();
+        for (address, account) in &bundle.state {
+            if let Some(info) = &account.info {
+                let target = alloc.alloc.entry(*address).or_default();
+                target.nonce = Some(info.nonce);
+                target.balance = info.balance;
+                if let Some(code) = info
+                    .code
+                    .as_ref()
+                    .or_else(|| bundle.contracts.get(&info.code_hash))
+                {
+                    target.code = Some(code.original_bytes());
+                }
+                for (key, slot) in &account.storage {
+                    target
+                        .storage
+                        .get_or_insert_default()
+                        .insert(B256::from(*key), B256::from(slot.present_value));
+                }
+            } else {
+                alloc.alloc.remove(address);
+            }
+        }
+        let output = BlockExecutionOutput {
+            result,
+            state: bundle,
+        };
+        let rebuilt = eez_driver::derivation::reassemble_full_from_replay(
+            &config,
+            &reth_primitives_traits::SealedHeader::seal_slow(parent.clone()),
+            &block,
+            &output,
+            witness(&alloc).0,
+        )
+        .unwrap();
+        assert_eq!(
+            alloy_rlp::encode(&rebuilt),
+            wire.rlp,
+            "reconstructed block {} changed",
+            wire.number
+        );
+        ordinal += 1;
+        if ordinal == block_count {
+            let witness = wire.witness.as_mut().unwrap();
+            witness.state = nodes.into_iter().map(|node| node.to_vec()).collect();
+            witness.codes = codes.into_iter().map(|code| code.to_vec()).collect();
+        }
+        parent = block.header;
+        ancestors.push((parent.number, parent.hash_slow()));
+    }
+    assert!(ordinal > 0);
+    let directory = super::manifest_dir().join("tests/fixtures").join(name);
+    let mut bytes = Vec::new();
+    for frame in frames {
+        frame.encode_length_delimited(&mut bytes).unwrap();
+    }
+    let mut response: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.join("response.json")).unwrap()).unwrap();
+    eprintln!(
+        "{name}: reconstructed {ordinal} blocks; request {} -> {} bytes, {} -> {}",
+        response["request_bytes"],
+        bytes.len(),
+        response["request_hash"],
+        keccak256(&bytes)
+    );
+    response["request_bytes"] = bytes.len().into();
+    response["request_hash"] = serde_json::json!(keccak256(&bytes));
+    std::fs::write(directory.join("request.v2.protobuf"), bytes).unwrap();
+    std::fs::write(
+        directory.join("response.json"),
+        serde_json::to_vec_pretty(&response).unwrap(),
+    )
+    .unwrap();
+}
+
 impl Fixture {
     pub(crate) fn new(native_suffix: bool) -> Self {
+        Self::with_probe_code(native_suffix, None)
+    }
+
+    pub(crate) fn reverting_probe() -> Self {
+        // REVERT with the exact four-byte payload deadbeef.
+        Self::with_probe_code(
+            false,
+            Some(hex::decode("63deadbeef5f526004601cfd").unwrap()),
+        )
+    }
+
+    pub(crate) fn storage_probe() -> Self {
+        // Nonempty calldata writes slot zero; empty calldata reads it. Both
+        // return the slot as a 32-byte word, permitting genuine STATICCALL reads.
+        Self::with_probe_code(
+            false,
+            Some(hex::decode("36156009575f355f555b5f545f5260205ff3").unwrap()),
+        )
+    }
+
+    fn with_probe_code(native_suffix: bool, probe_code: Option<Vec<u8>>) -> Self {
         let mut genesis = history::genesis();
         genesis.config.extra_fields.get_mut("rollupX").unwrap()["historyUpdateOffset"] = 5.into();
         let first = history::l1_spec().genesis_header().clone();
@@ -138,7 +295,7 @@ impl Fixture {
             PROBE,
             GenesisAccount {
                 nonce: Some(1),
-                code: Some(code.into()),
+                code: Some(probe_code.unwrap_or(code).into()),
                 ..Default::default()
             },
         );

@@ -47,7 +47,7 @@ impl TargetExecutionSession for Session {
     fn checkpoint(&mut self) -> ExecutorResult<SessionSnapshot> {
         self.inner.checkpoint()
     }
-    fn rollback(&mut self, snapshot: SessionSnapshot) -> ExecutorResult<()> {
+    fn rollback(&mut self, snapshot: &SessionSnapshot) -> ExecutorResult<()> {
         self.inner.rollback(snapshot)
     }
 }
