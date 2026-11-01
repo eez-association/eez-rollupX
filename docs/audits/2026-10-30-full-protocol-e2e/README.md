@@ -4,8 +4,8 @@
 
 - Fork baseline: `c702f90da19cc149890d0a17a4ef6c200dcb6a21`.
 - Unchanged protocol: `84a5b5207880f192a6a5896cbfe0bac5249db47f`.
-- Qualified runtime: `372cb0741bd7e3a925137836d12d79911c6da573`.
-- Hosted-qualified head: `5d74a42ae8ae9fe2a79ab02fdf7c6e5c247e698d`
+- Locally qualified runtime: `fbd0d238b9e75c1af68bbb31e7f210c49cc9ad8c`.
+- Prior hosted-qualified head: `5d74a42ae8ae9fe2a79ab02fdf7c6e5c247e698d`
   (qualification documentation added after the runtime commit).
 
 The baseline runner selected 34 of 64 scenarios. Running all 64 against baseline
@@ -14,12 +14,17 @@ callbacks, caught-revert continuation, rollback ownership and reusable static
 candidates across composition, signing, settlement and follower replay. No pinned
 scenario assertion was weakened.
 
-[Hosted CI](https://github.com/eez-association/eez-rollupX/actions/runs/41313363564)
-passed all 13 jobs on its first attempt: 1,641 workspace units, both Reth
-regressions, 56 release checks, all 192 native tests exactly once without retries,
-and all 64 protocol scenarios with complete accounting and causal/semantic blob
-evidence. Local cold follower replay independently reached L2 block 1,458 from
-canonical L1, checking 102 scenario-range blocks and 101 receipts across 17 batches.
+The current runtime passed 1,643 workspace tests, 685 affected-package checks,
+56 release checks and all 192 native cases without retries. All 64 protocol
+scenarios passed with complete accounting and causal/semantic blob evidence,
+zero exclusions and zero skips. A cold follower independently reached L2 block
+1,500 from canonical L1, checking 150 scenario-range blocks and 101 receipts
+across 24 batches. The source-cursor cleanup removes 79 production lines;
+shared trace folding was tested and rejected for its measured finalization cost.
+
+[Prior hosted CI](https://github.com/eez-association/eez-rollupX/actions/runs/41313363564)
+passed all 13 jobs on `5d74a42a`; that run does not qualify the newer runtime.
+Fresh hosted results are tracked on the PR after the local qualification above.
 
 ## Review and evidence
 
@@ -59,8 +64,9 @@ failure and links to the original dated investigation. Its
 [validation identities](https://github.com/eez-association/eez-rollupX/blob/5d74a42ae8ae9fe2a79ab02fdf7c6e5c247e698d/docs/audits/2026-10-30-full-protocol-e2e/candidate-validation.json)
 and [cold replay result](https://github.com/eez-association/eez-rollupX/blob/5d74a42ae8ae9fe2a79ab02fdf7c6e5c247e698d/docs/audits/2026-10-30-full-protocol-e2e/candidate-independent-replay.json)
 are preserved at that immutable commit instead of duplicated in the current tree.
-Earlier failed runs are not relabeled passing. The latest qualification separately
-records socket-permission failures and unexplained outer-session exit-143 results.
+Earlier failed runs are not relabeled passing. The prior qualification separately
+records socket-permission failures and unexplained outer-session exit-143 results;
+the current runtime build, network runner and cold replay exited zero.
 
 Work used the isolated `codex/full-protocol-e2e-20261030` worktree. Existing operator
 work, deployments, wallets, configuration and datadirs were preserved. Owned

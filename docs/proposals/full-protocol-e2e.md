@@ -113,4 +113,5 @@ performance measurements; previous qualification does not qualify these changes.
 The experiment retains inline root-slot assignment (79 fewer production lines).
 Shared trace folding was rejected: it saved only five further lines and increased
 median finalization time by about 3% on two workloads. Finalization and independent
-verification remain unchanged. Candidate qualification is still in progress.
+verification remain unchanged. The retained candidate passed the full local qualification, including all 64
+protocol scenarios and independent cold replay; see the linked audit.

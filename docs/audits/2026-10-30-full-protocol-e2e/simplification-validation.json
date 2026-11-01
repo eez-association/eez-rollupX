@@ -1,6 +1,6 @@
 {
-  "source": "372cb0741bd7e3a925137836d12d79911c6da573",
-  "baseline": "77f1113e679865c129cd7db00d98c99f5378c263",
+  "source": "fbd0d238b9e75c1af68bbb31e7f210c49cc9ad8c",
+  "baseline": "73458a0302a28504b3cd4e4d6a2d9705ad614ca5",
   "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
   "protocol_suite": {
     "discovered": 64,
@@ -45,23 +45,23 @@
     "skipped": 0
   },
   "replay": {
-    "checked_blocks": 102,
-    "checked_derived_blocks": 102,
+    "checked_blocks": 150,
+    "checked_derived_blocks": 150,
     "checked_receipts": 101,
-    "safe_l2_block": 1458,
-    "safe_l2_block_hash": "0x6301feaf6420fd4ce1b6a7d4e855fa7bdd9e62d790c3713eb573c469ea4b4c77",
+    "safe_l2_block": 1500,
+    "safe_l2_block_hash": "0x76c013d0f5afb371e5ab515435bcc5db36925e5818949e712fffb0931c8d2002",
     "source": "canonical_l1_only",
     "verified": true
   },
   "proof": {
-    "signed_windows": 76,
-    "remote_attestations": 76,
+    "signed_windows": 82,
+    "remote_attestations": 82,
     "l1_l2_root_divergence": 0,
     "proof_path": "pass"
   },
   "local_checks": {
-    "workspace-tests-network-enabled.log": {
-      "passed": 1641,
+    "workspace-tests.log": {
+      "passed": 1643,
       "failed": 0,
       "ignored": 6,
       "ignored_tests": [
@@ -73,8 +73,8 @@
         "test service::tests::derivation::history_observations::regenerate_history_observation_process_fixtures ... ignored, explicit regeneration utility for the standalone signer process regression"
       ]
     },
-    "package-tests-final.log": {
-      "passed": 683,
+    "package-tests.log": {
+      "passed": 685,
       "failed": 0,
       "ignored": 5,
       "ignored_tests": [
@@ -99,28 +99,30 @@
       ]
     },
     "differential": {
-      "cases": 28672,
-      "accepted": 3847,
-      "rejected": 24825,
+      "cases": 16384,
+      "accepted": 10536,
+      "rejected": 5848,
       "mismatches": 0,
+      "differing_rejection_messages": 0,
       "sha256": {
-        "baseline_verify.rs": "bbacf394fa062222150b178d89e6f62ba894035345d14071fe45206591611389",
-        "entry_equivalence.rs": "669cf0b4c86eb863651386b27118c357e7b52719dc2c6d23942bac2858765ed3",
-        "equivalence-final.log": "cd0c25225360b6d5529f3829eb821c8535396564e96640b2ef4a8594b58d10bb"
+        "baseline_materialize_no_tests.rs": "c888e72670f095a70f42e8cc208f21b8885b7641706358b165a40dbbd34dac0e",
+        "structural_equivalence.rs": "fc083b0716fa2346fe89f383aa10b0d371163f162e8bc1b86d646cb9b2ad034a",
+        "retained-equivalence.log": "0275e42e7fee26db3e1aa5f1b0a23d5a739ec172166e78b352aa379072e4d3a8"
       }
     },
-    "initial_environment_failure": "The first sandboxed workspace run stopped at eez-l1: 31 mock-server bind operations failed with PermissionDenied. The unchanged suite passed after enabling local networking."
+    "setup_corrections": "Artifact initialization first failed because the task-local RUNNER_TEMP directory did not exist. Creating it allowed the unchanged producer to pass. Two secret-scan tooling cases initially skipped without Gitleaks; both passed after adding the existing scanner to PATH."
   },
-  "outer_network_session_exit": 143,
+  "outer_network_session_exit": 0,
   "network_recorded_result": "pass",
   "independent_proof_check_exit": 0,
   "cold_replay_exit": 0,
   "evidence_availability": "Raw logs and datadirs are local-only; not available from another checkout.",
   "sha256": {
-    "runtime/manifest.json": "9fce69e107b1b42523d4a30bb3570ba6f43b8acc601c65ba19157446893da3f7",
-    "tests/manifest.json": "56f06923aefc6b6b77c988623f0c03abc87b383a484f188fd0412775e8d36312",
-    "kurtosis-final/protocol-e2e/summary.json": "335f3b5e25fed35a6d30f6e6a9bbce485ee2bb5fee93db2c5ddcbaee54ca03f5",
-    "native-results.json": "ba09c533ac29a2122aa96bd3c1345bd9b36717878a8a8760b2174a321c9d72b9",
-    "independent-replay.json": "e4155cd6dad3400a633d5b7b2a3acad7213070ab9a769dfe69d6f6784bf64252"
-  }
+    "runtime/manifest.json": "2bd410f5df61cce6bba6f86d36a718dbb8dd74974540f925f5755f1d646815f3",
+    "tests/manifest.json": "acfa59ad27c6d7112df595541c9c5be7569726ede5d314488dd83a0400cbefd3",
+    "kurtosis-final/protocol-e2e/summary.json": "3a1f3cded9e42a38d6dfa230d36f88278d9c6cdf2fda601fae882a28375e8126",
+    "native-results.json": "e2d0e7c64a8f7789d8a17c59bab6767d0b83b9aa63663f75a6b809ff58cc7d66",
+    "independent-replay.json": "32dabd132c1cccacbd73aa6a18d5a8beb5bb7a11da4c17d03611567ab35ec129"
+  },
+  "scenario_replay_batches": 24
 }

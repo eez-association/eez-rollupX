@@ -61,7 +61,7 @@ covering all 64 scenarios. The proof logs contain 76 signed windows and 76 accep
 remote attestations, with zero canonical divergence events. The owned enclave was
 stopped with data retained; existing deployments and operator state were preserved.
 
-[Compact qualification evidence](simplification-validation.json) binds these results
+[Prior compact qualification evidence](https://github.com/eez-association/eez-rollupX/blob/5d74a42ae8ae9fe2a79ab02fdf7c6e5c247e698d/docs/audits/2026-10-30-full-protocol-e2e/simplification-validation.json) binds these results
 to the runtime source. [Hosted CI](https://github.com/eez-association/eez-rollupX/actions/runs/41313363564)
 also passed all 13 jobs on documentation follow-up `5d74a42a`; see the parent audit.
 
@@ -148,8 +148,24 @@ The retained candidate passed 1,643 workspace tests (six optional utilities igno
 signer Clippy and signer rustdoc. Differential comparison matched all 16,384 cases:
 10,536 accepted with identical tables/traces and 5,848 rejected with identical errors.
 The new rollback/static-read regression also passed on unchanged `73458a03`.
-Exact-artifact process/E2E qualification is pending; prior results above do not
-qualify this runtime change. Raw prototype sources, differential harnesses, benchmark samples
+Runtime `fbd0d238b9e75c1af68bbb31e7f210c49cc9ad8c` also passed all 56 release
+checks and all 192 distinct native cases on their first run, with no missing or
+duplicate cases. All 64 protocol scenarios passed with zero skips/exclusions and
+complete accounting, causal coverage and semantic blob verification. A cold follower
+replayed canonical L1 through L2 block 1,500, checking 150 scenario-range blocks
+and 101 receipts across 24 batches covering all scenarios. Proof logs contain 82
+signed windows and 82 accepted remote attestations, with zero divergence. The
+runner and independent replay both exited zero; the owned enclave was stopped
+with data retained. See [current compact evidence](simplification-validation.json).
+
+Tooling finished with 423 passes and seven optional infrastructure probes unrun;
+the two initially skipped secret-scan tests passed with the existing Gitleaks on
+PATH. SDK/configuration and redacted commit scanning passed. Artifact initialization
+first failed because the new task-local temporary directory did not exist; creating
+it allowed the unchanged producer to pass. No product test required a retry.
+The net production reduction is 79 lines; 80 regression-test lines, benchmark
+coverage and this evidence increase the total diff. No contract, key, wire, storage
+or genesis compatibility change is introduced by this cleanup. Raw prototype sources, differential harnesses, benchmark samples
 and logs are local-only under `artifacts/full-protocol/structural-simplification`.
 The retained prototype's benchmark result SHA-256 is
 `5e8517855d23c6f434f940581bbb63ddeb03b24a7ffd2f93dd5652d623080208`.
