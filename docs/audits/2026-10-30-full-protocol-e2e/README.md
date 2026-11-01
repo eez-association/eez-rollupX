@@ -4,7 +4,8 @@
 
 - Fork baseline: `c702f90da19cc149890d0a17a4ef6c200dcb6a21`.
 - Unchanged protocol: `84a5b5207880f192a6a5896cbfe0bac5249db47f`.
-- Locally qualified simplified implementation: `e51a2477d98662be2b33c0f17b3bc4c0f0921d20`.
+- Current locally qualified implementation: `372cb0741bd7e3a925137836d12d79911c6da573`.
+- Previous locally qualified implementation: `e51a2477d98662be2b33c0f17b3bc4c0f0921d20`.
 - Previously hosted-qualified PR head: `1ff8619d0be29c0f1ab4376d2a76737552d3c61f`.
 - [Design and compatibility](../../proposals/full-protocol-e2e.md),
   [64-scenario inventory](scenarios.md), [signer review](signer-review.md).
@@ -16,6 +17,15 @@ and reusable static candidates throughout composition, independent validation,
 settlement and follower reconstruction. No pinned scenario assertion was weakened.
 
 ## Current local qualification
+
+The [execution-table cleanup](simplification-20261101.md) borrows immutable tables,
+uses rollback checkpoints and shares entry-opening bookkeeping. All 192 native
+cases and all 64 protocol scenarios passed; semantic evidence and independent cold
+replay passed. The record includes matched component benchmarks, a separate signer
+review and retained outer-session termination anomalies. No additional contract,
+key, genesis, wire or storage change is introduced.
+
+## Previous local qualification
 
 The cleanup removes 86 production lines, six temporary metadata vectors, repeated
 coverage totals and discarded call hashing. Successful nested calls no longer copy

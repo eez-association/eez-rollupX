@@ -5,6 +5,10 @@ Initial reviewed source: `6808f13b45176291b8cfaa8e5effbc31ee01f504`; protocol
 source review, not an external audit. [Original findings, source hashes and dated
 follow-ups](https://github.com/eez-association/eez-rollupX/blob/f0f40401d491ddaf4e1190e408dba92963b9118f/docs/audits/2026-10-30-full-protocol-e2e/signer-review.md) retain the full investigation.
 
+The [execution-table follow-up review](simplification-20261101.md#scope-and-independent-soundness-review)
+covers `372cb074`, including rollback checkpoints, borrowed tables, unchanged
+authorization checks and adversarial/differential regression results.
+
 ## Authorization path
 
 `service/settlement_job.rs::settle_validated` checks L1 context, native DA,

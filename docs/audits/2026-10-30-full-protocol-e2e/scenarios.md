@@ -2,10 +2,12 @@
 
 Protocol: `84a5b5207880f192a6a5896cbfe0bac5249db47f`. Paths are relative to the protocol checkout.
 
-Baseline: `c702f90d`; locally qualified simplified implementation: `e51a2477`.
-All 64 candidate scenarios passed upstream assertions and independent causal/native-blob checks in the complete four-worker confirmation, with zero skips or exclusions.
-The earlier high-concurrency run failed strict evidence validation after one fee-quote retry; see the audit for retained failures.
-Fresh canonical-L1 follower replay covered their settlement batches through L2 block 1,974; see [current validation status](README.md).
+Baseline: `c702f90d`; current locally qualified implementation: `372cb074`.
+All 64 scenarios below passed in the complete four-worker run, with zero skips,
+exclusions or omissions and complete causal/native-blob semantic evidence.
+Fresh canonical-L1 follower replay covered their 17 settlement batches through
+L2 block 1,458. See [current qualification and retained diagnostics](simplification-20261101.md).
+Earlier runs and failures remain recorded in the [parent audit](README.md).
 
 [Original detailed inventory, assertions, failure excerpts and per-scenario evidence](https://github.com/eez-association/eez-rollupX/blob/f0f40401d491ddaf4e1190e408dba92963b9118f/docs/audits/2026-10-30-full-protocol-e2e/scenarios.json) preserves the complete historical record.
 

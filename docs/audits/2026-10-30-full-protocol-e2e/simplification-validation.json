@@ -1,0 +1,126 @@
+{
+  "source": "372cb0741bd7e3a925137836d12d79911c6da573",
+  "baseline": "77f1113e679865c129cd7db00d98c99f5378c263",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "protocol_suite": {
+    "discovered": 64,
+    "eligible": 64,
+    "selected": 64,
+    "excluded_from_all": [],
+    "complete": true
+  },
+  "accounting": {
+    "valid": true,
+    "missing": [],
+    "duplicates": [],
+    "unexpected": []
+  },
+  "passed_scenarios": {
+    "count": 64,
+    "inventory": "scenarios.md",
+    "missing": [],
+    "unexpected": []
+  },
+  "evidence_complete": true,
+  "causal_coverage": {
+    "complete": true,
+    "missing": [],
+    "paired_count": 57,
+    "no_destination_required_count": 7
+  },
+  "semantic_blob_coverage": {
+    "complete": true,
+    "missing": [],
+    "authenticated_count": 64
+  },
+  "native": {
+    "passed": 192,
+    "missing": [],
+    "duplicates": [],
+    "unexpected": [],
+    "retries": 0
+  },
+  "release_checks": {
+    "passed": 56,
+    "skipped": 0
+  },
+  "replay": {
+    "checked_blocks": 102,
+    "checked_derived_blocks": 102,
+    "checked_receipts": 101,
+    "safe_l2_block": 1458,
+    "safe_l2_block_hash": "0x6301feaf6420fd4ce1b6a7d4e855fa7bdd9e62d790c3713eb573c469ea4b4c77",
+    "source": "canonical_l1_only",
+    "verified": true
+  },
+  "proof": {
+    "signed_windows": 76,
+    "remote_attestations": 76,
+    "l1_l2_root_divergence": 0,
+    "proof_path": "pass"
+  },
+  "local_checks": {
+    "workspace-tests-network-enabled.log": {
+      "passed": 1641,
+      "failed": 0,
+      "ignored": 6,
+      "ignored_tests": [
+        "test held_pool::tests::profile_blocked_backlog_discovery ... ignored, manual component profile; records timings without timing assertions",
+        "test service::sessions::tests::vectors::regenerate_offline_vectors ... ignored, explicit frozen fixture generation; see conformance/README.md",
+        "test service::tests::derivation::captured::inventory_native_proving_fixtures ... ignored, explicit local native-fixture inventory utility",
+        "test service::tests::derivation::captured::regenerate_native_fixture_commitments ... ignored, explicit native commitment regeneration; see conformance/README.md",
+        "test service::tests::derivation::captured::supplement_native_lookup_capture_witness ... ignored, explicit supplemental witness generation from exact captured block replay",
+        "test service::tests::derivation::history_observations::regenerate_history_observation_process_fixtures ... ignored, explicit regeneration utility for the standalone signer process regression"
+      ]
+    },
+    "package-tests-final.log": {
+      "passed": 683,
+      "failed": 0,
+      "ignored": 5,
+      "ignored_tests": [
+        "test service::sessions::tests::vectors::regenerate_offline_vectors ... ignored, explicit frozen fixture generation; see conformance/README.md",
+        "test service::tests::derivation::captured::inventory_native_proving_fixtures ... ignored, explicit local native-fixture inventory utility",
+        "test service::tests::derivation::captured::regenerate_native_fixture_commitments ... ignored, explicit native commitment regeneration; see conformance/README.md",
+        "test service::tests::derivation::captured::supplement_native_lookup_capture_witness ... ignored, explicit supplemental witness generation from exact captured block replay",
+        "test service::tests::derivation::history_observations::regenerate_history_observation_process_fixtures ... ignored, explicit regeneration utility for the standalone signer process regression"
+      ]
+    },
+    "tooling": {
+      "discovered": 430,
+      "passed": 423,
+      "skipped": [
+        "test_scratch_payload_copies_out_without_execution_or_permission_loss (test_ci_payload.DockerPayloadTest.test_scratch_payload_copies_out_without_execution_or_permission_loss) ... skipped 'opt-in real data-only Docker image'",
+        "test_overrides_apply_before_creation_and_preserve_memory_and_command (test_kurtosis_ci.RealRelayResourcesTest.test_overrides_apply_before_creation_and_preserve_memory_and_command) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+        "test_readiness_wait_blocks_the_following_instruction_until_ready (test_kurtosis_ci.RealRelayResourcesTest.test_readiness_wait_blocks_the_following_instruction_until_ready) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+        "test_real_producer_and_all_consumers_without_build_machine_or_compiler (test_native_artifacts.NativeRelocationTest.test_real_producer_and_all_consumers_without_build_machine_or_compiler) ... skipped 'set EEZ_TEST_NATIVE_ARCHIVE=1 for real tiny-workspace relocation'",
+        "test_deploy_context_preserves_history_identity (test_runtime_docker.RuntimeDockerTest.test_deploy_context_preserves_history_identity) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+        "test_real_build_and_same_job_execution (test_runtime_docker.RuntimeDockerTest.test_real_build_and_same_job_execution) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+        "test_repository_source_context_preserves_genesis (test_runtime_docker.RuntimeDockerTest.test_repository_source_context_preserves_genesis) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'"
+      ]
+    },
+    "differential": {
+      "cases": 28672,
+      "accepted": 3847,
+      "rejected": 24825,
+      "mismatches": 0,
+      "sha256": {
+        "baseline_verify.rs": "bbacf394fa062222150b178d89e6f62ba894035345d14071fe45206591611389",
+        "entry_equivalence.rs": "669cf0b4c86eb863651386b27118c357e7b52719dc2c6d23942bac2858765ed3",
+        "equivalence-final.log": "cd0c25225360b6d5529f3829eb821c8535396564e96640b2ef4a8594b58d10bb"
+      }
+    },
+    "initial_environment_failure": "The first sandboxed workspace run stopped at eez-l1: 31 mock-server bind operations failed with PermissionDenied. The unchanged suite passed after enabling local networking."
+  },
+  "outer_network_session_exit": 143,
+  "network_recorded_result": "pass",
+  "independent_proof_check_exit": 0,
+  "cold_replay_exit": 0,
+  "evidence_availability": "Raw logs and datadirs are local-only; not available from another checkout.",
+  "sha256": {
+    "runtime/manifest.json": "9fce69e107b1b42523d4a30bb3570ba6f43b8acc601c65ba19157446893da3f7",
+    "tests/manifest.json": "56f06923aefc6b6b77c988623f0c03abc87b383a484f188fd0412775e8d36312",
+    "kurtosis-final/protocol-e2e/summary.json": "335f3b5e25fed35a6d30f6e6a9bbce485ee2bb5fee93db2c5ddcbaee54ca03f5",
+    "native-results.json": "ba09c533ac29a2122aa96bd3c1345bd9b36717878a8a8760b2174a321c9d72b9",
+    "independent-replay.json": "e4155cd6dad3400a633d5b7b2a3acad7213070ab9a769dfe69d6f6784bf64252"
+  }
+}
