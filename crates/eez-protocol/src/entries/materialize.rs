@@ -160,12 +160,12 @@ pub(crate) fn materialize_batches(
                 materializer.execute_static(root, entry_rollup_id, 0)?;
                 continue;
             }
-            let call = recorded[root].clone();
+            let call = &recorded[root];
             let entry_index = materializer.open_entry(
                 entry_rollup_id,
-                source_call_hash(&call),
+                source_call_hash(call),
                 call.target_rollup_id,
-                &call,
+                call,
             );
             if applied_roots[root] {
                 materializer.begin_region(root);
@@ -187,12 +187,12 @@ pub(crate) fn materialize_batches(
         let plan = l2_plan.expect("non-mainnet entry has an L2 root plan");
         source_entry_count = plan.slot_roots.len();
         for &root in &plan.slot_roots {
-            let call = recorded[root].clone();
+            let call = &recorded[root];
             materializer.push_entry(
                 entry_rollup_id,
-                source_call_hash(&call),
+                source_call_hash(call),
                 call.target_rollup_id,
-                &call,
+                call,
             );
         }
         let host_index = materializer.open_host_entry(RollupId::MAINNET, entry_rollup_id);
@@ -971,11 +971,7 @@ impl<'a> Materializer<'a> {
         destination: RollupId,
         outer: &ExecutedAction,
     ) -> usize {
-        let entry_index = self.push_entry(chain, proxy_entry_hash, destination, outer);
-        self.outputs
-            .get_mut(&chain)
-            .expect("delivery chain output")
-            .immediate_count += 1;
+        let entry_index = self.open_entry(chain, proxy_entry_hash, destination, outer);
         if !outer.outcome.is_success() {
             let entry = &mut self
                 .outputs
@@ -985,7 +981,6 @@ impl<'a> Materializer<'a> {
             entry.success = true;
             entry.returnData = Bytes::new();
         }
-        self.install_context(chain, entry_index);
         entry_index
     }
 
@@ -1026,7 +1021,7 @@ impl<'a> Materializer<'a> {
         origin: RollupId,
         cursor: usize,
     ) -> ProtocolResult<()> {
-        let call = self.recorded[node].clone();
+        let call = &self.recorded[node];
         let source = call.source_rollup_id;
         let destination = call.target_rollup_id;
         let output = Bytes::copy_from_slice(call.outcome.return_data().expect("resolved outcome"));
@@ -1034,13 +1029,13 @@ impl<'a> Materializer<'a> {
             let entry = context.entry_index;
             let (row, reused) = match self.reusable_static_row(node) {
                 Some(row) => (row, true),
-                None => self.push_row(source, &call)?,
+                None => self.push_row(source, call)?,
             };
             self.push_event(
                 source,
                 TraceEvent::StaticLookup {
                     row_index: row,
-                    call_hash: source_call_hash(&call),
+                    call_hash: source_call_hash(call),
                 },
             );
             Some(StaticFrame::Row { entry, row, reused })
@@ -1049,7 +1044,7 @@ impl<'a> Materializer<'a> {
             if source.is_mainnet() {
                 let index = table.static_entries.len();
                 table.static_entries.push(StaticExecutionEntrySol {
-                    proxyEntryHash: source_call_hash(&call),
+                    proxyEntryHash: source_call_hash(call),
                     destinationRollupId: destination.0,
                     success: call.outcome.is_success(),
                     returnData: output.clone(),
@@ -1060,7 +1055,7 @@ impl<'a> Materializer<'a> {
                 let index = table.l2_static_entries.len();
                 table.l2_static_entries.push(L2StaticExecutionEntrySol {
                     expectedEntryIndex: U256::from(cursor),
-                    proxyEntryHash: source_call_hash(&call),
+                    proxyEntryHash: source_call_hash(call),
                     success: call.outcome.is_success(),
                     returnData: output.clone(),
                     ..Default::default()
@@ -1087,7 +1082,7 @@ impl<'a> Materializer<'a> {
                 .outputs
                 .get_mut(&destination)
                 .expect("static frame has a table");
-            let encoded = l1_call_from_action(&call);
+            let encoded = l1_call_from_action(call);
             match *location {
                 StaticFrame::L1Pool(index) => table.static_entries[index].l2ToL1Calls.push(encoded),
                 StaticFrame::L2Pool(index) => table.l2_static_entries[index]
@@ -1103,14 +1098,14 @@ impl<'a> Materializer<'a> {
             }
             hash.append(call.outcome.is_success(), &output);
         } else if direct {
-            self.append_flat_call(destination, &call);
+            self.append_flat_call(destination, call);
             self.push_event(
                 destination,
-                TraceEvent::CallBegin(destination_call_hash(&call)),
+                TraceEvent::CallBegin(destination_call_hash(call)),
             );
         }
-        for child in self.children[node].clone() {
-            self.execute_static(child, origin, cursor)?;
+        for index in 0..self.children[node].len() {
+            self.execute_static(self.children[node][index], origin, cursor)?;
         }
         if direct {
             self.push_event(
@@ -1239,14 +1234,14 @@ impl<'a> Materializer<'a> {
     }
 
     fn execute_call(&mut self, node_index: usize) -> ProtocolResult<()> {
-        let call = self.recorded[node_index].clone();
+        let call = &self.recorded[node_index];
         let destination = call.target_rollup_id;
         if call.call_mode == CallMode::Mutable
             && !call.source_rollup_id.is_mainnet()
             && destination.is_mainnet()
             && call.outcome.is_success()
         {
-            self.source_outbound_hashes.push(source_call_hash(&call));
+            self.source_outbound_hashes.push(source_call_hash(call));
         }
         let opened = if self.active.contains_key(&destination) {
             None
@@ -1259,19 +1254,18 @@ impl<'a> Materializer<'a> {
             }
             Some(self.open_delivery_entry(
                 destination,
-                destination_call_hash(&call),
+                destination_call_hash(call),
                 destination,
-                &call,
+                call,
             ))
         };
 
-        self.append_flat_call(destination, &call);
+        self.append_flat_call(destination, call);
         self.push_event(
             destination,
-            TraceEvent::CallBegin(destination_call_hash(&call)),
+            TraceEvent::CallBegin(destination_call_hash(call)),
         );
-        let children = self.children[node_index].clone();
-        if !call.outcome.is_success() && !children.is_empty() {
+        if !call.outcome.is_success() && !self.children[node_index].is_empty() {
             // The failed target frame restores its own hash/state; the caller
             // naturally reverts its resolver frame after checking the mini-entry.
             self.open_region(
@@ -1283,7 +1277,8 @@ impl<'a> Materializer<'a> {
                 Some(call.source_rollup_id),
             );
         }
-        for child in children {
+        for index in 0..self.children[node_index].len() {
+            let child = self.children[node_index][index];
             self.begin_region(child);
             self.execute_reentrant(destination, child)?;
             self.close_region_at_subtree(child)?;
@@ -1311,7 +1306,7 @@ impl<'a> Materializer<'a> {
         source_chain: RollupId,
         node_index: usize,
     ) -> ProtocolResult<()> {
-        let call = self.recorded[node_index].clone();
+        let call = &self.recorded[node_index];
         if call.call_mode == CallMode::Static {
             return self.execute_static(
                 node_index,
@@ -1327,7 +1322,7 @@ impl<'a> Materializer<'a> {
             .into());
         }
         let saved_cursor = self.active[&source_chain].next_row;
-        let (row_index, reused) = self.push_row(source_chain, &call)?;
+        let (row_index, reused) = self.push_row(source_chain, call)?;
         let entry_index = self.active[&source_chain].entry_index;
         // Rebuild each invocation independently, then compare its complete
         // callback program with the first use. Appending to the cached row
@@ -1347,7 +1342,7 @@ impl<'a> Materializer<'a> {
             source_chain,
             TraceEvent::NestedBegin {
                 row_index,
-                call_hash: source_call_hash(&call),
+                call_hash: source_call_hash(call),
             },
         );
         self.active

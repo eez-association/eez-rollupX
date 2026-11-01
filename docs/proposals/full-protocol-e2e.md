@@ -134,6 +134,22 @@ signing identity. Qualification compares exact results against the previous
 implementation and measures ordinary, static, rollback and split-host workloads
 with the same release profile. See the [performance record](../audits/2026-10-30-full-protocol-e2e/performance.md).
 
+### Borrowed execution tables and rollback checkpoints
+
+The second cleanup keeps the public verifier API and accepted profile unchanged.
+Verification borrows immutable source tables, calls, rows and static results;
+execution cursors remain separate. Materialization borrows recorded actions and
+walks immutable child indexes without copying them. Delivery entries reuse the
+existing entry-opening bookkeeping while retaining their distinct failure outcome.
+
+Facts append outbound hashes between properly nested rollback boundaries. Save
+only the prefix length and value totals, then truncate on rollback; never restore
+coverage flags or bypass subhash checks. Drive outbound traversal from its one
+call cursor and retain the hash already checked during source selection.
+Qualification requires exact baseline/candidate result comparisons, nested rollback
+and forged-result regressions, matched materialization/verifier benchmarks, signer
+checks, all protocol scenarios and independent follower replay.
+
 ## Compatibility and recovery
 
 This extends the accepted proof/execution profile without authorizing a protocol

@@ -495,6 +495,70 @@ fn nested_rollback_windows_restore_inner_state_before_continuing_outer_scope() {
 }
 
 #[test]
+fn nested_rollbacks_preserve_prior_effects_and_allow_later_commits() {
+    let l2 = RollupId(1);
+    let mut calls = vec![static_call(None, RollupId::MAINNET, l2)];
+    for index in 1..=6 {
+        let mut call = static_call(Some(0), l2, RollupId::MAINNET);
+        call.data = Bytes::from(vec![index]);
+        call.value = U256::from(index);
+        calls.push(call);
+    }
+    for call in &mut calls {
+        call.call_mode = CallMode::Mutable;
+    }
+    calls[0].value = U256::from(20);
+    // Commit 1; roll back 2, (3), 4; then commit 5 and 6.
+    calls[2].revert_spans = vec![3];
+    calls[3].revert_spans = vec![1];
+    let expected_hashes = [1, 5, 6].map(|index| {
+        let call = &calls[index];
+        eez_protocol::common_cross_chain_call_hash(eez_protocol::CallHashInput {
+            call_mode: call.call_mode,
+            source_address: call.source_address,
+            source_rollup_id: call.source_rollup_id,
+            target_address: call.target_address,
+            target_rollup_id: call.target_rollup_id,
+            value: call.value,
+            data: &call.data,
+        })
+    });
+    let mut composition = materialize_actions(RollupId::MAINNET, calls).unwrap();
+    let source = &mut composition.source;
+    source.batch.entries[0].rootUpdates.push(RootUpdateSol {
+        rollupId: l2.0,
+        currentRoot: B256::with_last_byte(1),
+        newRoot: B256::with_last_byte(2),
+        etherDelta: EtherDeltaSol::ZERO,
+    });
+    finalize_l1_entry_traces(&mut source.batch, &source.entry_traces).unwrap();
+    let result = eez_protocol::entries::verify_nested_group(
+        &source.batch.entries[0],
+        &composition.targets[0].batch.entries,
+        eez_protocol::entries::NestedPairDirection::Inbound,
+        l2,
+    )
+    .unwrap();
+    let rows = &composition.targets[0].batch.entries[0].expectedL1ToL2Calls;
+    assert_eq!(result.l2_outbound_hashes, expected_hashes);
+    assert_eq!(
+        result.ether_delta,
+        alloy_primitives::I256::try_from(20 - 1 - 5 - 6).unwrap()
+    );
+    assert_eq!(rows.len(), 6, "rollback must not erase validation coverage");
+    let mut forged = composition.targets[0].batch.entries.clone();
+    forged[0].expectedL1ToL2Calls[2].returnData = Bytes::from_static(b"forged rollback result");
+    let error = eez_protocol::entries::verify_nested_group(
+        &source.batch.entries[0],
+        &forged,
+        eez_protocol::entries::NestedPairDirection::Inbound,
+        l2,
+    )
+    .expect_err("rolled-back outcomes still need commitment validation");
+    assert!(error.to_string().contains("rolling hash"), "{error}");
+}
+
+#[test]
 fn rollback_scope_can_start_with_a_static_read_and_restore_its_source_cursor() {
     for failed_write in [false, true] {
         let l2 = RollupId(1);
