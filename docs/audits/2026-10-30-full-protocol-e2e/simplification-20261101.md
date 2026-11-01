@@ -62,8 +62,8 @@ remote attestations, with zero canonical divergence events. The owned enclave wa
 stopped with data retained; existing deployments and operator state were preserved.
 
 [Compact qualification evidence](simplification-validation.json) binds these results
-to the runtime source. Hosted CI must still qualify the updated PR head; the prior
-head's green run is historical evidence only.
+to the runtime source. [Hosted CI](https://github.com/eez-association/eez-rollupX/actions/runs/41313363564)
+also passed all 13 jobs on documentation follow-up `5d74a42a`; see the parent audit.
 
 ## Matched component performance
 

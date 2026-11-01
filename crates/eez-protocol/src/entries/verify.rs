@@ -1,9 +1,14 @@
-//! Independent verification of L1/L2 entry pairs and outbound root groups.
+//! Independently recompute entry traversal, commitments and surviving effects.
 //!
-//! The verifier is the inverse of the protocol's `TableGenerator`: unified
-//! rows are consumed in forward order, their position keys select the next
-//! call in the opposite chain's current insertion array, and rolling hashes
-//! advance on both chains exactly as execution alternates between them.
+//! `ChainState` borrows immutable tables while tracking each chain's mutable
+//! cursor and rolling hash. Mutable calls advance that state; `StaticRowResolver`
+//! checks candidate callback graphs at fixed host positions without consuming a
+//! mutable row. Its cache belongs to one pending read, not the whole entry.
+//!
+//! Rollback restores execution state and accumulated effects, but never erases
+//! evidence that a row/call was checked. Final coverage and commitment checks
+//! reject leftover or forged table contents. This establishes table consistency;
+//! the signer must separately bind claimed outcomes to authenticated execution.
 
 use std::borrow::Borrow;
 

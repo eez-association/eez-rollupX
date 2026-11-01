@@ -1,10 +1,15 @@
-//! Execution-tree materialization for mutable nested cross-chain calls.
+//! Build execution tables from recorded cross-chain actions.
 //!
-//! The implementation mirrors `eez-core-protocol`'s `TableGenerator`: one
-//! entry context is active per executing chain, destination-side calls are
-//! appended to that context's current flat array, and calls leaving an active
-//! chain open rows in its unified reentrant table. Rows are pushed before
-//! their children, preserving the protocol's strict forward-cursor layout.
+//! `CallForest` checks parent/subtree and rollback boundaries before
+//! `Materializer` walks them. Each executing chain owns a mutable entry context;
+//! callbacks append to its current call array, and calls leaving it open rows
+//! before visiting their children. Static frames own a separate callback fold
+//! and never advance the mutable row cursor.
+//!
+//! Rollback keeps the executed table but restores cursors, hashes and committed
+//! effects. `EntryTrace` defers L1 position/hash finalization until settlement
+//! supplies the ordered roots. Construction positions cannot authorize execution;
+//! the independent verifier and signer must check the resulting tables/outcomes.
 
 use std::collections::HashMap;
 
