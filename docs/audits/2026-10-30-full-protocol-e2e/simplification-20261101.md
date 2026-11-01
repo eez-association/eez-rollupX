@@ -119,3 +119,37 @@ SHA-256 identities:
 - Candidate benchmark: `e63522a7c03ea34e41cbfbbe15859e631b009f5fa2d0f715f209d9acc4f9114d`.
 - Final benchmark results: `99ff860554cb2106fe0c5843703b63acfaa3486b8cc57b85df75b625b8c28389`.
 - Differential results: `cd0c25225360b6d5529f3829eb821c8535396564e96640b2ef4a8594b58d10bb`.
+
+## Root-planning experiment against `73458a03`
+
+Both requested prototypes were implemented. Inline L2 root-slot assignment removes
+79 production lines, two planning structs and intermediate assignment/slot lists.
+Existing rollback scopes now restore the source cursor for root-level regions;
+nested callback scopes must not reset that root cursor. Matching slots still require
+identical outcomes, successful roots advance the cursor, and static reads observe
+its pre-call position. Independent verification and signer authorization are unchanged.
+
+Shared construction/finalization folding saved only five further production lines.
+It was rejected after ten alternating release measurements found approximately 3%
+higher median finalization time for `many_roots` and `rollback_roots`. The existing
+benchmark now measures finalization explicitly so this cost remains observable.
+The retained root-only prototype's materialization medians varied −0.56% to +1.07%
+against the baseline, with overlapping sample ranges; independent verification
+varied −0.25% to +0.53%. These are component measurements, not whole-node claims.
+
+A separate manual signer review found no change to authorization gates: exact
+source outcomes, position-bound rows, replay observations and independently computed
+commitments remain mandatory. Table construction cannot authorize signing. The
+rollback-observation regression asserts the specific outcome mismatch and zero
+signing calls. This review is not an external audit.
+
+The retained candidate passed 1,643 workspace tests (six optional utilities ignored),
+685 affected-package tests (five fixture utilities ignored), formatting, workspace/
+signer Clippy and signer rustdoc. Differential comparison matched all 16,384 cases:
+10,536 accepted with identical tables/traces and 5,848 rejected with identical errors.
+The new rollback/static-read regression also passed on unchanged `73458a03`.
+Exact-artifact process/E2E qualification is pending; prior results above do not
+qualify this runtime change. Raw prototype sources, differential harnesses, benchmark samples
+and logs are local-only under `artifacts/full-protocol/structural-simplification`.
+The retained prototype's benchmark result SHA-256 is
+`5e8517855d23c6f434f940581bbb63ddeb03b24a7ffd2f93dd5652d623080208`.

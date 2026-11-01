@@ -1,6 +1,6 @@
 //! Matched release benchmarks for materialization and independent verification.
 //! Run with `cargo run --locked --release -p eez-protocol --example entry_bench`.
-//! Input cloning is included in materialization; verification borrows prebuilt tables.
+//! Materialization and finalization include input cloning; verification borrows prebuilt tables.
 //! These component timings do not measure whole-node throughput.
 use alloy_primitives::{Address, B256, Bytes, U256};
 use eez_protocol::{
@@ -97,10 +97,14 @@ fn main() {
                 roots * depth.div_ceil(2)
             }
         );
-        for phase in ["materialize", "verify"] {
+        for phase in ["materialize", "finalize", "verify"] {
             let run = || {
                 if phase == "materialize" {
                     black_box(materialize_actions(l2, black_box(&calls).clone()).unwrap());
+                } else if phase == "finalize" {
+                    let mut batch = black_box(&target.batch).clone();
+                    finalize_l1_entry_traces(&mut batch, black_box(&target.entry_traces)).unwrap();
+                    black_box(batch);
                 } else {
                     black_box(
                         verify_outbound_source_group(black_box(host), black_box(&sources), l2)

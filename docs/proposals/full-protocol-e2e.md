@@ -99,3 +99,18 @@ remain unsupported. Pinned mutable-retry limitations also remain.
 The [prior design record](https://github.com/eez-association/eez-rollupX/blob/5d74a42ae8ae9fe2a79ab02fdf7c6e5c247e698d/docs/proposals/full-protocol-e2e.md)
 preserves the detailed investigation rationale; current rules belong in the linked
 implementation and owning specifications.
+
+## Structural simplification experiment
+
+Owner-authorized on 2026-11-01 against `73458a03`, with the same protocol pin.
+Prototype assigning L2 root slots during materialization and sharing trace fold/
+rollback mechanics between construction and finalization. Preserve static cursor
+positions, first-match retry rules, nested scope restoration, exact table bytes,
+finalization checks and independent signer authorization. Keep a prototype only
+if it reduces complexity and passes differential/regression checks and matched
+performance measurements; previous qualification does not qualify these changes.
+
+The experiment retains inline root-slot assignment (79 fewer production lines).
+Shared trace folding was rejected: it saved only five further lines and increased
+median finalization time by about 3% on two workloads. Finalization and independent
+verification remain unchanged. Candidate qualification is still in progress.
