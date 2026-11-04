@@ -8,6 +8,8 @@ services:
       - --Init.GenesisHash=${EEZ_L2_GENESIS_HASH:?Set the deployment genesis hash}
       - --Init.BaseDbPath=/nethermind/data/db
       - --Init.LogDirectory=/nethermind/data/logs
+      - --Init.StaticNodesPath=/nethermind/data/static-nodes.json
+      - --Init.TrustedNodesPath=/nethermind/data/trusted-nodes.json
       - --Init.DiscoveryEnabled=false
       - --Init.PeerManagerEnabled=false
       - --Init.WebSocketsEnabled=false
