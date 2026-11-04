@@ -77,6 +77,31 @@ mod selection;
 mod sequencing;
 pub use config::ComposerSettings;
 
+/// Composer policy per inbound source transaction, not a protocol/escrow limit.
+const MAINNET_DEPOSIT_LIMIT_WEI: u64 = 100_000_000_000_000_000;
+
+fn check_inbound_deposit_limit(
+    l1_chain_id: u64,
+    target_entries: &[eez_protocol::abi::ExecutionEntrySol],
+) -> Result<(), &'static str> {
+    if l1_chain_id != 1 {
+        return Ok(());
+    }
+    // Use executed deliveries, including nested calls and wrapper-funded value.
+    // Sum gross deposits across the transaction; withdrawals cannot offset them.
+    let total = target_entries
+        .iter()
+        .filter(|entry| entry.success)
+        .try_fold(U256::ZERO, |total, entry| {
+            total.checked_add(eez_protocol::entries::entry_flat_value_sum(entry)?)
+        });
+    match total {
+        Some(total) if total <= U256::from(MAINNET_DEPOSIT_LIMIT_WEI) => Ok(()),
+        Some(_) => Err("Ethereum mainnet deposit exceeds 0.1 ETH per transaction"),
+        None => Err("cannot determine Ethereum mainnet deposit value"),
+    }
+}
+
 /// Runtime config for the cross-chain execution path on Sync slots.
 /// Carried inside [`CrossChainWiring`] next to the wired
 /// cross-chain simulation: the keys and addresses needed to construct and sign
@@ -4404,6 +4429,20 @@ where
                         .filter(|target| target.rollup_id == eez_protocol::RollupId(rollup_id))
                         .flat_map(|target| target.batch.entries.iter().cloned())
                         .collect();
+                    if let Err(reason) =
+                        check_inbound_deposit_limit(ctx.l1_chain_id, &target_entries)
+                    {
+                        event!(name: "eez.composer.cc_compose.deposit_limit", Level::WARN,
+                            rollup_id, tx_hash = %held.hash, reason,
+                            "inbound deposit rejected by Composer policy");
+                        selection.block(idx);
+                        rejections.insert(
+                            held.hash,
+                            crate::rejection::SourceRejection::from_error(reason),
+                        );
+                        push_poison_root(&mut poison, &mut poison_gaps, held);
+                        continue;
+                    }
                     let target_entries = match target_entries
                         .iter()
                         .map(|entry| {
@@ -8369,6 +8408,100 @@ mod tests {
     use super::*;
     use alloy_primitives::TxHash;
     use alloy_sol_types::SolValue as _;
+
+    fn deposit_entry(value: U256) -> eez_protocol::abi::ExecutionEntrySol {
+        eez_protocol::abi::ExecutionEntrySol {
+            success: true,
+            l2ToL1Calls: vec![eez_protocol::abi::L2ToL1CallSol {
+                revertNextNCalls: 0,
+                isStatic: false,
+                gas: 0,
+                sourceAddress: Address::repeat_byte(1),
+                sourceRollupId: 0,
+                targetAddress: Address::repeat_byte(2),
+                value,
+                data: Bytes::new(),
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn mainnet_deposit_limit_boundaries_and_network_scope() {
+        let limit = U256::from(MAINNET_DEPOSIT_LIMIT_WEI);
+        for value in [U256::ZERO, limit - U256::from(1), limit] {
+            assert_eq!(
+                check_inbound_deposit_limit(1, &[deposit_entry(value)]),
+                Ok(())
+            );
+        }
+        let excessive = deposit_entry(limit + U256::from(1));
+        assert_eq!(
+            check_inbound_deposit_limit(1, std::slice::from_ref(&excessive)),
+            Err("Ethereum mainnet deposit exceeds 0.1 ETH per transaction")
+        );
+        for chain in [100, 10200, 560048, 11155111] {
+            assert_eq!(
+                check_inbound_deposit_limit(chain, std::slice::from_ref(&excessive)),
+                Ok(())
+            );
+        }
+    }
+
+    #[test]
+    fn mainnet_deposit_limit_aggregates_deliveries_and_fails_closed() {
+        let half = U256::from(MAINNET_DEPOSIT_LIMIT_WEI / 2);
+        let mut entries = vec![deposit_entry(half), deposit_entry(half)];
+        assert_eq!(check_inbound_deposit_limit(1, &entries), Ok(()));
+        entries.push(deposit_entry(U256::from(1)));
+        assert_eq!(
+            check_inbound_deposit_limit(1, &entries),
+            Err("Ethereum mainnet deposit exceeds 0.1 ETH per transaction")
+        );
+        assert_eq!(
+            check_inbound_deposit_limit(
+                1,
+                &[deposit_entry(U256::MAX), deposit_entry(U256::from(1))]
+            ),
+            Err("cannot determine Ethereum mainnet deposit value")
+        );
+        let mut malformed = deposit_entry(half);
+        malformed.l2ToL1Calls[0].revertNextNCalls = 2;
+        assert_eq!(
+            check_inbound_deposit_limit(1, &[malformed]),
+            Err("cannot determine Ethereum mainnet deposit value")
+        );
+    }
+
+    #[test]
+    fn mainnet_deposit_limit_counts_successful_nested_deliveries() {
+        let mut entry = deposit_entry(U256::from(MAINNET_DEPOSIT_LIMIT_WEI));
+        entry
+            .expectedL1ToL2Calls
+            .push(eez_protocol::abi::ExpectedL1ToL2CallSol {
+                success: true,
+                l2ToL1Calls: deposit_entry(U256::from(1)).l2ToL1Calls,
+                expectedL1toL2Hash: B256::ZERO,
+                revertedOrStaticRollingHash: B256::ZERO,
+                returnData: Bytes::new(),
+            });
+        assert_eq!(
+            check_inbound_deposit_limit(1, std::slice::from_ref(&entry)),
+            Err("Ethereum mainnet deposit exceeds 0.1 ETH per transaction")
+        );
+        entry.expectedL1ToL2Calls[0].success = false;
+        assert_eq!(check_inbound_deposit_limit(1, &[entry]), Ok(()));
+    }
+
+    #[test]
+    fn mainnet_deposit_limit_excludes_reverted_deliveries() {
+        let mut entry = deposit_entry(U256::MAX);
+        entry.success = false;
+        assert_eq!(check_inbound_deposit_limit(1, &[entry]), Ok(()));
+        let mut entry = deposit_entry(U256::MAX);
+        entry.l2ToL1Calls[0].revertNextNCalls = 1;
+        assert_eq!(check_inbound_deposit_limit(1, &[entry]), Ok(()));
+    }
 
     #[test]
     fn historical_anchor_does_not_expire_at_a_known_fork_boundary() {
