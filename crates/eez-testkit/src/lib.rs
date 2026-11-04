@@ -4469,6 +4469,16 @@ impl NativeWorld {
         Ok(())
     }
 
+    /// Override only the scan head reported by the fault RPC. Exact header
+    /// reads still reach L1; `None` restores the real head without a restart.
+    pub fn report_rpc_head(&self, block: Option<u64>) -> Result<()> {
+        let directory = self.builder_stub.capture_dir().join("control");
+        let temporary = directory.join("reported-head.new");
+        std::fs::write(&temporary, serde_json::to_vec(&block)?)?;
+        std::fs::rename(temporary, directory.join("reported-head.json"))?;
+        Ok(())
+    }
+
     /// Reject log ranges and block-by-number reads before `block`, retaining
     /// raw headers and newer history. Zero restores reads; no data is deleted.
     pub fn prune_rpc_history_before(&self, block: u64) -> Result<()> {

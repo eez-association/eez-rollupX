@@ -145,6 +145,20 @@ preflight. Readiness stays closed while catch-up retries; persistent RPC errors
 (including the receipt-pruning error) exhaust the existing 32-failure budget and
 exit. Repeated restarts cannot restore missing history.
 
+On restart, retained L2 blocks can reference L1 origins newer than the embedded
+L1's currently recovered head. The node keeps the embedded L1 alive and reports
+`eez.node.deriver.boot_catch_up.source_incomplete`, including the retained L2
+block, required L1 origin and available evidence tip. Readiness remains closed
+while canonical catch-up retries with backoff. Let Lighthouse and the embedded
+L1 catch up; do not reset L2 or delete its correlation index. If the reported tip
+stops advancing, inspect Lighthouse/engine connectivity and L1 sync progress.
+Reaching the required height is not by itself validation: recovery still checks
+the canonical origin hash and randomness before retaining the suffix.
+
+This retry fix does not change contracts, genesis, proof validation identity or
+database formats. It needs no data migration. An older binary can encounter the
+same fatal startup error again if its L1 source trails retained L2 history.
+
 Check startup in order:
 
 1. `L1 chain and finality ready` means preflight only, not successful recovery.

@@ -2199,6 +2199,148 @@ async fn interval_posts_accumulated_activity_using_the_registration_l1_timestamp
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn restart_waits_for_retained_l1_origin_without_losing_ordinary_blocks() {
+    use eez_protocol::l1_history::{ENDPOINT_SLOT, HISTORY_ADDRESS};
+
+    let mut world = setup_native_history(&policy_env(Vec::new(), "interval"))
+        .await
+        .unwrap();
+    eez_testkit::wait_for(TIMEOUT, || async {
+        Ok((world
+            .node
+            .count_signal(eez_testkit::signals::NODE_COMPOSER_SPAWNED)?
+            > 0)
+        .then_some(()))
+    })
+    .await
+    .unwrap();
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let lagging_head = l1.get_block_number().await.unwrap();
+    let transfer = send_l2_value_transfer_confirmed(
+        &world.l2_rpc(),
+        ANVIL_KEY_1,
+        ANVIL_ADDR_3,
+        U256::from(1),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let receipt = l2.get_transaction_receipt(transfer).await.unwrap().unwrap();
+    let retained = eez_testkit::wait_for(TIMEOUT, || async {
+        let block = l2
+            .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+            .await?
+            .unwrap();
+        let origin = l2
+            .get_storage_at(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT))
+            .block_id(block.header.hash.into())
+            .await?;
+        Ok((origin > U256::from(lagging_head)).then_some(block.header))
+    })
+    .await
+    .unwrap();
+
+    // The L2 shutdown is graceful. Only the restarted scanner's view of L1
+    // lags; releasing this control must recover the same process and datadir.
+    world.report_rpc_head(Some(lagging_head)).unwrap();
+    let fault_url = world.fault_rpc_url().to_owned();
+    world
+        .restart_composer_with_env(&[("EEZ_L1_RPC_URL", fault_url)])
+        .await
+        .unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    eez_testkit::wait_for(TIMEOUT, || async {
+        assert!(
+            world.node.exit_status().is_none(),
+            "{}",
+            world.node.log_tail(60)
+        );
+        Ok((world.node.log_count_matching(&[
+            "boot-time catch_up could not read all L1 source data yet",
+            "retained L2 block",
+        ])? >= 2)
+            .then_some(()))
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        world
+            .node
+            .count_signal(eez_testkit::signals::NODE_COMPOSER_SPAWNED)
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        world
+            .node
+            .count_signal(eez_testkit::signals::NODE_BOOT_CATCH_UP_FAILED)
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        l2.get_block_by_number(retained.number.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash,
+        retained.hash
+    );
+    assert_eq!(
+        l2.get_transaction_receipt(transfer)
+            .await
+            .unwrap()
+            .unwrap()
+            .block_hash,
+        receipt.block_hash
+    );
+    let waiting_head = l2
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header;
+
+    world.report_rpc_head(None).unwrap();
+    eez_testkit::wait_for(TIMEOUT, || async {
+        assert!(
+            world.node.exit_status().is_none(),
+            "{}",
+            world.node.log_tail(60)
+        );
+        Ok((world
+            .node
+            .count_signal(eez_testkit::signals::NODE_COMPOSER_SPAWNED)?
+            > 0)
+        .then_some(()))
+    })
+    .await
+    .unwrap();
+    wait_for_latest_height(&world.node, waiting_head.number + 1, TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(
+        l2.get_block_by_number(waiting_head.number.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash,
+        waiting_head.hash
+    );
+    assert_eq!(
+        l2.get_transaction_receipt(transfer)
+            .await
+            .unwrap()
+            .unwrap()
+            .block_hash,
+        receipt.block_hash
+    );
+    world.node.assert_no_divergence_failure_logs();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint() {
     let mut world = setup_cross_chain_with_env(&policy_env(Vec::new(), "always"))
         .await
