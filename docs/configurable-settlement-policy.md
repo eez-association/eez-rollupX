@@ -997,6 +997,15 @@ Required logs, transaction bodies, headers and native blob data must still be
 available for the selected recovery range. Missing history fails recovery; it
 does not authorize skipping blocks or declaring settlement complete.
 
+A restarted L1 source can temporarily trail an origin already recorded in the
+retained L2 suffix. An origin above the prepared L1 evidence tip is retryable
+source incompleteness, not proof that the L2 block is stale. Startup keeps the
+embedded L1 running and readiness closed, then repeats canonical catch-up with
+fresh evidence. It does not discard a retained block merely because its origin
+is not served yet. Once the header is available, origin-hash and PREVRANDAO
+checks still apply; a confirmed mismatch follows the existing reorg recovery.
+Empty evidence or a missing lower bound is not reclassified as tip lag.
+
 Each correlation retains the accepted endpoint's executed history state and
 header. Same-height partial consumption can replace its Reth state; recovery
 uses the retained record and rechecks its canonical L1 occurrence and origin.
