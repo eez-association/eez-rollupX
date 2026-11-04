@@ -147,6 +147,13 @@ change must not invalidate another language's wire compatibility. This guard
 detects dependency drift, not arbitrary semantic bugs; ordinary review and
 conformance tests remain necessary.
 
+The 2026-11-04 dependency review updates only `pulldown-cmark` 0.13.5 to
+0.13.6 for RUSTSEC-2026-0433. Its use through `prost-build` formats protobuf
+comments at build time; the generated `prove.v2.rs` remains byte-identical
+(SHA-256 `d69840cb22b68e83cb7250a566a58599c4d6b269ac301fb0505e4101ddeea966`).
+No execution, decoding, or wire semantics change, so only the local lockfile
+review digest changes; `VALIDATION_VERSION` remains 7.
+
 Composer compares the hash with its own local result at Capabilities and sends
 the same 32 bytes as binary `eez-validation-identity-bin` metadata on every stream.
 The server rejects missing/malformed/mismatching identity before receiving a
