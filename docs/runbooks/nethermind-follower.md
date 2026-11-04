@@ -57,108 +57,49 @@ Size and monitor resources for the selected chain and traffic.
 
 ## First setup
 
-Use an empty directory on the intended data disk. Preserve an existing database
-and configuration; do not copy another execution client's database into it.
+Run from the repository root. This procedure uses
+[`docker-compose.nethermind-follower.yml`](../../docker-compose.nethermind-follower.yml)
+and [`.env.nethermind.example`](../../.env.nethermind.example), separate from the
+Composer's `.env`. It requires Docker Compose v2.
 
-Create `config/`, `db/`, `logs/` and `keystore/`. Put the supplied genesis at
-`config/genesis.json` and the L1 genesis at `config/l1.json` if using a file.
+1. Use a shell without exported Composer profile settings. Exported environment
+   variables override `--env-file`; do not let another network's `EEZ_*` values
+   select this follower's chain or endpoints.
+2. Create the configuration and data directories on the intended data disk:
 
-Create `config/nethermind.json` from the following template. Replace every
-`REPLACE_*` field. Numeric fields must be JSON numbers, not strings. Set
-`Init.GenesisHash` to the supplied L2 genesis hash; do not derive it with an
-Ethereum-only tool that does not implement the selected EEZ header rules.
+   ```sh
+   mkdir -p datadir nethermind-config data/nethermind/db data/nethermind/logs data/nethermind/keystore
+   test -e .env.nethermind || cp .env.nethermind.example .env.nethermind
+   chmod 600 .env.nethermind
+   ```
 
-```json
-{
-  "Init": {
-    "ChainSpecPath": "/config/genesis.json",
-    "GenesisHash": "REPLACE_L2_GENESIS_HASH",
-    "BaseDbPath": "/nethermind/nethermind_db",
-    "LogDirectory": "/nethermind/logs",
-    "DiscoveryEnabled": false,
-    "PeerManagerEnabled": false,
-    "WebSocketsEnabled": false
-  },
-  "KeyStore": {
-    "KeyStoreDirectory": "/nethermind/keystore"
-  },
-  "Sync": {
-    "NetworkingEnabled": false,
-    "SynchronizationEnabled": false,
-    "FastSync": false,
-    "SnapSync": false
-  },
-  "Eez": {
-    "Enabled": true,
-    "SkipConsensusLayerCalls": true,
-    "FollowerEnabled": true,
-    "SequencerRpcUrl": "REPLACE_SEQUENCER_RPC",
-    "L1RpcUrl": "REPLACE_L1_EXECUTION_RPC",
-    "L1BeaconUrl": "REPLACE_L1_BEACON_API",
-    "L1ChainId": "REPLACE_WITH_NUMERIC_L1_CHAIN_ID",
-    "L1ChainConfigPath": "/config/l1.json",
-    "RegistryAddress": "REPLACE_REGISTRY_ADDRESS",
-    "RegistryDeployBlock": "REPLACE_WITH_NUMERIC_DEPLOYMENT_BLOCK",
-    "RollupId": "REPLACE_WITH_NUMERIC_ROLLUP_ID",
-    "L2BlockTimeSeconds": "REPLACE_WITH_NUMERIC_BLOCK_TIME",
-    "L2GasLimit": "REPLACE_WITH_NUMERIC_GAS_LIMIT",
-    "L1PollingIntervalMs": 2000,
-    "L1LogScanBlocks": 128
-  },
-  "Pruning": { "Mode": "None" },
-  "Receipt": { "TxLookupLimit": 0 },
-  "JsonRpc": {
-    "Enabled": true,
-    "Host": "0.0.0.0",
-    "Port": 8545,
-    "EngineHost": "127.0.0.1",
-    "EnginePort": 8551,
-    "JwtSecretFile": "/nethermind/keystore/jwt-secret",
-    "EnabledModules": ["Eth", "Net", "Web3"]
-  },
-  "Metrics": {
-    "Enabled": true,
-    "ExposeHost": "0.0.0.0",
-    "ExposePort": 8008
-  }
-}
-```
+3. Copy the deployment's L2 genesis to `datadir/genesis.json`. Preserve an existing
+   genesis and database. Use a separate data directory for another network.
+   Fill every blank value in `.env.nethermind` from the deployment bundle. Keep
+   the image digest matched to the network's qualified build. `EEZ_L2_BLOCK_TIME_SECONDS`
+   is in whole seconds. L1 and sequencer URLs must be reachable from inside the
+   container; its loopback address does not reach a service on the host.
+4. For Chiado, keep `EEZ_L1_CHAIN_CONFIG=chiado`. For Ethereum, copy the complete
+   L1 genesis to `nethermind-config/l1.json` and set
+   `EEZ_L1_CHAIN_CONFIG=/config/l1/l1.json`. Keep `EEZ_L1_CONFIG_DIR` limited to
+   public chain configuration; do not mount a directory of credentials.
+5. Give the image's runtime user write access to the data directory. Set
+   `NETHERMIND_DATA_DIR` to the data disk path if using another location. The
+   configuration disables pruning and has no fixed disk bound.
+6. Render and start the follower:
 
-For Chiado, set `Eez.L1ChainConfigPath` to `chiado` instead of `/config/l1.json`.
-Use endpoints reachable from inside the container. Its loopback address refers
-to the container, not an L1 service on the host.
+   ```sh
+   docker compose --env-file .env.nethermind -f docker-compose.nethermind-follower.yml config --quiet
+   docker compose --env-file .env.nethermind -f docker-compose.nethermind-follower.yml pull nethermind-follower
+   docker compose --env-file .env.nethermind -f docker-compose.nethermind-follower.yml up -d nethermind-follower
+   docker compose --env-file .env.nethermind -f docker-compose.nethermind-follower.yml logs --tail=100 nethermind-follower
+   ```
 
-Create `compose.yaml`:
-
-```yaml
-services:
-  follower:
-    image: nethermindeth/nethermind:eez-a75cf55f016@sha256:75ac0f1157ef0f92ce2aea7389e0d48265d4be2b3536255224d4df7242056fa2
-    restart: unless-stopped
-    stop_grace_period: 3m
-    command: ["--config=/config/nethermind.json"]
-    volumes:
-      - ./config:/config:ro
-      - ./db:/nethermind/nethermind_db
-      - ./logs:/nethermind/logs
-      - ./keystore:/nethermind/keystore
-    ports:
-      - "127.0.0.1:8545:8545"
-      - "127.0.0.1:8008:8008"
-```
-
-Give the image's runtime user write access to `db/`, `logs/` and `keystore/`.
-The Compose file publishes only local RPC and metrics. Keep Engine, database
-files and credentials private. Do not enable account-unlocking or signing RPC.
-
-From the directory containing `compose.yaml`:
-
-```sh
-docker compose config --quiet
-docker compose pull follower
-docker compose up -d follower
-docker compose logs --tail=100 follower
-```
+Only RPC and metrics are published, both on host loopback. Engine is unpublished
+and binds to container loopback. No proof key is passed to the follower. Keep
+`.env.nethermind`, the database and keystore private. Do not enable account
+unlocking or signing RPC methods. Static Compose rendering is checked; this
+packaged procedure still needs a fresh-host rehearsal.
 
 ## Verify progress
 
@@ -194,9 +135,10 @@ sequencer must be corrected at its source.
 
 ## Restart, upgrade and recovery
 
-Use `docker compose stop follower` and wait for clean database closure before
+Use `docker compose --env-file .env.nethermind -f docker-compose.nethermind-follower.yml stop nethermind-follower`
+and wait for clean database closure before
 copying the database. Preserve genesis, configuration and keystore with the backup.
-`docker compose start follower` resumes the same database.
+The same command with `start nethermind-follower` resumes the same database.
 
 Before upgrading, record the image digest and source revision, verify the new
 build against the network's current rules, and take a stopped database snapshot.

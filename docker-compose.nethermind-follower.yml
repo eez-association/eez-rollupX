@@ -1,0 +1,66 @@
+services:
+  nethermind-follower:
+    image: ${NETHERMIND_IMAGE:?Set the qualified Nethermind image digest}
+    restart: unless-stopped
+    stop_grace_period: 3m
+    command:
+      - --Init.ChainSpecPath=/config/genesis.json
+      - --Init.GenesisHash=${EEZ_L2_GENESIS_HASH:?Set the deployment genesis hash}
+      - --Init.BaseDbPath=/nethermind/data/db
+      - --Init.LogDirectory=/nethermind/data/logs
+      - --Init.DiscoveryEnabled=false
+      - --Init.PeerManagerEnabled=false
+      - --Init.WebSocketsEnabled=false
+      - --KeyStore.KeyStoreDirectory=/nethermind/data/keystore
+      - --Sync.NetworkingEnabled=false
+      - --Sync.SynchronizationEnabled=false
+      - --Sync.FastSync=false
+      - --Sync.SnapSync=false
+      - --Eez.Enabled=true
+      - --Eez.SkipConsensusLayerCalls=true
+      - --Eez.FollowerEnabled=true
+      - --Eez.SequencerRpcUrl=${EEZ_SEQUENCER_RPC_URL:?Set the sequencer L2 RPC URL}
+      - --Eez.L1RpcUrl=${EEZ_L1_RPC_URL:?Set the L1 execution RPC URL}
+      - --Eez.L1BeaconUrl=${EEZ_L1_BEACON_URL:?Set the L1 Beacon API URL}
+      - --Eez.L1ChainId=${EEZ_L1_CHAIN_ID:?Set the L1 chain ID}
+      - --Eez.L1ChainConfigPath=${EEZ_L1_CHAIN_CONFIG:?Set chiado or the mounted L1 genesis path}
+      - --Eez.RegistryAddress=${EEZ_REGISTRY_ADDRESS:?Set the registry address}
+      - --Eez.RegistryDeployBlock=${EEZ_REGISTRY_DEPLOY_BLOCK:?Set the registry deployment block}
+      - --Eez.RollupId=${EEZ_ROLLUP_ID:?Set the rollup ID}
+      - --Eez.L2BlockTimeSeconds=${EEZ_L2_BLOCK_TIME_SECONDS:?Set the L2 block time in whole seconds}
+      - --Eez.L2GasLimit=${EEZ_L2_GAS_LIMIT:?Set the L2 gas limit}
+      - --Eez.L1PollingIntervalMs=2000
+      - --Eez.L1LogScanBlocks=128
+      - --Pruning.Mode=None
+      - --Receipt.TxLookupLimit=0
+      - --JsonRpc.Enabled=true
+      - --JsonRpc.Host=0.0.0.0
+      - --JsonRpc.Port=8545
+      - --JsonRpc.EngineHost=127.0.0.1
+      - --JsonRpc.EnginePort=8551
+      - --JsonRpc.JwtSecretFile=/nethermind/data/keystore/jwt-secret
+      - --JsonRpc.EnabledModules=Eth,Net,Web3
+      - --Metrics.Enabled=true
+      - --Metrics.ExposeHost=0.0.0.0
+      - --Metrics.ExposePort=8008
+    volumes:
+      - type: bind
+        source: ${EEZ_L2_GENESIS:?Set the L2 genesis file}
+        target: /config/genesis.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EEZ_L1_CONFIG_DIR:?Set the directory with L1 configuration files}
+        target: /config/l1
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${NETHERMIND_DATA_DIR:?Set the follower data directory}
+        target: /nethermind/data
+        bind:
+          create_host_path: false
+    ports:
+      - 127.0.0.1:${NETHERMIND_RPC_PORT:-8545}:8545
+      - 127.0.0.1:${NETHERMIND_METRICS_PORT:-8008}:8008
