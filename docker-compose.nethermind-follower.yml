@@ -3,6 +3,15 @@ services:
     image: ${NETHERMIND_IMAGE:?Set the qualified Nethermind image digest}
     restart: unless-stopped
     stop_grace_period: 3m
+    environment:
+      NETHERMIND_INITCONFIG_DISCOVERYENABLED: 'false'
+      NETHERMIND_INITCONFIG_PEERMANAGERENABLED: 'false'
+      NETHERMIND_SYNCCONFIG_NETWORKINGENABLED: 'false'
+      NETHERMIND_SYNCCONFIG_SYNCHRONIZATIONENABLED: 'false'
+      NETHERMIND_SYNCCONFIG_FASTSYNC: 'false'
+      NETHERMIND_SYNCCONFIG_SNAPSYNC: 'false'
+      NETHERMIND_JSONRPCCONFIG_ENABLED: 'true'
+      NETHERMIND_JSONRPCCONFIG_ENABLEDMODULES: 'Eth,Net,Web3'
     command:
       - --Init.ChainSpecPath=/config/genesis.json
       - --Init.GenesisHash=${EEZ_L2_GENESIS_HASH:?Set the deployment genesis hash}
@@ -10,14 +19,8 @@ services:
       - --Init.LogDirectory=/nethermind/data/logs
       - --Init.StaticNodesPath=/nethermind/data/static-nodes.json
       - --Init.TrustedNodesPath=/nethermind/data/trusted-nodes.json
-      - --Init.DiscoveryEnabled=false
-      - --Init.PeerManagerEnabled=false
       - --Init.WebSocketsEnabled=false
       - --KeyStore.KeyStoreDirectory=/nethermind/data/keystore
-      - --Sync.NetworkingEnabled=false
-      - --Sync.SynchronizationEnabled=false
-      - --Sync.FastSync=false
-      - --Sync.SnapSync=false
       - --Eez.Enabled=true
       - --Eez.SkipConsensusLayerCalls=true
       - --Eez.FollowerEnabled=true
@@ -35,13 +38,11 @@ services:
       - --Eez.L1LogScanBlocks=128
       - --Pruning.Mode=None
       - --Receipt.TxLookupLimit=0
-      - --JsonRpc.Enabled=true
       - --JsonRpc.Host=0.0.0.0
       - --JsonRpc.Port=8545
       - --JsonRpc.EngineHost=127.0.0.1
       - --JsonRpc.EnginePort=8551
       - --JsonRpc.JwtSecretFile=/nethermind/data/keystore/jwt-secret
-      - --JsonRpc.EnabledModules=Eth,Net,Web3
       - --Metrics.Enabled=true
       - --Metrics.ExposeHost=0.0.0.0
       - --Metrics.ExposePort=8008
