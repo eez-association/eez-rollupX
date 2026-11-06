@@ -222,6 +222,72 @@ contract PostBatchGasPinsTest is Test {
         assertLe(worstMarginal, POSTBATCH_ENTRY_GAS_PIN, "observed marginal exceeds POSTBATCH_ENTRY_GAS_PIN");
     }
 
+    /// Match the Composer bound across member counts, native blob references
+    /// and entry-bearing batches. Intrinsic/calldata gas remains separate.
+    function testNativeAttestationQuorumVerifierGas() external {
+        uint256[5] memory counts = [uint256(1), 2, 4, 8, 16];
+        uint256 worst;
+        for (uint256 entries; entries <= 4; entries += 4) {
+            for (uint256 blobs; blobs <= 64; blobs += 64) {
+                uint256 baseline = _quorumRung(1, entries, blobs);
+                for (uint256 index = 1; index < counts.length; index++) {
+                    uint256 measured = _quorumRung(counts[index], entries, blobs);
+                    uint256 marginal = (measured - baseline + counts[index] - 2) / (counts[index] - 1);
+                    if (marginal > worst) worst = marginal;
+                }
+            }
+        }
+        console.log("worst native marginal per proof system:", worst);
+        assertLe(worst, 14_000, "additional verifier exceeds Composer admission reserve");
+    }
+
+    function _quorumRung(uint256 count, uint256 entries, uint256 blobs) private returns (uint256) {
+        delete touched;
+        (EEZ eez, ECDSAProofSystem first) = _deployProtocol();
+        (address manager,,) = eez.rollups(ROLLUP_ID);
+        address[] memory systems = new address[](count);
+        systems[0] = address(first);
+        for (uint256 index = 1; index < count; index++) {
+            systems[index] = address(new ECDSAProofSystem(vm.addr(PROVER_KEY)));
+            bytes32 key = keccak256(
+                abi.encode(
+                    keccak256("EEZ_ROLLUPX_VERIFICATION_KEY_V1"),
+                    keccak256("gas fixture network"),
+                    address(eez),
+                    systems[index],
+                    vm.addr(PROVER_KEY)
+                )
+            );
+            Rollup(manager).addProofSystem(systems[index], key);
+            touched.push(systems[index]);
+        }
+        Rollup(manager).setThreshold(count);
+        for (uint256 index = 1; index < count; index++) {
+            for (uint256 position = index; position > 0 && systems[position] < systems[position - 1]; position--) {
+                (systems[position], systems[position - 1]) = (systems[position - 1], systems[position]);
+            }
+        }
+        EmptyTarget target = new EmptyTarget();
+        touched.push(address(target));
+        ProofSystemBatchPerVerificationEntries memory batch =
+            _batch(eez, first, address(target), Rung(entries, 1, true, false, blobs));
+        batch.proofSystems = systems;
+        batch.rollupIdsWithProofSystems[0].proofSystemIndexes = new uint64[](count);
+        batch.proofs = new bytes[](count);
+        for (uint256 index; index < count; index++) {
+            batch.rollupIdsWithProofSystems[0].proofSystemIndexes[index] = uint64(index);
+            batch.proofs[index] = _proof(_publicInputsHashAt(eez, batch, index));
+        }
+        bytes memory input = abi.encodeCall(EEZ.postAndVerifyBatch, (batch));
+        for (uint256 index; index < touched.length; index++) {
+            vm.cool(touched[index]);
+        }
+        uint256 used = probe.measure(address(eez), input);
+        (, bytes32 root,) = eez.rollups(ROLLUP_ID);
+        assertEq(root, batch.entries[batch.entries.length - 1].rollupUpdates[0].newRoot);
+        return used;
+    }
+
     function testLeadingAnchorBaseCoversColdNativeBlobReferencesAndLaterSettlements() external {
         // Above-six counts are fixtures, not network limits. Foundry supplies
         // hashes only; native sidecars and KZG remain the Rust tests' concern.
@@ -1823,6 +1889,18 @@ contract PostBatchGasPinsTest is Test {
         view
         returns (bytes32)
     {
+        return _publicInputsHashAt(eez, batch, 0);
+    }
+
+    function _publicInputsHashAt(
+        EEZ eez,
+        ProofSystemBatchPerVerificationEntries memory batch,
+        uint256 proofIndex
+    )
+        private
+        view
+        returns (bytes32)
+    {
         bytes32[] memory entryHashes = new bytes32[](batch.entries.length);
         for (uint256 i = 0; i < batch.entries.length; i++) {
             entryHashes[i] = keccak256(abi.encode(batch.entries[i]));
@@ -1849,7 +1927,7 @@ contract PostBatchGasPinsTest is Test {
                 address(0)
             )
         );
-        bytes32 vkey = Rollup(manager).verificationKey(batch.proofSystems[0]);
+        bytes32 vkey = Rollup(manager).verificationKey(batch.proofSystems[proofIndex]);
         bytes32 accumulator = keccak256(abi.encode(bytes32(0), ROLLUP_ID, vkey));
         return keccak256(abi.encodePacked(sharedPublicInput, accumulator));
     }

@@ -41,11 +41,20 @@ use crate::prover_retry::ProofBudget;
 /// many.
 pub const MAX_ATTESTERS: usize = 16;
 
-/// Conservative admission reserve per additional ECDSA verifier, its manager
-/// lookup and accumulator. This is not a consensus gas limit; native preflight
-/// still executes the complete batch before it can be signed/submitted.
+/// Native cold verifier/manager/accumulator pin. The Solidity ladder covers
+/// 1, 2, 4, 8 and 16 systems, 0/4 outbound entries and 0/64 blob references.
+/// Worst measured marginal: 12,370 gas; 14,000 retains more than 10% slack.
+const ADDITIONAL_VERIFIER_GAS_PIN: u64 = 14_000;
+
 pub(crate) fn additional_verifier_gas(members: usize) -> u64 {
-    (members.saturating_sub(1) as u64).saturating_mul(100_000)
+    (members.saturating_sub(1) as u64).saturating_mul(ADDITIONAL_VERIFIER_GAS_PIN)
+}
+
+/// Each additional system adds one address, one assignment index, one proof
+/// offset, one length word and a 96-byte padded signature. Existing metadata
+/// already prices every byte nonzero, including top-level offset growth.
+pub(crate) fn additional_verifier_calldata_gas(members: usize) -> u64 {
+    (members.saturating_sub(1) as u64).saturating_mul(224 * 16)
 }
 
 /// How long one batch's read of the manager's attestation settings may take,

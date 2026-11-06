@@ -872,8 +872,8 @@ fn native_member_digest_binds_physical_blob_hashes_and_proof_context() {
 #[test]
 fn verifier_reserve_grows_for_every_additional_member() {
     assert_eq!(additional_verifier_gas(1), 0);
-    assert_eq!(additional_verifier_gas(2), 100_000);
-    assert_eq!(additional_verifier_gas(MAX_ATTESTERS), 1_500_000);
+    assert_eq!(additional_verifier_gas(2), 14_000);
+    assert_eq!(additional_verifier_gas(MAX_ATTESTERS), 210_000);
 }
 
 #[test]

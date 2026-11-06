@@ -583,6 +583,7 @@ struct PostBatchGasBudget {
     projected: u64,
     calldata_gas: u64,
     framing_gas: u64,
+    verifier_gas: u64,
     floor_active: bool,
     general: bool,
     /// The shaped projection does not charge a generic entry for the anchor.
@@ -602,15 +603,24 @@ struct PostBatchGasBudget {
 impl PostBatchGasBudget {
     #[cfg(test)]
     fn new(max_gas: u64) -> Self {
-        Self::with_calldata_limits(max_gas, 64, true)
+        Self::with_calldata_limits(max_gas, 64, true, 1)
     }
 
-    fn with_calldata_limits(max_gas: u64, maximum_blobs: usize, floor_active: bool) -> Self {
+    fn with_calldata_limits(
+        max_gas: u64,
+        maximum_blobs: usize,
+        floor_active: bool,
+        members: usize,
+    ) -> Self {
+        let verifier_gas = crate::attestation_quorum::additional_verifier_gas(members);
         Self {
             cap: max_gas,
-            projected: projected_postbatch_gas(1, 0, 0),
+            projected: projected_postbatch_gas(1, 0, 0).saturating_add(verifier_gas),
             calldata_gas: 0,
-            framing_gas: gas::framing::base(maximum_blobs),
+            framing_gas: gas::framing::base(maximum_blobs).saturating_add(
+                crate::attestation_quorum::additional_verifier_calldata_gas(members),
+            ),
+            verifier_gas,
             floor_active,
             general: maximum_blobs > 64,
             anchor_discount: 0,
@@ -625,12 +635,12 @@ impl PostBatchGasBudget {
     }
 
     fn use_projection(&mut self, initial_gas: u64) {
-        self.projected = if self.general {
+        self.projected = self.verifier_gas.saturating_add(if self.general {
             initial_gas.saturating_add(POSTBATCH_ENTRY_GAS_PIN)
         } else {
             self.anchor_discount = POSTBATCH_ENTRY_GAS_PIN;
             initial_gas
-        };
+        });
     }
 
     fn full_estimate(&self) -> u64 {
@@ -3223,6 +3233,7 @@ where
             estimated_budget,
             self.posting_blob_allowance(bundle_target, 0)?,
             self.inner.posting.calldata_floor_active(bundle_target),
+            self.inner.posting.proof_systems.len(),
         );
         // This separate view never receives accepted speculative effects.
         // Failed lookups or unsupported prior queues retain conservative pins.
@@ -3248,16 +3259,6 @@ where
         if let Some(projection) = &gas_projection {
             budget.use_projection(projection.initial_gas());
         }
-        budget.projected =
-            budget
-                .projected
-                .saturating_add(crate::attestation_quorum::additional_verifier_gas(
-                    self.inner
-                        .posting
-                        .quorum
-                        .as_ref()
-                        .map_or(1, crate::AttestationQuorum::len),
-                ));
         let prior_cleanup = gas_projection.as_ref().map_or(0, |p| p.cleanup_gas);
         event!(name: "eez.composer.admission.gas_projection", Level::INFO,
             event_name = "eez.composer.admission.gas_projection", rollup_id,
@@ -8482,6 +8483,32 @@ mod tests {
             }],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn quorum_metadata_is_charged_on_both_admission_gas_branches() {
+        let mut single = PostBatchGasBudget::with_calldata_limits(u64::MAX, 1, true, 1);
+        let mut quorum = PostBatchGasBudget::with_calldata_limits(u64::MAX, 1, true, 16);
+        // Shape-based execution accounting must retain the verifier execution.
+        single.use_projection(100_000);
+        quorum.use_projection(100_000);
+        assert_eq!(quorum.projected - single.projected, 15 * 14_000);
+        assert_eq!(quorum.framing_gas - single.framing_gas, 15 * 224 * 16);
+        // A large native source can make EIP-7623's floor dominate execution.
+        single.calldata_gas = 1_000_000;
+        quorum.calldata_gas = 1_000_000;
+        assert_eq!(
+            quorum.full_estimate() - single.full_estimate(),
+            15 * 224 * 40
+        );
+        let cap = single.full_estimate();
+        single.cap = cap;
+        quorum.cap = cap;
+        assert!(single.try_accept(TxL1Gas::default()));
+        assert!(
+            !quorum.try_accept(TxL1Gas::default()),
+            "extra metadata crosses the floor cap"
+        );
     }
 
     #[test]

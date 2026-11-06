@@ -2,7 +2,7 @@ use super::*;
 use alloy_network::TransactionBuilder;
 use alloy_rpc_types_eth::TransactionRequest;
 use eez_testkit::{
-    ANVIL_KEY_1, ANVIL_KEY_6, IValue, TestQuorumConfig, assert_latest_batch_signatures,
+    ANVIL_KEY_1, ANVIL_KEY_6, IValue, TestQuorumConfig, assert_quorum_batch_signatures,
     setup_cross_chain_quorum, value_read,
 };
 
@@ -11,6 +11,8 @@ async fn exercise(config: TestQuorumConfig) {
     let settings = crate::settlement_policy_cost::fee_settings(&pricing, &[]);
     let world = setup_cross_chain_quorum(&config, &settings).await.unwrap();
     let quorum = world.network.quorum.as_ref().unwrap();
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let from_block = l1.get_block_number().await.unwrap() + 1;
     let front = ProviderBuilder::new().connect_http(world.l2_xchain().parse().unwrap());
     let estimate = front
         .estimate_gas(
@@ -64,17 +66,19 @@ async fn exercise(config: TestQuorumConfig) {
     )
     .await
     .unwrap();
-    let systems = assert_latest_batch_signatures(&world.l1_rpc(), &world.dep, &quorum.members, 2)
-        .await
-        .unwrap();
-    assert_eq!(
-        systems.len(),
-        2,
-        "L1 must accept two distinct native profile proofs"
+    let posts =
+        assert_quorum_batch_signatures(&world.l1_rpc(), &world.dep, &quorum.members, 2, from_block)
+            .await
+            .unwrap();
+    assert!(
+        posts.iter().all(|systems| systems.len() == 2),
+        "every L1 post must carry two distinct native profile proofs"
     );
     if let Some(index) = config.wrong_profile_member {
         assert!(
-            !systems.contains(&quorum.members[index + 1].0),
+            posts
+                .iter()
+                .all(|systems| !systems.contains(&quorum.members[index + 1].0)),
             "wrong-profile member must be excluded"
         );
         assert_eq!(
