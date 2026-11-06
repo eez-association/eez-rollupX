@@ -12,26 +12,28 @@ EEZ support currently requires the build from
 It is not part of a standard Nethermind release.
 
 The procedure below uses Nethermind revision
-`a75cf55f016595162fa297a9e99d91ef477e01cf`, published as:
+`542dc93652718b8a0ed0c102f81c4e3b35a5ef21`, published as:
 
 ```text
-nethermindeth/nethermind:eez-a75cf55f016@sha256:75ac0f1157ef0f92ce2aea7389e0d48265d4be2b3536255224d4df7242056fa2
+nethermindeth/nethermind:eez-542dc9365271@sha256:4e56266079ea16ff70a42b3956d10dbd6a6585b767361b67313223a9bac389ae
 ```
 
-[Live integration](https://github.com/NethermindEth/nethermind/actions/runs/41116587960)
-and [streaming conformance](https://github.com/NethermindEth/nethermind/actions/runs/41116587786)
-passed against RollupX `c702f90da19cc149890d0a17a4ef6c200dcb6a21`.
-Those results do not qualify a later upstream revision or deployment.
+[Streaming conformance](https://github.com/NethermindEth/nethermind/actions/runs/42052395594)
+passed 2,965 EEZ tests and 48 execution/witness checks per architecture on x64 and
+ARM64. [Live integration](https://github.com/NethermindEth/nethermind/actions/runs/42052396645)
+records the selected upstream sources and scenarios. See the real-network SNAP
+and restart results in [the retained evidence](../audits/2026-11-05-nethermind-snap/README.md).
 
-Two operated followers use this build: a Chiado-backed network with L2 chain ID
-699169 and an Ethereum-backed network with L2 chain ID 696991. These are both
-RollupX networks. Confirm the current network bundle with its operator; names
-such as "mainnet" do not identify the L1 or establish production readiness.
+Two operated followers use the EEZ implementation: a Chiado-backed network with
+L2 chain ID 699169 and an Ethereum-backed network with L2 chain ID 696991. Both
+are RollupX. Confirm the current network bundle with its operator; names such
+as "mainnet" do not establish production readiness.
 
-P2P discovery, snap state serving and snap bootstrap have not yet been qualified
-for this topology. This procedure deliberately uses L1 derivation and the
-sequencer RPC. Do not advertise it as a snap bootnode or assume that a stock
-execution client can join this L2 from the genesis file alone.
+This base procedure keeps P2P and synchronization disabled. To serve SNAP or
+bootstrap a fresh database through an operator-provided bootnode, follow the
+separate [SNAP runbook](nethermind-snap.md). Its real-network test used Nethermind
+on both ends; transfer from a different client is not yet qualified. A stock
+execution client still cannot join this L2 from the genesis file alone.
 
 ## Required inputs
 
