@@ -52,7 +52,7 @@ use crate::local::{
 use crate::optimistic::AttemptId;
 use crate::optimistic::OptimisticallyIncluded;
 use crate::prover_retry::{
-    actionable_held_tx, observation_held_tx, partition_retryable,
+    actionable_held_tx, observation_held_tx, partition_retryable, prove_with_retry_at,
     validate_actionable_prover_failure,
 };
 use crate::rollup::RollupState;
@@ -7697,14 +7697,14 @@ where
             );
         }
         let proof_started = std::time::Instant::now();
-        let budget = crate::prover_retry::ProofBudget::new(
-            self.inner.emission.timing,
-            bundle_target,
-            proof_gate_ms,
-            deadline,
-            post_reserve,
-        );
         let proof_result = if let Some(quorum) = &self.inner.posting.quorum {
+            let budget = crate::prover_retry::ProofBudget::new(
+                self.inner.emission.timing,
+                bundle_target,
+                proof_gate_ms,
+                deadline,
+                post_reserve,
+            );
             Box::pin(quorum.attest_at(
                 &ctx.l1_provider,
                 self.inner.posting.registry,
@@ -7714,15 +7714,32 @@ where
             ))
             .await
         } else {
-            budget
-                .prove(self.inner.prover.as_ref(), proving_ctx)
+            let result = if let Some(deadline) = deadline {
+                crate::prover_retry::prove_with_shared_deadline(
+                    self.inner.prover.as_ref(),
+                    proving_ctx,
+                    self.inner.emission.timing,
+                    bundle_target,
+                    deadline,
+                    post_reserve,
+                )
                 .await
-                .map(|proof| {
-                    vec![crate::attestation_quorum::Attestation {
-                        proof_system: ctx.ecdsa_proof_system_address,
-                        proof,
-                    }]
-                })
+            } else {
+                prove_with_retry_at(
+                    self.inner.prover.as_ref(),
+                    proving_ctx,
+                    self.inner.emission.timing,
+                    bundle_target,
+                    proof_gate_ms,
+                )
+                .await
+            };
+            result.map(|proof| {
+                vec![crate::attestation_quorum::Attestation {
+                    proof_system: ctx.ecdsa_proof_system_address,
+                    proof,
+                }]
+            })
         };
         let proof = match proof_result {
             Ok(proof) => proof,
