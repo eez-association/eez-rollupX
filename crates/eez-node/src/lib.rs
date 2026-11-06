@@ -140,19 +140,22 @@ async fn composer_proving_from_env(
         })
         .collect();
     let quorum = eez_composer::AttestationQuorum::new(members, config.grace)?;
-    let mut handshakes: FuturesUnordered<_> = provers
-        .iter()
-        .map(|prover| async move {
-            tokio::time::timeout(Duration::from_secs(30), prover.capabilities())
-                .await
-                .map_err(|_| eyre::eyre!("prover capability agreement timed out"))?
-                .map_err(|error| eyre::eyre!("prover capability agreement: {error}"))
-        })
-        .collect();
-    let mut maximum_blocks = u64::MAX;
-    while let Some(result) = handshakes.next().await {
-        maximum_blocks = maximum_blocks.min(result?.max_window_blocks);
-    }
+    let maximum_blocks = {
+        let mut handshakes: FuturesUnordered<_> = provers
+            .iter()
+            .map(|prover| async move {
+                tokio::time::timeout(Duration::from_secs(30), prover.capabilities())
+                    .await
+                    .map_err(|_| eyre::eyre!("prover capability agreement timed out"))?
+                    .map_err(|error| eyre::eyre!("prover capability agreement: {error}"))
+            })
+            .collect();
+        let mut maximum_blocks = u64::MAX;
+        while let Some(result) = handshakes.next().await {
+            maximum_blocks = maximum_blocks.min(result?.max_window_blocks);
+        }
+        maximum_blocks
+    };
     event!(Level::INFO, validation_identity = %expected_identity,
         maximum_blocks, attesters = provers.len(),
         "prover configuration agreement established");

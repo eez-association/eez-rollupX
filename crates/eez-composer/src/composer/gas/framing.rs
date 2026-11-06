@@ -230,9 +230,9 @@ mod tests {
     fn framing_releases_capacity_without_dropping_the_fork_calldata_floor() {
         let entry = source(100_000, 0, 0xff);
         let cost = projected_tx_l1_gas(&[entry], 0);
-        let mut pre_prague = PostBatchGasBudget::with_calldata_limits(3_000_000, 1, false);
+        let mut pre_prague = PostBatchGasBudget::with_calldata_limits(3_000_000, 1, false, 1);
         assert!(pre_prague.try_accept(cost));
-        let mut prague = PostBatchGasBudget::with_calldata_limits(3_000_000, 1, true);
+        let mut prague = PostBatchGasBudget::with_calldata_limits(3_000_000, 1, true, 1);
         let before = prague;
         assert!(!prague.try_accept(cost));
         assert_eq!(prague.rejected_constraint, Some("l1_tx_gas_budget"));
@@ -241,7 +241,7 @@ mod tests {
         assert_eq!(prague.framing_gas, before.framing_gas);
 
         let small = projected_tx_l1_gas(&[source(36, 1, 0)], 0);
-        let mut budget = PostBatchGasBudget::with_calldata_limits(1_000_000, 6, true);
+        let mut budget = PostBatchGasBudget::with_calldata_limits(1_000_000, 6, true, 1);
         // The old fixed reserve alone would make this complete group exceed
         // the cap. The encoded bound below must still cover actual final ABI.
         assert!(budget.projected + small.total() + 600_000 > budget.cap);
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn static_pool_revokes_prior_execution_discounts_transactionally() {
-        let mut budget = PostBatchGasBudget::with_calldata_limits(2_000_000, 1, true);
+        let mut budget = PostBatchGasBudget::with_calldata_limits(2_000_000, 1, true, 1);
         budget.use_projection(181_000);
         let cost = TxL1Gas {
             entries: 1,
@@ -285,7 +285,7 @@ mod tests {
 
     #[test]
     fn static_only_minimum_does_not_require_mutable_entry_capacity() {
-        let mut budget = PostBatchGasBudget::with_calldata_limits(1_000_000, 6, true);
+        let mut budget = PostBatchGasBudget::with_calldata_limits(1_000_000, 6, true, 1);
         // A previous static source already selected general execution pins.
         budget.general = true;
         budget.entries = 1;
@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn minimum_inbound_checks_static_discount_revocation_before_rejecting() {
-        let mut budget = PostBatchGasBudget::with_calldata_limits(2_000_000, 6, true);
+        let mut budget = PostBatchGasBudget::with_calldata_limits(2_000_000, 6, true, 1);
         budget.use_projection(181_000);
         let minimum = super::super::minimum_entry_gas(false);
         assert!(budget.try_accept(TxL1Gas {
@@ -333,7 +333,8 @@ mod tests {
         for general in [false, true] {
             for entries in [1, 127, 128] {
                 for remaining in [0, 5_000, 70_000, 500_000, 4_000_000] {
-                    let mut budget = PostBatchGasBudget::with_calldata_limits(16_777_216, 6, true);
+                    let mut budget =
+                        PostBatchGasBudget::with_calldata_limits(16_777_216, 6, true, 1);
                     budget.use_projection(181_000);
                     budget.entries = entries;
                     budget.general = general;
@@ -362,7 +363,7 @@ mod tests {
 
     #[test]
     fn blob_count_outside_shaped_profile_preserves_general_pins() {
-        let mut budget = PostBatchGasBudget::with_calldata_limits(2_000_000, 65, true);
+        let mut budget = PostBatchGasBudget::with_calldata_limits(2_000_000, 65, true, 1);
         budget.use_projection(181_000 + 50_000);
         assert_eq!(budget.projected, 551_000 + 50_000);
         assert!(budget.try_accept(TxL1Gas {
@@ -377,7 +378,7 @@ mod tests {
 
     #[test]
     fn framing_and_floor_overflow_cannot_admit_an_unrepresentable_candidate() {
-        let mut budget = PostBatchGasBudget::with_calldata_limits(u64::MAX, 1, true);
+        let mut budget = PostBatchGasBudget::with_calldata_limits(u64::MAX, 1, true, 1);
         let before = budget;
         assert!(!budget.try_accept(TxL1Gas {
             framing_gas: u64::MAX,

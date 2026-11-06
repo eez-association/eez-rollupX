@@ -13,6 +13,8 @@ attesters, change network rules, or give the Composer a proof-signing key.
   proof-system address and signer address. An address-derived key is insufficient.
 - Set the manager's threshold to the required number of distinct proof systems.
   Register and check the new members before raising the threshold.
+  The threshold counts proof-system contracts. Use separate signing keys for
+  independent attestation.
 - Keep the existing legacy proof-system setting for deployment and discovery.
 
 ## Configure and start

@@ -7,7 +7,7 @@ use alloy_primitives::{U256, keccak256};
 use alloy_provider::{ProviderBuilder, mock::Asserter};
 use async_trait::async_trait;
 use eez_protocol::EcdsaProofSigner;
-use eez_prover::{ActionableProverFailure, RetryableProverError};
+use eez_prover::ActionableProverFailure;
 
 use super::*;
 use eez_driver::RollupTiming;
@@ -234,7 +234,7 @@ fn budget() -> ProofBudget {
 /// A 2 s proof budget, so retryable attesters keep retrying well past every
 /// scripted delay.
 fn timing() -> RollupTiming {
-    RollupTiming::new(12_000, 2_000, 2_000, 100)
+    RollupTiming::new(12_000, 2_000, 2_000, 100, 0)
 }
 
 async fn attest_with(

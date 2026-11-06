@@ -6248,7 +6248,7 @@ async fn setup_native_inner(
         .map_or(proof_signer.endpoint(), ProverProxyHandle::endpoint);
     let attester = attester_override.unwrap_or(signer_attester);
     let quorum = match quorum_config {
-        Some(config) => Some(TestQuorum::start(&cfg, network_profile, prover_url, config).await?),
+        Some(config) => Some(TestQuorum::start(&cfg, &network_profile, prover_url, config).await?),
         None => None,
     };
     let witness_dir = FailureDatadir::new("eez-native-witnesses")?;
@@ -6541,7 +6541,8 @@ async fn setup_cross_chain_applications(
     wait_for_outbound_fixture_parent(node, &l2_rpc, outbound_wrapper, outbound_proxy).await?;
 
     eprintln!(
-        "Native {profile:?} fixture ready in {:.3}s",
+        "Native {:?} fixture ready in {:.3}s",
+        cfg.l1_profile,
         setup_started.elapsed().as_secs_f64()
     );
     setup_diagnostics.complete = true;

@@ -26,7 +26,7 @@ pub struct TestQuorum {
 impl TestQuorum {
     pub(super) async fn start(
         cfg: &CrossChainConfig,
-        profile: NetworkProfile,
+        profile: &NetworkProfile,
         primary: &str,
         config: &TestQuorumConfig,
     ) -> Result<Self> {

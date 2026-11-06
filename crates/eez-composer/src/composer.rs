@@ -7705,26 +7705,14 @@ where
             post_reserve,
         );
         let proof_result = if let Some(quorum) = &self.inner.posting.quorum {
-            match tokio::time::timeout_at(
-                budget.expires_at(),
-                quorum.round(
-                    &ctx.l1_provider,
-                    self.inner.posting.registry,
-                    rollup_id,
-                    header.hash_slow(),
-                ),
-            )
+            Box::pin(quorum.attest_at(
+                &ctx.l1_provider,
+                self.inner.posting.registry,
+                &proving_ctx,
+                header.hash_slow(),
+                budget,
+            ))
             .await
-            {
-                Ok(Ok(round)) => round.attest(&proving_ctx, budget).await,
-                Ok(Err(error)) => Err(ProverError::Backend(format!(
-                    "attestation registration: {error}"
-                ))),
-                Err(_) => Err(ProverError::Retryable {
-                    kind: eez_prover::RetryableProverError::DeadlineExceeded,
-                    message: "quorum registration deadline exceeded".into(),
-                }),
-            }
         } else {
             budget
                 .prove(self.inner.prover.as_ref(), proving_ctx)

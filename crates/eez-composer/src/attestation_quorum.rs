@@ -4,8 +4,8 @@
 //! Each attester is one registered proof system with its own signer. The L1
 //! rollup manager accepts a batch once it carries proofs from at least
 //! `threshold` distinct proof systems (`Rollup.checkProofSystemsAndGetVkeys`),
-//! so decentralisation is enforced on-chain: the composer only decides how fast
-//! it collects, never how many distinct signers suffice.
+//! so the manager enforces the threshold on-chain. It counts proof-system
+//! contracts; independent attestation also requires independent signing keys.
 //!
 //! An attester's digest is `keccak256(sharedPublicInput || acc)`, where `acc`
 //! folds only `(rollupId, vkey)` of that proof system. It does not depend on
@@ -263,6 +263,27 @@ impl AttestationQuorum {
             )));
         }
         Ok(keys)
+    }
+
+    /// Read the anchored policy and collect within the same proof budget.
+    /// The caller boxes this optional quorum boundary so its RPC state does
+    /// not enlarge every native preparation future.
+    pub(crate) async fn attest_at(
+        &self,
+        provider: &RootProvider,
+        registry: Address,
+        ctx: &ProvingContext,
+        anchor: B256,
+        budget: ProofBudget,
+    ) -> Result<Vec<Attestation>, ProverError> {
+        let round = timeout_at(
+            budget.expires_at(),
+            self.round(provider, registry, ctx.rollup_id, anchor),
+        )
+        .await
+        .map_err(|_| deadline_error())?
+        .map_err(|error| ProverError::Backend(format!("attestation registration: {error}")))?;
+        round.attest(ctx, budget).await
     }
 
     /// Read a fresh policy snapshot at the same L1 anchor as the settlement.
