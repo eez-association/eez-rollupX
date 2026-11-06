@@ -75,7 +75,7 @@ impl Config {
         )?;
         // Avoid Instant overflow and accidental unbounded post-threshold waits.
         eyre::ensure!(
-            grace <= Duration::from_secs(60),
+            grace <= Duration::from_mins(1),
             "attestation grace exceeds 60000 ms"
         );
         Ok(Self {

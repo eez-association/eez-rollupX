@@ -154,6 +154,15 @@ comments at build time; the generated `prove.v2.rs` remains byte-identical
 No execution, decoding, or wire semantics change, so only the local lockfile
 review digest changes; `VALIDATION_VERSION` remains 7.
 
+The 2026-11-06 quorum dependency review adds direct `alloy-rpc-client` and
+`futures-util` references to Composer and a direct `futures-util` reference to
+the node. All external package versions, sources and checksums remain unchanged.
+The RPC dependency disables default features; the futures dependency uses the
+existing workspace setting. These references support registry reads and bounded
+request collection. They do not change signer execution, decoding, public inputs
+or the wire contract. Only the local lockfile review digest changes;
+`VALIDATION_VERSION` remains 7.
+
 Composer compares the hash with its own local result at Capabilities and sends
 the same 32 bytes as binary `eez-validation-identity-bin` metadata on every stream.
 The server rejects missing/malformed/mismatching identity before receiving a
