@@ -23,6 +23,8 @@ gnosis-primitives.workspace = true
 reth_gnosis.workspace = true
 
 # alloy
+alloy-rpc-client.workspace = true
+alloy-network.workspace = true
 alloy-consensus.workspace        = true
 alloy-eips.workspace             = true
 alloy-primitives.workspace       = true
@@ -50,6 +52,7 @@ reth-storage-api.workspace                = true
 revm.workspace = true
 
 # async + diagnostics
+futures-util.workspace = true
 async-trait.workspace = true
 thiserror.workspace   = true
 tokio.workspace       = true
@@ -62,7 +65,6 @@ either.workspace      = true
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 # MockEthProvider: an in-memory StateProviderFactory for the prefix-state
 # equivalence test (no datadir, no engine API).
-alloy-network.workspace = true
 reth-provider            = { workspace = true, features = ["test-utils"] }
 tokio                    = { workspace = true, features = ["test-util"] }
 

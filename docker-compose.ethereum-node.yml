@@ -84,6 +84,8 @@ services:
       EEZ_L1_BUILDER_RPC_URL: "${EEZ_L1_BUILDER_RPC_URL:?set EEZ_L1_BUILDER_RPC_URL}"
       # X-Flashbots-Signature key; BuilderNet rejects unsigned bundles.
       EEZ_L1_BUNDLE_SIGNING_KEY: "${EEZ_L1_BUNDLE_SIGNING_KEY:-}"
+      EEZ_PROVERS:
+      EEZ_ATTESTATION_GRACE_MS:
       EEZ_PROVER_URL: http://127.0.0.1:${EEZ_SIGNER_PORT:-50061}
       EEZ_WITNESS_DB_PATH: /l2/witnesses
       # Embedded public Ethereum L1 (reth's built-in chain spec, no

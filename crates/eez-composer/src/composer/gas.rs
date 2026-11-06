@@ -813,10 +813,19 @@ impl Projection {
             || !matches!(batch.expectedRootPerRollup.as_slice(), [pin]
                 if pin.rollupId == self.rollup_id && !pin.root.is_zero())
             || !batch.immediateStaticEntryCount.is_zero()
-            || batch.proofSystems.len() != 1
+            || batch.proofSystems.is_empty()
+            || batch.proofSystems.len() > crate::attestation_quorum::MAX_ATTESTERS
+            || batch.proofSystems.iter().any(|address| address.is_zero())
+            || batch.proofSystems.windows(2).any(|pair| pair[0] >= pair[1])
             || batch.rollupIdsWithProofSystems.len() != 1
             || batch.rollupIdsWithProofSystems[0].rollupId != self.rollup_id
-            || batch.rollupIdsWithProofSystems[0].proofSystemIndexes != [0]
+            || batch.rollupIdsWithProofSystems[0].proofSystemIndexes.len()
+                != batch.proofSystems.len()
+            || batch.rollupIdsWithProofSystems[0]
+                .proofSystemIndexes
+                .iter()
+                .enumerate()
+                .any(|(index, value)| *value != index as u64)
             || !batch.callData.is_empty()
         {
             return projected_postbatch_gas(batch.entries.len() as u64, calldata, target)

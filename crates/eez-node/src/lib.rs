@@ -5,6 +5,7 @@
 //! (Sequencer + Scheduler), L1 anchoring (`L1Watcher` + Deriver), and
 //! batch submission (Composer umbrella).
 //!
+mod attesters;
 mod bundle_rpc;
 mod composer_rpc;
 mod fee_quotes;
@@ -67,7 +68,7 @@ enum WitnessCapture {
         sender: mpsc::UnboundedSender<eez_l1::L2Endpoint>,
         receiver: mpsc::UnboundedReceiver<eez_l1::L2Endpoint>,
         store: witness_source::WitnessStore,
-        prover: eez_prover_client::RemoteProver,
+        provers: Vec<eez_prover_client::RemoteProver>,
     },
 }
 
@@ -75,6 +76,7 @@ struct ComposerProving {
     maximum_blocks: u64,
     prover: Arc<dyn eez_prover::Prover>,
     witness_capture: WitnessCapture,
+    quorum: Option<eez_composer::AttestationQuorum>,
 }
 
 impl WitnessCapture {
@@ -116,27 +118,45 @@ async fn composer_proving_from_env(
     registry: Address,
     proof_system: Address,
 ) -> eyre::Result<ComposerProving> {
-    let url = env::var("EEZ_PROVER_URL")
-        .map_err(|_| eyre::eyre!("EEZ_PROVER_URL is required for composer proving"))?;
-    if url.trim().is_empty() {
-        return Err(eyre::eyre!("EEZ_PROVER_URL must not be empty"));
+    use futures_util::{StreamExt, stream::FuturesUnordered};
+    let config = attesters::Config::from_env(proof_system)?;
+    let mut provers = Vec::with_capacity(config.members.len());
+    let members = config
+        .members
+        .into_iter()
+        .map(|member| {
+            let remote = eez_prover_client::RemoteProver::new(
+                member.url,
+                member.attester,
+                expected_identity,
+                profile.verification_key(registry, member.proof_system, member.attester),
+            );
+            provers.push(remote.clone());
+            eez_composer::QuorumMember {
+                proof_system: member.proof_system,
+                attester: member.attester,
+                prover: Arc::new(remote),
+            }
+        })
+        .collect();
+    let quorum = eez_composer::AttestationQuorum::new(members, config.grace)?;
+    let mut handshakes: FuturesUnordered<_> = provers
+        .iter()
+        .map(|prover| async move {
+            tokio::time::timeout(Duration::from_secs(30), prover.capabilities())
+                .await
+                .map_err(|_| eyre::eyre!("prover capability agreement timed out"))?
+                .map_err(|error| eyre::eyre!("prover capability agreement: {error}"))
+        })
+        .collect();
+    let mut maximum_blocks = u64::MAX;
+    while let Some(result) = handshakes.next().await {
+        maximum_blocks = maximum_blocks.min(result?.max_window_blocks);
     }
-    let attester = env::var("EEZ_ATTESTER_ADDRESS")
-        .map_err(|_| eyre::eyre!("EEZ_ATTESTER_ADDRESS is required for composer proving"))?;
-    let attester =
-        Address::from_str(attester.trim()).map_err(|e| eyre::eyre!("EEZ_ATTESTER_ADDRESS: {e}"))?;
-    let remote = eez_prover_client::RemoteProver::new(
-        url,
-        attester,
-        expected_identity,
-        profile.verification_key(registry, proof_system, attester),
-    );
-    let capabilities = remote.capabilities().await?;
     event!(Level::INFO, validation_identity = %expected_identity,
-        maximum_blocks = capabilities.max_window_blocks,
-        maximum_request_bytes = capabilities.max_request_bytes,
-        maximum_witness_items = capabilities.max_request_witness_items,
+        maximum_blocks, attesters = provers.len(),
         "prover configuration agreement established");
+    let primary = Arc::new(provers[0].clone());
     let (sender, receiver) = mpsc::unbounded_channel::<eez_l1::L2Endpoint>();
     let witness_db_path =
         env::var("EEZ_WITNESS_DB_PATH").unwrap_or_else(|_| "eez-witnesses".to_owned());
@@ -148,13 +168,14 @@ async fn composer_proving_from_env(
         "persistent witness store opened",
     );
     Ok(ComposerProving {
-        maximum_blocks: capabilities.max_window_blocks,
-        prover: Arc::new(remote.clone()),
+        maximum_blocks,
+        prover: primary,
+        quorum: config.explicit.then_some(quorum),
         witness_capture: WitnessCapture::Remote {
             sender,
             receiver,
             store,
-            prover: remote,
+            provers,
         },
     })
 }
@@ -165,7 +186,7 @@ async fn run_preparation_worker(
     mut receiver: mpsc::Receiver<eez_l1::L2Endpoint>,
     notifier: witness_source::PreparationNotifier,
     store: witness_source::WitnessStore,
-    prover: eez_prover_client::RemoteProver,
+    provers: Vec<eez_prover_client::RemoteProver>,
     rollup_id: u64,
     l1_head: Arc<L1CanonicalHead>,
 ) {
@@ -198,17 +219,31 @@ async fn run_preparation_worker(
         if !path.connected_to_stop {
             last_prepared = None;
         }
-        match prover.prevalidate_range(rollup_id, &path.blocks).await {
-            Ok(()) => {
-                last_prepared = path.blocks.last().map(|block| eez_l1::L2Endpoint {
-                    number: block.number,
-                    hash: block.hash,
-                })
+        use futures_util::{StreamExt, stream::FuturesUnordered};
+        let mut pending: FuturesUnordered<_> = provers
+            .iter()
+            .map(|prover| async {
+                tokio::time::timeout(
+                    Duration::from_secs(2),
+                    prover.prevalidate_range(rollup_id, &path.blocks),
+                )
+                .await
+            })
+            .collect();
+        let mut prepared = false;
+        while let Some(result) = pending.next().await {
+            if matches!(result, Ok(Ok(()))) {
+                prepared = true;
+            } else {
+                event!(name: "eez.node.witness_preparation.deferred", Level::DEBUG,
+                    "member prevalidation deferred; Finalize retains complete durable backfill");
             }
-            Err(error) => {
-                event!(name: "eez.node.witness_preparation.deferred", Level::WARN, %error,
-                    "v2 prevalidation deferred; durable witnesses retained");
-            }
+        }
+        if prepared {
+            last_prepared = path.blocks.last().map(|block| eez_l1::L2Endpoint {
+                number: block.number,
+                hash: block.hash,
+            });
         }
     }
 }
@@ -544,6 +579,7 @@ async fn launch_composer(
         maximum_blocks,
         prover,
         witness_capture,
+        quorum,
     } = composer_proving_from_env(
         expected_identity,
         &network_profile,
@@ -552,6 +588,10 @@ async fn launch_composer(
     )
     .await?;
     let composer_settings = composer_settings.with_prover_block_limit(maximum_blocks)?;
+    let composer_settings = match quorum {
+        Some(quorum) => composer_settings.with_attestation_quorum(quorum),
+        None => composer_settings,
+    };
     let composer_info = composer_rpc::ComposerInfo::new(
         composer_rpc::ComposerContracts {
             registry: eez_registry,
@@ -925,7 +965,7 @@ async fn launch_composer(
             WitnessCapture::Remote {
                 receiver: rx,
                 store,
-                prover: preparation_prover,
+                provers: preparation_provers,
                 ..
             } => {
                 let cap_provider = provider.clone();
@@ -956,7 +996,7 @@ async fn launch_composer(
                         preparation_rx,
                         preparation_notifier,
                         preparation_store,
-                        preparation_prover,
+                        preparation_provers,
                         rollup_id,
                         preparation_l1_head,
                     )

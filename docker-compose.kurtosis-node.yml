@@ -95,6 +95,8 @@ services:
       EEZ_L1_JWT_SECRET: /jwt/jwt.hex
       EEZ_L1_RPC_URL: http://127.0.0.1:18645
       # Remote window validation.
+      EEZ_PROVERS:
+      EEZ_ATTESTATION_GRACE_MS:
       EEZ_PROVER_URL: http://127.0.0.1:${EEZ_SIGNER_PORT:-50081}
       # ── Cross-chain wiring ──
       EEZ_CCM_L2_ADDRESS: "0x4b2760f84b83d6b3829e30a7573b0172b6d6402c"

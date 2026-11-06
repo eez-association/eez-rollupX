@@ -7,10 +7,7 @@ use alloy_primitives::{Address, B256, Bytes, I256, TxKind, U256, b256};
 use alloy_sol_types::{SolCall, SolEvent};
 use eez_protocol::{
     EvmBatch,
-    abi::{
-        EtherDeltaSol, ExecutionEntrySol, RollupIdWithProofSystemsSol, RootUpdateSol,
-        postAndVerifyBatchCall, rollupsCall,
-    },
+    abi::{EtherDeltaSol, ExecutionEntrySol, RootUpdateSol, postAndVerifyBatchCall, rollupsCall},
     blob_semantics::SemanticTransaction,
     entries::EntryTrace,
     system_tx::{OutboundSourceEntry, OutboundSyncGroup},
@@ -135,7 +132,7 @@ impl<'a> Estimator<'a> {
 /// Validated deployment and account reads at the estimator's pinned L1 state.
 /// No simulated state, blob reservation or execution outcome belongs here.
 struct SnapshotPreparation {
-    vkey: B256,
+    members: Vec<(Address, B256)>,
     poster_nonce: u64,
     poster_balance: U256,
 }
@@ -179,7 +176,7 @@ impl PreparationCache {
 #[derive(Clone, PartialEq, Eq)]
 struct PreparedReplay {
     tx: TxEnv,
-    verify_data: Bytes,
+    verify_data: Vec<(Address, Bytes)>,
     endpoint: B256,
     rollup_id: u64,
     effects: EffectInspector,
@@ -218,7 +215,10 @@ fn placeholder(index: usize) -> Result<B256, FeeQuoteError> {
     Ok(hash)
 }
 
-fn batch(runtime: &PostingRuntime, input: &SettlementInput<'_>) -> Result<EvmBatch, FeeQuoteError> {
+fn batch(
+    proof_systems: Vec<Address>,
+    input: &SettlementInput<'_>,
+) -> Result<EvmBatch, FeeQuoteError> {
     if input.entries.is_empty() || input.entries.len() != input.traces.len() {
         return Err(FeeQuoteError::Unsupported("settlement trace coverage"));
     }
@@ -304,13 +304,13 @@ fn batch(runtime: &PostingRuntime, input: &SettlementInput<'_>) -> Result<EvmBat
         rollupId: input.rollup_id,
         root: input.settled_root,
     }];
-    result.proofSystems = vec![runtime.ctx.ecdsa_proof_system_address];
-    result.rollupIdsWithProofSystems = vec![RollupIdWithProofSystemsSol {
-        rollupId: input.rollup_id,
-        proofSystemIndexes: vec![0],
-    }];
+    crate::attestation_quorum::assign_proof_systems(
+        &mut result,
+        input.rollup_id,
+        proof_systems.clone(),
+    );
     result.blobIndices = (0..input.blobs).map(U256::from).collect();
-    result.proofs = vec![placeholder_proof()];
+    result.proofs = vec![placeholder_proof(); proof_systems.len()];
     Ok(result)
 }
 
@@ -329,6 +329,16 @@ fn read_call<C: SolCall>(
     to: Address,
     call: C,
 ) -> Result<C::Return, FeeQuoteError> {
+    let output = read_bytes(runtime, posting, to, call.abi_encode())?;
+    C::abi_decode_returns(&output).map_err(unavailable)
+}
+
+fn read_bytes(
+    runtime: &PostingRuntime,
+    posting: &PostingQuote,
+    to: Address,
+    calldata: Vec<u8>,
+) -> Result<Bytes, FeeQuoteError> {
     let provider = runtime
         .chain
         .provider
@@ -348,7 +358,7 @@ fn read_call<C: SolCall>(
     let result = evm
         .transact(TxEnv {
             kind: TxKind::Call(to),
-            data: call.abi_encode().into(),
+            data: calldata.into(),
             gas_limit: 1_000_000,
             chain_id: Some(runtime.ctx.l1_chain_id),
             ..Default::default()
@@ -357,13 +367,11 @@ fn read_call<C: SolCall>(
     if !result.result.is_success() {
         return Err(FeeQuoteError::Unsupported("settlement deployment lookup"));
     }
-    C::abi_decode_returns(
-        result
-            .result
-            .output()
-            .ok_or(FeeQuoteError::Unavailable("deployment output"))?,
-    )
-    .map_err(unavailable)
+    result
+        .result
+        .output()
+        .cloned()
+        .ok_or(FeeQuoteError::Unavailable("deployment output"))
 }
 
 fn prepare_snapshot(
@@ -388,31 +396,49 @@ fn prepare_snapshot(
         .provider
         .state_by_block_hash(posting.quote.sample.hash)
         .map_err(unavailable)?;
-    super::super::estimate::deployment::validate_at(
-        provider.as_ref(),
-        runtime.registry,
-        registry.rollupContract,
-        runtime.ctx.ecdsa_proof_system_address,
-        runtime.post_batch_target,
-    )
-    .map_err(unavailable)?;
+    let members = match &runtime.quorum {
+        Some(quorum) => quorum
+            .usable_members(registry.rollupContract, |to, input| {
+                read_bytes(runtime, posting, to, input).map_err(|error| error.to_string())
+            })
+            .map_err(unavailable)?,
+        None => Vec::new(),
+    };
+    let proof_systems = if runtime.quorum.is_some() {
+        members
+            .iter()
+            .map(|(system, _)| *system)
+            .collect::<Vec<_>>()
+    } else {
+        runtime.proof_systems.clone()
+    };
+    for &system in &proof_systems {
+        super::super::estimate::deployment::validate_at(
+            provider.as_ref(),
+            runtime.registry,
+            registry.rollupContract,
+            system,
+            runtime.post_batch_target,
+        )
+        .map_err(unavailable)?;
+    }
     let keys = read_call(
         runtime,
         posting,
         registry.rollupContract,
         checkProofSystemsAndGetVkeysCall {
-            proofSystems: vec![runtime.ctx.ecdsa_proof_system_address],
+            proofSystems: proof_systems.clone(),
         },
     )?;
-    let [vkey] = keys.as_slice() else {
+    if keys.len() != proof_systems.len() || keys.is_empty() {
         return Err(FeeQuoteError::Unsupported("settlement proof profile"));
-    };
+    }
     let account = provider
         .basic_account(&runtime.ctx.l1_poster_signer.address())
         .map_err(unavailable)?
         .unwrap_or_default();
     Ok(SnapshotPreparation {
-        vkey: *vkey,
+        members: proof_systems.into_iter().zip(keys).collect(),
         poster_nonce: account.nonce,
         poster_balance: account.balance,
     })
@@ -424,7 +450,10 @@ fn prepare(
     snapshot: &SnapshotPreparation,
     input: &SettlementInput<'_>,
 ) -> Result<(PreparedReplay, crate::PosterBalanceError), FeeQuoteError> {
-    let batch = batch(runtime, input)?;
+    let batch = batch(
+        snapshot.members.iter().map(|(system, _)| *system).collect(),
+        input,
+    )?;
     let hashes = (0..input.blobs)
         .map(|i| {
             let mut hash = placeholder(i)?;
@@ -443,22 +472,34 @@ fn prepare(
         posting.parent.timestamp,
     )
     .map_err(unavailable)?;
-    let digests = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
+    let digests = crate::attestation_quorum::member_digests(
         &batch,
-        snapshot.vkey,
+        &snapshot
+            .members
+            .iter()
+            .map(|(_, key)| *key)
+            .collect::<Vec<_>>(),
         &hashes,
         context,
     )
     .map_err(unavailable)?;
-    let [digest] = digests.as_slice() else {
-        return Err(FeeQuoteError::Unsupported("settlement proof digest"));
-    };
-    let verify_data: Bytes = verifyCall {
-        proof: batch.proofs[0].clone(),
-        publicInputsHash: *digest,
-    }
-    .abi_encode()
-    .into();
+    let verify_data = batch
+        .proofSystems
+        .iter()
+        .zip(&batch.proofs)
+        .zip(digests)
+        .map(|((&system, proof), digest)| {
+            (
+                system,
+                verifyCall {
+                    proof: proof.clone(),
+                    publicInputsHash: digest,
+                }
+                .abi_encode()
+                .into(),
+            )
+        })
+        .collect();
     let poster = runtime.ctx.l1_poster_signer.address();
     // Only the balance is immutable. A fee-dependent call can change the blob
     // count, so reserve blob fees and derive affordable gas for every candidate.
@@ -556,15 +597,13 @@ fn replay(
         )))
         .with_bundle_update()
         .build();
-    let mut inspector = MeteredProof {
-        registry: runtime.registry,
-        verifier: runtime.ctx.ecdsa_proof_system_address,
-        calldata: prepared.verify_data.clone(),
-        matches: 0,
-        completed: 0,
-        invalid: false,
-        effects: prepared.effects.clone(),
-    };
+    let mut inspector = MeteredProofSet::new(
+        runtime.registry,
+        prepared.verify_data.clone(),
+        prepared.rollup_id,
+        prepared.effects.clone(),
+    )
+    .map_err(unavailable)?;
     macro_rules! execute {
         ($config:expr, $parent:expr) => {{
             let config = $config;
@@ -620,15 +659,10 @@ fn replay(
     {
         return Err(FeeQuoteError::PosterFunds(Box::new(funding.clone())));
     }
-    if !result.is_success()
-        || inspector.invalid
-        || inspector.matches != 1
-        || inspector.completed != 1
-    {
+    if !result.is_success() || !inspector.valid() {
         tracing::debug!(
             ?result,
-            matches = inspector.matches,
-            completed = inspector.completed,
+            proofs = inspector.proofs.len(),
             "conditional settlement failed"
         );
         return Err(FeeQuoteError::Unsupported("conditional settlement failed"));
@@ -664,6 +698,52 @@ fn replay(
         gas.tx_gas_used(),
         gas.total_gas_spent().max(gas.floor_gas()),
     ))
+}
+
+/// Conditional estimation must observe every configured verifier exactly once.
+/// Each verifier still executes its real bytecode and gas path. This inspector
+/// is confined to disposable estimation state, never signed preflight.
+pub(in crate::composer) struct MeteredProofSet {
+    proofs: Vec<MeteredProof>,
+    effects: EffectInspector,
+}
+
+impl MeteredProofSet {
+    pub(in crate::composer) fn new(
+        registry: Address,
+        calls: Vec<(Address, Bytes)>,
+        rollup_id: u64,
+        effects: EffectInspector,
+    ) -> Result<Self, String> {
+        if calls.is_empty() || calls.len() > crate::attestation_quorum::MAX_ATTESTERS {
+            return Err("invalid estimation proof set".into());
+        }
+        let proofs = calls
+            .into_iter()
+            .map(|(system, calldata)| MeteredProof::setup(registry, system, calldata, rollup_id))
+            .collect::<Result<_, _>>()?;
+        Ok(Self { proofs, effects })
+    }
+
+    pub(in crate::composer) fn valid(&self) -> bool {
+        self.proofs.iter().all(MeteredProof::valid)
+    }
+}
+
+impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> for MeteredProofSet {
+    fn call(&mut self, context: &mut C, inputs: &mut CallInputs) -> Option<CallOutcome> {
+        for proof in &mut self.proofs {
+            proof.call(context, inputs);
+        }
+        self.effects.call(context, inputs)
+    }
+
+    fn call_end(&mut self, context: &mut C, inputs: &CallInputs, outcome: &mut CallOutcome) {
+        for proof in &mut self.proofs {
+            proof.call_end(context, inputs, outcome);
+        }
+        self.effects.call_end(context, inputs, outcome);
+    }
 }
 
 /// Execute the actual verifier bytecode and preserve all its gas consumption.
@@ -751,7 +831,7 @@ mod tests {
 
     fn snapshot_fixture(nonce: u64) -> SnapshotPreparation {
         SnapshotPreparation {
-            vkey: B256::repeat_byte(7),
+            members: vec![(Address::repeat_byte(2), B256::repeat_byte(7))],
             poster_nonce: nonce,
             poster_balance: U256::from(100),
         }
@@ -771,7 +851,10 @@ mod tests {
         let snapshot = cache
             .get_or_load(1, root, || panic!("same snapshot must reuse"))
             .unwrap();
-        assert_eq!(snapshot.vkey, B256::repeat_byte(7));
+        assert_eq!(
+            snapshot.members,
+            vec![(Address::repeat_byte(2), B256::repeat_byte(7))]
+        );
         assert_eq!(snapshot.poster_balance, U256::from(100));
 
         // Equal roots do not authorize using another rollup's deployment/vkey.
@@ -837,7 +920,7 @@ mod tests {
                 data: Bytes::from_static(&[1, 2, 3]),
                 ..Default::default()
             },
-            verify_data: Bytes::from_static(&[4, 5, 6]),
+            verify_data: vec![(Address::repeat_byte(2), Bytes::from_static(&[4, 5, 6]))],
             endpoint: B256::repeat_byte(7),
             rollup_id: 1,
             effects: callback_expectations(1, true),
@@ -889,7 +972,7 @@ mod tests {
                 6 => changed.tx.caller = Address::repeat_byte(9),
                 7 => changed.tx.nonce += 1,
                 8 => changed.tx.kind = TxKind::Call(Address::repeat_byte(9)),
-                9 => changed.verify_data = Bytes::from_static(&[9]),
+                9 => changed.verify_data[0].1 = Bytes::from_static(&[9]),
                 10 => changed.endpoint = B256::repeat_byte(9),
                 11 => changed.rollup_id += 1,
                 // Even identical posting bytes cannot reuse validation of
@@ -986,6 +1069,40 @@ mod tests {
             0..32,
         );
         (inspector, input, outcome)
+    }
+
+    #[test]
+    fn conditional_quorum_requires_each_distinct_verifier_once() {
+        let mut context = Context::mainnet().with_db(InMemoryDB::default());
+        let (one, mut input, mut outcome) = fixture();
+        let other = Address::repeat_byte(3);
+        let mut inspector = MeteredProofSet::new(
+            one.registry,
+            vec![
+                (one.verifier, one.calldata.clone()),
+                (other, one.calldata.clone()),
+            ],
+            1,
+            EffectInspector::new(one.registry, 1, &[]).unwrap(),
+        )
+        .unwrap();
+        assert!(inspector.call(&mut context, &mut input).is_none());
+        inspector.call_end(&mut context, &input, &mut outcome);
+        assert!(!inspector.valid(), "one proof cannot satisfy the whole set");
+        input.target_address = other;
+        input.bytecode_address = other;
+        assert!(inspector.call(&mut context, &mut input).is_none());
+        inspector.call_end(&mut context, &input, &mut outcome);
+        assert!(
+            inspector.valid(),
+            "every exact verifier call completed once"
+        );
+        inspector.call(&mut context, &mut input);
+        inspector.call_end(&mut context, &input, &mut outcome);
+        assert!(
+            !inspector.valid(),
+            "duplicate verifier execution must not count"
+        );
     }
 
     #[test]

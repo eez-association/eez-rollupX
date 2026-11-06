@@ -198,6 +198,69 @@ impl PipelineDeadline {
 pub(crate) const POST_PROOF_RESERVE: Duration = Duration::from_millis(150);
 pub(crate) const DELIVERY_RESERVE: Duration = Duration::from_millis(25);
 
+/// One proof window shared by all members, registration and post-threshold grace.
+/// Member retries retain the existing status and reserve policy.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ProofBudget {
+    timing: RollupTiming,
+    target: BundleTarget,
+    now_ms: u64,
+    shared: Option<(PipelineDeadline, Duration)>,
+    expires_at: Instant,
+}
+
+impl ProofBudget {
+    pub fn new(
+        timing: RollupTiming,
+        target: BundleTarget,
+        now_ms: u64,
+        deadline: Option<PipelineDeadline>,
+        reserve: Duration,
+    ) -> Self {
+        let shared = deadline.map(|deadline| (deadline, reserve));
+        let allowance = match shared {
+            Some((deadline, reserve)) => deadline.remaining().saturating_sub(reserve),
+            None => match retry_budget(timing, target, now_ms) {
+                // Exact-target retries may start up to the existing cutoff,
+                // then consume one nominal proof attempt.
+                Ok(duration) if matches!(target, BundleTarget::Exact { .. }) => {
+                    duration.saturating_add(timing.proof_time())
+                }
+                Ok(duration) => duration,
+                Err(_) => Duration::ZERO,
+            },
+        };
+        Self {
+            timing,
+            target,
+            now_ms,
+            shared,
+            expires_at: Instant::now() + allowance,
+        }
+    }
+
+    pub fn expires_at(self) -> Instant {
+        self.shared.map_or(self.expires_at, |(deadline, reserve)| {
+            self.expires_at
+                .min(Instant::now() + deadline.remaining().saturating_sub(reserve))
+        })
+    }
+
+    pub async fn prove(
+        self,
+        prover: &dyn Prover,
+        ctx: ProvingContext,
+    ) -> Result<Bytes, ProverError> {
+        match self.shared {
+            Some((deadline, reserve)) => {
+                prove_with_shared_deadline(prover, ctx, self.timing, self.target, deadline, reserve)
+                    .await
+            }
+            None => prove_with_retry_at(prover, ctx, self.timing, self.target, self.now_ms).await,
+        }
+    }
+}
+
 /// Work dimensions bound reuse and upward scaling of a timing observation.
 /// Samples are local to the running binary/prover and disappear on restart.
 #[derive(Clone, Copy, Debug, Default)]

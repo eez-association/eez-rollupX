@@ -47,13 +47,13 @@ impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> fo
 }
 
 enum SetupProof {
-    GasOnly(AssumedProof),
-    Priced(super::super::fees::settlement::MeteredProof),
+    GasOnly(Vec<AssumedProof>),
+    Priced(super::super::fees::settlement::MeteredProofSet),
 }
 impl SetupProof {
     fn valid(&self) -> bool {
         match self {
-            Self::GasOnly(p) => p.matches == 1,
+            Self::GasOnly(proofs) => proofs.iter().all(|proof| proof.matches == 1),
             Self::Priced(p) => p.valid(),
         }
     }
@@ -61,7 +61,9 @@ impl SetupProof {
 impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> for SetupProof {
     fn call(&mut self, context: &mut C, inputs: &mut CallInputs) -> Option<CallOutcome> {
         match self {
-            Self::GasOnly(p) => p.call(context, inputs),
+            Self::GasOnly(proofs) => proofs
+                .iter_mut()
+                .find_map(|proof| proof.call(context, inputs)),
             Self::Priced(p) => p.call(context, inputs),
         }
     }
@@ -78,7 +80,7 @@ pub(super) struct Replay<'a> {
     pub batch: &'a eez_protocol::EvmBatch,
     pub composition: &'a eez_protocol::Composition,
     pub tx: TxEnv,
-    pub digest: B256,
+    pub digest: &'a [B256],
     pub posting: Option<&'a super::super::posting::PostingQuote>,
     pub blob_hashes: &'a [B256],
     pub gas_limit: Option<u64>,
@@ -100,29 +102,53 @@ pub(super) fn replay(
     } = input;
     let chain = estimator.l1.chain_provider();
     let (mut state, _) = snapshot.l1.fork_state(&estimator.l1).map_err(unavailable)?;
-    let calldata = verifyCall {
-        proof: batch.proofs[0].clone(),
-        publicInputsHash: digest,
+    if digest.len() != batch.proofSystems.len() || batch.proofs.len() != digest.len() {
+        return Err(unsupported("incomplete conditional proof set"));
     }
-    .abi_encode()
-    .into();
+    let calls: Vec<(Address, Bytes)> = batch
+        .proofSystems
+        .iter()
+        .zip(&batch.proofs)
+        .zip(digest)
+        .map(|((&system, proof), &hash)| {
+            (
+                system,
+                verifyCall {
+                    proof: proof.clone(),
+                    publicInputsHash: hash,
+                }
+                .abi_encode()
+                .into(),
+            )
+        })
+        .collect();
     let mut proof = if posting.is_some() {
         SetupProof::Priced(
-            super::super::fees::settlement::MeteredProof::setup(
+            super::super::fees::settlement::MeteredProofSet::new(
                 estimator.l1.manager_address(),
-                estimator.verifier,
-                calldata,
+                calls,
                 estimator.rollup_id,
+                super::super::posting::EffectInspector::new(
+                    estimator.l1.manager_address(),
+                    estimator.rollup_id,
+                    &[],
+                )
+                .map_err(unavailable)?,
             )
             .map_err(unavailable)?,
         )
     } else {
-        SetupProof::GasOnly(AssumedProof {
-            registry: estimator.l1.manager_address(),
-            verifier: estimator.verifier,
-            calldata,
-            matches: 0,
-        })
+        SetupProof::GasOnly(
+            calls
+                .into_iter()
+                .map(|(verifier, calldata)| AssumedProof {
+                    registry: estimator.l1.manager_address(),
+                    verifier,
+                    calldata,
+                    matches: 0,
+                })
+                .collect(),
+        )
     };
     let mut setup = revm::context::TxEnv {
         caller: estimator.poster,
@@ -226,7 +252,7 @@ pub(super) fn replay(
                 observe_roots(&output.logs, estimator, &mut last_root)?;
                 if !proof.valid() {
                     return Err(EstimateError::Unsupported(
-                        "conditional setup did not match exactly one proof call".into(),
+                        "conditional setup did not match every proof call exactly once".into(),
                     ));
                 }
             }

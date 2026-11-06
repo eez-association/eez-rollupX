@@ -36,6 +36,9 @@
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+pub mod attestation_quorum;
+pub use attestation_quorum::{AttestationQuorum, DEFAULT_ATTESTATION_GRACE, QuorumMember};
+
 pub mod composer;
 pub mod held_pool;
 pub mod ingress;

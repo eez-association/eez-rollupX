@@ -134,19 +134,23 @@ pub(super) fn validate(
     e: &GasEstimator,
     s: &Snapshot,
     rollup: Address,
+    verifiers: &[Address],
 ) -> Result<(), EstimateError> {
     let state =
         e.l1.chain_provider()
             .provider
             .state_by_block_hash(s.l1.anchor.hash())
             .map_err(unavailable)?;
-    validate_at(
-        state.as_ref(),
-        e.l1.manager_address(),
-        rollup,
-        e.verifier,
-        e.post_batch_target,
-    )
+    for &verifier in verifiers {
+        validate_at(
+            state.as_ref(),
+            e.l1.manager_address(),
+            rollup,
+            verifier,
+            e.post_batch_target,
+        )?;
+    }
+    Ok(())
 }
 
 /// Recognize the supported contracts before a conditional proof result is used

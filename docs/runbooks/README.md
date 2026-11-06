@@ -35,3 +35,5 @@ authoritative walkthrough and link it from the README and `AGENTS.md`. When
 an operation reveals a missing step, update the procedure after verifying it;
 record one-off observations and unverified hypotheses in the audit. Reading a
 runbook does not itself authorize deployment, funding, or destructive recovery.
+
+For several independent attesters, follow [Composer attestation quorum](attestation-quorum.md).

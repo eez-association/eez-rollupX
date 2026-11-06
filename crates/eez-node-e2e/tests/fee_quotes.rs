@@ -1072,7 +1072,7 @@ async fn nested_quote_roundtrip(
     }
 }
 
-async fn quote_rpc(
+pub(super) async fn quote_rpc(
     client: &reqwest::Client,
     url: &str,
     method: &str,
@@ -1087,7 +1087,7 @@ async fn quote_rpc(
         .await?)
 }
 
-fn quote_retry(response: &Value) -> bool {
+pub(super) fn quote_retry(response: &Value) -> bool {
     matches!(
         response["error"]["data"]["code"].as_str(),
         Some("stale_context" | "quote_unavailable" | "quote_busy")
