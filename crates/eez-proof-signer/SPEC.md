@@ -876,8 +876,9 @@ Only a successfully
 resolved candidate and its checked callback graph establish row coverage.
 Independent execution and semantic observation replay remain required; table
 resolution alone does not establish that cached results are authentic. The update's `etherDelta` MUST equal the sum
-of values on all L1-to-L2 calls minus the sum on all L2-to-L1 calls, within the
-`int192` range.
+of surviving L1-to-L2 values minus surviving L2-to-L1 values, within the
+`int192` range. Failed frames and enclosing rollback scopes discard all their
+nested transfers, including successful descendants.
 
 Every L2-origin call recomputed from an inbound nested pair MUST have one
 matching current six-field `EEZL2.CrossChainCallExecuted` event in the inbound
@@ -980,8 +981,9 @@ section 9.2. Each L2-origin source hash uses target rollup `0` and zero
 `callGas`; mutable-call hashes MUST equal the ordered event hashes. Static roots
 MUST contribute to the host rolling hash but MUST NOT require receipt events
 or contribute transferred value. The update's
-`etherDelta` MUST equal total L1-to-L2 value minus total L2-to-L1 value across
-all roots covered by that host, within the `int192` range.
+`etherDelta` MUST equal surviving L1-to-L2 value minus surviving L2-to-L1 value
+across all roots covered by that host, within the `int192` range. Every failed
+frame or enclosing rollback scope discards its complete descendant effects.
 
 ### Fresh-network profile boundary
 
@@ -996,6 +998,11 @@ a repeated static row requires an actual read of a byte-identical validated
 program; extra, unselected or differing rows remain invalid. Baseline terminal failed
 attempts also retain their serialized source slots even though the runtime cursor
 rolls back; each identical slot requires a corresponding verified invocation.
+Construction preserves first-match slot order; it does not reorder earlier
+programs to make a later outcome reachable. For example, `B succeeds in a reverted
+scope; A fails; B succeeds; A succeeds` is unsupported when the last A selects the
+cached failed A. A different prearranged table could express that sequence, but
+this builder rejects it instead of silently changing historical slot order.
 Old followers cannot
 replay newly admitted shapes.
 No live migration of a pre-baseline network is established by these tests.

@@ -29,6 +29,17 @@ The general block threshold consolidates empty history too. All due rules are
 combined into one candidate. A pending drain has a finite endpoint; empty ticks
 do not extend it indefinitely.
 
+Cross-chain admission validates paired tables before accepting work on every L1.
+Value accounting restores complete ancestor rollback scopes. For L2-origin work,
+the early escrow check conservatively requires the sum of all executed L2-to-L1
+call values, including reverted calls: a call needs funding before it can produce
+its expected result. Only surviving withdrawals debit the candidate's remaining
+escrow reservation. This admission bound is not a consensus limit or a minimal
+peak-liquidity calculation; final native execution remains authoritative.
+On L1 chain ID 1, Composer additionally caps gross surviving L1-to-L2 value at
+0.1 ETH per inbound source transaction, without netting withdrawals. That policy
+does not apply to L2-origin callback deposits or change protocol accounting.
+
 ## Configuration
 
 Settings are read once before node launch. Existing environment/config-file

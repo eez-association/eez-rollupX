@@ -74,6 +74,8 @@ modes or a parallel historical decoder:
 - Compute settlement and escrow transfers using the existing paired traversal,
   which restores complete ancestor effects. Planning uses a root-finalized copy;
   signing still verifies actual roots and independently executed evidence.
+  Admission checks these pairs on every chain. Escrow funding includes executed
+  withdrawals that later revert; only surviving withdrawals debit reservations.
 - Preserve baseline static table bytes and terminal-failed-attempt source slots,
   with frozen historical replay fixtures. Keep serialized allocation separate
   from the actual VM cursor; an observed retry may cover one identical terminal

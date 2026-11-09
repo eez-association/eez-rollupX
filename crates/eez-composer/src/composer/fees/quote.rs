@@ -1036,7 +1036,8 @@ where
                 .iter()
                 .map(|effect| &effect.source_entry)
                 .collect::<Vec<_>>();
-            let withdrawal = l1_entries
+            // Match admission: failed calls still need funding to reproduce their result.
+            let required_escrow = l1_entries
                 .iter()
                 .zip(&l1_target.entry_traces)
                 .try_fold(U256::ZERO, |total, (entry, trace)| {
@@ -1047,10 +1048,10 @@ where
                         eez_protocol::RollupId(rollup_id),
                     )
                     .ok()
-                    .and_then(|value| total.checked_add(value.l2_to_l1_value))
+                    .and_then(|value| total.checked_add(value.l2_to_l1_executed_value))
                 })
                 .ok_or(FeeQuoteError::Unsupported("withdrawal shape"))?;
-            if withdrawal > escrow {
+            if required_escrow > escrow {
                 return Err(FeeQuoteError::Unavailable("insufficient L1 escrow"));
             }
             let pairs = eez_protocol::system_tx::build_cross_chain_sync_groups(
