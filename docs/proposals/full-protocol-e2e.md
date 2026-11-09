@@ -1,11 +1,13 @@
 # Complete pinned protocol E2E support
 
-Status: owner-authorized scope; review corrections in progress. Prior qualification
+Status: owner-authorized scope; review corrections implemented and locally validated.
+Current-head CI and full-network qualification remain pending. Prior qualification
 applies only to the revisions identified in the audit. Related issues: #85,
 #81, #13. Fork baseline: `c702f90da19cc149890d0a17a4ef6c200dcb6a21`;
 unchanged protocol: `84a5b5207880f192a6a5896cbfe0bac5249db47f`.
 See the [audit](../audits/2026-10-30-full-protocol-e2e/README.md) for source identities,
-executed checks, failures and performance limits.
+executed checks, failures and performance limits. The [review-correction audit](../audits/2026-11-09-pr123-fixes/README.md)
+records the corrected implementation and its current validation.
 
 ## Scope and acceptance
 

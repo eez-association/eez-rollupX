@@ -1,0 +1,171 @@
+{
+  "protocol-tests": {
+    "local_log": "/tmp/rollupx-pr123-review/protocol-tests.log",
+    "sha256": "286aa771681c9e302474a06f4658a3c0fa02406e3db8e89164536b9418b8068e",
+    "results": [
+      "     Running unittests src/lib.rs (target/debug/deps/eez_blob_codec-2ab61312a6a82242)",
+      "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.60s",
+      "     Running unittests src/lib.rs (target/debug/deps/eez_payload_codec-86ae801b151cd41a)",
+      "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+      "     Running unittests src/lib.rs (target/debug/deps/eez_protocol-c8c12458cb926609)",
+      "test result: ok. 233 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"
+    ]
+  },
+  "signer-tests": {
+    "local_log": "/tmp/rollupx-pr123-review/signer-tests.log",
+    "sha256": "845e664957a48a9686f3bbc5a37ec3600e4ef3cd4f96313b96a33659898d2c02",
+    "results": [
+      "     Running unittests src/lib.rs (target/debug/deps/eez_control_rpc-319f6127a5f2c205)",
+      "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+      "     Running unittests src/lib.rs (target/debug/deps/eez_prover_client-613b79adc71a5cff)",
+      "test result: FAILED. 11 passed; 23 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.07s",
+      "error: test failed, to rerun pass `-p eez-prover-client --lib`"
+    ]
+  },
+  "signer-tests-local-sockets": {
+    "local_log": "/tmp/rollupx-pr123-review/signer-tests-local-sockets.log",
+    "sha256": "9231dfa6d5615b7612eb83997dcf80f61aa7cf0f47b19ac523282a05177b1b1b",
+    "results": [
+      "     Running unittests src/lib.rs (target/debug/deps/eez_control_rpc-319f6127a5f2c205)",
+      "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+      "     Running unittests src/lib.rs (target/debug/deps/eez_prover_client-613b79adc71a5cff)",
+      "test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.55s"
+    ]
+  },
+  "signer-bin-tests": {
+    "local_log": "/tmp/rollupx-pr123-review/signer-bin-tests.log",
+    "sha256": "28fef40a3b9ad28cf4d8c18f66e5e7f99b786049c7e7f5c99a518e6023d2bec6",
+    "results": [
+      "     Running unittests src/main.rs (target/debug/deps/eez_proof_signer-05b50459891bcf1b)",
+      "test result: ok. 338 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 2.46s"
+    ]
+  },
+  "entry-repro": {
+    "local_log": "/tmp/rollupx-pr123-review/entry-repro.log",
+    "sha256": "8df06e46fecb698abcaa6a955224ec1ec16b0b20bac7861e19b77c8f1aedbdcf",
+    "results": [
+      "     Running tests/pr123_entry_review.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/pr123_entry_review-42513da9997a25fd)",
+      "test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "error: test failed, to rerun pass `-p eez-protocol --test pr123_entry_review`"
+    ]
+  },
+  "value-repro": {
+    "local_log": "/tmp/rollupx-pr123-review/value-repro.log",
+    "sha256": "7db9e536fec1666da8f1c99983e7045360406c5a09e57a1854256b3b58e41b3f",
+    "results": [
+      "     Running tests/pr123_value_review.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/pr123_value_review-4bb3f9043876e9f7)",
+      "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "error: test failed, to rerun pass `-p eez-protocol --test pr123_value_review`"
+    ]
+  },
+  "baseline-repros": {
+    "local_log": "/tmp/rollupx-pr123-review/baseline-repros.log",
+    "sha256": "ac2d8d2bb6fb1d83416458f0c05947d1602193da3d883147b53ed3b1faceb998",
+    "results": []
+  },
+  "baseline-repros-fresh": {
+    "local_log": "/tmp/rollupx-pr123-review/baseline-repros-fresh.log",
+    "sha256": "dccf90d0f160de2efcdb40a6d46eaf3317bb7a8f74a353a838a889b80edecfb9",
+    "results": [
+      "     Running tests/pr123_entry_review.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/pr123_entry_review-42513da9997a25fd)",
+      "test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "error: test failed, to rerun pass `-p eez-protocol --test pr123_entry_review`",
+      "     Running tests/pr123_value_review.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/pr123_value_review-4bb3f9043876e9f7)",
+      "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "error: test failed, to rerun pass `-p eez-protocol --test pr123_value_review`"
+    ]
+  },
+  "head-all-protocol-tests": {
+    "local_log": "/tmp/rollupx-pr123-review/head-all-protocol-tests.log",
+    "sha256": "0ed185650c4e4381d482dbacf518d906f1b350fc9b6db12346856f5fcea91cbd",
+    "results": [
+      "     Running unittests src/lib.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/eez_blob_codec-2ab61312a6a82242)",
+      "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.37s",
+      "     Running tests/ethereum_kzg_compatibility.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/ethereum_kzg_compatibility-4aa609fe2256f6bd)",
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.47s",
+      "     Running unittests src/lib.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/eez_payload_codec-86ae801b151cd41a)",
+      "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+      "     Running tests/issue35.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/issue35-53b9a1e04891843e)",
+      "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "     Running unittests src/lib.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/eez_protocol-c8c12458cb926609)",
+      "test result: ok. 233 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+      "     Running tests/call_patterns.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/call_patterns-a04ff4e756be54fa)",
+      "test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "     Running tests/causal_evidence.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/causal_evidence-d88f188b318c5e35)",
+      "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+      "     Running tests/pr123_entry_review.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/pr123_entry_review-42513da9997a25fd)",
+      "test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "error: test failed, to rerun pass `-p eez-protocol --test pr123_entry_review`",
+      "     Running tests/pr123_value_review.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/pr123_value_review-4bb3f9043876e9f7)",
+      "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "error: test failed, to rerun pass `-p eez-protocol --test pr123_value_review`",
+      "     Running tests/public_inputs_hash_vectors.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/public_inputs_hash_vectors-bab07868a7433c16)",
+      "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "     Running tests/rolling_hash_vectors.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/rolling_hash_vectors-6b4e873213671403)",
+      "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    ]
+  },
+  "composer-driver-tests": {
+    "local_log": "/tmp/rollupx-pr123-review/composer-driver-tests.log",
+    "sha256": "af8ebb9f7e421899773aa3a1673644bc2cb0c6f1ae8e0305e433a1869e32ddc4",
+    "results": [
+      "     Running unittests src/lib.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/eez_composer-9c4f61a165a4c721)",
+      "test held_pool::tests::profile_blocked_backlog_discovery ... ignored, manual component profile; records timings without timing assertions",
+      "test result: ok. 421 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.26s",
+      "     Running unittests src/lib.rs (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/target/debug/deps/eez_driver-3b44607cc3efcf44)",
+      "test derivation::tests::no_header_or_body_component_is_ignored_by_equality ... ok",
+      "test result: ok. 74 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s"
+    ]
+  },
+  "historical-base": {
+    "local_log": "/tmp/rollupx-pr123-review/historical-base.log",
+    "sha256": "081515fa362e9cb17da8675590a260eabfc27bf6c6e55e21cf65f49270aa19ca",
+    "results": [
+      "rows=2 verification=Ok(NestedPairVerification { l2_outbound_hashes: [0xfc605fd8cb9a1993709342c3ab2c603fc42b69a9c0d6120624ce65f4ce394107], ether_delta: 0 })",
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    ]
+  },
+  "historical-head": {
+    "local_log": "/tmp/rollupx-pr123-review/historical-head.log",
+    "sha256": "4a0ee218e6f9e623ff25a62e202ea8c4f39e90c51062094210571b8739162c1d",
+    "results": [
+      "rows=1 verification=Ok(NestedPairVerification { l2_outbound_hashes: [0xfc605fd8cb9a1993709342c3ab2c603fc42b69a9c0d6120624ce65f4ce394107], ether_delta: 0 })",
+      "historical binding=Err(Settlement(\"mutable table mismatch\"))",
+      "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "error: test failed, to rerun pass `-p eez-protocol --test pr123_historical_review`"
+    ]
+  },
+  "lookup-rust-initial-compile": {
+    "local_log": "/tmp/rollupx-pr123-review/lookup-rust-initial-compile.log",
+    "sha256": "966246e89345901a367ec719579cc3aa652466a5265b69bdf8391e1f4e20605a",
+    "results": [
+      "error[E0277]: can't compare `u16` with `Uint<256, 4>`",
+      "error: could not compile `eez-protocol` (test \"pr123_lookup_review\") due to 1 previous error"
+    ]
+  },
+  "lookup-rust": {
+    "local_log": "/tmp/rollupx-pr123-review/lookup-rust.log",
+    "sha256": "d7ef40a7144c70ba8ce8640e60c01d451a5e8d600852b8bb69962f17cfdc0303",
+    "results": [
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    ]
+  },
+  "lookup-solidity": {
+    "local_log": "/tmp/rollupx-pr123-review/lookup-solidity.log",
+    "sha256": "9082b44070c1cac1dd7af3b9feef8878dcb6d592023f67cab8a52babd66a1215",
+    "results": [
+      "[PASS] test_FailedLookupRollsBackCallbackControl() (gas: 2045529)",
+      "[PASS] test_SuccessfulNoTransitionLookupPersistsAuthenticatedCallback() (gas: 2045485)",
+      "Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 6.23ms (1.92ms CPU time)"
+    ]
+  },
+  "lookup-solidity-environment": {
+    "local_log": "/tmp/rollupx-pr123-review/lookup-solidity-environment.log",
+    "sha256": "1ce7523bf7af30bcf619fbb985c148bd1932f5f3b64e7e86ec27b89aa390d797",
+    "results": [
+      "[PASS] test_FailedLookupRollsBackCallbackControl() (gas: 2045647)",
+      "[PASS] test_SuccessfulNoTransitionLookupPersistsAuthenticatedCallback() (gas: 2128465)",
+      "Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 2.09ms (1.39ms CPU time)"
+    ]
+  }
+}
