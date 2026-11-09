@@ -77,6 +77,59 @@ mod selection;
 mod sequencing;
 pub use config::ComposerSettings;
 
+/// Composer policy per inbound source transaction, not a protocol/escrow limit.
+const MAINNET_DEPOSIT_LIMIT_WEI: u64 = 100_000_000_000_000_000;
+
+fn check_inbound_deposit_limit(
+    l1_chain_id: u64,
+    composition: &eez_protocol::Composition,
+    rollup: eez_protocol::RollupId,
+) -> Result<(), &'static str> {
+    if l1_chain_id != 1 {
+        return Ok(());
+    }
+    const INVALID: &str = "cannot determine Ethereum mainnet deposit value";
+    let actions =
+        eez_protocol::settlement::composition_fifo_actions(composition).map_err(|_| INVALID)?;
+    let mut sources = composition
+        .source
+        .batch
+        .entries
+        .iter()
+        .zip(&composition.source.entry_traces);
+    if composition.source.batch.entries.len() != composition.source.entry_traces.len() {
+        return Err(INVALID);
+    }
+    let mut deliveries = composition
+        .targets
+        .iter()
+        .filter(|target| target.rollup_id == rollup)
+        .flat_map(|target| &target.batch.entries);
+    let mut total = U256::ZERO;
+    for action in actions {
+        let eez_protocol::settlement::FifoSourceAction::Mutable { applies } = action else {
+            continue;
+        };
+        let (source, trace) = sources.next().ok_or(INVALID)?;
+        if applies {
+            let delivery = deliveries.next().ok_or(INVALID)?;
+            let value =
+                eez_protocol::entries::project_inbound_value(source, trace, delivery, rollup)
+                    .map_err(|_| INVALID)?;
+            // Count gross surviving deposits; withdrawals cannot offset them.
+            total = total.checked_add(value.l1_to_l2_value).ok_or(INVALID)?;
+        }
+    }
+    if sources.next().is_some() || deliveries.next().is_some() {
+        return Err(INVALID);
+    }
+    if total > U256::from(MAINNET_DEPOSIT_LIMIT_WEI) {
+        Err("Ethereum mainnet deposit exceeds 0.1 ETH per transaction")
+    } else {
+        Ok(())
+    }
+}
+
 /// Runtime config for the cross-chain execution path on Sync slots.
 /// Carried inside [`CrossChainWiring`] next to the wired
 /// cross-chain simulation: the keys and addresses needed to construct and sign
@@ -4399,6 +4452,22 @@ where
                         .filter(|target| target.rollup_id == eez_protocol::RollupId(rollup_id))
                         .flat_map(|target| target.batch.entries.iter().cloned())
                         .collect();
+                    if let Err(reason) = check_inbound_deposit_limit(
+                        ctx.l1_chain_id,
+                        &composition,
+                        eez_protocol::RollupId(rollup_id),
+                    ) {
+                        event!(name: "eez.composer.cc_compose.deposit_limit", Level::WARN,
+                            rollup_id, tx_hash = %held.hash, reason,
+                            "inbound deposit rejected by Composer policy");
+                        selection.block(idx);
+                        rejections.insert(
+                            held.hash,
+                            crate::rejection::SourceRejection::from_error(reason),
+                        );
+                        push_poison_root(&mut poison, &mut poison_gaps, held);
+                        continue;
+                    }
                     let target_entries = match target_entries
                         .iter()
                         .map(|entry| {
@@ -8360,6 +8429,146 @@ mod tests {
     use super::*;
     use alloy_primitives::TxHash;
     use alloy_sol_types::SolValue as _;
+
+    fn deposit_action(
+        parent: Option<usize>,
+        source: u64,
+        value: U256,
+        success: bool,
+    ) -> eez_protocol::ExecutedAction {
+        eez_protocol::ExecutedAction {
+            parent_index: parent,
+            call_mode: eez_protocol::CallMode::Mutable,
+            source_rollup_id: eez_protocol::RollupId(source),
+            target_rollup_id: eez_protocol::RollupId(1 - source),
+            source_address: Address::repeat_byte(1 + source as u8),
+            target_address: Address::repeat_byte(2 - source as u8),
+            data: Bytes::new(),
+            value,
+            outcome: eez_protocol::ExecutionOutcome::Resolved {
+                success,
+                return_data: vec![],
+                gas_used: 21000,
+            },
+            revert_spans: vec![],
+        }
+    }
+
+    fn deposits(values: &[U256]) -> eez_protocol::Composition {
+        eez_protocol::materialize_actions(
+            eez_protocol::RollupId::MAINNET,
+            values
+                .iter()
+                .map(|&value| deposit_action(None, 0, value, true))
+                .collect(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn mainnet_deposit_limit_boundaries_and_network_scope() {
+        let limit = U256::from(MAINNET_DEPOSIT_LIMIT_WEI);
+        let rollup = eez_protocol::RollupId(1);
+        for value in [U256::ZERO, limit - U256::from(1), limit] {
+            assert_eq!(
+                check_inbound_deposit_limit(1, &deposits(&[value]), rollup),
+                Ok(())
+            );
+        }
+        let excessive = deposits(&[limit + U256::from(1)]);
+        assert_eq!(
+            check_inbound_deposit_limit(1, &excessive, rollup),
+            Err("Ethereum mainnet deposit exceeds 0.1 ETH per transaction")
+        );
+        for chain in [100, 10200, 560048, 11155111] {
+            assert_eq!(
+                check_inbound_deposit_limit(chain, &excessive, rollup),
+                Ok(())
+            );
+        }
+    }
+
+    #[test]
+    fn mainnet_deposit_limit_aggregates_deliveries_and_fails_closed() {
+        let half = U256::from(MAINNET_DEPOSIT_LIMIT_WEI / 2);
+        let rollup = eez_protocol::RollupId(1);
+        assert_eq!(
+            check_inbound_deposit_limit(1, &deposits(&[half, half]), rollup),
+            Ok(())
+        );
+        assert_eq!(
+            check_inbound_deposit_limit(1, &deposits(&[half, half, U256::from(1)]), rollup),
+            Err("Ethereum mainnet deposit exceeds 0.1 ETH per transaction")
+        );
+        assert_eq!(
+            check_inbound_deposit_limit(1, &deposits(&[U256::MAX]), rollup),
+            Err("cannot determine Ethereum mainnet deposit value")
+        );
+        let mut malformed = deposits(&[half]);
+        malformed.targets[0].batch.entries[0].l2ToL1Calls[0].revertNextNCalls = 2;
+        assert_eq!(
+            check_inbound_deposit_limit(1, &malformed, rollup),
+            Err("cannot determine Ethereum mainnet deposit value")
+        );
+    }
+
+    #[test]
+    fn mainnet_deposit_limit_counts_only_surviving_descendants_without_netting_withdrawals() {
+        let rollup = eez_protocol::RollupId(1);
+        let limit = U256::from(MAINNET_DEPOSIT_LIMIT_WEI);
+        for failed_ancestor in [false, true] {
+            let calls = (0usize..5)
+                .map(|index| {
+                    deposit_action(
+                        index.checked_sub(1),
+                        index as u64 % 2,
+                        if index == 4 {
+                            limit + U256::from(1)
+                        } else {
+                            U256::ZERO
+                        },
+                        !(failed_ancestor && index == 1),
+                    )
+                })
+                .collect();
+            let c =
+                eez_protocol::materialize_actions(eez_protocol::RollupId::MAINNET, calls).unwrap();
+            let result = check_inbound_deposit_limit(1, &c, rollup);
+            if failed_ancestor {
+                assert_eq!(result, Ok(()));
+            } else {
+                assert_eq!(
+                    result,
+                    Err("Ethereum mainnet deposit exceeds 0.1 ETH per transaction")
+                );
+            }
+        }
+        let calls = vec![
+            deposit_action(None, 0, limit + U256::from(1), true),
+            deposit_action(Some(0), 1, limit, true),
+        ];
+        let c = eez_protocol::materialize_actions(eez_protocol::RollupId::MAINNET, calls).unwrap();
+        assert_eq!(
+            check_inbound_deposit_limit(1, &c, rollup),
+            Err("Ethereum mainnet deposit exceeds 0.1 ETH per transaction")
+        );
+    }
+
+    #[test]
+    fn mainnet_deposit_limit_excludes_non_applying_roots() {
+        for failed in [false, true] {
+            let mut root = deposit_action(None, 0, U256::MAX, !failed);
+            if !failed {
+                root.revert_spans = vec![1];
+            }
+            let c = eez_protocol::materialize_actions(eez_protocol::RollupId::MAINNET, vec![root])
+                .unwrap();
+            assert_eq!(
+                check_inbound_deposit_limit(1, &c, eez_protocol::RollupId(1)),
+                Ok(())
+            );
+        }
+    }
 
     #[test]
     fn historical_anchor_does_not_expire_at_a_known_fork_boundary() {

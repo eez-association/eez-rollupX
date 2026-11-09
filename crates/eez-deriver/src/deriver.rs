@@ -499,10 +499,7 @@ where
             .evm_config
             .history_state(&mut db)
             .map_err(DeriverError::l2_provider)?;
-        let selected = chain
-            .at(origin.endpoint)
-            .map_err(DeriverError::l2_provider)?;
-        Ok(origin.endpoint_hash == selected.hash() && block.mix_hash == selected.header().mix_hash)
+        retained_history_matches(&chain, origin, block)
     }
 
     /// Current cursor — highest L2 block confirmed by any L1-landed
@@ -3958,6 +3955,35 @@ mod cursor_guard_tests {
     }
 }
 
+/// Absence above the prepared tip is source lag, not evidence of a stale L2
+/// branch. Keep it distinct from a hash mismatch so callers cannot discard the
+/// retained suffix while the embedded L1 catches up.
+fn retained_history_matches(
+    chain: &eez_protocol::l1_history::HeaderChain,
+    origin: eez_protocol::l1_history::HistoryState,
+    block: &alloy_consensus::Header,
+) -> DeriverResult<bool> {
+    let available = chain
+        .endpoint()
+        .map_err(DeriverError::l2_provider)?
+        .header()
+        .number;
+    if origin.endpoint > available {
+        return Err(DeriverError::l1_scan(eez_l1::L1Error::SourceIncomplete {
+            block: origin.endpoint,
+            tx_hash: B256::ZERO,
+            detail: format!(
+                "retained L2 block {} requires L1 origin {}, but prepared evidence ends at {available}",
+                block.number, origin.endpoint,
+            ),
+        }));
+    }
+    let selected = chain
+        .at(origin.endpoint)
+        .map_err(DeriverError::l2_provider)?;
+    Ok(origin.endpoint_hash == selected.hash() && block.mix_hash == selected.header().mix_hash)
+}
+
 #[cfg(test)]
 mod seed_tests {
     use super::choose_seed;
@@ -3974,5 +4000,86 @@ mod seed_tests {
         // Floor above the endpoint (L1 rewound under an indexed batch).
         assert_eq!(choose_seed(999, 40, Some(20)), 40);
         assert_eq!(choose_seed(0, 0, None), 0);
+    }
+}
+
+#[cfg(test)]
+mod retained_history_tests {
+    use super::*;
+    use alloy_consensus::Header;
+    use eez_protocol::l1_history::{HeaderChain, HeaderRules, HistoryState};
+
+    fn evidence() -> (HeaderChain, HistoryState, Header) {
+        let mut chain = HeaderChain::default();
+        let rules = HeaderRules {
+            london_block: None,
+            shanghai_time: None,
+            cancun_time: None,
+            prague_time: None,
+            unsupported_time: None,
+        };
+        let mut parent = B256::ZERO;
+        for number in 10..=12 {
+            let header = Header {
+                number,
+                timestamp: 100 + number,
+                parent_hash: parent,
+                mix_hash: B256::with_last_byte(number as u8),
+                ..Default::default()
+            };
+            parent = header.hash_slow();
+            chain
+                .append(&[alloy_rlp::encode(&header).into()], &rules, 3)
+                .unwrap();
+        }
+        let origin = HistoryState {
+            imported: true,
+            endpoint: 12,
+            endpoint_hash: parent,
+        };
+        let block = Header {
+            number: 20,
+            mix_hash: B256::with_last_byte(12),
+            ..Default::default()
+        };
+        (chain, origin, block)
+    }
+
+    #[test]
+    fn retained_origin_waits_for_evidence_then_validates_without_changing_block() {
+        let (chain, origin, block) = evidence();
+        let before = block.hash_slow();
+        let lagging = chain.prefix(2).unwrap();
+        let error = retained_history_matches(&lagging, origin, &block).unwrap_err();
+        assert!(error.is_source_incomplete(), "{error}");
+        assert!(!error.is_l1_transport());
+        assert!(retained_history_matches(&chain, origin, &block).unwrap());
+        assert_eq!(block.hash_slow(), before);
+    }
+
+    #[test]
+    fn available_conflicting_origin_is_stale_not_missing() {
+        let (chain, mut origin, mut block) = evidence();
+        origin.endpoint_hash = B256::ZERO;
+        assert!(!retained_history_matches(&chain, origin, &block).unwrap());
+        origin.endpoint_hash = chain.at(12).unwrap().hash();
+        block.mix_hash = B256::ZERO;
+        assert!(!retained_history_matches(&chain, origin, &block).unwrap());
+    }
+
+    #[test]
+    fn missing_lower_bound_and_empty_evidence_are_not_tip_lag() {
+        let (chain, mut origin, block) = evidence();
+        origin.endpoint = 9;
+        assert!(
+            !retained_history_matches(&chain, origin, &block)
+                .unwrap_err()
+                .is_source_incomplete()
+        );
+        assert!(
+            !retained_history_matches(&HeaderChain::default(), origin, &block)
+                .unwrap_err()
+                .is_source_incomplete()
+        );
     }
 }

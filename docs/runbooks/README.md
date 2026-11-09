@@ -11,6 +11,8 @@ reconstructing a process from scripts, old logs, or an earlier conversation.
 | Deploy, start, check, and stop a Chiado rollup | [Chiado deployment](chiado-deployment.md) | Source reviewed; static checks; full deployment rehearsal pending |
 | Validate a delayed-cutoff canary with sustained mixed traffic | [Mixed-load validation](chiado-mixed-validation.md) | Complete live workload/replay with funding intervention; later safeguards checked offline |
 | Measure compact fee quotes and nested/Safe settlement | [Chiado fee load](chiado-fee-load.md) | Live candidate ramp and burst completed; expanded independent verification passed after a retained availability-wait correction |
+| Run a Nethermind L2 follower on an existing RollupX network | [Nethermind follower](nethermind-follower.md) | Operated on Chiado-backed and Ethereum-backed networks; see the exact source and topology limits |
+| Serve SNAP or bootstrap a fresh Nethermind RollupX follower | [Nethermind SNAP](nethermind-snap.md) | Exact Compose download/follow/restart passed across public discovery between Nethermind nodes on separate VMs |
 | Start and check a Composer on Ethereum mainnet, Hoodi or Sepolia | [Ethereum node](ethereum-node.md) | Static Compose checks, unit tests and builder acceptance probes; not yet run against a synced Ethereum node |
 | Trace Composer gas for selected source hashes or an address | [Composer gas traces](composer-gas-tracing.md) | Hash-mode Chiado evidence; address-mode local coverage |
 | Run L2 Blockscout, Chiado Blobscan, or both | [Optional explorers](explorers.md) | Compose/helper and isolated Blobscan source checks; full stack rehearsal pending; operated outside CI |

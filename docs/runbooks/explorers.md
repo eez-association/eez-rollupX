@@ -134,6 +134,16 @@ redirect would name the proxy's internal `http://<host>:8080` listener, which
 HTTPS pages block as mixed content. Recreate `blockscout-gateway` after changing
 either Nginx file; it holds no data. Keep Blobscan's archive API private.
 
+When `NEXT_PUBLIC_NETWORK_RPC_URL` is absent or empty, the browser bootstrap
+uses the same-origin backend RPC proxy for contract reads: `/explorer/api/eth-rpc`
+with the path image, or `/api/eth-rpc` with the root image. An explicitly configured
+RPC URL is preserved. After updating
+[`blockscout-browser.sh`](../../deploy/explorers/blockscout-browser.sh), restart
+only `blockscout-web` using the existing Compose file selection, then reload a
+verified contract's read panel and check its decoded results. This uses the
+existing frontend image and preserves the explorer databases. To roll back,
+restore the previous script and restart only that frontend.
+
 Before a live cutover, verify prefixed pages, a known deep link, browser API
 calls, Blockscout WebSocket updates, and a Blobscan data download against
 the intended images. Preserve the current root-path image tags and Compose

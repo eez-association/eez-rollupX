@@ -1,0 +1,403 @@
+{
+  "date": "2026-11-05",
+  "network": "rollupx.eez.dev",
+  "chain_id": 696991,
+  "genesis_hash": "0xb6bd210b7e824a1aabc4c1ae5b64f5643715441b332c7152e641a36ba01835b2",
+  "consumer_revision": "8a769ce0e80c060abc1e34482da0050c931dcbca",
+  "source_revision": "a75cf55f016595162fa297a9e99d91ef477e01cf",
+  "download_seconds": 62.997127,
+  "download_exit": 0,
+  "pivot": {
+    "number": 336270,
+    "hash": "0xf95f2bf65e8662ddf353e7f7093aeb1ec724cb28de31724be2a4d96cbe3bb9a2",
+    "stateRoot": "0xfdc3f1f60794223f35aeb9ed0cbef30980aace488f366bcfb5e490314c888fba"
+  },
+  "protocols": [
+    "eth/72",
+    "snap/1"
+  ],
+  "peer_policy": {
+    "static": false,
+    "trusted": false,
+    "client_matcher": null
+  },
+  "before": {
+    "heads": {
+      "finalized": {
+        "number": 336270,
+        "hash": "0xf95f2bf65e8662ddf353e7f7093aeb1ec724cb28de31724be2a4d96cbe3bb9a2",
+        "roots_match": true
+      },
+      "safe": {
+        "number": 336720,
+        "hash": "0x698ac89cbd9eb402adb59c8ba5efd022b8f9b653a57dd73e4fa20f02f415baea",
+        "roots_match": true
+      },
+      "latest": {
+        "number": 337108,
+        "hash": "0x725860a0217d4de16c9e0b50a9a16c79985a93226c05b39d1e269583964611b2",
+        "roots_match": true
+      },
+      "reference_finalized": {
+        "number": 336270,
+        "hash": "0xf95f2bf65e8662ddf353e7f7093aeb1ec724cb28de31724be2a4d96cbe3bb9a2"
+      },
+      "reference_safe": {
+        "number": 336720,
+        "hash": "0x698ac89cbd9eb402adb59c8ba5efd022b8f9b653a57dd73e4fa20f02f415baea"
+      },
+      "reference_latest": {
+        "number": 337109,
+        "hash": "0x88bdaa63a8a16970060a72eae56f57b1ff27df5c29d8f40308943bd0cd1a218b"
+      }
+    },
+    "latest_lag": 1,
+    "container": "c71d3e773c390e0e896ba6c5996737722ccab51ff71c6a9445bed7d4b4726a53",
+    "state_samples": [
+      {
+        "address": "0x4b2760f84b83d6b3829e30a7573b0172b6d6402c",
+        "method": "eth_getBalance",
+        "block": "0x524d4",
+        "match": true
+      },
+      {
+        "address": "0x4b2760f84b83d6b3829e30a7573b0172b6d6402c",
+        "method": "eth_getTransactionCount",
+        "block": "0x524d4",
+        "match": true
+      },
+      {
+        "address": "0x4b2760f84b83d6b3829e30a7573b0172b6d6402c",
+        "method": "eth_getCode",
+        "block": "0x524d4",
+        "match": true
+      },
+      {
+        "address": "0x4b2760f84b83d6b3829e30a7573b0172b6d6402c",
+        "method": "eth_getStorageAt",
+        "block": "0x524d4",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+        "method": "eth_getBalance",
+        "block": "0x524d4",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+        "method": "eth_getTransactionCount",
+        "block": "0x524d4",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+        "method": "eth_getCode",
+        "block": "0x524d4",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+        "method": "eth_getStorageAt",
+        "block": "0x524d4",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078",
+        "method": "eth_getBalance",
+        "block": "0x524d4",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078",
+        "method": "eth_getTransactionCount",
+        "block": "0x524d4",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078",
+        "method": "eth_getCode",
+        "block": "0x524d4",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078",
+        "method": "eth_getStorageAt",
+        "block": "0x524d4",
+        "match": true
+      }
+    ],
+    "native_post_pivot_receipts": [
+      {
+        "hash": "0x08dec33d603070e04fefddb774d0ecf8e45c99e7d65ea5c06c052b55b769b3ed",
+        "block": 337107,
+        "type": "0x46",
+        "match": true
+      }
+    ]
+  },
+  "after": {
+    "heads": {
+      "finalized": {
+        "number": 336720,
+        "hash": "0x698ac89cbd9eb402adb59c8ba5efd022b8f9b653a57dd73e4fa20f02f415baea",
+        "roots_match": true
+      },
+      "safe": {
+        "number": 337170,
+        "hash": "0xa0c5cd8b18e42c16493a2a0ce3c35d9f2571bda275216b6e788cfed7bea40b3d",
+        "roots_match": true
+      },
+      "latest": {
+        "number": 337195,
+        "hash": "0x126d5ef377942f87cd5902ea62c23d159c350ec50958b8de5e758c3d880e7b31",
+        "roots_match": true
+      },
+      "reference_finalized": {
+        "number": 336720,
+        "hash": "0x698ac89cbd9eb402adb59c8ba5efd022b8f9b653a57dd73e4fa20f02f415baea"
+      },
+      "reference_safe": {
+        "number": 337170,
+        "hash": "0xa0c5cd8b18e42c16493a2a0ce3c35d9f2571bda275216b6e788cfed7bea40b3d"
+      },
+      "reference_latest": {
+        "number": 337196,
+        "hash": "0xefed6f259628d379d04ff50d54c016d6aae1309d7f961fa437c50770d8ff7d35"
+      }
+    },
+    "latest_lag": 1,
+    "container": "63853324590f5389d8f7fa05bb44a1dd3fed6a2e430730c49efdf41bfc5ae8f3",
+    "state_samples": [
+      {
+        "address": "0x4b2760f84b83d6b3829e30a7573b0172b6d6402c",
+        "method": "eth_getBalance",
+        "block": "0x5252b",
+        "match": true
+      },
+      {
+        "address": "0x4b2760f84b83d6b3829e30a7573b0172b6d6402c",
+        "method": "eth_getTransactionCount",
+        "block": "0x5252b",
+        "match": true
+      },
+      {
+        "address": "0x4b2760f84b83d6b3829e30a7573b0172b6d6402c",
+        "method": "eth_getCode",
+        "block": "0x5252b",
+        "match": true
+      },
+      {
+        "address": "0x4b2760f84b83d6b3829e30a7573b0172b6d6402c",
+        "method": "eth_getStorageAt",
+        "block": "0x5252b",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+        "method": "eth_getBalance",
+        "block": "0x5252b",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+        "method": "eth_getTransactionCount",
+        "block": "0x5252b",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+        "method": "eth_getCode",
+        "block": "0x5252b",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+        "method": "eth_getStorageAt",
+        "block": "0x5252b",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078",
+        "method": "eth_getBalance",
+        "block": "0x5252b",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078",
+        "method": "eth_getTransactionCount",
+        "block": "0x5252b",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078",
+        "method": "eth_getCode",
+        "block": "0x5252b",
+        "match": true
+      },
+      {
+        "address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078",
+        "method": "eth_getStorageAt",
+        "block": "0x5252b",
+        "match": true
+      }
+    ],
+    "native_post_pivot_receipts": [
+      {
+        "hash": "0x7d1d047c750a3aa51a9ebc78cee21c884b079eaaee54c3cc53165615c0ae8c17",
+        "block": 337191,
+        "type": "0x46",
+        "match": true
+      }
+    ]
+  },
+  "same_database": true,
+  "restart": {
+    "latest": {
+      "before": 337108,
+      "after": 337227,
+      "old_hash_retained": true
+    },
+    "safe": {
+      "before": 336720,
+      "after": 337170,
+      "old_hash_retained": true
+    },
+    "finalized": {
+      "before": 336270,
+      "after": 336720,
+      "old_hash_retained": true
+    }
+  },
+  "cross_client_tested": false,
+  "external_udp_tested": true,
+  "compose_rehearsal": {
+    "result": "pass",
+    "topology": "cross-VM public IPv4, Docker bridge consumer",
+    "discovery": "discv4",
+    "pivot": {
+      "number": 339690,
+      "hash": "0x6dec92659a5c2459f5f1c5db5ddbac0836d6aa6693bba439f90faf687763d4bc",
+      "stateRoot": "0xc8fe5af1ddf64079b04d992e03aacca40ce6253a59891f06ddb243601c6650d2"
+    },
+    "download_seconds_including_discovery": 391.996689,
+    "download_exit": 0,
+    "download_markers": {
+      "Snap sync completed.": true,
+      "EEZ SNAP download verified.": true
+    },
+    "download_container": "88c1c39813a8dbb36515d5fafa45a794180e89b0e6a9217f94803d9df1320dfb",
+    "follower_container": "61a4a7d61c046764aaf4041e220e87635bc470577cb908742b30f5ea13560ce8",
+    "restart": {
+      "command": "docker compose restart --timeout 120 nethermind-follower",
+      "stopped_at": "2026-11-05T15:39:06.266871472Z",
+      "started_at": "2026-11-05T15:39:06.585295482Z",
+      "automatic_restart_count": 0,
+      "prior_checkpoints_retained": true
+    },
+    "before": {
+      "result": "pass",
+      "container": "61a4a7d61c046764aaf4041e220e87635bc470577cb908742b30f5ea13560ce8",
+      "heads": {
+        "latest": {
+          "number": 341006,
+          "hash": "0x64a17e29265c5b9790f40cec7ca32ddfc9ba44dcd56d816b57f63c937c098b03",
+          "roots_match": true
+        },
+        "safe": {
+          "number": 339690,
+          "hash": "0x6dec92659a5c2459f5f1c5db5ddbac0836d6aa6693bba439f90faf687763d4bc",
+          "roots_match": true
+        },
+        "finalized": {
+          "number": 339690,
+          "hash": "0x6dec92659a5c2459f5f1c5db5ddbac0836d6aa6693bba439f90faf687763d4bc",
+          "roots_match": true
+        }
+      },
+      "lag": 1,
+      "pivot": 339690,
+      "receipts": [
+        {
+          "hash": "0xa6dd50fb648adbcc4556464685a35b0343a6061a3f6b20f4905b9afb49535e29",
+          "block": 341001
+        }
+      ],
+      "state_checks": 3,
+      "prior_checkpoints_retained": false
+    },
+    "after": {
+      "result": "pass",
+      "container": "61a4a7d61c046764aaf4041e220e87635bc470577cb908742b30f5ea13560ce8",
+      "heads": {
+        "latest": {
+          "number": 341090,
+          "hash": "0xe88b3efcdc5bb4ba6097e996da9b3e630a9511a2ea0f9b5006d29b23cdcf15b8",
+          "roots_match": true
+        },
+        "safe": {
+          "number": 339690,
+          "hash": "0x6dec92659a5c2459f5f1c5db5ddbac0836d6aa6693bba439f90faf687763d4bc",
+          "roots_match": true
+        },
+        "finalized": {
+          "number": 339690,
+          "hash": "0x6dec92659a5c2459f5f1c5db5ddbac0836d6aa6693bba439f90faf687763d4bc",
+          "roots_match": true
+        }
+      },
+      "lag": 1,
+      "pivot": 339690,
+      "receipts": [
+        {
+          "hash": "0xf92f4a4c9a5a4023335978318919349f274c1a900665ca45652534085bbbb712",
+          "block": 341085
+        }
+      ],
+      "state_checks": 3,
+      "prior_checkpoints_retained": true
+    },
+    "data_and_keys_copied_from_source": false
+  },
+  "restart_regression": {
+    "observed_revision": "8a769ce0e80c060abc1e34482da0050c931dcbca",
+    "durable_head": 338850,
+    "stored_safe": 339318,
+    "stored_finalized": 338868,
+    "fix_revision": "542dc93652718b8a0ed0c102f81c4e3b35a5ef21",
+    "edited_image_runtime": "pass on original failing database",
+    "recovery": {
+      "result": "pass",
+      "container": "53b261ba600acd596c7d8d104cb2f8d337e37f7c8055f3b4423f34987c6d7f00",
+      "heads": {
+        "latest": {
+          "number": 340650,
+          "hash": "0xa141c4793cd4cb6e53aa2ad69b967fe4d74a79a9b1a0e15413d2579d748117c0",
+          "roots_match": true
+        },
+        "safe": {
+          "number": 339690,
+          "hash": "0x6dec92659a5c2459f5f1c5db5ddbac0836d6aa6693bba439f90faf687763d4bc",
+          "roots_match": true
+        },
+        "finalized": {
+          "number": 339690,
+          "hash": "0x6dec92659a5c2459f5f1c5db5ddbac0836d6aa6693bba439f90faf687763d4bc",
+          "roots_match": true
+        }
+      },
+      "lag": 1,
+      "pivot": 338346,
+      "receipts": [
+        {
+          "hash": "0x430498ed90a69edf17a7f5078820696ebbc958a643d75b71b31cf54f86d62f6a",
+          "block": 340647
+        }
+      ],
+      "state_checks": 3,
+      "prior_checkpoints_retained": true
+    }
+  },
+  "qualified_consumer_revision": "542dc93652718b8a0ed0c102f81c4e3b35a5ef21",
+  "qualified_consumer_image": "nethermindeth/nethermind:eez-542dc9365271@sha256:4e56266079ea16ff70a42b3956d10dbd6a6585b767361b67313223a9bac389ae"
+}

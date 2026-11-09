@@ -180,7 +180,7 @@ mod tests {
         assert_eq!(
             keccak256(include_bytes!("../../../Cargo.lock")),
             alloy_primitives::b256!(
-                "ef9c10b8e56657b4aabc920048ef94f09093fb6db20da8f775dfb221d090fa8e"
+                "c89eddb61b3a57accdde390f93fd9fcf74c53e3c353d9f3c5966437107dfe5b6"
             ),
             "review dependency semantics and VALIDATION_VERSION before updating this guard"
         );

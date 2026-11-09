@@ -117,6 +117,7 @@ paths = ['''^crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity
 regexTarget = "secret"
 regexes = ['''^(0x)?808c11d36e6b7c4db0c94d9b6ee3443fc5d58b705342966c5e654f2f5fea9351$''']
 
+# Historical validation-contract-8 public commitments; retained for all-ref scans.
 [[allowlists]]
 description = "Version-8 Bidirectional fixture verification key"
 condition = "AND"

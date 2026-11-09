@@ -109,6 +109,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                   if self.test_control_dir else None)
         failed_methods = []
         pruned_before = 0
+        reported_head = None
         if errors:
             try:
                 with open(errors) as source:
@@ -118,6 +119,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             try:
                 with open(os.path.join(self.test_control_dir, "pruned-before.json")) as source:
                     pruned_before = int(json.load(source))
+            except FileNotFoundError:
+                pass
+            try:
+                with open(os.path.join(self.test_control_dir, "reported-head.json")) as source:
+                    reported_head = json.load(source)
             except FileNotFoundError:
                 pass
         # Model Reth's historical bodies/receipts boundary: full-block reads
@@ -136,6 +142,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             resp = json.dumps({
                 "jsonrpc": "2.0", "id": body.get("id"),
                 "error": {"code": -32000, "message": "injected temporary RPC failure"},
+            }).encode()
+        # Cap only the scan head; exact header reads still reach the real chain.
+        elif body.get("method") == "eth_blockNumber" and reported_head is not None:
+            resp = json.dumps({
+                "jsonrpc": "2.0", "id": body.get("id"), "result": hex(reported_head),
             }).encode()
         elif pruned_history:
             resp = json.dumps({

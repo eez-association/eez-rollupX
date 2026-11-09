@@ -175,6 +175,19 @@ class BuilderControlTest(unittest.TestCase):
         self.send(request)
         self.assertEqual(self.forwarded, [request])
 
+    def test_reported_head_lag_can_clear_without_affecting_exact_header_reads(self):
+        control = self.directory / "reported-head.json"
+        control.write_text("10")
+        request = {"jsonrpc": "2.0", "id": 7, "method": "eth_blockNumber", "params": []}
+        self.assertEqual(self.send(request), {"jsonrpc": "2.0", "id": 7, "result": "0xa"})
+        self.assertEqual(self.forwarded, [])
+        header = dict(request, method="eth_getBlockByNumber", params=["0xb", False])
+        self.send(header)
+        self.assertEqual(self.forwarded, [header])
+        control.write_text("null")
+        self.send(request)
+        self.assertEqual(self.forwarded[-1], request)
+
     def test_history_pruning_preserves_raw_headers_and_inclusive_boundary(self):
         control = self.directory / "pruned-before.json"
         control.write_text("10")
