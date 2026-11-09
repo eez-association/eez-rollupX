@@ -33,6 +33,37 @@ impl CanonicalPostBatch {
         &self.0
     }
 
+    /// Reject forwarding into the executing L1 EEZ itself. Under delegatecall,
+    /// Solidity compares against the deployed registry proxy, not its implementation
+    /// or the separate RollupX manager. The identity must come from local configuration.
+    pub(crate) fn validate_l1_destinations(
+        &self,
+        registry: Address,
+    ) -> Result<(), PublicInputError> {
+        let mut calls = self
+            .0
+            .entries
+            .iter()
+            .flat_map(|entry| {
+                entry.l2ToL1Calls.iter().chain(
+                    entry
+                        .expectedL1ToL2Calls
+                        .iter()
+                        .flat_map(|row| row.l2ToL1Calls.iter()),
+                )
+            })
+            .chain(
+                self.0
+                    .staticEntries
+                    .iter()
+                    .flat_map(|entry| entry.l2ToL1Calls.iter()),
+            );
+        if calls.any(|call| call.targetAddress == registry) {
+            return Err(PublicInputError::ManagerDestination { manager: registry });
+        }
+        Ok(())
+    }
+
     /// Independently profile-checked static entries used by native semantic
     /// binding without exposing the rest of the canonical batch outside the
     /// settlement module.
@@ -94,6 +125,8 @@ pub(crate) fn decode_canonical_post_batch(
 
 #[derive(Debug, Error)]
 pub(crate) enum PublicInputError {
+    #[error("L1 forwarded call targets the executing EEZ manager {manager}")]
+    ManagerDestination { manager: Address },
     #[error("invalid public-input structure: {0}")]
     InvalidStructure(String),
     #[error("public-input hash computation failed: {0}")]

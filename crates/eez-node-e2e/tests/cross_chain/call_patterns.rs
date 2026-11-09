@@ -271,23 +271,24 @@ sol! {
     }
 }
 
-async fn static_local_writes(inbound: bool) {
+async fn static_local_writes(inbound: bool, nested: bool) {
     let w = setup_cross_chain().await.unwrap();
     let l1 = w.l1_rpc();
     let l2 = w.l2_rpc();
-    let (source_rpc, source_id, reader_rpc, reader_id) = if inbound {
+    let reader_on_l2 = nested == inbound;
+    let (quote_rpc, quote_id, reader_rpc, reader_id) = if reader_on_l2 {
         (&l1, DEV_CHAIN_ID, &l2, w.l2_chain_id)
     } else {
         (&l2, w.l2_chain_id, &l1, DEV_CHAIN_ID)
     };
     let quote = deploy_fixture(
-        source_rpc,
-        source_id,
+        quote_rpc,
+        quote_id,
         "E2ENestedStaticLocalWriteL2.s.sol/CallbackQuote.json",
         &[],
     )
     .await;
-    let quote_proxy = if inbound {
+    let quote_proxy = if reader_on_l2 {
         create_l2_cross_chain_proxy(&l2, TARGET_DEPLOYER, quote, 0)
             .await
             .unwrap()
@@ -309,7 +310,8 @@ async fn static_local_writes(inbound: bool) {
         &(quote_proxy,).abi_encode(),
     )
     .await;
-    let reader_proxy = if inbound {
+    // The remote quote calls back through this proxy even for a direct local entry.
+    let reader_proxy = if reader_on_l2 {
         create_cross_chain_proxy(
             &l1,
             TARGET_DEPLOYER,
@@ -324,9 +326,12 @@ async fn static_local_writes(inbound: bool) {
             .await
             .unwrap()
     };
-    let call = ScenarioCall::new(reader_proxy, LocalWriteReader::runCall {}.abi_encode())
-        .with_gas_limit(1_000_000);
-    let scenario = Scenario::new("pinned nested static reads around local writes");
+    let call = ScenarioCall::new(
+        if nested { reader_proxy } else { reader },
+        LocalWriteReader::runCall {}.abi_encode(),
+    )
+    .with_gas_limit(1_000_000);
+    let scenario = Scenario::new("pinned static reads around local writes");
     let mut scenario = if inbound {
         scenario.inbound(call)
     } else {
@@ -352,14 +357,14 @@ async fn static_local_writes(inbound: bool) {
         ("runs", LocalWriteReader::runsCall {}.abi_encode(), 1),
     ] {
         let read = call_read(reader, name, data);
-        scenario = if inbound {
+        scenario = if reader_on_l2 {
             scenario.expect_l2_state(read, value)
         } else {
             scenario.expect_l1_state(read, value)
         };
     }
     scenario.expect_settled_fully().run(&w).await.unwrap();
-    let (read, expected) = if inbound {
+    let (read, expected) = if reader_on_l2 {
         (
             call_read(reader, "runs", LocalWriteReader::runsCall {}.abi_encode()),
             U256::ONE,
@@ -374,12 +379,22 @@ async fn static_local_writes(inbound: bool) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn inbound_static_local_writes_reuse_candidates_and_replay() {
-    static_local_writes(true).await;
+    static_local_writes(true, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn outbound_static_local_writes_reuse_candidates_and_replay() {
-    static_local_writes(false).await;
+    static_local_writes(false, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn inbound_top_level_static_local_writes_reuse_candidates_and_replay() {
+    static_local_writes(true, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn outbound_top_level_static_local_writes_reuse_candidates_and_replay() {
+    static_local_writes(false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

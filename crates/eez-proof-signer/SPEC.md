@@ -148,6 +148,12 @@ eligible entries beyond the mandatory complete leading zero-proxy run. A
 deployment that requires dispatch integrity MUST add an independent binding or
 submission policy.
 
+The follower may replay those dispatch choices without widening signer admission.
+This support requires canonical outer `postAndVerifyBatch(batch)` calldata forwarded
+verbatim to EEZ and the fork's native blob layout. Arbitrary wrapper ABIs, internal
+batch rewrites, trailing calldata, and reordered or additional blobs remain outside
+the follower profile. Core acceptance alone does not establish that profile.
+
 [`docs/unbound-scheduling-counts-assessment.md`](docs/unbound-scheduling-counts-assessment.md)
 records the accepted protocol semantics and the mutation evidence behind this
 boundary.
@@ -639,6 +645,13 @@ operations position MUST reject missing evidence. Reconstruction evidence does n
 outbound observations, terminal effects, DA or signing.
 
 ## 7. Canonical batch and public-input profile
+
+Before signing, the signer MUST independently reject every forwarded L1 call
+whose destination is the configured deployed EEZ registry address. This includes
+mutable entries, nested expected L1-to-L2 rows, and static-entry callback arrays.
+The checked identity is the executing EEZ proxy under delegatecall, not its
+implementation or the separate RollupX manager. This check does not depend on
+Composer admission or L1 settlement rehearsal.
 
 `Finalize.settlement.abi_calldata` MUST exact-decode as the current
 `postAndVerifyBatch(ProofSystemBatchPerVerificationEntries)` ABI with selector

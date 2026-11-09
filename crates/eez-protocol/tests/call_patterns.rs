@@ -858,3 +858,33 @@ mod rollback_value;
 
 #[path = "call_patterns/root_retry_callbacks.rs"]
 mod root_retry_callbacks;
+
+#[test]
+fn static_reads_without_callbacks_cannot_distinguish_gas_sensitive_outputs() {
+    let l2 = RollupId(1);
+    let read = static_call(None, l2, RollupId::MAINNET);
+    let mut composition = materialize_actions(l2, vec![read.clone(), read]).unwrap();
+    let target = &mut composition.targets[0];
+    target.batch.entries[0].rootUpdates.push(RootUpdateSol {
+        rollupId: l2.0,
+        currentRoot: B256::with_last_byte(1),
+        newRoot: B256::with_last_byte(2),
+        etherDelta: EtherDeltaSol::ZERO,
+    });
+    finalize_l1_entry_traces(&mut target.batch, &target.entry_traces).unwrap();
+    let mut sources = composition
+        .source
+        .l2_static_entries
+        .into_iter()
+        .map(OutboundSourceEntry::Static)
+        .collect::<Vec<_>>();
+    verify_outbound_source_group(&target.batch.entries[0], &sources, l2).unwrap();
+    let OutboundSourceEntry::Static(second) = &mut sources[1] else {
+        unreachable!()
+    };
+    // With no callbacks, gas-dependent outputs have the same candidate key.
+    // Selecting a later row would disagree with Core's first matching row.
+    second.returnData = Bytes::from_static(b"different gas-dependent output");
+    let error = verify_outbound_source_group(&target.batch.entries[0], &sources, l2).unwrap_err();
+    assert!(error.to_string().contains("conflicting results"), "{error}");
+}

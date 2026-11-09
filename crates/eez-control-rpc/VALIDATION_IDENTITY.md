@@ -27,6 +27,11 @@ Old runtime artifacts cannot process all newly supported shapes. The runtime
 upgrade boundary is documented in the
 [full protocol proposal](../../docs/proposals/full-protocol-e2e.md#compatibility-and-recovery).
 
+The review corrections in PR #123 form part of its proposed version-8 contract;
+the target branch at `ff7a5cdc` still uses version 7. Earlier pre-release PR builds
+are not interchangeable with the corrected build despite the shared version
+number: upgrade them together. This namespace is not executable provenance.
+
 ## Encoding
 
 Compute Ethereum **Keccak-256**, not NIST SHA3-256, over one canonical RLP list

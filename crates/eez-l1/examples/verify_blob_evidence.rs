@@ -222,7 +222,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 eez_protocol::RollupId(rollup_id),
                 chain,
             )?
-            .bind_settlement(&posted.batch)?;
+            .bind_observed_settlement(&posted.batch)?;
             true
         }
     };

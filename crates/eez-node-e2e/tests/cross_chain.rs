@@ -5,6 +5,7 @@ mod capture_prefixes;
 mod combined_history;
 mod history_observations;
 mod nested_creation;
+mod retuned_dispatch;
 
 use alloy_primitives::{Address, Bytes, TxHash, U256, keccak256};
 use alloy_provider::{Provider as _, ProviderBuilder};

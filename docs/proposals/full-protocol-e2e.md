@@ -90,6 +90,39 @@ Acceptance requires the original failing cases to pass, adversarial retry/table
 and lookup cases to reject, package and source process regressions, and integrated
 CI qualification. Prior full-network results do not qualify these corrections.
 
+### Issue follow-ups (2026-11-09)
+
+Owner-authorized follow-up scope is #85 C13/G02, relevant #81 regressions,
+and matched component performance measurements. Keep the table allocator and
+unrelated queue/admission changes outside this PR.
+
+C13 separates the semantic outbound/inbound boundary from the unproven dispatch
+counts. The follower binds the complete tables to native semantics and uses the
+semantic boundary for reconstruction; canonical root advancement still determines
+consumption. The signer retains its narrower submission profile. Acceptance
+requires retuned mutable/static dispatch with the original proof and blobs on
+real Core contracts, fresh follower replay, negative table/bounds checks, and
+existing partial-consumption regressions. Neither the dispatch count nor a
+successful posting proves that an inbound entry was consumed.
+
+Support remains limited to canonical outer `postAndVerifyBatch(batch)` calldata
+forwarded verbatim to EEZ and the fork's native blob layout. It does not add arbitrary
+wrapper ABIs, internal batch rewrites, trailing calldata, or reordered/additional blobs.
+The original `EEZPostBatcher` fixture and its wallet-estimation fingerprint remain
+unchanged; `EEZMetaPostBatcher` is a separate test-only poster, not a recognized
+wallet-estimation deployment.
+
+This is follower compatibility, not a new Composer scheduling API. A separately
+posted meta call does not complete a queued EOA source transaction: it does not
+spend that EOA nonce or establish all of its outer source-chain actions. Existing
+source receipt/nonce reconciliation remains authoritative; rewriting a live
+Composer-owned submission is not an admitted producer workflow.
+
+This adds no wire or storage format. Upgrade followers before a poster starts
+retuning dispatch; older followers reject this valid canonical history and cannot
+be used as a rollback target after such inclusion. Composer and signer submission
+behavior remains unchanged.
+
 ### Static reads and partitioning
 
 Static reads leave mutable cursors unchanged. A failed mutable candidate can be

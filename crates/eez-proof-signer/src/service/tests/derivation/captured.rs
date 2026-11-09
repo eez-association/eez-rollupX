@@ -752,3 +752,39 @@ fn regenerate_native_fixture_commitments() {
         .unwrap();
     }
 }
+
+#[tokio::test]
+async fn manager_destination_is_rejected_by_independent_signer_before_signing() {
+    let mut fixture = Fixture::load("native-offline-bidirectional");
+    let registry = fixture.state.deployment.registry;
+    assert_ne!(registry, fixture.state.deployment.manager);
+    let post = header_mut(&mut fixture.input[0])
+        .post_batch
+        .as_mut()
+        .unwrap();
+    let mut batch = settlement::decode_canonical_post_batch(post.abi_calldata.clone()).unwrap();
+    batch.validate_l1_destinations(registry).unwrap();
+    let call = batch
+        .entries
+        .iter_mut()
+        .flat_map(|entry| entry.l2ToL1Calls.iter_mut())
+        .next()
+        .expect("captured bidirectional request has an L1 forwarded call");
+    call.targetAddress = registry;
+    post.abi_calldata = eez_protocol::entries::encode_postbatch(&batch);
+    // The complete captured execution remains valid. The explicit destination
+    // gate must reject this canonical mutation before downstream DA comparisons.
+    let error = pipeline_error(&fixture.state, fixture.input.clone());
+    assert!(
+        matches!(error, PipelineError::Settlement(
+        SettlementPipelineError::PublicInputs(settlement::PublicInputError::ManagerDestination { manager })
+    ) if manager == registry),
+        "{error:?}"
+    );
+    let server = fixture.server().await;
+    assert_eq!(
+        server.prove(fixture.input).await.code(),
+        Code::FailedPrecondition
+    );
+    assert_eq!(fixture.state.attester.signing_calls(), 0);
+}

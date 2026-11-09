@@ -374,15 +374,53 @@ fn semantic_binding_rejects_substitution_mutations_and_unused_suffixes() {
         |b| b.staticEntries[0].returnData = Bytes::from_static(b"forged"),
         |b| b.staticEntries[0].expectedRoots[0].rollupId = 2,
         |b| b.staticEntries.push(b.staticEntries[0].clone()),
-        |b| b.immediateEntryCount += U256::from(1),
     ];
     for change in changes {
         let mut bad = batch.clone();
         change(&mut bad);
         assert!(actions.bind_settlement(&bad).is_err());
+        assert!(actions.bind_observed_settlement(&bad).is_err());
     }
     assert!(
         InboundSidecar::for_rollup(&batch.entries[2], RollupId(1)).is_err(),
         "settlement ABI is never an inbound reconstruction input"
     );
+}
+
+#[test]
+fn observed_settlement_accepts_retuned_dispatch() {
+    let mut read = action(0, 1, 3);
+    read.call_mode = CallMode::Static;
+    read.value = U256::ZERO;
+    let transactions = [
+        semantic(1, vec![action(1, 0, 1)]),
+        semantic(0, vec![action(0, 1, 2), read]),
+    ];
+    let actions = decode(&transactions).unwrap();
+    let mut batch = settlement(&transactions);
+    for immediate in [2, 3] {
+        for statics in [0, 1] {
+            batch.immediateEntryCount = U256::from(immediate);
+            batch.immediateStaticEntryCount = U256::from(statics);
+            if immediate == 2 && statics != 0 {
+                assert!(actions.bind_observed_settlement(&batch).is_err());
+            } else {
+                assert_eq!(actions.bind_observed_settlement(&batch).unwrap(), 2);
+            }
+            assert_eq!(
+                actions.bind_settlement(&batch).is_ok(),
+                immediate == 2 && statics == 0
+            );
+        }
+    }
+    for (immediate, statics) in [(0, 0), (1, 0), (4, 0), (3, 2)] {
+        batch.immediateEntryCount = U256::from(immediate);
+        batch.immediateStaticEntryCount = U256::from(statics);
+        assert!(actions.bind_observed_settlement(&batch).is_err());
+    }
+    batch.immediateEntryCount = U256::MAX;
+    assert!(actions.bind_observed_settlement(&batch).is_err());
+    batch.immediateEntryCount = U256::from(3);
+    batch.immediateStaticEntryCount = U256::MAX;
+    assert!(actions.bind_observed_settlement(&batch).is_err());
 }

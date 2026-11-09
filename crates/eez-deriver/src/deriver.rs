@@ -952,24 +952,17 @@ where
             use alloy_sol_types::SolCall as _;
             let posted = eez_protocol::abi::postAndVerifyBatchCall::abi_decode(calldata)
                 .map_err(DeriverError::l2_provider)?;
-            let immediate = usize::try_from(posted.batch.immediateEntryCount)
-                .map_err(DeriverError::l2_provider)?;
-            if immediate == 0 || immediate > posted.batch.entries.len() {
-                return Err(DeriverError::l2_provider(
-                    "invalid immediate entry count in evidence",
-                ));
-            }
             let actions = eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
                 semantic_transactions,
                 eez_protocol::RollupId(cfg.this_rollup_id),
                 cfg.l2_chain_id,
             )
             .map_err(DeriverError::l2_provider)?;
-            actions
-                .bind_settlement(&posted.batch)
+            let inbound_start = actions
+                .bind_observed_settlement(&posted.batch)
                 .map_err(DeriverError::l2_provider)?;
             let counts = eez_protocol::system_tx::outbound_settlement_source_counts(
-                &posted.batch.entries[1..immediate],
+                &posted.batch.entries[1..inbound_start],
                 actions
                     .outbound()
                     .iter()
@@ -981,7 +974,7 @@ where
                 .iter()
                 .map(|group| group.effects.len())
                 .collect::<Vec<_>>();
-            let inbound_count = posted.batch.entries[immediate..]
+            let inbound_count = posted.batch.entries[inbound_start..]
                 .iter()
                 .filter(|entry| {
                     !eez_protocol::settlement::is_lookup_only_inbound_entry(
@@ -2269,8 +2262,8 @@ where
         // verbatim).
         //
         // Producing entries are ordered `[anchor, outbound…, inbound…]`:
-        // `immediateEntryCount` frames the anchor and complete outbound hosts;
-        // the remaining entries describe deferred L1-origin calls.
+        // the authenticated semantic stream frames complete outbound hosts.
+        // Unproven dispatch counts may also place inbound calls in the meta hook.
         // `Settlement::producing_slice` says WHICH of those L1 actually ran, read
         // off the settled block hashes — the anchor cannot be assumed to have run, since
         // a competing same-block batch can supply its hop.
@@ -2296,20 +2289,17 @@ where
                         .map_err(|e| {
                             DeriverError::l2_provider(format!("decode postBatch({tx_hash}): {e}"))
                         })?;
-                let immediate_count =
-                    usize::try_from(posted.batch.immediateEntryCount).map_err(|_| {
-                        DeriverError::l2_provider(format!(
-                            "postBatch({tx_hash}) immediateEntryCount does not fit usize"
-                        ))
-                    })?;
-                if immediate_count == 0 || immediate_count > posted.batch.entries.len() {
-                    return Err(DeriverError::l2_provider(format!(
-                        "postBatch({tx_hash}) has invalid immediateEntryCount {immediate_count} for {} entries",
-                        posted.batch.entries.len(),
-                    )));
-                }
-                let mut settlement_outbound = posted.batch.entries[1..immediate_count].to_vec();
-                let mut settlement_inbound = posted.batch.entries[immediate_count..].to_vec();
+                let actions = eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
+                    semantic_transactions,
+                    eez_protocol::RollupId(cfg.this_rollup_id),
+                    cfg.l2_chain_id,
+                )
+                .map_err(DeriverError::l2_provider)?;
+                let inbound_start = actions
+                    .bind_observed_settlement(&posted.batch)
+                    .map_err(DeriverError::l2_provider)?;
+                let mut settlement_outbound = posted.batch.entries[1..inbound_start].to_vec();
+                let mut settlement_inbound = posted.batch.entries[inbound_start..].to_vec();
                 // Canonical lookup-only entries carry a proven L1-visible
                 // result but authorize no L2 execution and consume no DA
                 // sidecar. Their exact no-op shape is checked fail-closed;
@@ -2321,15 +2311,6 @@ where
                     )
                 });
 
-                let actions = eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
-                    semantic_transactions,
-                    eez_protocol::RollupId(cfg.this_rollup_id),
-                    cfg.l2_chain_id,
-                )
-                .map_err(DeriverError::l2_provider)?;
-                actions
-                    .bind_settlement(&posted.batch)
-                    .map_err(DeriverError::l2_provider)?;
                 let outbound_group_sizes = actions
                     .outbound()
                     .iter()

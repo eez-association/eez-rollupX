@@ -661,6 +661,16 @@ It supports replacing a compatible runtime, moving hosts and restoring the same
 network. It provides no conversion of an earlier Chiado deployment. Existing
 networks keep their own matching release, contracts, genesis and data.
 
+Before a poster retunes immediate mutable/static dispatch, upgrade every follower
+to a build supporting semantic settlement boundaries. Older followers can reject
+that valid L1 history; after inclusion, downgrading to them is unsupported. No wire
+or storage migration is added by this change. Keep Composer and signer on the
+matching release; their production dispatch profile remains restricted. Supported
+wrappers must forward canonical outer `postAndVerifyBatch(batch)` calldata verbatim,
+using the fork's native blob layout. Alternative wrapper ABIs or internal batch
+rewrites require separate support. A poster changing dispatch must re-estimate gas
+for that path; the original queue-only estimate need not cover its callback.
+
 For ordered restore/replay setup, use the
 [existing-rollup Composer procedure](chiado-existing-rollup.md).
 

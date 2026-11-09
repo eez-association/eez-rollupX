@@ -1,12 +1,13 @@
 //! Matched release benchmarks for materialization and independent verification.
 //! Run with `cargo run --locked --release -p eez-protocol --example entry_bench`.
 //! Materialization and finalization include input cloning; verification borrows prebuilt tables.
-//! These component timings do not measure whole-node throughput.
+//! Value planning includes the placeholder-root copy and paired traversal used by quotes.
+//! These component timings do not measure quote RPC latency or whole-node throughput.
 use alloy_primitives::{Address, B256, Bytes, U256};
 use eez_protocol::{
     CallMode, ExecutedAction, ExecutionOutcome, RollupId,
     abi::{EtherDeltaSol, RootUpdateSol},
-    entries::{finalize_l1_entry_traces, verify_outbound_source_group},
+    entries::{finalize_l1_entry_traces, project_outbound_value, verify_outbound_source_group},
     materialize_actions,
     system_tx::OutboundSourceEntry,
 };
@@ -22,6 +23,7 @@ fn main() {
         ("failed_frames", 8, 8, 32, false, true, false, 1_000),
         ("rollback_roots", 64, 1, 32, false, false, true, 1_000),
         ("recursive_static", 8, 8, 32, true, false, false, 1_000),
+        ("repeated_static", 64, 1, 32, true, false, false, 1_000),
     ] {
         let mut calls = Vec::new();
         for root in 0..roots {
@@ -33,7 +35,12 @@ fn main() {
                 };
                 let target = if source == l2 { RollupId::MAINNET } else { l2 };
                 let mut data = vec![0x55; bytes];
-                data.extend_from_slice(&calls.len().to_le_bytes());
+                let identity = if name == "repeated_static" {
+                    0
+                } else {
+                    calls.len()
+                };
+                data.extend_from_slice(&identity.to_le_bytes());
                 calls.push(ExecutedAction {
                     parent_index: (level != 0).then(|| calls.len() - 1),
                     call_mode: if static_calls {
@@ -97,7 +104,7 @@ fn main() {
                 roots * depth.div_ceil(2)
             }
         );
-        for phase in ["materialize", "finalize", "verify"] {
+        for phase in ["materialize", "finalize", "verify", "value_plan"] {
             let run = || {
                 if phase == "materialize" {
                     black_box(materialize_actions(l2, black_box(&calls).clone()).unwrap());
@@ -105,6 +112,11 @@ fn main() {
                     let mut batch = black_box(&target.batch).clone();
                     finalize_l1_entry_traces(&mut batch, black_box(&target.entry_traces)).unwrap();
                     black_box(batch);
+                } else if phase == "value_plan" {
+                    black_box(
+                        project_outbound_value(host, &target.entry_traces[0], &sources, l2)
+                            .unwrap(),
+                    );
                 } else {
                     black_box(
                         verify_outbound_source_group(black_box(host), black_box(&sources), l2)
