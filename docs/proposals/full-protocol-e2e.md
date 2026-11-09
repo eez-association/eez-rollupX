@@ -74,7 +74,10 @@ modes or a parallel historical decoder:
 - Compute settlement and escrow transfers using the existing paired traversal,
   which restores complete ancestor effects. Planning uses a root-finalized copy;
   signing still verifies actual roots and independently executed evidence.
-- Preserve baseline static table bytes and frozen historical replay fixtures.
+- Preserve baseline static table bytes and terminal-failed-attempt source slots,
+  with frozen historical replay fixtures. Keep serialized allocation separate
+  from the actual VM cursor; an observed retry may cover one identical terminal
+  failed slot, never an unused extra slot.
   Do not relax exact native binding or accept unobserved duplicate rows.
 - Align mixed-static acceptance with the same bounded failed-frame and rollback
   semantics already checked by the verifier.

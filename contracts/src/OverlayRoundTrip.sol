@@ -116,6 +116,18 @@ contract OverlayDriverL1 {
         callOrBubble(probe, abi.encodeCall(OverlayProbeL2.burnAndPing, (driver)));
     }
 
+    /// A successful remote call has an L1 callback, then its enclosing L1
+    /// source frame reverts. This profile must be rejected before settlement:
+    /// a predicted caller rollback cannot authorize persistent L1 callbacks.
+    function burnAndPingThenRevert(address probe, address driver) external {
+        callOrBubble(probe, abi.encodeCall(OverlayProbeL2.burnAndPing, (driver)));
+        revert DeliveredThenReverted();
+    }
+
+    function catchBurnAndPingRevert(address probe, address driver) external {
+        try this.burnAndPingThenRevert(probe, driver) {} catch {}
+    }
+
     /// Deliver and burn on L2 as two sibling callbacks.
     function deliverThenBurn(address probe, uint256 amount) external {
         callOrBubble(probe, abi.encodeCall(OverlayProbeL2.deliver, (amount)));

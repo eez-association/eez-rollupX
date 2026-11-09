@@ -1,4 +1,4 @@
-//! Copy into crates/eez-protocol/tests/review_root_retry.rs of an isolated head snapshot.
+//! A restored source cursor reuses one complete callback program.
 use alloy_primitives::{Address, B256, Bytes, U256};
 use eez_protocol::abi::{EtherDeltaSol, RootUpdateSol};
 use eez_protocol::entries::{finalize_l1_entry_traces, verify_outbound_source_group};
@@ -104,8 +104,7 @@ fn naturally_failed_root_retry_accepts_one_reused_callback_program_control() {
     let callback = action(Some(0), RollupId::MAINNET, l2, 1);
     let mut retry_callback = callback.clone();
     retry_callback.parent_index = Some(2);
-    // Preserve the host for both complete attempts; replace only its defective
-    // concatenated L2 source slot with the exact single-invocation program.
+    // A single invocation's source program must also verify both attempts.
     let mut repeated = materialize_actions(
         l2,
         vec![root.clone(), callback.clone(), root.clone(), retry_callback],

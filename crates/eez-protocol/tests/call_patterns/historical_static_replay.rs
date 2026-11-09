@@ -104,3 +104,86 @@ fn repeated_static_replay_compatibility() {
         .bind_settlement(&frozen)
         .expect("replay baseline-supported static rows");
 }
+
+#[test]
+fn terminal_failed_retries_preserve_baseline_source_slots() {
+    let mut tx = SemanticTransaction {
+        origin_chain: RollupId(1),
+        tx_data: TxEnvelope::from(
+            TxLegacy {
+                chain_id: Some(1),
+                gas_limit: 100000,
+                gas_price: 1,
+                to: TxKind::Call(Address::with_last_byte(1)),
+                ..Default::default()
+            }
+            .into_signed(Signature::new(U256::from(1), U256::from(1), false)),
+        )
+        .encoded_2718()
+        .into(),
+        actions: vec![
+            call(None, 1, 0, CallMode::Mutable),
+            call(None, 1, 0, CallMode::Mutable),
+        ],
+    };
+    for action in &mut tx.actions {
+        if let ExecutionOutcome::Resolved { success, .. } = &mut action.outcome {
+            *success = false;
+        }
+    }
+    let mut c = tx.materialize().unwrap();
+    let host = &mut c.targets[0];
+    host.batch.entries[0].rootUpdates = vec![update(2)];
+    finalize_l1_entry_traces(&mut host.batch, &host.entry_traces).unwrap();
+    let sources = c
+        .source
+        .batch
+        .entries
+        .iter()
+        .cloned()
+        .map(OutboundSourceEntry::Mutable)
+        .collect::<Vec<_>>();
+    let verified = verify_outbound_source_group(&host.batch.entries[0], &sources, RollupId(1));
+    eprintln!(
+        "rows={} verification={verified:?}",
+        host.batch.entries[0].expectedL1ToL2Calls.len()
+    );
+    assert!(verified.is_ok());
+    let root = update(1);
+    let batch = EvmBatch {
+        entries: vec![
+            ExecutionEntrySol {
+                destinationRollupId: 1,
+                rollingHash: EntryRollingHash::seed_for_l1([(1, root.currentRoot)], B256::ZERO)
+                    .current(),
+                rootUpdates: vec![root],
+                success: true,
+                ..Default::default()
+            },
+            host.batch.entries[0].clone(),
+        ],
+        immediateEntryCount: U256::from(2),
+        ..Default::default()
+    };
+    let reconstruction = ReconstructionActions::from_semantics(&[tx], RollupId(1), 1).unwrap();
+    reconstruction.bind_settlement(&batch).unwrap();
+
+    let frozen = EvmBatch::abi_decode(
+        &alloy_primitives::hex::decode(
+            include_str!("fixtures/baseline_terminal_source.hex").trim(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        c.source.batch.abi_encode(),
+        frozen.abi_encode(),
+        "historical native load bytes must not change"
+    );
+    let mut extra = sources.clone();
+    extra.push(sources[0].clone());
+    assert!(
+        verify_outbound_source_group(&host.batch.entries[0], &extra, RollupId(1)).is_err(),
+        "an extra duplicate slot has no observed invocation"
+    );
+}

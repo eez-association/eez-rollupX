@@ -991,7 +991,10 @@ and followers together and discard old sessions; older lookup requests may need
 additional manager witnesses. Preserve the original per-observation static row
 layout so baseline-supported historical tables still bind exactly. Coverage of
 a repeated static row requires an actual read of a byte-identical validated
-program; extra, unselected or differing rows remain invalid. Old followers cannot
+program; extra, unselected or differing rows remain invalid. Baseline terminal failed
+attempts also retain their serialized source slots even though the runtime cursor
+rolls back; each identical slot requires a corresponding verified invocation.
+Old followers cannot
 replay newly admitted shapes.
 No live migration of a pre-baseline network is established by these tests.
 Configuration and wire inputs must match the runtime identity. Restart may require client

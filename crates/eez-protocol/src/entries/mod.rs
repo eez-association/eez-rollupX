@@ -630,7 +630,7 @@ mod tests {
 
     use super::*;
     use crate::ExecutionOutcome;
-    use crate::abi::{EtherDeltaSol, ExpectedL1ToL2CallSol, RootUpdateSol};
+    use crate::abi::{EtherDeltaSol, RootUpdateSol};
 
     fn record(target: RollupId, source: RollupId) -> ExecutedAction {
         ExecutedAction {

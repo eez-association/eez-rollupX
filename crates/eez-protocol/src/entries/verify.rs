@@ -470,7 +470,25 @@ fn verify_outbound_tables(
                     ))
                 })?;
             source_cursor = selected;
-            seen_sources[source_cursor] = true;
+            // Baseline tables retained an identical terminal failed slot for
+            // each attempt. One actual invocation covers at most one copy;
+            // extra or nonidentical unused slots remain rejected below.
+            let covered = if source_entry.success
+                || !source_entry.l2ToL1Calls.is_empty()
+                || !source_entry.expectedL1ToL2Calls.is_empty()
+            {
+                source_cursor
+            } else {
+                l2_entries
+                    .iter()
+                    .enumerate()
+                    .map(|(index, candidate)| (index, candidate.borrow()))
+                    .find(|(index, candidate)| {
+                        !seen_sources[*index] && candidate.abi_encode() == source_entry.abi_encode()
+                    })
+                    .map_or(source_cursor, |(index, _)| index)
+            };
+            seen_sources[covered] = true;
             if source_entry.destinationRollupId != RollupId::MAINNET.0 {
                 return Err(ProtocolErrorKind::InvalidEncoding(format!(
                     "outbound L2 source entry {root_index} has inconsistent routing metadata",

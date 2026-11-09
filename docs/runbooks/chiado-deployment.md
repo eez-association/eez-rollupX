@@ -872,6 +872,10 @@ preserves signing domain 7 and the existing registered vkey, contracts and genes
 for deployments already within that baseline compatibility boundary. Its RPC
 identity is version 8: upgrade Composer, signer/prover and followers together,
 discard old sessions, and rebuild lookup requests with complete manager witnesses.
+Use the reviewed corrections described in the extension proposal: historical
+static observations and terminal failed retry slots retain their original bytes,
+and successful non-applying lookups with callbacks are rejected. A caller's
+predicted rollback does not authorize persistent L1 callback effects.
 Old followers cannot replay newly admitted shapes; downgrade after their canonical
 inclusion is unsupported. This does not establish a live migration from the old
 custom manager or an arbitrary earlier genesis.

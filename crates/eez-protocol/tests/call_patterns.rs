@@ -618,7 +618,7 @@ fn failed_root_retry_keeps_one_complete_source_group() {
         gas_used: 21_000,
     };
     let mut composition = materialize_actions(l2, vec![call.clone(), call]).unwrap();
-    assert_eq!(composition.source.batch.entries.len(), 1);
+    assert_eq!(composition.source.batch.entries.len(), 2);
     let host = &mut composition.targets[0];
     host.batch.entries[0].rootUpdates.push(RootUpdateSol {
         rollupId: l2.0,
@@ -643,7 +643,7 @@ fn failed_root_retry_keeps_one_complete_source_group() {
             [(sources.len(), false)].into_iter()
         )
         .unwrap(),
-        [1]
+        [2]
     );
 }
 
@@ -849,3 +849,12 @@ fn static_candidates_distinguish_local_state_by_callback_commitment() {
         .expect_err("same complete candidate commitment cannot authorize different outputs");
     assert!(error.to_string().contains("conflicting results"), "{error}");
 }
+
+#[path = "call_patterns/historical_static_replay.rs"]
+mod historical_static_replay;
+
+#[path = "call_patterns/rollback_value.rs"]
+mod rollback_value;
+
+#[path = "call_patterns/root_retry_callbacks.rs"]
+mod root_retry_callbacks;

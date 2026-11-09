@@ -179,9 +179,10 @@ pub(crate) fn materialize_batches(
             materializer.close_entry(entry_rollup_id, entry_index);
         }
     } else {
-        // One source slot per first matching mutable root, and one L1 host
-        // for every attempt. Failed calls and enclosing rollback scopes restore
-        // the cursor; static reads observe it without advancing it.
+        // One L1 host covers every attempt. Runtime cursor selection and
+        // serialized slot allocation are distinct: historical terminal failures
+        // retained a slot per attempt even when the runtime cursor rolled back.
+        // Static reads observe only the runtime cursor.
         let host_index = materializer.open_host_entry(RollupId::MAINNET, entry_rollup_id);
         for root in forest.roots {
             materializer.begin_region(root);
@@ -201,20 +202,38 @@ pub(crate) fn materialize_batches(
                             .skip(materializer.origin_cursor)
                             .find(|(_, entry)| entry.proxyEntryHash == hash)
                     });
-                let reused = existing.is_some();
-                let slot = if let Some((slot, previous)) = existing {
+                let selected = existing.map(|(slot, entry)| (slot, entry.clone()));
+                if let Some((_, previous)) = &selected {
                     if previous.success != call.outcome.is_success()
                         || Some(previous.returnData.as_ref()) != call.outcome.return_data()
                     {
-                        return Err(ProtocolErrorKind::InvalidEncoding(format!(
-                            "L2 source cursor slot {slot} is reused with a different outcome"
-                        ))
+                        return Err(ProtocolErrorKind::InvalidEncoding(
+                            "L2 source cursor is reused with a different outcome".into(),
+                        )
                         .into());
                     }
-                    slot
-                } else {
-                    materializer.push_entry(entry_rollup_id, hash, call.target_rollup_id, call)
-                };
+                }
+                let prior = selected.as_ref().map(|(slot, entry)| {
+                    (
+                        entry.clone(),
+                        materializer.outputs[&entry_rollup_id].traces[*slot].clone(),
+                    )
+                });
+                let slot = materializer
+                    .outputs
+                    .get(&entry_rollup_id)
+                    .and_then(|output| {
+                        output
+                            .entries
+                            .iter()
+                            .enumerate()
+                            .skip(materializer.next_source_slot)
+                            .find(|(_, entry)| entry.proxyEntryHash == hash)
+                            .map(|(slot, _)| slot)
+                    })
+                    .unwrap_or_else(|| {
+                        materializer.push_entry(entry_rollup_id, hash, call.target_rollup_id, call)
+                    });
                 // A restored cursor selects one reusable program. Rebuild this
                 // invocation, then compare it with the first rather than append
                 // its callbacks to the cached program.
@@ -222,18 +241,14 @@ pub(crate) fn materialize_batches(
                     .outputs
                     .get_mut(&entry_rollup_id)
                     .expect("source output");
-                let previous = reused.then(|| {
-                    let entry = output.entries[slot].clone();
-                    let trace = std::mem::take(&mut output.traces[slot]);
-                    output.entries[slot].l2ToL1Calls.clear();
-                    output.entries[slot].expectedL1ToL2Calls.clear();
-                    output.positions[slot] = ConstructionPosition::new(hash);
-                    (entry, trace)
-                });
+                output.entries[slot].l2ToL1Calls.clear();
+                output.entries[slot].expectedL1ToL2Calls.clear();
+                output.traces[slot] = EntryTrace::default();
+                output.positions[slot] = ConstructionPosition::new(hash);
                 materializer.install_context(entry_rollup_id, slot);
                 materializer.execute_call(root)?;
                 materializer.close_entry(entry_rollup_id, slot);
-                if let Some((entry, trace)) = previous {
+                if let Some((entry, trace)) = prior {
                     let output = &materializer.outputs[&entry_rollup_id];
                     if entry.abi_encode() != output.entries[slot].abi_encode()
                         || trace != output.traces[slot]
@@ -245,8 +260,19 @@ pub(crate) fn materialize_batches(
                     }
                 }
                 if call.outcome.is_success() {
-                    materializer.origin_cursor = slot + 1;
+                    materializer.origin_cursor =
+                        selected.map_or(slot, |(selected, _)| selected) + 1;
                 }
+                // The baseline serialized one slot per terminal failed attempt.
+                // Preserve those bytes independently of the VM cursor, which
+                // naturally rolls back. Newly supported failed callback programs
+                // reuse their slot. Explicit source scopes restore both cursors.
+                materializer.next_source_slot =
+                    if call.outcome.is_success() || materializer.children[root].is_empty() {
+                        slot + 1
+                    } else {
+                        slot
+                    };
             }
             materializer.close_region_at_subtree(root)?;
         }
@@ -727,6 +753,7 @@ struct ActiveRegion {
     saved_row_cursor: Option<usize>,
     saved_outbound_hash_count: usize,
     saved_origin_cursor: usize,
+    saved_source_slot: usize,
     first_calls: HashMap<CallArrayLocation, (usize, usize)>,
 }
 
@@ -741,6 +768,9 @@ struct Materializer<'a> {
     source_outbound_hashes: Vec<B256>,
     static_frames: HashMap<RollupId, Vec<(StaticFrame, StaticCallRollingHash)>>,
     origin_cursor: usize,
+    /// Serialization cursor; unlike the VM cursor, terminal failures consume
+    /// a historical slot. Explicit source rollback scopes restore both.
+    next_source_slot: usize,
 }
 
 /// The innermost pending read owns callbacks on its source chain. A pool read
@@ -769,6 +799,7 @@ impl<'a> Materializer<'a> {
             source_outbound_hashes: Vec::new(),
             static_frames: HashMap::new(),
             origin_cursor: 0,
+            next_source_slot: 0,
         }
     }
 
@@ -811,6 +842,7 @@ impl<'a> Materializer<'a> {
             saved_row_cursor,
             saved_outbound_hash_count: self.source_outbound_hashes.len(),
             saved_origin_cursor: self.origin_cursor,
+            saved_source_slot: self.next_source_slot,
             first_calls: HashMap::new(),
         });
     }
@@ -860,6 +892,7 @@ impl<'a> Materializer<'a> {
                 .truncate(region.saved_outbound_hash_count);
             if region.parent_index.is_none() {
                 self.origin_cursor = region.saved_origin_cursor;
+                self.next_source_slot = region.saved_source_slot;
             }
             if region.branched {
                 self.active

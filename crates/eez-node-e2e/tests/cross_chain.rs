@@ -2766,3 +2766,58 @@ async fn inbound_call_to_the_l2_manager_is_rejected() {
 async fn outbound_call_to_the_l1_manager_is_rejected() {
     assert_manager_destination_is_rejected(false).await;
 }
+
+/// A source-local catch does not turn discarded L2 execution into authority
+/// for an L1 callback. Exercise actual composition and assert its rejection.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn inbound_successful_lookup_with_callback_is_rejected() {
+    alloy_sol_types::sol! {
+        function catchBurnAndPingRevert(address probe, address driver);
+    }
+    let w = setup_cross_chain_overlay_round_trip().await.unwrap();
+    let nonce = onchain_nonce(&w.l1_rpc(), INBOUND_USER).await.unwrap();
+    let hash = sign_and_send(
+        &w.l1_xchain(),
+        INBOUND_USER,
+        DEV_CHAIN_ID,
+        nonce,
+        Some(w.driver),
+        U256::ZERO,
+        catchBurnAndPingRevertCall {
+            probe: w.probe_on_l1,
+            driver: w.driver_on_l2,
+        }
+        .abi_encode(),
+        OVERLAY_GAS,
+    )
+    .await
+    .unwrap();
+    let result = wait_for_receipt_or_failure(&w.node, &w.l1_rpc(), hash, SETTLE_TIMEOUT).await;
+    assert!(result.is_err(), "unsafe lookup must not settle: {result:?}");
+    let status: serde_json::Value = ProviderBuilder::new()
+        .connect_http(w.l1_xchain().parse().unwrap())
+        .client()
+        .request("eez_getCrossChainTransaction", (hash,))
+        .await
+        .unwrap();
+    assert_eq!(
+        status["ownership"]["reason"], "SimulationFailed",
+        "{status}"
+    );
+    assert!(
+        status["ownership"]["rejection"]["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("successful non-applying L1 roots with callbacks")),
+        "{status}"
+    );
+    assert_eq!(
+        onchain_nonce(&w.l1_rpc(), INBOUND_USER).await.unwrap(),
+        nonce
+    );
+    assert_eq!(
+        read_state_word(&w.l1_rpc(), &overlay_pings(&w))
+            .await
+            .unwrap(),
+        U256::ZERO
+    );
+}
