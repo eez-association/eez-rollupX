@@ -1,0 +1,18 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+solc = "0.8.34"
+optimizer = true
+optimizer_runs = 1
+via_ir = true
+auto_detect_remappings = false
+libs = ["../../eez-core-protocol", "../../eez-core-protocol/lib", "../../contracts"]
+remappings = [
+    "eez-core-protocol/=../../eez-core-protocol/",
+    "rollupx/=../../contracts/src/",
+    "forge-std/=../../eez-core-protocol/lib/forge-std/src/",
+    "@openzeppelin/contracts/=../../eez-core-protocol/lib/openzeppelin-contracts/contracts/",
+    "@openzeppelin/contracts-upgradeable/=../../eez-core-protocol/lib/openzeppelin-contracts-upgradeable/contracts/"
+]
+fs_permissions = [{access="read",path="../rollup-core-fixture-oracle"}]

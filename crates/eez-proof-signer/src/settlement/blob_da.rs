@@ -47,7 +47,7 @@ pub(crate) enum BlobDaError {
     Kzg(String),
 }
 
-/// Verify legacy fixtures with the default transaction blob limit.
+/// Verify unit fixtures with the default transaction blob limit.
 #[cfg(test)]
 pub(crate) fn verify_da_carrier(
     batch: &CanonicalPostBatch,

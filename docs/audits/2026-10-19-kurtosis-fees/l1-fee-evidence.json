@@ -1,0 +1,194 @@
+{
+  "enclave": "eez-pr54-fees-20261019",
+  "script": "testing/kurtosis/scripts/verify-l1-fees.mjs",
+  "result": "pass",
+  "full_evidence_local_only": "artifacts/pr54-fees/fee-exercises/l1.json",
+  "full_evidence_sha256": "fc5d399dd13b898b0c71b80ee05e44ec001a38ae7dc159f06306a386d2e6e6f6",
+  "safe_fixture": "Safe 1.4.1 with EOA owner; not a Falcon workload",
+  "underpayment_rejection": {
+    "error": {
+      "code": -32003,
+      "data": {
+        "code": "l1_tip_underfunded",
+        "details": {
+          "l1BlobPrice": "0x1",
+          "l1ExecutionPrice": "0x3b9ce826",
+          "l1PriorityFeePerGas": "0x3b9aca00",
+          "l1Sample": {
+            "hash": "0x9e0539f2d4deb9e0565ee14e70716a99ac8dde87cbbb3a5d1b87059c89789bf1",
+            "number": "0x42"
+          },
+          "l2Parent": {
+            "hash": "0x38151a111634837b0bb6b2d62fdeacab4d090d0eab828ebb0d7de71f6b44175d",
+            "number": "0x18c"
+          },
+          "offeredPayment": "0x0",
+          "paymentBasis": "gross_priority_payment",
+          "paymentChainId": "0x1ca3",
+          "reason": "settlement_fee",
+          "requiredPayment": "0xc61bfffa6197",
+          "scope": "source",
+          "shortfall": "0xc61bfffa6197",
+          "sourceBaseFeePerGas": "0x21e26",
+          "sourceGasUsed": "0x1cdf9"
+        },
+        "message": "signed L1 priority payment does not cover the configured refund tariff"
+      },
+      "message": "settlement tariff admission failed"
+    },
+    "id": 42,
+    "jsonrpc": "2.0"
+  },
+  "sources": [
+    {
+      "name": "nested-0x0",
+      "type": "0x0",
+      "hash": "0xc767dd952a20e1e30d897de788f8f2cbed34369ffd47866feacf367c3ed0ca92",
+      "postHash": "0x0210316737ab6422e904671e4f5d4da248323f9fcdc5a11bf77755ac83ab8782",
+      "payoutHash": "0x77f252170b3b5dc39465aec1530183732f3ed0693e041cc2d68e28c489370598",
+      "grossUserTipL1": "256720958878650",
+      "receivedRefundL1": "231045948400785",
+      "actualPostingCostL1": "175038290324132",
+      "minimumL1": "175038290324132",
+      "refundRecipient": "0x5555555555555555555555555555555555555555",
+      "surplusL1": "56007658076653",
+      "canonical_disposition": {
+        "canonical": {
+          "hash": "0x16d9ad9303b0e25c84c74eb1ece329ff9ea7b1f8ef84deb2aaac25f3191932e1",
+          "number": 67
+        },
+        "reason": "Committed",
+        "state": "terminal"
+      }
+    },
+    {
+      "name": "nested-0x2",
+      "type": "0x2",
+      "hash": "0x34ef2a82238b2b0d24d61f55aef958f1ff85a4329227176c302bb4296ed35ee9",
+      "postHash": "0x98c8b3c7efdcb7b897df2135bf89a0783a86f072291d0779875a9770c30ebeba",
+      "payoutHash": "0x53234cae81d02e10e805fd002773732a3da20d018090b8b44fd92e0a8d178678",
+      "grossUserTipL1": "256716558025315",
+      "receivedRefundL1": "231042347677783",
+      "actualPostingCostL1": "175035289709102",
+      "minimumL1": "175035289709102",
+      "refundRecipient": "0x5555555555555555555555555555555555555555",
+      "surplusL1": "56007057968681",
+      "canonical_disposition": {
+        "canonical": {
+          "hash": "0x6471cb781d5f703fe92a85488919180654ceac373b79dff9bcfe93eb868a6271",
+          "number": 68
+        },
+        "reason": "Committed",
+        "state": "terminal"
+      }
+    },
+    {
+      "name": "safe-create-0x0",
+      "type": "0x0",
+      "hash": "0x7f0b94c422d515a076f7e6e42a3eb6d99f334e0994539e1c192a7399f3cc07cf",
+      "postHash": "0x38abe841e891e0c411ec1afc48be426947d7e5ff259ad961ce06a140fad7a8b2",
+      "payoutHash": "0xc89f496f1de8b1c8bfeae34d59be262700f40eb34554d021353f1299ca45f905",
+      "grossUserTipL1": "258031759783259",
+      "receivedRefundL1": "232226867012933",
+      "actualPostingCostL1": "176022389137088",
+      "minimumL1": "176022389137088",
+      "refundRecipient": "0x5555555555555555555555555555555555555555",
+      "surplusL1": "56204477875845",
+      "canonical_disposition": {
+        "canonical": {
+          "hash": "0x5e9f900621eb2ef26d7b56254995ef98f53f1486d858cc6533215a5cc7799d5d",
+          "number": 71
+        },
+        "reason": "Committed",
+        "state": "terminal"
+      }
+    },
+    {
+      "name": "safe-create-0x2",
+      "type": "0x2",
+      "hash": "0x85b34e634cbb4f94d6f336a278ee5ab5391dd2de53df6ebd56a09ee23b3271f7",
+      "postHash": "0xbf941a2ed21a98980a6a49fb3be9722df2cdf45ea0c3d45295617780514a8404",
+      "payoutHash": "0xe073134aabcb2e936c5c76fe5e429cabed8cfc4521c5a2c263bd004c55bc5192",
+      "grossUserTipL1": "253704842266330",
+      "receivedRefundL1": "228332853494697",
+      "actualPostingCostL1": "172801379598977",
+      "minimumL1": "172801379598977",
+      "refundRecipient": "0x5555555555555555555555555555555555555555",
+      "surplusL1": "55531473895720",
+      "canonical_disposition": {
+        "canonical": {
+          "hash": "0x7f57af8befd62c1e8e4a2f2d4468d64472f2c1cb7f04dc649c430e98067c5925",
+          "number": 72
+        },
+        "reason": "Committed",
+        "state": "terminal"
+      }
+    }
+  ],
+  "batches": [
+    {
+      "postHash": "0x80f326172fb4dc0efe5bfcbb6f60c1767e6a3b7b2c63ce9d5e68672ac2a62659",
+      "payoutHash": "0x588e2655b3bac11ee54a22740aeef91a81f5d6bfa2c2ce92a59a332d774bc456",
+      "selectedPayer": "0xcf903fc0faf3d86dd07379269ccb55724e1cbffebad62fd900d9e6a059f5cac4",
+      "receivedRefundL1": "258266052083529",
+      "actualPostingCostL1": "481345508583672",
+      "shortfallL1": "223079456500143",
+      "surplusL1": "-223079456500143",
+      "expectedL2Value": "902",
+      "sources": [
+        {
+          "hash": "0x99d1d0e82cc5b7352a17475761b6766ef282512d86698693766d4bba5a2a4e13",
+          "type": "0x2",
+          "grossUserTipL1": "286962566331480"
+        },
+        {
+          "hash": "0xcf903fc0faf3d86dd07379269ccb55724e1cbffebad62fd900d9e6a059f5cac4",
+          "type": "0x0",
+          "grossUserTipL1": "286963031892810"
+        },
+        {
+          "hash": "0x005f23bca4d63c9cdc19b34fcbb3feabb91bed33ebf8946f9d05f631075a2dc2",
+          "type": "0x0",
+          "grossUserTipL1": "286947031332915"
+        },
+        {
+          "hash": "0x0a029ead65e613aee6f4a3df4900913cc1418922f1969a319446f82576c4a8f9",
+          "type": "0x2",
+          "grossUserTipL1": "286962566331480"
+        }
+      ]
+    },
+    {
+      "postHash": "0x5d608e367fa4c16bbabeaaf6ad86f1064db9648f18cc11214ff4e98d51e22faa",
+      "payoutHash": "0x9bb99b3e3dbdbca8e01bc3f2bfca2e5ab86aff962cd564fc9a54c5fb6055db82",
+      "selectedPayer": "0x6d0093178f8242805d00dbddb9d9efad38b5926fd9c6cf161033e648147c9ba1",
+      "receivedRefundL1": "230979151293960",
+      "actualPostingCostL1": "341987416309352",
+      "shortfallL1": "111008265015392",
+      "surplusL1": "-111008265015392",
+      "expectedL2Value": "907",
+      "sources": [
+        {
+          "hash": "0x6d0093178f8242805d00dbddb9d9efad38b5926fd9c6cf161033e648147c9ba1",
+          "type": "0x0",
+          "grossUserTipL1": "256644007444400"
+        },
+        {
+          "hash": "0x6a8a52cf626102130aae760493537b2d49c6a4885843e4394cc3fbd44201976e",
+          "type": "0x2",
+          "grossUserTipL1": "256627693677665"
+        },
+        {
+          "hash": "0x488fd3b6f23be3f4524f734872a560536d84e246ae6c508c5301097f0e45a00f",
+          "type": "0x2",
+          "grossUserTipL1": "256643694035230"
+        },
+        {
+          "hash": "0xaeb7cb60e47c2a4e4a7da37c0b69bd235b72f5d910fbc67c5a28c4f31e353212",
+          "type": "0x0",
+          "grossUserTipL1": "256644007444400"
+        }
+      ]
+    }
+  ]
+}

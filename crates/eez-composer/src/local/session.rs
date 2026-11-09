@@ -88,13 +88,16 @@ impl LocalExecutionSession {
     /// `cache` preloads in-flight state captured before a nested dispatch;
     /// `None` opens a fresh revm state. `overlay_channel` publishes cumulative
     /// state after execution so a suspended inspector can apply the diff.
+    /// A quote context pins both cold state reads and block opcodes. Reentrant
+    /// frames must not open `latest` after their source has begun. Normal
+    /// composition supplies no override and keeps its existing latest-state path.
     ///
     /// # Errors
     ///
     /// Returns [`ExecutorErrorKind::Provider`] if reading the latest
     /// block number or header fails, or if opening the state provider
     /// fails.
-    pub fn new(
+    pub(crate) fn new(
         provider: &ChainProvider,
         manager_address: Address,
         inspector_factory: Option<SessionInspectorFactory>,
@@ -209,10 +212,21 @@ impl LocalExecutionSession {
         let tx_env = self.build_tx_env(destination, calldata, value, source_address, source_rollup);
         let caller = tx_env.caller;
         let (return_data, gas_used, success, mut changes) = {
-            let mut evm = self
-                .evm_config
-                .evm_with_env(&mut self.state, self.evm_env.clone());
-            let result = evm.transact(tx_env).map_err(evm_err)?;
+            let inspector = crate::composer::quote_trace::inspect(
+                revm::inspector::NoOpInspector,
+                self.chain_id,
+                "composition",
+                &tx_env,
+            );
+            let tracing = inspector.is_capturing();
+            let mut evm = self.evm_config.evm_with_env_and_inspector(
+                &mut self.state,
+                self.evm_env.clone(),
+                inspector,
+            );
+            // Ordinary execution previously bypassed the inspection handler.
+            evm.set_inspector_enabled(tracing);
+            let result = evm.transact_funded_call(tx_env).map_err(evm_err)?;
             (
                 result.result.output().cloned().unwrap_or_default(),
                 result.result.tx_gas_used(),
@@ -243,12 +257,18 @@ impl LocalExecutionSession {
         let caller = tx_env.caller;
         let (return_data, gas_used, success, mut changes, inspector_error) = {
             let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
+            let traced = crate::composer::quote_trace::inspect(
+                traced,
+                self.chain_id,
+                "composition",
+                &tx_env,
+            );
             let mut evm = self.evm_config.evm_with_env_and_inspector(
                 &mut self.state,
                 self.evm_env.clone(),
                 traced,
             );
-            let result = evm.transact(tx_env).map_err(evm_err)?;
+            let result = evm.transact_funded_call(tx_env).map_err(evm_err)?;
             let output = result.result.output().cloned().unwrap_or_default();
             let gas_used = result.result.tx_gas_used();
             let success = result.result.is_success();
@@ -288,6 +308,12 @@ impl LocalExecutionSession {
             if let Some(factory) = self.inspector_factory.clone() {
                 let mut inspector = factory.build_static(dispatcher);
                 let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
+                let traced = crate::composer::quote_trace::inspect(
+                    traced,
+                    self.chain_id,
+                    "composition",
+                    &tx_env,
+                );
                 let mut evm = self.evm_config.evm_with_env_and_inspector(
                     &mut self.state,
                     self.evm_env.clone(),
@@ -302,6 +328,12 @@ impl LocalExecutionSession {
             } else {
                 let mut inspector = ForceStaticInspector;
                 let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
+                let traced = crate::composer::quote_trace::inspect(
+                    traced,
+                    self.chain_id,
+                    "composition",
+                    &tx_env,
+                );
                 let mut evm = self.evm_config.evm_with_env_and_inspector(
                     &mut self.state,
                     self.evm_env.clone(),
@@ -462,6 +494,11 @@ impl TargetExecutionSession for LocalExecutionSession {
     }
 
     fn checkpoint(&mut self) -> ExecutorResult<eez_protocol::SessionSnapshot> {
+        // A retained callback session may predate writes made by the resumed
+        // source. Refresh before saving the rollback point, while preserving
+        // cumulative sibling-callback state within the same dispatch frame.
+        self.overlay_channel
+            .refresh_before_reentry(&mut self.state.cache);
         // Synthetic target execution reads and writes through the cache. Keep
         // the exact pre-call cache so a source-frame revert can rewind this
         // chain before a later sibling dispatch observes it. Transition and
@@ -483,6 +520,9 @@ impl TargetExecutionSession for LocalExecutionSession {
 }
 
 pub(super) fn disable_checks(env: &mut reth_evm::EvmEnvFor<EezEvmConfig>) {
+    // Intercepted composition frames are calls, not charged L2 transactions.
+    // Only the separately executed native/user body distributes actual fees.
+    env.cfg_env.disable_fee_charge = true;
     env.cfg_env.disable_base_fee = true;
     env.cfg_env.disable_balance_check = true;
     env.cfg_env.disable_nonce_check = true;

@@ -1,0 +1,14 @@
+{
+  "observed_at_utc": "2026-10-10T12:01:42.518786+00:00",
+  "rpc": "https://ethereum-rpc.publicnode.com",
+  "scope": "Forty public mainnet blocks, searching direct value transfers preceding sender transactions; a match is an observational candidate, not evidence of a requested sponsorship agreement.",
+  "attempted_range": [
+    26161856,
+    26161895
+  ],
+  "attempted_blocks": 40,
+  "successfully_read_blocks": 0,
+  "result": "Every request returned HTTP 403 Forbidden; no historical funding evidence obtained.",
+  "raw_record_sha256": "35a575447a33b30830db059262d3e616a8420106cc5df355dbfc3b8ca69553d6",
+  "raw_record_availability": "Local only: /tmp/rollupx-builder-followup-20261010/historical-candidates.json"
+}

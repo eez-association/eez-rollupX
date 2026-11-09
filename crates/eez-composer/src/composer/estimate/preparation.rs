@@ -19,15 +19,7 @@ fn system_context(e: &GasEstimator) -> SystemTxContext {
         this_rollup_id: e.rollup_id,
     }
 }
-fn system_nonce(e: &GasEstimator, s: &Snapshot) -> Result<u64, EstimateError> {
-    e.l2.chain_provider()
-        .provider
-        .state_by_block_hash(s.l2_parent.hash())
-        .map_err(unavailable)?
-        .account_nonce(&eez_primitives::SYSTEM_ADDRESS)
-        .map(Option::unwrap_or_default)
-        .map_err(unavailable)
-}
+
 fn sidecars(c: &Composition, rid: u64) -> Result<Vec<InboundSidecar>, EstimateError> {
     c.targets
         .iter()
@@ -39,27 +31,20 @@ fn sidecars(c: &Composition, rid: u64) -> Result<Vec<InboundSidecar>, EstimateEr
 
 pub(super) fn outbound(
     e: &GasEstimator,
-    s: &Snapshot,
     c: &Composition,
     mut tx: TxEnv,
+    mut fork: crate::local::build::SyncBlockFork,
 ) -> Result<Probe, EstimateError> {
-    let callbacks = sidecars(c, e.rollup_id)?;
-    let counts = &c.source.callback_entry_counts;
-    if counts.len() != c.source.batch.entries.len()
-        || counts.iter().sum::<usize>() != callbacks.len()
-    {
-        return Err(unsupported("outbound callback partition"));
-    }
-    let mut cursor = 0;
-    let mut effects = Vec::new();
-    for (entry, count) in c.source.batch.entries.iter().zip(counts) {
-        let end = cursor + count;
-        effects.push(OutboundSyncEffect {
-            source_entry: OutboundSourceEntry::Mutable(entry.clone()),
-            callback_entries: callbacks[cursor..end].to_vec(),
-        });
-        cursor = end;
-    }
+    let mut effects = c
+        .source
+        .batch
+        .entries
+        .iter()
+        .cloned()
+        .map(|entry| OutboundSyncEffect {
+            source_entry: OutboundSourceEntry::Mutable(entry),
+        })
+        .collect::<Vec<_>>();
     effects.extend(
         c.source
             .l2_static_entries
@@ -67,7 +52,6 @@ pub(super) fn outbound(
             .cloned()
             .map(|entry| OutboundSyncEffect {
                 source_entry: OutboundSourceEntry::Static(entry),
-                callback_entries: vec![],
             }),
     );
     // The builder only carries these bytes through; unsigned execution below
@@ -76,14 +60,19 @@ pub(super) fn outbound(
         effects,
         user_tx: Bytes::new(),
     };
-    let pair = build_outbound_group(&group, &system_context(e), system_nonce(e, s)?)
-        .map_err(unsupported)?;
-    let mut draft = e.l2_draft(s)?;
-    let setup = draft.execute_tx(&pair.system_tx).map_err(unavailable)?;
+    // Unsigned advisory execution has no signed origin occurrence. This
+    // placeholder never enters a body, DA, proof request or settlement.
+    let pair = build_outbound_group(&group, &system_context(e)).map_err(unsupported)?;
+    let raw = fork
+        .encode_plan(
+            &eez_protocol::system_tx::PlannedTransaction::Native(pair.system_tx),
+            B256::ZERO,
+        )
+        .map_err(unavailable)?;
+    let setup = fork.execute_committed(&raw).map_err(unavailable)?;
     if !setup.success {
         return Err(unsupported("L2 table setup reverted"));
     }
-    let mut fork = draft.fork().map_err(unavailable)?;
     let mut observer = super::super::posting::EffectInspector::for_actions(
         e.l2.manager_address(),
         e.rollup_id,
@@ -100,23 +89,11 @@ pub(super) fn outbound(
     if !user.success {
         return Err(EstimateError::Revert(user.output));
     }
-    let mut logs = user.logs.clone();
-    for raw in &pair.followup_system_txs {
-        let output = fork
-            .execute_committed_inspected(raw, &mut observer)
-            .map_err(unavailable)?;
-        if !output.success {
-            return Err(EstimateError::Effects(
-                "L2 callback delivery reverted".into(),
-            ));
-        }
-        logs.extend(output.logs);
-    }
     observer
         .verify()
         .map_err(|e| EstimateError::Effects(e.to_string()))?;
     let observed =
-        eez_protocol::outbound_gate::observations_from_logs(&logs, e.l2.manager_address());
+        eez_protocol::outbound_gate::observations_from_logs(&user.logs, e.l2.manager_address());
     eez_protocol::outbound_gate::verify_expected_outbound_hashes(
         &c.source.outbound_event_hashes,
         &observed,
@@ -128,6 +105,13 @@ pub(super) fn outbound(
         source_gas: user.gas_used,
         output: user.output,
         actions: c.actions.clone(),
+        settlement: None,
+        post_required: 0,
+        post_limit: 0,
+        post_funding: None,
+        retained_l1: None,
+        retained_l2: Vec::new(),
+        retained_root: None,
     })
 }
 
@@ -137,10 +121,30 @@ pub(super) fn inbound(
     e: &GasEstimator,
     s: &Snapshot,
     c: &Composition,
-) -> Result<(eez_protocol::EvmBatch, B256), EstimateError> {
+    blob_hashes: &[B256],
+) -> Result<(eez_protocol::EvmBatch, B256, Vec<Bytes>, B256), EstimateError> {
     let sidecars = sidecars(c, e.rollup_id)?;
-    let txs = build_inbound_system_txs(&sidecars, &system_context(e), system_nonce(e, s)?)
-        .map_err(unsupported)?;
+    let source_context = eez_protocol::native_source::LiveSourceContext::new(
+        system_context(e).l2_chain_id,
+        s.l1.anchor.hash(),
+    )
+    .map_err(unsupported)?;
+    let semantics = eez_protocol::blob_semantics::SemanticTransaction {
+        origin_chain: RollupId::MAINNET,
+        tx_data: Bytes::new(),
+        actions: c.actions.clone(),
+    };
+    let actions = eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
+        &[semantics],
+        RollupId(e.rollup_id),
+        system_context(e).l2_chain_id,
+    )
+    .map_err(unsupported)?;
+    let plans = build_inbound_system_txs(&sidecars, &system_context(e))
+        .map_err(unsupported)?
+        .into_iter()
+        .map(eez_protocol::system_tx::PlannedTransaction::Native)
+        .collect::<Vec<_>>();
     let chain = e.l2.chain_provider();
     let mut hashes = crate::local::build::SyncPrefixHashes::new(
         chain.provider.as_ref(),
@@ -150,17 +154,21 @@ pub(super) fn inbound(
         s.l2_randao,
         e.recipient,
     );
-    let prefix = hashes.prefix(&[]).map_err(unavailable)?;
+    let prefix = hashes.prefix(&s.l2_prefix).map_err(unavailable)?;
+    let txs = e
+        .l2_draft(s)?
+        .prepare_transactions(
+            &plans,
+            &actions
+                .source_entries(&source_context)
+                .map_err(unsupported)?,
+        )
+        .map_err(|(_, error)| unavailable(error))?;
+    let mut full = s.l2_prefix.clone();
+    full.extend(txs.iter().cloned());
     let checkpoints = hashes
-        .at_positions(&txs, &(0..txs.len()).collect::<Vec<_>>())
+        .at_positions(&full, &(s.l2_prefix.len()..full.len()).collect::<Vec<_>>())
         .map_err(unavailable)?;
-    // Native hash construction does not by itself assert success.
-    let mut draft = e.l2_draft(s)?;
-    for tx in &txs {
-        if !draft.execute_tx(tx).map_err(unavailable)?.success {
-            return Err(unsupported("L2 delivery reverted"));
-        }
-    }
     let actions = eez_protocol::settlement::composition_fifo_actions(c).map_err(unsupported)?;
     let plan = eez_protocol::settlement::fifo_transaction_root_plan(prefix, &actions, &checkpoints)
         .map_err(unsupported)?;
@@ -239,8 +247,12 @@ pub(super) fn inbound(
         rollupId: e.rollup_id,
         proofSystemIndexes: vec![0],
     }];
-    batch.proofs = vec![Bytes::new()];
-    batch.blobIndices.clear();
+    batch.proofs = vec![if blob_hashes.is_empty() {
+        Bytes::new()
+    } else {
+        super::super::fees::settlement::placeholder_proof()
+    }];
+    batch.blobIndices = (0..blob_hashes.len()).map(U256::from).collect();
     let registry = read_call(
         e,
         s,
@@ -267,18 +279,32 @@ pub(super) fn inbound(
     let [vkey] = keys.as_slice() else {
         return Err(unsupported("single proof-system profile required"));
     };
-    let context = eez_protocol::public_inputs::L1PostingContext {
-        chain_id: s.l1_env.cfg_env.chain_id,
-        parent_number: s.l1.anchor.number,
-        parent_hash: s.l1.anchor.hash(),
-        target_timestamp: s.l1_attributes.timestamp,
-    };
-    let digests = eez_protocol::public_inputs::public_inputs_hashes(&batch, *vkey, context)
-        .map_err(unsupported)?;
+    batch.expectedRootPerRollup = vec![ExpectedRootPerRollupSol {
+        rollupId: e.rollup_id,
+        root: s.settled_root,
+    }];
+    let context = eez_protocol::l1_history::ProofContext::new(
+        U256::from(system_context(e).l2_chain_id),
+        e.rollup_id,
+        eez_protocol::l1_history::EvidenceAnchor::ActualParent {
+            number: s.l1.anchor.number,
+            hash: s.l1.anchor.hash(),
+            target_timestamp: s.l1_attributes.timestamp,
+        },
+        s.l1.anchor.timestamp,
+    )
+    .map_err(unsupported)?;
+    let digests = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
+        &batch,
+        *vkey,
+        blob_hashes,
+        context,
+    )
+    .map_err(unsupported)?;
     let [digest] = digests.as_slice() else {
         return Err(unsupported("single proof digest required"));
     };
-    Ok((batch, *digest))
+    Ok((batch, *digest, txs, live))
 }
 
 fn ether_delta(inflow: U256, outflow: U256) -> Result<EtherDeltaSol, EstimateError> {
@@ -319,6 +345,7 @@ fn read_call<C: SolCall>(
             chain_id: Some(chain_id),
             ..Default::default()
         },
+        None,
     )?;
     if !output.success {
         return Err(unsupported("deployment lookup reverted"));

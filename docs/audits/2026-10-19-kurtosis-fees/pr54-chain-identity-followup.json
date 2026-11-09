@@ -1,0 +1,32 @@
+{
+  "base": "5321d24464328899acbed9c85cf7fc43ece15f14",
+  "head": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+  "change": "Publish cached chain identities only after both endpoint pairs validate; retry partial initialization.",
+  "changed_files": [
+    "script/e2e/RPC.md",
+    "script/e2e/lib/network-links.sh",
+    "script/e2e/tests/test_network_links.py"
+  ],
+  "baseline": {
+    "test": "test_chain_identity_failure_retries_both_chains_before_using_links",
+    "tests": 1,
+    "failing_subcases": 6
+  },
+  "candidate": {
+    "module": "test_network_links.py",
+    "tests": 5,
+    "passed": 5
+  },
+  "fee_client_unchanged": true,
+  "live_run_remains_at_base": true,
+  "local_logs": [
+    {
+      "path": "artifacts/pr54-fees-v2/protocol-f46-links-baseline.log",
+      "sha256": "2341b29cc5cb6fc063dca5b26f718477bca6c5ab1e918b1cbb5e02fda397642b"
+    },
+    {
+      "path": "artifacts/pr54-fees-v2/protocol-f46-links-tests.log",
+      "sha256": "e5f532fa140bb52ddbbb545cc596948c4d3b9d609a326b85393968c6849d5d6a"
+    }
+  ]
+}

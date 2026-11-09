@@ -1,0 +1,67 @@
+{
+  "advisory_db": "21d909e4c8bd4e14c7aea58bf980c881a0053ab1",
+  "audits": [
+    {
+      "name": "before",
+      "exit": 1,
+      "sha256": "bcefd824a8380148ee95f6a5d2de84f99fcc45cf248b1ecf7a07786cc0656e50",
+      "vulnerabilities": [
+        "RUSTSEC-2026-0387"
+      ],
+      "warnings": {
+        "unmaintained": [
+          "RUSTSEC-2023-0089",
+          "RUSTSEC-2025-0141",
+          "RUSTSEC-2024-0388",
+          "RUSTSEC-2025-0119",
+          "RUSTSEC-2024-0436",
+          "RUSTSEC-2026-0173"
+        ],
+        "unsound": [
+          "RUSTSEC-2026-0253",
+          "RUSTSEC-2026-0386"
+        ],
+        "yanked": [
+          "yanked",
+          "yanked"
+        ]
+      }
+    },
+    {
+      "name": "after",
+      "exit": 1,
+      "sha256": "cba98433b5df00595875f99720a89784b35db3356f286c8384dd85be85b44464",
+      "vulnerabilities": [
+        "RUSTSEC-2026-0387"
+      ],
+      "warnings": {
+        "unmaintained": [
+          "RUSTSEC-2023-0089",
+          "RUSTSEC-2025-0141",
+          "RUSTSEC-2024-0388",
+          "RUSTSEC-2025-0119",
+          "RUSTSEC-2024-0436",
+          "RUSTSEC-2026-0173"
+        ],
+        "unsound": [
+          "RUSTSEC-2026-0253"
+        ],
+        "yanked": [
+          "yanked",
+          "yanked"
+        ]
+      }
+    }
+  ],
+  "deny": {
+    "command": "cargo deny --locked --offline check advisories bans sources",
+    "exit": 1,
+    "fatal_advisories": [
+      "RUSTSEC-2026-0387"
+    ]
+  },
+  "diagnostics": [
+    "Initial summary reader did not handle a null advisory on yanked warnings; raw audit outputs were valid and retained. Corrected reader only reparsed retained output.",
+    "Initial deny invocation used unsupported --disable-fetch; CLI exited 2 before checking. Corrected --offline invocation exited 1 on crypto-bigint."
+  ]
+}

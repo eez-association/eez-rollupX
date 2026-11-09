@@ -1,0 +1,97 @@
+{
+  "protocol_commit": "0264ab1be8986093ad786782e60a28f14103a0fd",
+  "suite": {
+    "discovered": 62,
+    "eligible": 34,
+    "selected": 3,
+    "excluded_from_all": [
+      "catchNestedRevertAfterCallback",
+      "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+      "catchRemoteRevertAfterCallback",
+      "catchNestedRevertAfterCallbackL2",
+      "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+      "catchRemoteRevertAfterCallbackL2",
+      "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+      "nestedRollbackRestoresInnerThenOuterStateL2",
+      "rollbackGroupWithStaticReadThenWriteL2",
+      "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+      "mutableCallMakesReadThatCallsBack",
+      "nestedStaticLocalWriteL2",
+      "staticLocalWrite",
+      "staticReadCallsBackAndReadsAgain",
+      "topLevelStaticReentrantMissingProxy",
+      "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+      "mutableCallMakesReadThatCallsBackL2",
+      "nestedStaticLocalWriteL1",
+      "staticLocalWriteL2",
+      "staticReadCallsBackAndReadsAgainL2",
+      "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+      "staticReadHandlesFailedCallbackL2",
+      "staticReadPropagatesFailedCallbackL2",
+      "staticReadThenCatchFailedWriteL2",
+      "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+      "staticReadThenRollbackWriteL2",
+      "staticReadThenWriteWithCallbackL2",
+      "topLevelStaticReentrantMissingProxyL2"
+    ],
+    "complete": false
+  },
+  "accounting": {
+    "valid": true,
+    "missing": [],
+    "duplicates": [],
+    "unexpected": []
+  },
+  "upstream_exit_status": 0,
+  "evidence_complete": true,
+  "causal_coverage": {
+    "complete": true,
+    "missing": [],
+    "paired": [
+      "bridge",
+      "counter-multi-tx",
+      "staticReadWriteL2"
+    ],
+    "no_destination_required": []
+  },
+  "semantic_blob_coverage": {
+    "complete": true,
+    "missing": [],
+    "authenticated": [
+      "bridge",
+      "counter-multi-tx",
+      "staticReadWriteL2"
+    ]
+  },
+  "passed": [
+    "bridge",
+    "counter-multi-tx",
+    "staticReadWriteL2"
+  ],
+  "failed": [],
+  "skipped": [],
+  "root_commit": "d6d4ef9fc29c3c9648c43b76944f76e8b32a0c29",
+  "scenarios": [
+    {
+      "scenario": "bridge",
+      "result": "PASS",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "7a7e41c1aa9085539ac9a65b6c89d8e94ba59900e11e334cfff0bcb80db15bc4"
+    },
+    {
+      "scenario": "counter-multi-tx",
+      "result": "PASS",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "3e82420f42293a68394bb0c435eb68c3859482b1b4f8c53ac855bd7979d175cc"
+    },
+    {
+      "scenario": "staticReadWriteL2",
+      "result": "PASS",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "32f269bee3b06555935c0cc0da3b0c1302e685a987a8cc40d66ab2700cf30219"
+    }
+  ]
+}

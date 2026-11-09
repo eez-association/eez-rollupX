@@ -30,13 +30,29 @@ impl SystemTransactionReconstructor {
         &self,
         outbound: &[OutboundSyncGroup],
         inbound: &[InboundSidecar],
-        starting_nonce: u64,
     ) -> Result<Vec<SyncPair>, String> {
-        eez_protocol::system_tx::build_cross_chain_sync_groups(
-            outbound,
-            inbound,
-            &self.context,
-            starting_nonce,
+        eez_protocol::system_tx::build_cross_chain_sync_groups(outbound, inbound, &self.context)
+    }
+
+    pub(super) fn source_entries(
+        &self,
+        transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
+        context: &eez_protocol::l1_history::ProofContext,
+    ) -> Result<Vec<eez_protocol::native_source::SourceEntry>, String> {
+        let live = context
+            .live_source_context()
+            .map_err(|error| error.to_string())?;
+        if context.rollup_id() != self.context.this_rollup_id {
+            return Err("native source context belongs to another rollup".into());
+        }
+        let actions = eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
+            transactions,
+            eez_protocol::RollupId(self.context.this_rollup_id),
+            self.context.l2_chain_id,
         )
+        .map_err(|error| error.to_string())?;
+        actions
+            .source_entries(&live)
+            .map_err(|error| error.to_string())
     }
 }

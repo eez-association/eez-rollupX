@@ -1,0 +1,81 @@
+{
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "source": "be8477bc7ba48d3f287d33cd6c010089458885ec",
+  "prepareWorkers": 200,
+  "quoteSendWorkers": 4,
+  "verifyWorkers": 16,
+  "fundingChunk": 300,
+  "canonicalDeadlineSeconds": 600,
+  "deploymentWaitSeconds": 600,
+  "sourceFeeMultiplier": "1",
+  "changesFromProtocolRunner": [
+    "Requote and sign each source with its own exact compact quote, alternating formats by job.",
+    "Require every job prepared before measured source submission.",
+    "Poll every source under one canonical whole-wave deadline without source replacement.",
+    "Retain all pinned semantic assertions; file-based Forge JSON transport avoids OS argument limits.",
+    "Configure a separate 600-second setup mining budget; the diagnostic interruption before timeout is recorded separately."
+  ],
+  "files": {
+    "workload.mjs": {
+      "sha256": "c7b0c3c4a38d7a97cff7627952548e195c536f96f0a28ae9e28cee6c71660c67",
+      "bytes": 15131
+    },
+    "staged.sh": {
+      "sha256": "6ee88aca31d10ec63d7a34299dd7621fd41584cb933caa42b98d66f510cf7470",
+      "bytes": 58537
+    },
+    "wrapper.sh": {
+      "sha256": "dba0827194a896c0bc8bfdf49efc7a75c9838043dc3b4e939c0b6a09b2c8c060",
+      "bytes": 12744
+    },
+    "falcon.mjs": {
+      "sha256": "f05a3157b2f9a74bc061445f954079cc8f5cdfcee6a622377898908462c8f0b1",
+      "bytes": 16036
+    },
+    "analyze.mjs": {
+      "sha256": "9c2a2ffd528a8dc2abea79b968d8cb8ab99b214e4e0cd3724a554bd173557807",
+      "bytes": 6570
+    },
+    "postchecks.mjs": {
+      "sha256": "0a596c7280c03f046cf2ff66245b5a02b62697dd1f9f51aae64f22227ea83118",
+      "bytes": 3751
+    },
+    "run-blobs.py": {
+      "sha256": "23f3dec5d33c0ca6ee1715452377486f53a4a625f829d6c7e6f611febba09574",
+      "bytes": 2776
+    },
+    "follower.py": {
+      "sha256": "fe60c2837cce5ba9e33d58ab212139737cf614233cdcc9e350da10f877706397",
+      "bytes": 5580
+    },
+    "run-live.sh": {
+      "sha256": "c61969868bdec47412a1387705a89138da66ec00d721c9b60f69b1a81a70a4c5",
+      "bytes": 1414
+    }
+  },
+  "availability": "local-only ignored artifact directory; private journals are not published",
+  "blobVerifierSha256": "da99270dabdd0f2c8f3b28c5bfcdac91506149955fd40c27cdc0867b0e4b88af",
+  "falconFundingGuard": {
+    "perActorWei": "6000000000000000",
+    "actors": 16,
+    "funderGasReserveWei": "1000000000000000",
+    "previousFunderGasReserveWei": "10000000000000000",
+    "reason": "Only the 16 plain L2 funding transfers are paid by this signer; actor-funded controller and Safe costs remain unchanged. Reserve exceeds 297 times current maximum funding-transaction gas cost.",
+    "measuredSourceFeeMultiplier": "1"
+  },
+  "falconSetupCorrection": {
+    "reason": "Speculative setup receipt followed by several latest-state reads crossed canonical reconciliation.",
+    "failedAt": 1792151266034,
+    "sourcesSigned": 0,
+    "all20SetupTransactionsCanonical": true,
+    "fundedGasAccountsReused": 10,
+    "remainingGasAccountsToFund": 6,
+    "freshFalconKeysAndControllers": 16,
+    "correction": "Wait for canonical L2 setup receipts and bind each controller state assertion to its receipt block.",
+    "runtimeChanged": false,
+    "beforeHarnessSha256": "c01f8c070b6102d350f751161103be3e833967aab077476720ae2df2cab89811",
+    "afterHarnessSha256": "f05a3157b2f9a74bc061445f954079cc8f5cdfcee6a622377898908462c8f0b1",
+    "setupStaging": "Canonical funding barrier, then canonical controller barrier with fixed receipt-block assertions.",
+    "secondPreparatoryRunIntentionallyStoppedBeforeSources": true
+  }
+}

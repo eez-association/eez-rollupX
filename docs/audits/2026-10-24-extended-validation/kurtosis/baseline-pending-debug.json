@@ -1,0 +1,51 @@
+{
+  "runtime_source": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+  "ci_run": 39776847137,
+  "transaction": {
+    "from": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+    "to": "0x7777777777777777777777777777777777777777",
+    "value": "0x1",
+    "input": "0x"
+  },
+  "broadcasts": 0,
+  "stable_parent": true,
+  "result": "pass",
+  "observed_at": "2026-10-24T17:48:55.071516+00:00",
+  "parent": {
+    "number": "0x152",
+    "hash": "0xf68c3e4a6646212208f031f45e0d58f90ed56919e041c6e71c9ea2d15826a15e",
+    "timestamp": "0x6adcef87",
+    "stateRoot": "0x3d904d7469ab269934a4a4b2c38461a67889c3f4a9dba02c1cf91473f7169691"
+  },
+  "debug_latest": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "failed": false,
+      "gas": 21000,
+      "returnValue": "0x",
+      "structLogs": []
+    }
+  },
+  "debug_pending": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "failed": false,
+      "gas": 21000,
+      "returnValue": "0x",
+      "structLogs": []
+    }
+  },
+  "eth_pending": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x"
+  },
+  "evidence": {
+    "path": "artifacts/extended-validation/baseline/pending-debug/comparison.json",
+    "sha256": "d190ea6cfc6e55eba16a2025b09f5c89072f618023d03493b0dd3221d8f2c207",
+    "availability": "local only"
+  },
+  "comparison": "Same transaction object as pending-debug.json; separate chain/genesis, first stable boundary sample, no broadcasts."
+}

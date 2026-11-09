@@ -35,8 +35,8 @@ grep -Fq '====== Done ======' "$SCENARIO_LOG" || die "upstream completion marker
 grep -Fq 'VERIFY_PASS reader.lastRead=1 reader.counter=1' "$SCENARIO_LOG" \
     || die "upstream reader state verification is absent"
 grep -Eq 'block: .*\(status: 0x1\)' "$SCENARIO_LOG" || die "successful trigger marker is absent"
-grep -Eq 'PASS: [1-9][0-9]* settlement tx\(s\) with BatchPosted in range' "$SCENARIO_LOG" \
-    || die "L1 settlement range proof is absent"
+# PR 56 can resolve exact settlement links without a range scan. The selected
+# settlement's canonical receipt, table and authenticated blob are checked below.
 grep -Fq 'PASS: posted batch calldata matches expected table' "$SCENARIO_LOG" \
     || die "posted L1 table was not field-matched"
 grep -Fq 'PASS: posted rolling hashes reproduced from posted roots' "$SCENARIO_LOG" \
@@ -57,16 +57,13 @@ if [[ "$SCENARIO" == topLevelStaticReentrantCounterL2 ]]; then
 fi
 
 tx_hash="$(sed -n -E 's/^tx:[[:space:]]*(0x[[:xdigit:]]{64}).*/\1/p' "$SCENARIO_LOG" | tail -1)"
-block_hex="$(sed -n -E 's/^block:[[:space:]]*(0x[[:xdigit:]]+)[[:space:]]+\(status: 0x1\).*/\1/p' "$SCENARIO_LOG" | tail -1)"
 settlement_hash="$(sed -n -E 's/^Matched settlement tx (0x[[:xdigit:]]{64}).*/\1/p' "$SCENARIO_LOG" | tail -1)"
 # The scenario deploys CounterL1 and increments it once. ComputeExpected's
 # verbose table is printed only on failure, so it is not a source for this check.
 expected_return="$(cast abi-encode 'f(uint256)' 1)"
 [[ "$tx_hash" =~ ^0x[[:xdigit:]]{64}$ ]] || die "invalid trigger transaction hash"
-[[ "$block_hex" =~ ^0x[[:xdigit:]]+$ ]] || die "invalid trigger block"
 [[ "$settlement_hash" =~ ^0x[[:xdigit:]]{64}$ ]] || die "invalid settlement transaction hash"
 [[ "$expected_return" =~ ^0x[[:xdigit:]]+$ ]] || die "invalid expected return data"
-block_number="$(cast to-dec "$block_hex")"
 predicted_value="$(cast to-dec "$expected_return")"
 zero_hash="0x$(printf '%064d' 0)"
 expected_rolling_hash="$zero_hash"
@@ -79,8 +76,11 @@ fi
 trigger_receipt="$(cast rpc eth_getTransactionReceipt "$tx_hash" --rpc-url "$L2_RPC")"
 trigger_tx="$(cast rpc eth_getTransactionByHash "$tx_hash" --rpc-url "$L2_RPC")"
 [[ "$(jq -r '.status' <<<"$trigger_receipt")" == "0x1" ]] || die "trigger reverted"
-[[ "$(jq -r '.blockNumber' <<<"$trigger_receipt")" == "$block_hex" ]] \
-    || die "trigger receipt block differs from the upstream log"
+# The early confirmation log can precede speculative replay. Select the current
+# receipt's block and validate its full canonical identity below.
+block_hex="$(jq -er '.blockNumber' <<<"$trigger_receipt")"
+[[ "$block_hex" =~ ^0x[[:xdigit:]]+$ ]] || die "invalid trigger receipt block"
+block_number="$(cast to-dec "$block_hex")"
 [[ "$(jq -r '.to | ascii_downcase' <<<"$trigger_tx")" == "${reader_l2,,}" ]] \
     || die "trigger target differs from READER_L2"
 increment_selector="$(cast sig 'increment()')"

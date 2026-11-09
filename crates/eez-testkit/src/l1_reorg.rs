@@ -77,8 +77,14 @@ impl L1ReorgControl {
         ]
     }
 
-    pub(super) async fn start(&mut self, cfg: &CrossChainConfig) -> Result<()> {
+    pub(super) async fn start(
+        &mut self,
+        cfg: &CrossChainConfig,
+        history_end: Option<u64>,
+    ) -> Result<()> {
         let log = std::fs::File::create(&self.log_path)?;
+        let history_args = history_end
+            .map(|timestamp| ["--replay-history-until".to_owned(), timestamp.to_string()]);
         self.child = Some(
             Command::new("python3")
                 .arg(repo_root().join("scripts/native-l1-consensus.py"))
@@ -98,6 +104,7 @@ impl L1ReorgControl {
                     "--block-seconds",
                     &(super::CROSS_CHAIN_L1_BLOCK_TIME_MS / 1000).to_string(),
                 ])
+                .args(history_args.into_iter().flatten())
                 .stderr(Stdio::from(log.try_clone()?))
                 .stdout(Stdio::from(log))
                 .spawn()
@@ -109,6 +116,30 @@ impl L1ReorgControl {
         })
         .await
         .with_context(|| format!("L1 consensus startup: {}", self.diagnostics()))?;
+        self.check_running()?;
+        if let Some(end) = history_end {
+            let complete = self.control.path().join("history-ready.json");
+            // The dense-history tests already allow this bounded replay window.
+            // Startup and transaction-receipt deadlines remain unchanged.
+            wait_for(Duration::from_mins(90), || {
+                let running = self.check_running();
+                let complete = complete.exists();
+                async move {
+                    running?;
+                    Ok(complete.then_some(()))
+                }
+            })
+            .await
+            .with_context(|| format!("L1 history preparation: {}", self.diagnostics()))?;
+            let checkpoint: Value = serde_json::from_slice(&std::fs::read(complete)?)?;
+            let expected_number =
+                (end - cfg.genesis_time) / (super::CROSS_CHAIN_L1_BLOCK_TIME_MS / 1000);
+            ensure!(
+                checkpoint["timestamp"] == format!("{end:#x}")
+                    && checkpoint["number"] == format!("{expected_number:#x}"),
+                "L1 history checkpoint does not match the requested interval"
+            );
+        }
         self.check_running()
     }
 

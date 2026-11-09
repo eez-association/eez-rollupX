@@ -244,7 +244,9 @@ L2 call exec: {other["hash"]}
             original_log = log.read_text()
             successes = {"pass", "outbound-without-call-search", "outbound-replayed",
                          "settlement-summary-hint", "outbound-receipt-snapshot", "split",
-                         "oversize-evidence"}
+                         "oversize-evidence", "linked-delivery", "outbound-linked-load", "split-linked",
+                         "refusal-recovered", "outbound-refusal-recovered", "split-refusal-recovered",
+                         "refusal-quote-busy", "refusal-stale-context"}
             failures = {
                 "orphan": "differs from the canonical block",
                 "causal_failure": "independent trigger/table/event causal verification failed",
@@ -264,6 +266,17 @@ L2 call exec: {other["hash"]}
                 "split-wrong-registry": "postBatch transaction target differs",
                 "split-blob-failure": "settlement blob semantic verification failed",
                 "split-uncovered-trigger": "settlements do not uniquely cover trigger blocks",
+                "refusal-unrelated-error": "upstream log contains an unreconciled ERROR",
+                "refusal-underfunded": "upstream log contains an unreconciled ERROR",
+                "refusal-malformed": "upstream log contains an unreconciled ERROR",
+                "refusal-lookup": "lookup collector cannot reconcile submission errors",
+                "refusal-unaccounted": "refused transaction is not a verified scenario trigger",
+                "refusal-wrong-chain": "refused transaction chain/nonce differs from canonical inclusion",
+                "refusal-wrong-nonce": "refused transaction chain/nonce differs from canonical inclusion",
+                "refusal-reverted": "reverted",
+                "refusal-orphan": "is absent from its canonical block",
+                "refusal-causal-failure": "independent trigger/table/event causal verification failed",
+                "refusal-blob-failure": "settlement blob semantic verification failed",
             }
             for case in (*sorted(successes), *failures):
                 with self.subTest(case=case):
@@ -304,6 +317,12 @@ L2 call exec: {other["hash"]}
                         split_log = split_log.replace('L2 blocks to verify: [16]', 'L2 blocks to verify: [16, 17]')
                         split_log += f'User tx[2]: {trigger2["hash"]} (block 16)\nUser tx[3]: {trigger3["hash"]} (block 17)\n'
                         split_log += ''.join(f'Matched settlement tx {h}\n' for h in matches)
+                        if case == "split-linked":
+                            split_log = split_log.replace('L2 loadTable:', 'L2 delivery (load+execute):')
+                            split_log += f'L1 postBatch: {post2["hash"]} (block 17)\n'
+                            split_log += f'L2 delivery (load+execute): {wanted3["hash"]} (block 17)\n'
+                            split_log = '\n'.join(line for line in split_log.splitlines()
+                                                  if not line.startswith('Matched settlement tx ')) + '\n'
                         log.write_text(split_log)
                         if case == "split-orphan": current["receipts"][post2["hash"]]["blockHash"] = word(999)
                         if case == "split-wrong-registry": post2["to"] = "0x" + "88" * 20
@@ -326,6 +345,10 @@ L2 call exec: {other["hash"]}
                             blockHash=block["hash"], transactionIndex="0x2")
                     if case == "outbound-without-call-search":
                         log.write_text(original_log.replace("L2 blocks to verify: [16]\n", ""))
+                    if case == "linked-delivery":
+                        log.write_text(original_log.replace('L2 loadTable:', 'L2 delivery (load+execute):'))
+                    if case == "outbound-linked-load":
+                        log.write_text(original_log.replace('L2 loadTable:', 'L2 system table load:'))
                     if case == "outbound-receipt-snapshot":
                         current["single_receipt_read"] = True
                     if case in ("outbound-replayed", "l1-trigger-moved"):
@@ -363,9 +386,33 @@ L2 call exec: {other["hash"]}
                         current["receipts"][post["hash"]]["blockHash"] = word(999)
                     if case == "settlement-reorg-during-collection":
                         current["recheck_hash"] = {"l1": word(999)}
+                    if "refusal" in case:
+                        refused = current.get("trigger_hashes", [trigger["hash"]])[-1]
+                        current["transactions"][refused].update(chainId="0x1ca3", nonce="0x4")
+                        for chain_blocks in current["blocks"].values():
+                            for block in chain_blocks.values():
+                                for tx in block["transactions"]:
+                                    if tx["hash"] == refused:
+                                        tx.update(chainId="0x1ca3", nonce="0x4")
+                        reported_hash = word(999) if case == "refusal-unaccounted" else refused
+                        chain = 7332 if case == "refusal-wrong-chain" else 7331
+                        nonce = 5 if case == "refusal-wrong-nonce" else 4
+                        diagnostic = (f"ERROR: submission refused (reconciliation) chain={chain} "
+                                      f"nonce={nonce} hash={reported_hash}: ERROR: eth_sendRawTransaction failed\n")
+                        reason = {"refusal-quote-busy": "quote_busy", "refusal-stale-context": "stale_context",
+                                  "refusal-underfunded": "l2_tip_underfunded"}.get(case, "reconciliation")
+                        diagnostic = diagnostic.replace("(reconciliation)", f"({reason})")
+                        if case == "refusal-unrelated-error": diagnostic += "ERROR: semantic verification failed\n"
+                        if case == "refusal-malformed": diagnostic = diagnostic.replace(reported_hash, "0x12")
+                        if case == "refusal-reverted": current["receipts"][refused]["status"] = "0x0"
+                        if case == "refusal-orphan": current["receipts"][refused]["blockHash"] = word(999)
+                        if case == "refusal-causal-failure": current["causal_failure"] = True
+                        if case == "refusal-blob-failure": current["blob_failure"] = True
+                        log.write_text(diagnostic + log.read_text())
                     fixture_path.write_text(json.dumps(current))
                     output = root / (case + ".json")
-                    result = subprocess.run(["bash", str(collector), "counter", str(scenario), str(log), str(output)],
+                    scenario_name = "staticCounterL2" if case == "refusal-lookup" else "counter"
+                    result = subprocess.run(["bash", str(collector), scenario_name, str(scenario), str(log), str(output)],
                                             env=env, capture_output=True, text=True, timeout=30)
                     if case in successes:
                         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -373,7 +420,10 @@ L2 call exec: {other["hash"]}
                         self.assertEqual([t["hash"] for t in evidence["system_transactions"]],
                                          [t["hash"] for t in current.get("wanted_txs", [wanted])])
                         self.assertEqual(evidence["source_log"]["upstream_first_table_hash"], other["hash"])
-                        if case == "split":
+                        if "refusal" in case:
+                            self.assertEqual(evidence["source_log"]["reconciled_submissions"],
+                                             [dict(chain_id="7331", nonce="4", hash=refused)])
+                        if case in ("split", "split-linked"):
                             self.assertEqual([t["hash"] for t in evidence["settlement_transactions"]], current["post_hashes"])
                             blobs = evidence["blob_da"]["settlements"]
                             self.assertTrue(evidence["blob_da"]["verified"])
@@ -391,6 +441,54 @@ L2 call exec: {other["hash"]}
                         self.assertNotEqual(result.returncode, 0)
                         self.assertIn(failures[case], result.stderr)
                         self.assertFalse(output.exists())
+
+
+class BlobSmokeSummaryTest(unittest.TestCase):
+    def test_large_backlog_keeps_every_batch_and_correlation(self):
+        # Exercise the real final assembly with evidence larger than Linux's
+        # per-argument limit. This does not broadcast or mock protocol checks.
+        script = (REPO / "testing/kurtosis/scripts/verify-blob-da.sh").read_text()
+        assembly = script[script.index("\nbatches_"):script.index(
+            '\necho "==> blob DA smoke test passed"')]
+        with tempfile.TemporaryDirectory(prefix="eez-blob-summary.") as temporary:
+            root = Path(temporary)
+            batches = [dict(verified=True, l1_transaction_hash=word(n),
+                            payload=dict(block_count=24, evidence="x" * 150_000))
+                       for n in (1, 2)]
+            for n, batch in enumerate(batches):
+                (root / f"batch{n}.json").write_text(json.dumps(batch))
+            correlation = [dict(l2_transaction=word(3), l2_to_l1=dict(
+                l1TransactionHash=word(1), complete_evidence="y" * 300_000))]
+            (root / "correlation-input.json").write_text(json.dumps(correlation))
+            setup = r'''
+set -euo pipefail
+RUN_DIR="$1"
+temp_dir="$1"
+verified_batch_files=("$1/batch0.json" "$1/batch1.json")
+correlation_evidence="$(cat "$1/correlation-input.json")"
+ENCLAVE=test
+sender=sender
+counter=counter
+deploy_hash=deploy
+increment_hash=increment
+add_hash=add
+safe_block_hash=settled
+registry_root=settled
+ROLLUP_ID=1
+safe_number=48
+safe_count=42
+expected_hashes=(deploy increment add)
+declare -A covered_by=([deploy]=batch0 [increment]=batch1 [add]=batch1)
+'''
+            result = subprocess.run(["bash", "-c", setup + assembly, "summary", str(root)],
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            summary = json.loads((root / "summary.json").read_text())
+            self.assertTrue(summary["verified"])
+            self.assertEqual(summary["verified_blob_batches"], batches)
+            self.assertEqual(summary["correlation_rpc"], correlation)
+            self.assertEqual(summary["l2_transaction_to_l1_blob_batch"],
+                             dict(deploy="batch0", increment="batch1", add="batch1"))
 
 
 if __name__ == "__main__":

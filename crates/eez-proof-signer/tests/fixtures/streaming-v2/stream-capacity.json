@@ -1,0 +1,251 @@
+{
+  "authority": "Input-side construction; native capture or derived ordinary subrange, never response-derived expectations",
+  "case": "stream-capacity",
+  "category": "offline-v2",
+  "events": [
+    {
+      "check": "Begin exact native predecessor",
+      "direction": "client",
+      "protobuf_hex": "1001224608011a20f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87222020c6a4552498d0244fc29db22fb7edcba5729c14ac0f37b1d0b666b8cb929e79",
+      "transport": 0
+    },
+    {
+      "check": "Ready exact cursor and binding",
+      "direction": "server",
+      "protobuf_hex": "0a2001010101010101010101010101010101010101010101010101010101010101011001180122221220f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87",
+      "transport": 0
+    },
+    {
+      "check": "Begin exact native predecessor",
+      "direction": "client",
+      "protobuf_hex": "1002224608011a20f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87222020c6a4552498d0244fc29db22fb7edcba5729c14ac0f37b1d0b666b8cb929e79",
+      "transport": 1
+    },
+    {
+      "check": "Ready exact cursor and binding",
+      "direction": "server",
+      "protobuf_hex": "0a2002020202020202020202020202020202020202020202020202020202020202021002180122221220f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87",
+      "transport": 1
+    },
+    {
+      "check": "Begin exact native predecessor",
+      "direction": "client",
+      "protobuf_hex": "1003224608011a20f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87222020c6a4552498d0244fc29db22fb7edcba5729c14ac0f37b1d0b666b8cb929e79",
+      "transport": 2
+    },
+    {
+      "check": "Ready exact cursor and binding",
+      "direction": "server",
+      "protobuf_hex": "0a2003030303030303030303030303030303030303030303030303030303030303031003180122221220f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87",
+      "transport": 2
+    },
+    {
+      "check": "Begin exact native predecessor",
+      "direction": "client",
+      "protobuf_hex": "1004224608011a20f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87222020c6a4552498d0244fc29db22fb7edcba5729c14ac0f37b1d0b666b8cb929e79",
+      "transport": 3
+    },
+    {
+      "check": "Ready exact cursor and binding",
+      "direction": "server",
+      "protobuf_hex": "0a2004040404040404040404040404040404040404040404040404040404040404041004180122221220f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87",
+      "transport": 3
+    },
+    {
+      "check": "Begin exact native predecessor",
+      "direction": "client",
+      "protobuf_hex": "1005224608011a20f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87222020c6a4552498d0244fc29db22fb7edcba5729c14ac0f37b1d0b666b8cb929e79",
+      "transport": 4
+    },
+    {
+      "check": "Ready exact cursor and binding",
+      "direction": "server",
+      "protobuf_hex": "0a2005050505050505050505050505050505050505050505050505050505050505051005180122221220f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87",
+      "transport": 4
+    },
+    {
+      "check": "Begin exact native predecessor",
+      "direction": "client",
+      "protobuf_hex": "1006224608011a20f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87222020c6a4552498d0244fc29db22fb7edcba5729c14ac0f37b1d0b666b8cb929e79",
+      "transport": 5
+    },
+    {
+      "check": "Ready exact cursor and binding",
+      "direction": "server",
+      "protobuf_hex": "0a2006060606060606060606060606060606060606060606060606060606060606061006180122221220f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87",
+      "transport": 5
+    },
+    {
+      "check": "Begin exact native predecessor",
+      "direction": "client",
+      "protobuf_hex": "1007224608011a20f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87222020c6a4552498d0244fc29db22fb7edcba5729c14ac0f37b1d0b666b8cb929e79",
+      "transport": 6
+    },
+    {
+      "check": "Ready exact cursor and binding",
+      "direction": "server",
+      "protobuf_hex": "0a2007070707070707070707070707070707070707070707070707070707070707071007180122221220f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87",
+      "transport": 6
+    },
+    {
+      "check": "Begin exact native predecessor",
+      "direction": "client",
+      "protobuf_hex": "1008224608011a20f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87222020c6a4552498d0244fc29db22fb7edcba5729c14ac0f37b1d0b666b8cb929e79",
+      "transport": 7
+    },
+    {
+      "check": "Ready exact cursor and binding",
+      "direction": "server",
+      "protobuf_hex": "0a2008080808080808080808080808080808080808080808080808080808080808081008180122221220f5f7e56b27fbf44771ac5370f581fdfe66e17fd6211e63f16985e2e3055a4d87",
+      "transport": 7
+    },
+    {
+      "check": "Ninth stream exceeds eight-stream capacity",
+      "code": 8,
+      "direction": "rpc_open_error",
+      "transport": 8
+    },
+    {
+      "check": "Cancel bound session only",
+      "direction": "client",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100918014a00",
+      "transport": 0
+    },
+    {
+      "check": "Cancelled retires this session",
+      "direction": "server",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100918013a00",
+      "transport": 0
+    },
+    {
+      "direction": "eof",
+      "transport": 0
+    },
+    {
+      "check": "Cancel bound session only",
+      "direction": "client",
+      "protobuf_hex": "0a200202020202020202020202020202020202020202020202020202020202020202100a18014a00",
+      "transport": 1
+    },
+    {
+      "check": "Cancelled retires this session",
+      "direction": "server",
+      "protobuf_hex": "0a200202020202020202020202020202020202020202020202020202020202020202100a18013a00",
+      "transport": 1
+    },
+    {
+      "direction": "eof",
+      "transport": 1
+    },
+    {
+      "check": "Cancel bound session only",
+      "direction": "client",
+      "protobuf_hex": "0a200303030303030303030303030303030303030303030303030303030303030303100b18014a00",
+      "transport": 2
+    },
+    {
+      "check": "Cancelled retires this session",
+      "direction": "server",
+      "protobuf_hex": "0a200303030303030303030303030303030303030303030303030303030303030303100b18013a00",
+      "transport": 2
+    },
+    {
+      "direction": "eof",
+      "transport": 2
+    },
+    {
+      "check": "Cancel bound session only",
+      "direction": "client",
+      "protobuf_hex": "0a200404040404040404040404040404040404040404040404040404040404040404100c18014a00",
+      "transport": 3
+    },
+    {
+      "check": "Cancelled retires this session",
+      "direction": "server",
+      "protobuf_hex": "0a200404040404040404040404040404040404040404040404040404040404040404100c18013a00",
+      "transport": 3
+    },
+    {
+      "direction": "eof",
+      "transport": 3
+    },
+    {
+      "check": "Cancel bound session only",
+      "direction": "client",
+      "protobuf_hex": "0a200505050505050505050505050505050505050505050505050505050505050505100d18014a00",
+      "transport": 4
+    },
+    {
+      "check": "Cancelled retires this session",
+      "direction": "server",
+      "protobuf_hex": "0a200505050505050505050505050505050505050505050505050505050505050505100d18013a00",
+      "transport": 4
+    },
+    {
+      "direction": "eof",
+      "transport": 4
+    },
+    {
+      "check": "Cancel bound session only",
+      "direction": "client",
+      "protobuf_hex": "0a200606060606060606060606060606060606060606060606060606060606060606100e18014a00",
+      "transport": 5
+    },
+    {
+      "check": "Cancelled retires this session",
+      "direction": "server",
+      "protobuf_hex": "0a200606060606060606060606060606060606060606060606060606060606060606100e18013a00",
+      "transport": 5
+    },
+    {
+      "direction": "eof",
+      "transport": 5
+    },
+    {
+      "check": "Cancel bound session only",
+      "direction": "client",
+      "protobuf_hex": "0a200707070707070707070707070707070707070707070707070707070707070707100f18014a00",
+      "transport": 6
+    },
+    {
+      "check": "Cancelled retires this session",
+      "direction": "server",
+      "protobuf_hex": "0a200707070707070707070707070707070707070707070707070707070707070707100f18013a00",
+      "transport": 6
+    },
+    {
+      "direction": "eof",
+      "transport": 6
+    },
+    {
+      "check": "Cancel bound session only",
+      "direction": "client",
+      "protobuf_hex": "0a200808080808080808080808080808080808080808080808080808080808080808101018014a00",
+      "transport": 7
+    },
+    {
+      "check": "Cancelled retires this session",
+      "direction": "server",
+      "protobuf_hex": "0a200808080808080808080808080808080808080808080808080808080808080808101018013a00",
+      "transport": 7
+    },
+    {
+      "direction": "eof",
+      "transport": 7
+    }
+  ],
+  "expected_proofs": 0,
+  "fixture": "native-offline-bidirectional",
+  "format": 2,
+  "normalization": "Distinct session tokens and monotonic epochs rebound; diagnostic wording/reused omitted",
+  "oracle": {
+    "attester": "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc"
+  },
+  "server_profile": {
+    "max_window_blocks": 4096,
+    "max_window_bytes": 16777216,
+    "max_window_witness_items": 100000,
+    "request_timeout_secs": 120,
+    "stream_idle_timeout_secs": 30
+  }
+}

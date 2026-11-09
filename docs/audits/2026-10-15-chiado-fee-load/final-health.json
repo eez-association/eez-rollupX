@@ -1,0 +1,87 @@
+{
+  "at": "2026-10-15T20:58:50Z",
+  "runtimeUnchanged": true,
+  "runtime": [
+    {
+      "name": "/eez-node-chiado",
+      "id": "63bc57e5784f06b5f2290d35ce63c725bb598f94f3ba6db1c42f12345664ff13",
+      "image": "sha256:712c027cd6ee482adb449d53783dc75353e5feca2b0d8ab50962875a0d5cac09",
+      "started": "2026-10-15T19:56:45.549197975Z",
+      "restarts": 0,
+      "running": true,
+      "source": "b2a82536e87d2543ce9839eb3ba15a9ceefdaefc",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f"
+    },
+    {
+      "name": "/eez-proof-signer-chiado",
+      "id": "f9aa1f163a1b5bc38247a0c9fcfb285f5fbc52e66719d0b3bc8802be5c525116",
+      "image": "sha256:00cdbf0a414b3bfeaaf028c38901d84c7286fbae778cffc2d60c9d6687303250",
+      "started": "2026-10-15T19:56:39.960352201Z",
+      "restarts": 0,
+      "running": true,
+      "source": "b2a82536e87d2543ce9839eb3ba15a9ceefdaefc",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f"
+    }
+  ],
+  "queue": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": 1792097372262,
+    "inFlight": 0,
+    "lastCanonicalCompletion": {
+      "l1Block": {
+        "hash": "0xafe844a2416a28d54d1c6a9406f5616512399d86a54cc15c81fec3ef6313d32f",
+        "number": 23537665
+      },
+      "observedAtMs": 1792097376003
+    },
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": {
+      "l1": {
+        "hash": "0x074bf734464a375571e63ca9b27624b636caf00730324b28f878a23e731e07f8",
+        "number": 23537664
+      },
+      "l2": {
+        "hash": "0xe21d3f7efb77b6cdf80844e5ca81ee575b89a86a1306d3832780558b26b3084a",
+        "number": 703794
+      }
+    },
+    "unknown": 0
+  },
+  "beacon": {
+    "is_syncing": false,
+    "is_optimistic": false,
+    "el_offline": false,
+    "head_slot": "25340325",
+    "sync_distance": "0"
+  },
+  "l1": {
+    "number": "0x1672863",
+    "hash": "0xee69b1f2a2f0ba4f133b6d77655a1baaafe2f10781b0c5348f6b2beea7b4e91c",
+    "timestamp": "0x6ad13e85"
+  },
+  "independentL1": {
+    "number": "0x1672863",
+    "hash": "0xee69b1f2a2f0ba4f133b6d77655a1baaafe2f10781b0c5348f6b2beea7b4e91c",
+    "timestamp": "0x6ad13e85"
+  },
+  "l2": {
+    "number": "0xabf5e",
+    "hash": "0xb17de8de7ed1b1ccfadc236df43d62c2fb164c303f4863aeac7f2aca86a43f99",
+    "timestamp": "0x6ad13e8a"
+  },
+  "preliminaryHealthCheck": {
+    "assertion": "sync_distance == 0",
+    "observed": {
+      "head_slot": "25340321",
+      "sync_distance": "1",
+      "is_syncing": false,
+      "is_optimistic": false,
+      "el_offline": false
+    },
+    "note": "The preliminary checker required zero distance at an arbitrary instant. This retained resample also checks fresh L1 and independent canonical hash agreement."
+  }
+}

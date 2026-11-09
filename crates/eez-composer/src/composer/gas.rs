@@ -810,7 +810,8 @@ impl Projection {
             || batch.immediateEntryCount.is_zero()
             || batch.blobIndices.len() > 64
             || !batch.staticEntries.is_empty()
-            || !batch.expectedRootPerRollup.is_empty()
+            || !matches!(batch.expectedRootPerRollup.as_slice(), [pin]
+                if pin.rollupId == self.rollup_id && !pin.root.is_zero())
             || !batch.immediateStaticEntryCount.is_zero()
             || batch.proofSystems.len() != 1
             || batch.rollupIdsWithProofSystems.len() != 1
@@ -986,6 +987,11 @@ mod tests {
 
     fn batch(entries: Vec<ExecutionEntrySol>, immediates: usize) -> eez_protocol::EvmBatch {
         eez_protocol::EvmBatch {
+            expectedRootPerRollup: vec![eez_protocol::abi::ExpectedRootPerRollupSol {
+                rollupId: 1,
+                root: B256::repeat_byte(1),
+            }],
+            blockNumber: u64::MAX,
             entries,
             immediateEntryCount: U256::from(immediates),
             proofSystems: vec![Address::repeat_byte(4)],
@@ -995,6 +1001,29 @@ mod tests {
             }],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn offline_root_pin_preserves_incremental_and_final_gas_agreement() {
+        let mut projection = model(0);
+        projection.deferred_slots[0] = true;
+        let entry = deferred();
+        let cost = projection.cost(std::slice::from_ref(&entry), 0, false, None);
+        assert!(cost.entry_discount > 0);
+        let mut budget = PostBatchGasBudget::new(10_000_000);
+        budget.use_projection(projection.initial_gas());
+        assert!(budget.try_accept(cost));
+        projection.accept_deferred(std::slice::from_ref(&entry));
+        let mut final_batch = batch(vec![anchor(), entry], 1);
+        final_batch.expectedRootPerRollup = vec![eez_protocol::abi::ExpectedRootPerRollupSol {
+            rollupId: 1,
+            root: B256::repeat_byte(1),
+        }];
+        assert_eq!(
+            projection.batch_gas(&final_batch, cost.calldata_gas, 0),
+            budget.projected,
+            "the mandatory offline root pin must not discard admitted entry evidence"
+        );
     }
 
     #[test]
@@ -1458,7 +1487,7 @@ mod tests {
         let p = model(0);
         let b = batch(vec![anchor(), deferred()], 1);
         let conservative = projected_postbatch_gas(2, 100, 200);
-        let changes: [fn(&mut eez_protocol::EvmBatch); 7] = [
+        let changes: [fn(&mut eez_protocol::EvmBatch); 11] = [
             |b| b.blobIndices = vec![U256::ZERO; 65],
             |b| b.proofSystems.push(Address::ZERO),
             |b| b.staticEntries.push(Default::default()),
@@ -1466,6 +1495,13 @@ mod tests {
             |b| b.entries[0].success = false,
             |b| b.entries[0].rootUpdates.clear(),
             |b| b.immediateEntryCount = U256::ZERO,
+            |b| b.expectedRootPerRollup.clear(),
+            |b| b.expectedRootPerRollup[0].rollupId = 2,
+            |b| b.expectedRootPerRollup[0].root = B256::ZERO,
+            |b| {
+                b.expectedRootPerRollup
+                    .push(b.expectedRootPerRollup[0].clone())
+            },
         ];
         for change in changes {
             let mut other = b.clone();

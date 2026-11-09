@@ -1,5 +1,10 @@
 //! Cross-chain integration and nonce-gap regression tests.
 
+mod capture_prefixes;
+mod combined_history;
+mod history_observations;
+mod nested_creation;
+
 use alloy_primitives::{Address, Bytes, TxHash, U256, keccak256};
 use alloy_provider::{Provider as _, ProviderBuilder};
 use alloy_sol_types::{SolCall, SolError, SolEvent, SolValue};
@@ -16,12 +21,13 @@ use eez_testkit::{
     account_code, assert_latest_batch_signature, batches_posted, call_read, call_revert_data,
     count_events, cross_chain_source_proxy, deploy_nested_setter_inner, deploy_nested_setter_outer,
     events_since, l2_balance, l2_value, last_proxy_result, onchain_nonce, read_state_word,
-    receipt_ok, run_scenarios, safe_block_hash, setter_call, setup_cross_chain,
-    setup_cross_chain_codeless, setup_cross_chain_empty_call, setup_cross_chain_nested_setter,
-    setup_cross_chain_outbound_return_data, setup_cross_chain_overlay_round_trip,
-    setup_cross_chain_proxied, setup_cross_chain_return_data, setup_cross_chain_reverting,
-    setup_cross_chain_static_round_trip, setup_cross_chain_with_env, sign_and_send, signer_address,
-    state_root, value_no_ret, value_read, wait_for, wait_for_receipt_or_failure,
+    receipt_ok, rollup_ether_balance, run_scenarios, safe_block_hash, setter_call,
+    setup_cross_chain, setup_cross_chain_codeless, setup_cross_chain_empty_call,
+    setup_cross_chain_nested_setter, setup_cross_chain_outbound_return_data,
+    setup_cross_chain_overlay_round_trip, setup_cross_chain_proxied, setup_cross_chain_return_data,
+    setup_cross_chain_reverting, setup_cross_chain_static_round_trip, setup_cross_chain_with_env,
+    sign_and_send, signer_address, state_root, value_no_ret, value_read, wait_for,
+    wait_for_receipt_or_failure,
 };
 
 const WAVE_SETTERS: &[u64] = &[7, 11, 17];
@@ -150,8 +156,26 @@ async fn assert_value_set_attribution(
 /// verification of the posted proof's recomputed public-input hash.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn minimal_bidirectional_cross_chain_smoke() {
+    bidirectional_smoke(false).await;
+}
+
+/// Native history is part of the ordinary prefix even when its scheduled slot
+/// is Sync. Both directions must use complete-block checkpoint positions.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn bidirectional_cross_chain_with_history_at_sync() {
+    bidirectional_smoke(true).await;
+}
+
+async fn bidirectional_smoke(history_at_sync: bool) {
     let attester = signer_address(ANVIL_ATTESTER_KEY).unwrap();
-    let w = setup_cross_chain().await.unwrap();
+    let mut env = Vec::new();
+    if history_at_sync {
+        env.push(("EEZ_TEST_HISTORY_UPDATE_OFFSET", "4".to_string()));
+    }
+    if std::env::var_os("EEZ_TEST_PROVE_FIXTURE_DIR").is_some() {
+        env.push(("EEZ_TEST_L2_DEBUG_RPC", "true".to_string()));
+    }
+    let w = setup_cross_chain_with_env(&env).await.unwrap();
     let l1_rpc = w.l1_rpc();
     let l2_rpc = w.l2_rpc();
 
@@ -305,6 +329,46 @@ async fn minimal_bidirectional_cross_chain_smoke() {
         "valid smoke transactions must not be evicted",
     );
     w.node.assert_no_divergence_failure_logs();
+    if !history_at_sync {
+        let provider = ProviderBuilder::new().connect_http(l2_rpc.parse().unwrap());
+        let terminal = provider
+            .get_transaction_receipt(outbound)
+            .await
+            .unwrap()
+            .unwrap()
+            .block_hash
+            .unwrap();
+        capture_prefixes::capture(&w, terminal).await.unwrap();
+    }
+    if history_at_sync {
+        let provider = ProviderBuilder::new().connect_http(l2_rpc.parse().unwrap());
+        let receipt = provider
+            .get_transaction_receipt(outbound)
+            .await
+            .unwrap()
+            .unwrap();
+        let block: serde_json::Value = provider
+            .client()
+            .request("eth_getBlockByHash", (receipt.block_hash.unwrap(), true))
+            .await
+            .unwrap();
+        let transactions = block["transactions"].as_array().unwrap();
+        let native_type = format!("0x{:x}", eez_primitives::SYSTEM_TX_TYPE);
+        assert_eq!(
+            transactions[0]["type"],
+            format!("0x{:x}", eez_primitives::HISTORY_TX_TYPE)
+        );
+        let history: eez_primitives::HistoryTransaction =
+            serde_json::from_value(transactions[0].clone()).unwrap();
+        assert!(!history.blocks.is_empty());
+        assert!(transactions.iter().skip(1).any(|tx| {
+            tx["type"] == native_type
+                && serde_json::from_value::<eez_primitives::SystemTransaction>(tx.clone())
+                    .unwrap()
+                    .to
+                    == eez_primitives::EEZL2_ADDRESS
+        }));
+    }
 }
 
 async fn assert_no_composer_methods(rpc: &str) {
@@ -1476,7 +1540,10 @@ async fn inbound_nested_contract_to_contract_to_proxy_preserves_source_attributi
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn outbound_nested_contract_to_contract_to_proxy_preserves_source_attribution() {
     // The L1 destination must see the inner contract's source proxy.
-    let w = setup_cross_chain().await.unwrap();
+    let policy = crate::settlement_policy_cost::shadow_pricing_policy();
+    let w = setup_cross_chain_with_env(&crate::settlement_policy_cost::fee_settings(&policy, &[]))
+        .await
+        .unwrap();
     let l1_rpc = w.l1_rpc();
     let l2_rpc = w.l2_rpc();
     let inner =
@@ -1540,6 +1607,7 @@ async fn outbound_nested_contract_to_contract_to_proxy_preserves_source_attribut
         "nested outbound proxy call",
     )
     .await;
+    crate::settlement_policy_cost::assert_l2_shadow_receipts(&w, 1, 0, Some(&policy)).await;
 }
 
 // Round trips in which L1 calls back into a suspended L2 execution. The probe's
@@ -1652,6 +1720,74 @@ async fn overlay_inbound_round_trip_reenters_suspended_l1() {
         .run(&w)
         .await
         .unwrap();
+}
+
+fn overlay_refunded(w: &CrossChainOverlayRoundTripWorld) -> StateRead {
+    call_read(
+        w.probe,
+        "refunded()",
+        IOverlayProbeL2::refundedCall {}.abi_encode(),
+    )
+}
+
+/// An L2 call sends ETH to L1, which returns it to the L2 caller in a
+/// value-bearing callback. The callback's table load carries that value, and
+/// the signer must authorize the funded load for the batch to settle. A prior
+/// inbound deposit funds the rollup's L1 escrow for the outbound transfer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn overlay_refund_round_trip_settles_value_bearing_callback() {
+    let w = setup_cross_chain_overlay_round_trip().await.unwrap();
+    let value = U256::from(OVERLAY_AMOUNT);
+    Scenario::new("inbound deposit through the refund callback")
+        .inbound(
+            ScenarioCall::new(
+                w.probe_on_l1,
+                IOverlayProbeL2::receiveRefundCall {}.abi_encode(),
+            )
+            .with_value(value)
+            .with_gas_limit(OVERLAY_GAS),
+        )
+        .expect_l2_state(overlay_refunded(&w), value)
+        .expect_settled_fully()
+        .run(&w)
+        .await
+        .unwrap();
+    let l1_rpc = w.l1_rpc();
+    let escrow = rollup_ether_balance(&l1_rpc, w.cfg.eez_address, w.cfg.rollup_id)
+        .await
+        .unwrap();
+
+    Scenario::new("outbound refund round trip with a value-bearing callback")
+        .outbound(
+            ScenarioCall::new(
+                w.probe,
+                IOverlayProbeL2::startRefundRoundTripCall {
+                    driver: w.driver_on_l2,
+                    probe: w.probe_on_l1,
+                }
+                .abi_encode(),
+            )
+            .with_value(value)
+            .with_callback_value(value)
+            .with_gas_limit(OVERLAY_GAS),
+        )
+        .expect_l2_state(overlay_refunded(&w), value * U256::from(2))
+        .expect_l2_state(overlay_completed(&w), 1u64)
+        .expect_settled_fully()
+        .run(&w)
+        .await
+        .unwrap();
+    assert_eq!(
+        rollup_ether_balance(&l1_rpc, w.cfg.eez_address, w.cfg.rollup_id)
+            .await
+            .unwrap(),
+        escrow,
+        "the returned value nets the outbound transfer on L1"
+    );
+    assert_eq!(
+        l2_balance(&w.l2_rpc(), w.probe).await.unwrap(),
+        value * U256::from(2)
+    );
 }
 
 /// An L1 call makes a delivery callback and then reverts. The failed call
@@ -2087,7 +2223,10 @@ async fn outbound_static_read_with_static_callback_settles_and_replays() {
 /// A static read whose callback source proxy is not deployed on the reading
 /// chain would revert on chain: the protocol cannot create the proxy inside
 /// the read's static frame. Simulation alone would answer the callback, so the
-/// Composer must reject the transaction at admission and name the proxy.
+/// Composer must reject the transaction and name the proxy. This fixture has
+/// fee collection disabled: the front accepts ownership, then composition
+/// records a terminal simulation failure. Fee-enabled fronts reject the same
+/// shape earlier during signed fee simulation, before queue ownership.
 async fn assert_static_round_trip_without_callback_proxy_is_rejected(inbound: bool) {
     let w = setup_cross_chain_static_round_trip(inbound, false)
         .await
@@ -2106,6 +2245,8 @@ async fn assert_static_round_trip_without_callback_proxy_is_rejected(inbound: bo
         (w.l2_xchain(), OUTBOUND_USER, w.l2_chain_id)
     };
     let nonce = onchain_nonce(&source_rpc, key).await.unwrap();
+    let sender = signer_address(key).unwrap();
+    let balance = l2_balance(&source_rpc, sender).await.unwrap();
     let hash = sign_and_send(
         &front,
         key,
@@ -2125,24 +2266,42 @@ async fn assert_static_round_trip_without_callback_proxy_is_rejected(inbound: bo
     );
 
     let status: serde_json::Value = ProviderBuilder::new()
-        .connect_http(w.l2_xchain().parse().unwrap())
+        .connect_http(front.parse().unwrap())
         .client()
         .request("eez_getCrossChainTransaction", (hash,))
         .await
         .unwrap();
+    assert_eq!(status["hash"], serde_json::json!(hash), "{status}");
+    assert_eq!(status["lifecycle"], "terminal", "{status}");
+    assert_eq!(status["ownership"]["state"], "terminal", "{status}");
     assert_eq!(
         status["ownership"]["reason"], "SimulationFailed",
         "{status}"
     );
     let expected = format!(
-        "static callback source proxy {} is not deployed",
-        w.callback_source_proxy
+        "executor: static callback source proxy {} is not deployed on chain {chain_id}; it must exist before the read",
+        w.callback_source_proxy,
     );
-    assert!(
-        status["ownership"]["rejection"]["error"]
-            .as_str()
-            .is_some_and(|error| error.contains(&expected)),
+    assert_eq!(
+        status["ownership"]["rejection"]["error"], expected,
         "{status}"
+    );
+    assert_eq!(status["ownership"]["canonical"], serde_json::Value::Null);
+    for rpc in [&source_rpc, &front] {
+        assert_eq!(
+            receipt_ok(rpc, hash).await.unwrap(),
+            None,
+            "a terminal rejection must not have a direct or front receipt: {status}",
+        );
+    }
+    assert_eq!(onchain_nonce(&source_rpc, key).await.unwrap(), nonce);
+    assert_eq!(l2_balance(&source_rpc, sender).await.unwrap(), balance);
+    assert!(
+        account_code(&source_rpc, w.callback_source_proxy)
+            .await
+            .unwrap()
+            .is_empty(),
+        "rejected simulation must not deploy the missing callback proxy",
     );
     let (_, reads) = static_reader_state(&w);
     assert_eq!(
@@ -2443,12 +2602,11 @@ async fn wallet_estimate_rpc(front: &str, request: serde_json::Value) -> serde_j
             &response
         };
         let context_wait = estimate["error"]["code"] == -32000
-            && estimate["error"]["message"]
-                .as_str()
-                .is_some_and(|message| {
-                    message.contains("settlement reconciliation pending")
-                        || message.contains("chain context changed during estimation")
-                });
+            && estimate["error"]["data"]["retryable"] == true
+            && matches!(
+                estimate["error"]["data"]["code"].as_str(),
+                Some("settlement_reconciliation_pending" | "estimation_context_changed")
+            );
         if context_wait {
             eprintln!("wallet context retry: {}", estimate["error"]);
             return Ok(None);

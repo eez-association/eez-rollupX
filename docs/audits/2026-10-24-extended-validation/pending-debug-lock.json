@@ -1,0 +1,9 @@
+{
+  "root_sha256": "0f527b5f3d8e27d237d63759e7392a87c894001805549d6271ccef9da4449306",
+  "root_keccak256": "89a6e7b2116f15bae7a7e7ffe87c91743c6233dedcecde933f20024bf4e47978",
+  "vendor_sha256": "74eeccf94309d5c20220172e658754686cc4037b74c80b62ef3f1631066c269a",
+  "change": "reth-rpc-builder v2.7 exact-source local quota accessor; existing trace/futures packages used by node-common; nested vendor Tokio matches reviewed 1.53.3",
+  "validation_version": 1,
+  "portable_identity_changed": false,
+  "test_dependencies": "node-common uses the existing Reth network/payload builder mocks and provider test-utils only in dev-dependencies; no package identity changes"
+}

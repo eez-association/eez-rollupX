@@ -868,6 +868,7 @@ class RuntimeArtifactsTest(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), str(self.root / "job-target/debug/examples/verify_blob_evidence"))
         self.assertEqual(len(self.commands()), 1)
         self.assertIn("--locked", self.commands()[0])
+        self.assertEqual(self.commands()[0][-2:], ["--features", "chain-spec"])
 
     def test_ci_missing_tool_override_never_silently_rebuilds(self):
         self.env["GITHUB_ACTIONS"] = "true"

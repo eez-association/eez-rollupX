@@ -1,0 +1,133 @@
+{
+  "scope": "Final passing four-node source-based repeat after collector-fixture correction. No prebuilt override; signer outbound networking denied. Local debug executables, not published release artifacts.",
+  "base_commit": "3e23955dc477c9e675364776f118b1cecda75774",
+  "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "validation_source_manifest": "crates/eez-proof-signer/tests/fixtures/streaming-v2/manifest.json",
+  "validation_source_manifest_sha256": "2853b72c39452d9fa6081299aa519dee96e13564b6847abe670e595a4c602ba4",
+  "testkit_source_sha256": "407c85895855fd2080ebcd4317e741cf3751797c8a4442c0a98d35acaeea79dc",
+  "executables": {
+    "target/debug/eez-composer": {
+      "sha256": "de6ace628c2ad5c731014f5b979ee2f4c7efa71d0882b9342882c42cca7901f4",
+      "bytes": 854442312
+    },
+    "target/debug/eez-follower": {
+      "sha256": "a9c5601009353e4f7f5e0094d8c9a5a51f9ad8fc406d6ef345001d0fae18c7e0",
+      "bytes": 712651224
+    },
+    "target/debug/eez-proof-signer": {
+      "sha256": "b0e85557ecb53c0c9eaeafdf3647a71e2a28419682d3e951acebd97ad1f6698a",
+      "bytes": 470929048
+    },
+    "target/debug/deps/node_e2e-969bf1dbfc9e03d4": {
+      "sha256": "f6d95e1930fb1cc5bac8775f75f4799905fa83bc5ded049bdb7c7af69e89c5da",
+      "bytes": 609385800
+    }
+  },
+  "process_log": {
+    "path": "artifacts/validation/native-v1-collector-final.log",
+    "sha256": "7a012d0d61d23925670ae061a1cf5e3344edf9b39bb8ff91d651c49a1c0ce26b",
+    "availability": "local-only, ignored; not distributed with the source"
+  },
+  "result": {
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0
+  },
+  "derivation_evidence": {
+    "blocksWithUpdatedOrigin": 43,
+    "genesisTimestamp": 1792801528,
+    "historyDelaySeconds": 3,
+    "historyUpdates": [
+      [
+        3,
+        0
+      ],
+      [
+        8,
+        0
+      ],
+      [
+        13,
+        0
+      ],
+      [
+        18,
+        0
+      ],
+      [
+        23,
+        0
+      ],
+      [
+        28,
+        0
+      ],
+      [
+        33,
+        0
+      ],
+      [
+        38,
+        0
+      ],
+      [
+        43,
+        0
+      ],
+      [
+        48,
+        0
+      ],
+      [
+        53,
+        0
+      ],
+      [
+        58,
+        0
+      ],
+      [
+        63,
+        1
+      ],
+      [
+        68,
+        2
+      ],
+      [
+        73,
+        3
+      ],
+      [
+        78,
+        4
+      ],
+      [
+        83,
+        5
+      ],
+      [
+        88,
+        6
+      ],
+      [
+        93,
+        7
+      ],
+      [
+        98,
+        8
+      ],
+      [
+        103,
+        9
+      ]
+    ],
+    "lastImportedL1Number": 9,
+    "liveSyncAnchors": [
+      90,
+      105
+    ],
+    "syncInterval": 5
+  }
+}

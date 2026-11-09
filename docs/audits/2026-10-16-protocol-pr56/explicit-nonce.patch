@@ -1,0 +1,69 @@
+diff --git a/script/e2e/RPC.md b/script/e2e/RPC.md
+index a61f6fb..2464c26 100644
+--- a/script/e2e/RPC.md
++++ b/script/e2e/RPC.md
+@@ -49,11 +49,15 @@ Use discovery instead of copying deployment addresses from an older run.
+
+ **Params:**
+ ```json
+-[{"from":"<funded sender>","to":"<deployed target>","data":"<exact calldata>","value":"0x0"}]
++[{"from":"<funded sender>","to":"<deployed target>","data":"<exact calldata>","value":"0x0","nonce":"<prepared nonce>"}]
+ ```
+
+ `value` is the native amount in wei as a hex quantity; replace `0x0` for a
+ nonzero transfer. Quote after deployment, immediately before signing and sending.
++Pass the prepared nonce as a hex quantity. On L1, omitting it selects the canonical
++nonce, which can already belong to a queued trigger. The deployed composer can
++replay its owned L1 predecessors when the next transaction supplies its nonce;
++this preserves same-account bursts without waiting for each transaction to mine.
+
+ Version 1 returns `chainId`, `nonce`, `expiresAt` (Unix seconds) and `options[]`.
+ Older deployments also returned `recoveryMode`. Chain ID, nonce, expiry and option
+diff --git a/script/e2e/lib/network-fees.sh b/script/e2e/lib/network-fees.sh
+index c7ed243..af073da 100644
+--- a/script/e2e/lib/network-fees.sh
++++ b/script/e2e/lib/network-fees.sh
+@@ -88,7 +88,9 @@ network_fee_quote() { # transaction, front, read RPC, optional checked chain and
+     local intent quote option nonce kind gas cap tip value expires attempt deadline left rpc_timeout rc failure
+     local retry_reason=reconciliation
+     [[ -n "$chain" ]] || chain=$(network_fee_chain "$tx" "$front" "$read_rpc") || return 1
+-    intent=$(jq -c '{from:.signer,to:.to,data:.input,value:.value}' <<< "$tx") || return 1
++    # An omitted L1 nonce selects canonical state, which may already have a held
++    # trigger. The explicit nonce lets Composer replay its owned L1 predecessors.
++    intent=$(jq -c '{from:.signer,to:.to,data:.input,value:.value,nonce:.nonce}' <<< "$tx") || return 1
+     # Quotes can be unavailable while earlier native/cross-chain activity is
+     # settling. Retry only those explicit transient responses under one deadline.
+     [[ "${EEZ_QUOTE_TIMEOUT:-120}" =~ ^[1-9][0-9]*$ ]] || { echo 'EEZ_QUOTE_TIMEOUT must be positive seconds' >&2; return 1; }
+@@ -171,7 +173,7 @@ network_node_fee_plan() { # validated trigger, source read RPC, chain -> fresh n
+     [[ $(bc <<< "$gas > 0 && $cap > 0 && $tip >= 0 && $cap >= $tip") == 1 ]] || return 1
+     jq -nc --argjson tx "$tx" --arg chain "$chain" --arg nonce "$nonce" \
+         --arg gas "$gas" --arg cap "$cap" --arg tip "$tip" --arg value "$value" \
+-        '{feeSource:"node",transaction:$tx,intent:($tx|{from:.signer,to:.to,data:.input,value:.value}),
++        '{feeSource:"node",transaction:$tx,intent:($tx|{from:.signer,to:.to,data:.input,value:.value,nonce:.nonce}),
+           quote:null,selectedOption:null,expires:null,
+           chain:$chain,nonce:$nonce,gas:$gas,cap:$cap,tip:$tip,value:$value}'
+ }
+diff --git a/script/e2e/tests/test_network_fees.py b/script/e2e/tests/test_network_fees.py
+index b9cada4..ee13d88 100644
+--- a/script/e2e/tests/test_network_fees.py
++++ b/script/e2e/tests/test_network_fees.py
+@@ -193,6 +193,9 @@ class NetworkFeeTests(unittest.TestCase):
+                 original = self.decode(self.candidates[kind])
+                 for field in ('signer', 'type', 'chainId', 'nonce', 'to', 'value', 'input'):
+                     self.assertEqual(tx[field], original[field], field)
++                request = json.loads((self.root / 'intents').read_text().splitlines()[-1])
++                self.assertEqual(request.get('nonce'), original['nonce'],
++                                 'Pending L1 predecessors require the prepared nonce in the quote request')
+                 self.assertEqual(int(tx['gas'], 16), 250000)
+                 self.assertEqual(int(tx.get('maxFeePerGas', tx.get('gasPrice')), 16), 5000)
+                 if kind == '0x2':
+@@ -213,7 +216,8 @@ class NetworkFeeTests(unittest.TestCase):
+                     self.assertEqual(int(tx['maxPriorityFeePerGas'], 16), 4000)
+                 intent = json.loads((self.root / 'intents').read_text().splitlines()[-1])
+                 self.assertEqual(intent, {'from': original['signer'], 'to': TARGET,
+-                                          'data': '0x12345678', 'value': '0x11'})
++                                          'data': '0x12345678', 'value': '0x11',
++                                          'nonce': original['nonce']})
+                 evidence = json.loads((self.root / 'evidence.json').read_text())
+                 self.assertEqual(evidence['selectedOption']['type'], kind)
+                 self.assertEqual(evidence['signedHash'], tx['hash'])

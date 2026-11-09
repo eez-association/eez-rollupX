@@ -1,0 +1,77 @@
+{
+  "native-offline-bidirectional": {
+    "blocks": 90,
+    "entries": [
+      {
+        "destination": 1,
+        "l1_to_l2": 0,
+        "l2_to_l1": 0,
+        "success": true
+      },
+      {
+        "destination": 1,
+        "l1_to_l2": 0,
+        "l2_to_l1": 1,
+        "success": true
+      },
+      {
+        "destination": 1,
+        "l1_to_l2": 0,
+        "l2_to_l1": 0,
+        "success": true
+      }
+    ],
+    "file": "5311cdfa05cfa466bf4c7bd37c7955f33de2b51de8be5154169f493c2d9807cd.v2.protobuf",
+    "from": 1,
+    "operations_bytes": 7175,
+    "ordinary_transactions": 24,
+    "static_entries": 0,
+    "to": 90
+  },
+  "native-osaka-lookup": {
+    "blocks": 105,
+    "entries": [
+      {
+        "destination": 1,
+        "l1_to_l2": 0,
+        "l2_to_l1": 0,
+        "success": true
+      },
+      {
+        "destination": 1,
+        "l1_to_l2": 0,
+        "l2_to_l1": 0,
+        "success": false
+      }
+    ],
+    "file": "a4fe589628a9b2b67ed31763046c1159e58f3944413e9da87b6c33631b98d1f7.v2.protobuf",
+    "from": 1,
+    "operations_bytes": 9432,
+    "ordinary_transactions": 30,
+    "static_entries": 0,
+    "to": 105
+  },
+  "native-osaka-changing-static": {
+    "blocks": 95,
+    "entries": [
+      {
+        "destination": 1,
+        "l1_to_l2": 0,
+        "l2_to_l1": 0,
+        "success": true
+      },
+      {
+        "destination": 1,
+        "l1_to_l2": 0,
+        "l2_to_l1": 5,
+        "success": true
+      }
+    ],
+    "file": "57fe44d07e7baa1a2b4280035781ad2abb9888018971238c13e717484cfebb30.v2.protobuf",
+    "from": 1,
+    "operations_bytes": 7343,
+    "ordinary_transactions": 25,
+    "static_entries": 0,
+    "to": 95
+  }
+}

@@ -51,8 +51,9 @@ impl Sample {
             .map_or(u128::MAX, |n| n.div_ceil(self.groups.max(1) as u128));
         // Never learn a zero reserve or amplify fixed overhead. Missing or
         // interrupted observations retain the full-pass estimate. The current
-        // work includes setup, classification and canonical appends, while the
-        // denominator measures only accepted group simulation/prefix work.
+        // work includes setup, classification and canonical appends, excluding
+        // bracketed rollback intervals; the denominator measures only accepted
+        // group simulation/prefix work.
         let finishing = match self.group_work.map(|d| d.as_nanos()) {
             Some(measured) if variable > 0 && measured > variable => {
                 let predicted = work
@@ -78,6 +79,9 @@ impl Sample {
 pub(super) struct AutomaticAdmission {
     sample: Option<Sample>,
     retry_limit: Option<SelectionLimit>,
+    // Retain the learned native execution bound until the current queue drains.
+    // Successful preparation alone says nothing about final shared-table gas.
+    preflight_limit: Option<usize>,
     pub submission_failures: u32,
     timings: Arc<PipelineTimings>,
 }
@@ -99,6 +103,25 @@ impl SelectionLimit {
 }
 
 impl AutomaticAdmission {
+    pub fn preflight_failed(&mut self, groups: usize) -> Option<usize> {
+        if groups < 2 {
+            return self.preflight_limit;
+        }
+        let next = (groups / 2).max(1);
+        self.preflight_limit = Some(self.preflight_limit.map_or(next, |old| old.min(next)));
+        self.preflight_limit
+    }
+
+    pub fn preflight_completed(&mut self, queue_empty: bool) {
+        if queue_empty {
+            self.preflight_limit = None;
+        }
+    }
+
+    pub fn preflight_limit(&self) -> usize {
+        self.preflight_limit.unwrap_or(usize::MAX)
+    }
+
     /// Only charged, canonically confirmed incomplete settlement trains this
     /// counter. An isolated omission does not establish a capacity problem.
     /// Keep the streak across preparation/dispatch, resetting on canonical
@@ -140,6 +163,7 @@ impl AutomaticAdmission {
         let estimated = queued;
         estimated
             .min(self.retry_limit.map_or(usize::MAX, |limit| limit.count))
+            .min(self.preflight_limit())
             .min(queued)
     }
 
@@ -150,7 +174,10 @@ impl AutomaticAdmission {
             started: Instant::now(),
             available,
             selected: self.limit(queued, available),
-            selection_limit_reason: self.retry_limit.map(|limit| limit.reason),
+            selection_limit_reason: self
+                .preflight_limit
+                .map(|_| "native_preflight_backoff")
+                .or(self.retry_limit.map(|limit| limit.reason)),
             submission_failures: self.submission_failures,
             previous: self.sample,
             deadline,
@@ -248,15 +275,24 @@ struct Progress {
     started_groups: usize,
     measured_groups: usize,
     group_started: Option<(usize, Duration)>,
+    discard_started: Option<(usize, Duration)>,
+    discarded_work: Duration,
+    discarded_until: Duration,
     group_work: Duration,
     unmeasured_work: bool,
 }
 
 impl Progress {
+    fn retained_work(&self, elapsed: Duration) -> Duration {
+        elapsed
+            .saturating_sub(self.candidate_started)
+            .saturating_sub(self.discarded_work)
+    }
+
     fn sample(&self, groups: usize, elapsed: Duration) -> Sample {
         Sample {
             groups,
-            preparation: elapsed.saturating_sub(self.candidate_started),
+            preparation: self.retained_work(elapsed),
             tail: elapsed.saturating_sub(self.phase),
             blob_preparation: self.blob_preparation,
             blobs: self.blobs,
@@ -333,20 +369,20 @@ impl Attempt {
         self.witnesses
             .store(witnesses, std::sync::atomic::Ordering::Relaxed);
     }
-    fn pipeline_reserve(&self, groups: usize, blobs: usize) -> u128 {
+    fn pipeline_reserve(&self, groups: usize, blobs: usize) -> (Duration, Duration) {
         let workload = Workload {
             groups,
             blobs,
             witnesses: self.witnesses.load(std::sync::atomic::Ordering::Relaxed),
         };
-        self.timings
-            .proof_estimate(self.proof_estimate, workload)
-            .saturating_add(if self.deadline.is_some() {
+        (
+            self.timings.proof_estimate(self.proof_estimate, workload),
+            if self.deadline.is_some() {
                 self.timings.post_reserve(workload)
             } else {
                 self.post_reserve
-            })
-            .as_nanos()
+            },
+        )
     }
 
     /// Add 10% of the actual window to measured finishing predictions. The
@@ -358,6 +394,35 @@ impl Attempt {
 
     pub fn source_deferred(&self, deferred: bool) {
         self.progress.lock().unwrap().source_deferred |= deferred;
+    }
+
+    /// Call only after removing the current group's speculative effects and
+    /// restoring the accepted prefix. Its measured interval has already spent
+    /// the deadline; neither finishing nor the next source will repeat it.
+    pub fn discarded_group(&self, accepted: usize) {
+        self.discarded_group_at(accepted, self.started.elapsed());
+    }
+
+    fn discarded_group_at(&self, accepted: usize, elapsed: Duration) {
+        let mut progress = self.progress.lock().unwrap();
+        progress.source_deferred = true;
+        // A rollback cannot calibrate the accepted groups' finishing ratio.
+        progress.unmeasured_work = true;
+        let Some((groups, started)) = progress.discard_started.take() else {
+            return;
+        };
+        if accepted.checked_add(1) != Some(groups)
+            || started < progress.candidate_started.max(progress.discarded_until)
+        {
+            return;
+        }
+        if let Some(total) = elapsed
+            .checked_sub(started)
+            .and_then(|work| progress.discarded_work.checked_add(work))
+        {
+            progress.discarded_work = total;
+            progress.discarded_until = elapsed;
+        }
     }
 
     pub fn can_start_group(&self, accepted: usize) -> bool {
@@ -422,10 +487,7 @@ impl Attempt {
         let next = accepted.saturating_add(1);
         let (blobs, work) = {
             let progress = self.progress.lock().unwrap();
-            (
-                progress.blobs.max(1),
-                elapsed.saturating_sub(progress.candidate_started),
-            )
+            (progress.blobs.max(1), progress.retained_work(elapsed))
         };
         let jitter = self.jitter_reserve();
         let tail = self.previous.map_or(self.bootstrap_tail(blobs, work), |s| {
@@ -438,11 +500,30 @@ impl Attempt {
         } else {
             work.as_nanos() / accepted as u128
         };
-        let estimated = remaining.as_nanos()
-            > group
-                .saturating_add(tail)
-                .saturating_add(self.pipeline_reserve(next, blobs));
+        let (proof, post) = self.pipeline_reserve(next, blobs);
+        let pipeline = proof.saturating_add(post).as_nanos();
+        let estimated = remaining.as_nanos() > group.saturating_add(tail).saturating_add(pipeline);
         let probe = !estimated && self.cold_probe_fits(next, blobs, elapsed, work);
+        if !estimated && !probe {
+            tracing::info!(
+                event_name = "eez.composer.admission.pipeline_refused",
+                candidate_id = self
+                    .previous_candidate
+                    .lock()
+                    .unwrap()
+                    .as_deref()
+                    .unwrap_or(""),
+                stage = "before_group",
+                groups = next,
+                blobs,
+                remaining_ns = remaining.as_nanos(),
+                group_ns = group,
+                tail_ns = tail,
+                proof_ns = proof.as_nanos(),
+                post_ns = post.as_nanos(),
+                "remaining window does not fit the measured pipeline reserve",
+            );
+        }
         (estimated || probe, probe)
     }
 
@@ -459,6 +540,7 @@ impl Attempt {
             }
             progress.unmeasured_work |= progress.group_started.is_some();
             progress.group_started = Some((next, elapsed));
+            progress.discard_started = Some((next, elapsed));
         } else if accepted == 0 && self.previous.is_some() {
             progress.estimate_blocked = true;
         }
@@ -476,7 +558,7 @@ impl Attempt {
         let remaining = self.available.saturating_sub(elapsed);
         let jitter = self.jitter_reserve();
         let mut progress = self.progress.lock().unwrap();
-        let work = elapsed.saturating_sub(progress.candidate_started);
+        let work = progress.retained_work(elapsed);
         let tail = self.previous.map_or(self.bootstrap_tail(blobs, work), |s| {
             s.tail_for(groups, blobs, work, jitter)
         });
@@ -489,11 +571,30 @@ impl Attempt {
                     .flatten()
             });
         progress.unmeasured_work |= measured.is_none();
-        let estimated =
-            remaining.as_nanos() > tail.saturating_add(self.pipeline_reserve(groups, blobs));
+        let (proof, post) = self.pipeline_reserve(groups, blobs);
+        let pipeline = proof.saturating_add(post).as_nanos();
+        let estimated = remaining.as_nanos() > tail.saturating_add(pipeline);
         let probe = !estimated && self.cold_probe_fits(groups, blobs, elapsed, work);
         progress.cold_timing_probe |= probe;
         if !estimated && !probe {
+            tracing::info!(
+                event_name = "eez.composer.admission.pipeline_refused",
+                candidate_id = self
+                    .previous_candidate
+                    .lock()
+                    .unwrap()
+                    .as_deref()
+                    .unwrap_or(""),
+                stage = "finish_group",
+                groups,
+                blobs,
+                remaining_ns = remaining.as_nanos(),
+                group_ns = 0_u128,
+                tail_ns = tail,
+                proof_ns = proof.as_nanos(),
+                post_ns = post.as_nanos(),
+                "remaining window does not fit the measured pipeline reserve",
+            );
             // This matching group is refused before its duration is added or
             // the caller appends it. Its work must not train the estimate, but
             // it does not invalidate the earlier accepted prefix. Cancel only
@@ -556,6 +657,9 @@ impl Attempt {
         progress.started_groups = 0;
         progress.measured_groups = 0;
         progress.group_started = None;
+        progress.discard_started = None;
+        progress.discarded_work = Duration::ZERO;
+        progress.discarded_until = elapsed;
         progress.group_work = Duration::ZERO;
         progress.unmeasured_work = true;
         progress.accepted = 0;
@@ -579,6 +683,7 @@ impl Attempt {
             finishing_ms = sample.tail.as_millis() as u64,
             non_blob_finishing_ms = sample.tail.saturating_sub(sample.blob_preparation).as_millis() as u64,
             measured_group_work_ms = progress.group_work.as_millis() as u64,
+            discarded_group_work_ms = progress.discarded_work.as_millis() as u64,
             group_work_calibrated = sample.group_work.is_some(),
             blob_preparation_ms = progress.blob_preparation.as_millis() as u64,
             blob_count = progress.blobs,
@@ -782,6 +887,25 @@ mod tests {
         assert_eq!(next.preparation, Duration::from_millis(400));
         assert_eq!(next.tail, Duration::from_millis(200));
         assert_eq!(next.group_work, None, "rebuild samples stay conservative");
+    }
+
+    #[test]
+    fn native_failure_reduces_whole_groups_and_survives_preparation_success() {
+        let mut state = AutomaticAdmission::default();
+        assert_eq!(state.preflight_failed(39), Some(19));
+        assert_eq!(state.limit(231, Duration::from_secs(1)), 19);
+        let a = attempt(19, 19, false, None);
+        a.completed();
+        state.finish(&a);
+        state.submission_completed();
+        state.preflight_completed(false);
+        assert_eq!(state.limit(231, Duration::from_secs(1)), 19);
+        assert_eq!(state.submission_failures, 0);
+        assert_eq!(state.preflight_failed(19), Some(9));
+        assert_eq!(state.preflight_failed(2), Some(1));
+        assert_eq!(state.preflight_failed(1), Some(1));
+        state.preflight_completed(true);
+        assert_eq!(state.limit(231, Duration::from_secs(1)), 231);
     }
 
     #[test]
@@ -1002,6 +1126,7 @@ mod tests {
             for prepared in [None, Some(sample(60, 498))] {
                 for fifo_bypassed in [false, true] {
                     let mut state = AutomaticAdmission {
+                        preflight_limit: None,
                         sample: Some(sample(62, 477)),
                         retry_limit: None,
                         submission_failures: 0,
@@ -1134,6 +1259,68 @@ mod tests {
     }
 
     #[test]
+    fn faster_wider_proofs_do_not_lock_admission_to_the_last_measured_width() {
+        // Controlled reproduction, not recovered timings from the original CI
+        // failure. A slightly slower sparse proof must remain a duration floor,
+        // not a per-group cost after a wider workload has actually been proved.
+        let mut a = attempt(
+            128,
+            0,
+            false,
+            Some(Sample {
+                groups: 11,
+                preparation: Duration::from_millis(258),
+                tail: Duration::from_millis(242),
+                blob_preparation: Duration::from_millis(237),
+                blobs: 1,
+                group_work: None,
+            }),
+        );
+        a.available = Duration::from_millis(977);
+        a.proof_estimate = Duration::from_millis(500);
+        a.deadline = PipelineDeadline::new(
+            RollupTiming::new(5000, 1000, 500, 700, 3),
+            BundleTarget::Exact {
+                block: 1,
+                timestamp: 1_700_000_005,
+            },
+            1_700_000_000_000,
+        );
+        a.witness_count(5);
+        let measured = Workload {
+            groups: 11,
+            blobs: 1,
+            witnesses: 5,
+        };
+        a.timings.observe_proof(
+            Workload {
+                groups: 1,
+                witnesses: 10,
+                ..measured
+            },
+            Duration::from_millis(40),
+        );
+        a.timings.observe_proof(measured, Duration::from_millis(31));
+        a.timings
+            .observe_finalization(measured, Duration::from_millis(152));
+        for accepted in 0..30 {
+            let elapsed = Duration::from_millis(accepted as u64);
+            assert!(
+                a.can_start_at(accepted, elapsed),
+                "a measured wider proof must allow group {} under the unchanged window",
+                accepted + 1,
+            );
+            assert!(a.can_finish_at(accepted + 1, 1, elapsed + Duration::from_millis(1)));
+        }
+        assert!(
+            !a.can_finish_at(31, 3, Duration::from_millis(31)),
+            "additional physical blobs must still reserve their KZG cost",
+        );
+        assert!(!a.can_start_at(30, a.available));
+        assert!(!a.can_finish_at(31, 1, a.available));
+    }
+
+    #[test]
     fn a_small_posts_fixed_overhead_does_not_limit_a_fast_thirty_group_wave() {
         let observed = Sample {
             groups: 1,
@@ -1178,6 +1365,7 @@ mod tests {
     #[test]
     fn a_stale_tail_estimate_defers_once_then_allows_one_probe_and_relearning() {
         let mut state = AutomaticAdmission {
+            preflight_limit: None,
             sample: Some(sample(1, 2000)),
             retry_limit: None,
             submission_failures: 0,
@@ -1197,6 +1385,90 @@ mod tests {
         state.finish(&attempt(1, 1, false, Some(sample(1, 200))));
         assert!(state.sample.is_some());
         assert_eq!(state.limit(100, Duration::from_millis(500)), 100);
+    }
+
+    #[test]
+    fn discarded_fee_checks_spend_the_deadline_without_becoming_future_batch_work() {
+        let previous = Sample {
+            groups: 1,
+            preparation: Duration::from_millis(200),
+            tail: Duration::from_millis(180),
+            blob_preparation: Duration::from_millis(170),
+            blobs: 1,
+            group_work: None,
+        };
+        let mut a = attempt(870, 0, false, Some(previous));
+        a.available = Duration::from_millis(2040);
+        a.proof_estimate = Duration::from_millis(750);
+        for index in 0..300 {
+            let start = Duration::from_millis(index * 2);
+            assert!(a.can_start_at(0, start), "deferred source {index}");
+            assert!(a.can_finish_at(1, 1, start + Duration::from_millis(1)));
+            // Native tariff rejection followed by rebuilding the accepted prefix.
+            a.discarded_group_at(0, start + Duration::from_millis(2));
+        }
+        for accepted in 0..30 {
+            let start = Duration::from_millis(600 + accepted as u64);
+            assert!(a.can_start_at(accepted, start), "ready source {accepted}");
+            assert!(a.can_finish_at(accepted + 1, 1, start + Duration::from_millis(1)));
+        }
+        assert!(!a.can_start_at(30, a.available));
+        assert!(!a.can_finish_at(31, 1, a.available));
+    }
+
+    #[test]
+    fn discarded_work_requires_a_matching_disjoint_bracket_and_resets_on_rebuild() {
+        let a = attempt(30, 0, false, Some(sample(1, 100)));
+        a.discarded_group_at(0, Duration::from_millis(10));
+        assert_eq!(a.progress.lock().unwrap().discarded_work, Duration::ZERO);
+        assert!(a.can_start_at(0, Duration::from_millis(20)));
+        a.discarded_group_at(1, Duration::from_millis(30));
+        assert_eq!(a.progress.lock().unwrap().discarded_work, Duration::ZERO);
+        assert!(a.can_start_at(0, Duration::from_millis(40)));
+        assert!(a.can_finish_at(1, 1, Duration::from_millis(45)));
+        a.discarded_group_at(0, Duration::from_millis(50));
+        a.discarded_group_at(0, Duration::from_millis(60));
+        {
+            let progress = a.progress.lock().unwrap();
+            assert_eq!(progress.discarded_work, Duration::from_millis(10));
+            assert_eq!(
+                progress.retained_work(Duration::from_millis(60)),
+                Duration::from_millis(50)
+            );
+            assert!(
+                progress
+                    .sample(1, Duration::from_millis(60))
+                    .group_work
+                    .is_none()
+            );
+        }
+        // Defensive handling of a nonmonotonic or overlapping observation.
+        assert!(a.can_start_at(0, Duration::from_millis(49)));
+        a.discarded_group_at(0, Duration::from_millis(70));
+        assert_eq!(
+            a.progress.lock().unwrap().discarded_work,
+            Duration::from_millis(10)
+        );
+        assert!(a.can_start_at(0, Duration::from_millis(80)));
+        a.discarded_group_at(0, Duration::from_millis(79));
+        assert_eq!(
+            a.progress.lock().unwrap().discarded_work,
+            Duration::from_millis(10)
+        );
+        a.rebuilding_at(Duration::from_millis(100));
+        let progress = a.progress.lock().unwrap();
+        assert!(progress.discard_started.is_none());
+        assert_eq!(progress.discarded_work, Duration::ZERO);
+        assert_eq!(
+            progress.retained_work(Duration::from_millis(120)),
+            Duration::from_millis(20)
+        );
+        assert!(
+            progress
+                .sample(1, Duration::from_millis(120))
+                .group_work
+                .is_none()
+        );
     }
 
     #[test]
@@ -1643,6 +1915,7 @@ mod tests {
     fn source_and_transport_uncertainty_preserve_capacity_but_zero_progress_resource_cuts_back_off()
     {
         let mut state = AutomaticAdmission {
+            preflight_limit: None,
             sample: Some(sample(64, 100)),
             retry_limit: None,
             submission_failures: 0,

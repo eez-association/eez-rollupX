@@ -171,22 +171,22 @@ async fn assert_reconciled(w: &CrossChainWorld) {
     .expect("L1 stored commitment never matched the L2 safe block hash");
 }
 
-/// Return just after the composer starts a sync slot. Transactions submitted
-/// next receive a complete collection interval before the following slot.
-/// Idle slots do not drain now that empty postbatches are forbidden, so the
-/// invocation signal is the scheduling boundary these tests need.
+/// Return after a fresh cutoff accepts an idle decision. Newly submitted work
+/// then waits for the following cutoff and can collect into one attempt.
+/// The ordinary clock does not invoke Composer for this idle slot; requiring
+/// that invocation before enqueueing work would wait indefinitely.
 async fn open_collection_window(w: &CrossChainWorld) {
     let cursor = w.node.signal_cursor().unwrap();
     wait_for(SETTLE_TIMEOUT, || async {
-        let invoked = w
-            .node
-            .signals_since(cursor)?
-            .iter()
-            .any(|signal| signal.name == signals::COMPOSER_SYNC_SLOT_INVOKED);
-        Ok(invoked.then_some(()))
+        let idle = w.node.signals_since(cursor)?.iter().any(|signal| {
+            signal.name == signals::SEQUENCER_SLOT_DECISION
+                && signal.fields["prepare"] == false
+                && signal.fields["skip_post"] == true
+        });
+        Ok(idle.then_some(()))
     })
     .await
-    .expect("composer did not report a fresh sync-slot invocation boundary");
+    .expect("sequencer did not accept a fresh idle cutoff decision");
 }
 
 async fn batches(w: &CrossChainWorld) -> Vec<EvmBatch> {
@@ -320,6 +320,7 @@ async fn identical_outbound_calls_in_separate_transactions_chain_state() {
     );
 
     assert_reconciled(&w).await;
+    crate::settlement_policy_cost::assert_l2_shadow_receipts(&w, 2, 0, None).await;
     assert_no_evictions(&w);
     w.node.assert_no_process_death();
 }
@@ -415,6 +416,30 @@ async fn three_order_dependent_inbound_calls_in_one_bundle() {
     );
     for outcome in &delivered {
         assert_receipt_ok(&l2_rpc, outcome.tx, "delivery system tx").await;
+    }
+
+    let block = ProviderBuilder::new()
+        .connect_http(l2_rpc.parse().unwrap())
+        .get_block_by_number(delivered[0].block.into())
+        .await
+        .unwrap()
+        .unwrap();
+    let physical = block.transactions.hashes().collect::<Vec<_>>();
+    assert_eq!(physical.len(), 3, "three self-loading inbound deliveries");
+    let mut poster = None;
+    for (index, source) in hashes.iter().enumerate() {
+        assert_eq!(physical[index], delivered[index].tx);
+        let refs = crate::transaction_references::assert_references(
+            &w,
+            *source,
+            true,
+            std::slice::from_ref(&physical[index]),
+        )
+        .await;
+        if let Some(expected) = &poster {
+            assert_eq!(&refs["postBatch"], expected);
+        }
+        poster = Some(refs["postBatch"].clone());
     }
 
     assert_reconciled(&w).await;
@@ -549,6 +574,25 @@ async fn mixed_direction_state_chain_in_one_slot() {
     );
 
     assert_reconciled(&w).await;
+    crate::settlement_policy_cost::assert_l2_shadow_receipts(&w, 1, 1, None).await;
+    let block = provider
+        .get_block_by_hash(outbound_receipt.block_hash.unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let physical = block.transactions.hashes().collect::<Vec<_>>();
+    assert_eq!(
+        physical.len(),
+        3,
+        "one outbound pair and one inbound delivery"
+    );
+    assert_eq!(physical[1], outbound);
+    assert_eq!(physical[2], delivered[0].tx);
+    let outbound_refs =
+        crate::transaction_references::assert_references(&w, outbound, false, &physical[..2]).await;
+    let inbound_refs =
+        crate::transaction_references::assert_references(&w, inbound, true, &physical[2..]).await;
+    assert_eq!(outbound_refs["postBatch"], inbound_refs["postBatch"]);
     assert_no_evictions(&w);
     w.node.assert_no_process_death();
 }

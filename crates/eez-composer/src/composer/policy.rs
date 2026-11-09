@@ -440,25 +440,7 @@ where
         rollup_id: u64,
         transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
     ) -> Result<DaOverhead, PolicyError> {
-        let messages = transactions
-            .iter()
-            .map(eez_protocol::blob_semantics::encode_semantic_transaction)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| PolicyError::Unavailable(error.to_string()))?
-            .into_iter()
-            .flatten()
-            .collect();
-        let encoded = eez_blob_codec::encode_native_stream(rollup_id, Bytes::new(), messages)
-            .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
-        let semantic_bytes = encoded
-            .blob_portion
-            .len()
-            .checked_sub(
-                eez_blob_codec::native_stream_len(0, 0)
-                    .map_err(|error| PolicyError::Unavailable(error.to_string()))?,
-            )
-            .ok_or(PolicyError::Arithmetic("semantic stream overhead"))?;
-        Ok(DaOverhead { semantic_bytes })
+        semantic_overhead(rollup_id, transactions)
     }
 
     pub(super) fn record_final_encoding(
@@ -796,18 +778,14 @@ where
                 use alloy_eips::Decodable2718 as _;
                 use reth_primitives_traits::SignerRecoverable as _;
                 let bytes = tx.encoded_2718();
-                if bytes.first() == Some(&eez_primitives::SYSTEM_TX_TYPE) {
-                    has_system = true;
-                    break;
-                }
-                let tx = eez_primitives::EezTxEnvelope::decode_2718(&mut bytes.as_slice())
-                    .map_err(|error| {
+                let tx =
+                    eez_primitives::EezTxEnvelope::decode_2718_exact(&bytes).map_err(|error| {
                         PolicyError::Unavailable(format!("pending transaction decoding: {error}"))
                     })?;
-                if tx
-                    .recover_signer()
-                    .map_err(|error| PolicyError::Unavailable(format!("pending signer: {error}")))?
-                    == eez_primitives::SYSTEM_ADDRESS
+                if !tx.is_history()
+                    && tx.recover_signer().map_err(|error| {
+                        PolicyError::Unavailable(format!("pending signer: {error}"))
+                    })? == eez_primitives::SYSTEM_ADDRESS
                 {
                     has_system = true;
                     break;
@@ -830,8 +808,13 @@ where
                 pure_transactions: if has_system {
                     0
                 } else {
-                    u64::try_from(transactions.len())
-                        .map_err(|_| PolicyError::Arithmetic("included pure transactions"))?
+                    u64::try_from(
+                        transactions
+                            .iter()
+                            .filter(|tx| !eez_primitives::is_native_type(tx.ty()))
+                            .count(),
+                    )
+                    .map_err(|_| PolicyError::Arithmetic("included pure transactions"))?
                 },
             })
         });
@@ -1127,6 +1110,32 @@ fn validate_retained_byte_segments(
         };
     }
     Ok(())
+}
+
+/// Exact native semantic encoding, shared by admission and fee estimation.
+pub(super) fn semantic_overhead(
+    rollup_id: u64,
+    transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
+) -> Result<DaOverhead, PolicyError> {
+    let messages = transactions
+        .iter()
+        .map(eez_protocol::blob_semantics::encode_semantic_transaction)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| PolicyError::Unavailable(error.to_string()))?
+        .into_iter()
+        .flatten()
+        .collect();
+    let encoded = eez_blob_codec::encode_native_stream(rollup_id, Bytes::new(), messages)
+        .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
+    let semantic_bytes = encoded
+        .blob_portion
+        .len()
+        .checked_sub(
+            eez_blob_codec::native_stream_len(0, 0)
+                .map_err(|error| PolicyError::Unavailable(error.to_string()))?,
+        )
+        .ok_or(PolicyError::Arithmetic("semantic stream overhead"))?;
+    Ok(DaOverhead { semantic_bytes })
 }
 
 #[cfg(test)]

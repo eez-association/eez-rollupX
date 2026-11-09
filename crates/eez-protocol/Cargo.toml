@@ -21,6 +21,7 @@ k256.workspace = true
 # Native L2 system transactions and ordinary outbound envelopes.
 eez-primitives.workspace     = true
 alloy-consensus.workspace    = true
+alloy-rlp.workspace          = true
 alloy-eips.workspace         = true
 alloy-signer-local.workspace = true
 reth-ethereum-primitives.workspace = true

@@ -1,0 +1,30 @@
+{
+  "status": "reproduced before pending RPC correction; fix and repeat pending",
+  "source_manifest": {
+    "path": "artifacts/pr-readiness/kurtosis/build-source-final-sha256.json",
+    "sha256": "857921af067dc927f262da0ca41bd80fb635c0dcda9bd97860e36f6820996b6a"
+  },
+  "evidence": {
+    "path": "artifacts/pr-readiness/kurtosis/live/pending-counter-estimate-regression.json",
+    "sha256": "a90bbce51680a66d167d0615cc0ae92ffd0a442fbb3c6746f877c3b65b54bf9d",
+    "availability": "local-only"
+  },
+  "transaction": "Counter contract deployment initcode; public fixture sender, zero value",
+  "initcode_sha256": "5975579a53f737487999c8f5b07a833018d137c54fdd5ad8d37be458588b7dea",
+  "sample_count": 40,
+  "stable_parent_samples": 40,
+  "pending_rejections": 4,
+  "rejected_parent_numbers": [
+    374
+  ],
+  "error_counts": {
+    "L1 derivation source unavailable: pending L1 history import has not executed": 4
+  },
+  "default_results": {
+    "0x19f58": 40
+  },
+  "latest_results": {
+    "0x19f58": 40
+  },
+  "limits": "Default/latest validate committed-state estimation, not pending simulation. No fixed-gas override, retries, broadcast or validation bypass were used for these probes. The existing fail-closed guard prevents an inconsistent environment/parent-state combination; an executed native prefix is required for the pending adapter."
+}

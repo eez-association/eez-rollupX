@@ -1,0 +1,133 @@
+{
+  "date": "2026-10-14",
+  "runtimeSource": "a7fee49d04be78a01220a85d37042489ba082e35",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "dashboardSource": "75617b8a46108914ff786b158707f005c35f4ca4",
+  "privateNetwork": {
+    "l1ChainId": 7331,
+    "l2ChainId": 696990,
+    "pooledFees": {
+      "sources": [
+        {
+          "hash": "0x36c5fa965d4635ed62c010657a4151d3631e046afbfc5a1c2d79b188d58602d8",
+          "blockHash": "0x6bfeb558cc4b7f027b3a5a27b1fc3b484cc6fb70eddbbc0a5383be6949455296",
+          "blockNumber": 258,
+          "gasUsed": 116225,
+          "status": "0x1",
+          "grossL2Tip": "1269372729757275"
+        },
+        {
+          "hash": "0x35b7b924141764429124e52fc9d726b9ec357230fa777ca1180a8e76647784b1",
+          "blockHash": "0x6bfeb558cc4b7f027b3a5a27b1fc3b484cc6fb70eddbbc0a5383be6949455296",
+          "blockNumber": 258,
+          "gasUsed": 116225,
+          "status": "0x1",
+          "grossL2Tip": "1269372729757275"
+        }
+      ],
+      "postings": [
+        {
+          "hash": "0xdb7423763d9b0a260824267703581c06296aa514d7b4eb4d2eb99c1b0f193338",
+          "actualPostingCostL1": "835138988972432",
+          "requiredL2": "1002166786766919",
+          "paidL2": "2538745459514550"
+        }
+      ],
+      "rejectionCode": "l2_tip_underfunded"
+    },
+    "sameNativeBlock": true,
+    "independentReplay": {
+      "checked_blocks": 60,
+      "checked_derived_blocks": 60,
+      "checked_receipts": 3,
+      "safe_l2_block": 294,
+      "safe_l2_block_hash": "0x93a6786056909225897609247557e3ae64c813f7c46083d4d5b66078d9f32dba",
+      "source": "canonical_l1_only",
+      "verified": true
+    },
+    "cleanRestartRecoverySeconds": 13
+  },
+  "chiado": {
+    "l1ChainId": 10200,
+    "l2ChainId": 906969,
+    "calls": [
+      {
+        "sources": [
+          {
+            "hash": "0x608536c487ffd12c75faaa722ad8d5f107a965f592ea0353034b41738caa21aa",
+            "blockHash": "0x12cb07fdc7dced93eb80cf9b56bf51f7cf5757331ddaaf675112fee308aad02d",
+            "blockNumber": 626070,
+            "gasUsed": 116249,
+            "status": "0x1",
+            "grossL2Tip": "1422320408964231"
+          }
+        ],
+        "postings": [
+          {
+            "hash": "0x72f9e00d0da695fe3cc0d3b3f861c522077ba4443dd04f4f3ebe99e02e3ac0f6",
+            "actualPostingCostL1": "606728003329592",
+            "requiredL2": "728073603995511",
+            "paidL2": "1422320408964231"
+          }
+        ],
+        "rejectionCode": "l2_tip_underfunded"
+      },
+      {
+        "sources": [
+          {
+            "hash": "0xe6d99595f8baeed22160c440dda1598b322b857ecaa38a0522ade0642c647423",
+            "blockHash": "0x3368ce1a371f89940e27b47fef7d04bcb42a2c5570ec0deb1ed5e25fdeb56ae3",
+            "blockNumber": 626340,
+            "gasUsed": 99149,
+            "status": "0x1",
+            "grossL2Tip": "1400774408758711"
+          }
+        ],
+        "postings": [
+          {
+            "hash": "0x5323ed762b49924d8a6398be0017228bf86c09ed797a52e6679e6f715b3d7d65",
+            "actualPostingCostL1": "304779001215949",
+            "requiredL2": "365734801459139",
+            "paidL2": "1400774408758711"
+          }
+        ],
+        "rejectionCode": "l2_tip_underfunded"
+      }
+    ],
+    "independentReplay": true,
+    "independentBlobVerification": true,
+    "receiptAccounting": {
+      "verified": true,
+      "post": "0x5323ed762b49924d8a6398be0017228bf86c09ed797a52e6679e6f715b3d7d65",
+      "ranges": [
+        {
+          "first": 626226,
+          "last": 626340,
+          "nativeReceipts": 1,
+          "burnWei": "4858301",
+          "tipWei": "1400774408758711",
+          "ordinaryGasUsed": "99149",
+          "nativeGasUsed": "74180",
+          "tipsByBeneficiary": {
+            "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52": "1400774408758711"
+          }
+        }
+      ]
+    },
+    "dashboardReadiness": {
+      "rendered": true,
+      "scriptErrors": [],
+      "feesEnabled": true,
+      "readOnly": true
+    },
+    "genesisSha256": "ec2ca22f45a8801ca4e955c4ab4dd6f2cea268bd85a63a85a22d755cf48cc7bf"
+  },
+  "limits": [
+    "testnet conversion 1:1 and 20% risk allowance",
+    "zero fixed service charges and profit",
+    "no durable financial reservations",
+    "real browser uses EIP-1193 fixture adapter; no wallet extension qualification",
+    "public follower trusts the pre-upgrade checkpoint",
+    "historical indexer backfill remains in progress"
+  ]
+}

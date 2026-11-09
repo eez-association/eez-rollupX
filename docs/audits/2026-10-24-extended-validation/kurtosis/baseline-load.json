@@ -1,0 +1,1235 @@
+{
+  "status": "baseline semantic validation complete; final candidate pending",
+  "recorded_at": "2026-10-24T18:33:52.344834+00:00",
+  "runtime_source": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "ci_run": 39776847137,
+  "enclave": "eez-main-ab-20261024",
+  "enclave_uuid": "ad654d451d2148d095678a22b0c9942b",
+  "genesis_l2": "0x48357fd7f50945ec17be7c7288398615c7779c9a6e10fae1d335cc82a898b69f",
+  "cargo_lock_sha256": "08dc72d9107b9a45c8daac650b4a722522545af4b88d9d7f27aaddbdf75df128",
+  "images": {
+    "node": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-node@sha256:034b0df2b0161dd33cc99d54f515f4c00aa566c91ace39a51ee0b709ade54424",
+      "image_id": "sha256:034b0df2b0161dd33cc99d54f515f4c00aa566c91ace39a51ee0b709ade54424"
+    },
+    "signer": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:72fc91cedf0e91015b11c12722dc139b3e064630e79068fa49056718668f3e35",
+      "image_id": "sha256:72fc91cedf0e91015b11c12722dc139b3e064630e79068fa49056718668f3e35"
+    },
+    "deploy": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:037f7b97d6593af923c3b86a556e8fe5e8e52c2633082cac74316d7e60d9eaf5",
+      "image_id": "sha256:037f7b97d6593af923c3b86a556e8fe5e8e52c2633082cac74316d7e60d9eaf5"
+    }
+  },
+  "binaries_sha256": {
+    "eez-genesis-block-hash": "9ef840b4c48c0896a0a18e7162c6c07544edecf5d881df49366ac8b9949fb8f4",
+    "eez-genesis-state-root": "958c08eaa6096cf2b56cef53c344fc45141990229f96050483576d23f777cab9",
+    "eez-proof-signer": "4bd587f434f0c5ad7ee829c1b66c5df277f9bb26f13896e269c52b0e108d4344",
+    "e2e-causal-verify": "0c9de2ab5a142b47635033aa8e84a1cd8274e2e55243aaa3325e5e5e05dbc842",
+    "eez-composer": "c5491e2f3b979c64715ea1c3bcc01f254922d06d37e50d1f51d3e5a3b57b3306",
+    "eez-follower": "f7c52c7db46a5575faf195f09eded8c4c1ae5dad7568a8dae4e07bbb047a225e",
+    "verify_blob_evidence": "79370f30cb58e679fc5f4cda83633de400a2a7093b9d4d3a3f50f86e3ae4cb52"
+  },
+  "archived_test_sha256": "e10fdfde343995edf8b2d0f5d1f31ef87644ab12a0031031a52555196c043028",
+  "runtime_manifest_sha256": "68a0d80f35692cf35e626856272443d4235912d5dca2f1dc987aaf8d3676fc28",
+  "tests_manifest_sha256": "a0a2f0c908ef02464a104b7d01ad1642065feea7cd2825c39e77476b2069c4c2",
+  "image_archive_comparisons": [
+    {
+      "role": "node",
+      "image": "ghcr.io/eez-association/eez-rollupx-node@sha256:034b0df2b0161dd33cc99d54f515f4c00aa566c91ace39a51ee0b709ade54424",
+      "binary": "eez-composer",
+      "sha256": "c5491e2f3b979c64715ea1c3bcc01f254922d06d37e50d1f51d3e5a3b57b3306"
+    },
+    {
+      "role": "node",
+      "image": "ghcr.io/eez-association/eez-rollupx-node@sha256:034b0df2b0161dd33cc99d54f515f4c00aa566c91ace39a51ee0b709ade54424",
+      "binary": "eez-follower",
+      "sha256": "f7c52c7db46a5575faf195f09eded8c4c1ae5dad7568a8dae4e07bbb047a225e"
+    },
+    {
+      "role": "node",
+      "image": "ghcr.io/eez-association/eez-rollupx-node@sha256:034b0df2b0161dd33cc99d54f515f4c00aa566c91ace39a51ee0b709ade54424",
+      "binary": "eez-genesis-state-root",
+      "sha256": "958c08eaa6096cf2b56cef53c344fc45141990229f96050483576d23f777cab9"
+    },
+    {
+      "role": "node",
+      "image": "ghcr.io/eez-association/eez-rollupx-node@sha256:034b0df2b0161dd33cc99d54f515f4c00aa566c91ace39a51ee0b709ade54424",
+      "binary": "eez-genesis-block-hash",
+      "sha256": "9ef840b4c48c0896a0a18e7162c6c07544edecf5d881df49366ac8b9949fb8f4"
+    },
+    {
+      "role": "signer",
+      "image": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:72fc91cedf0e91015b11c12722dc139b3e064630e79068fa49056718668f3e35",
+      "binary": "eez-proof-signer",
+      "sha256": "4bd587f434f0c5ad7ee829c1b66c5df277f9bb26f13896e269c52b0e108d4344"
+    },
+    {
+      "role": "deploy",
+      "image": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:037f7b97d6593af923c3b86a556e8fe5e8e52c2633082cac74316d7e60d9eaf5",
+      "binary": "eez-genesis-state-root",
+      "sha256": "958c08eaa6096cf2b56cef53c344fc45141990229f96050483576d23f777cab9"
+    },
+    {
+      "role": "deploy",
+      "image": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:037f7b97d6593af923c3b86a556e8fe5e8e52c2633082cac74316d7e60d9eaf5",
+      "binary": "eez-genesis-block-hash",
+      "sha256": "9ef840b4c48c0896a0a18e7162c6c07544edecf5d881df49366ac8b9949fb8f4"
+    }
+  ],
+  "configuration_sha256": "d5400befe011a4d9de49a3ad86e2a79a7ac3a7eb7b6c8a5d597bee69f401cbbc",
+  "configuration": {
+    "l1_chain_id": 7331,
+    "l2_chain_id": 696990,
+    "l1_slot_seconds": 12,
+    "l2_block_seconds": 2,
+    "proof_signer_max_request_blocks": 24,
+    "fees_enabled_both_directions": true,
+    "ordinary_base_fee_mode": "burn"
+  },
+  "workload_source_sha256": {
+    "ordinary-load.mjs": "4e6a4c5bf81053ce27e4abcfc851dc90ce9297cc5d23dbe23685b037b7a114a4",
+    "ordinary-pipeline.mjs": "90c53aeade31c667821fc58281c4b67323bb2b5299230ff788c23463aa633923",
+    "ordinary-recovery.mjs": "6528e4ed7ffa0775ef21919912f54bf1dc0375bff08f8af8506e2c2cdb83074c",
+    "run-mixed.py": "6b962100aff5648f9665946fc34144e101a356c44d9aacc2f9dfa6da5f2e8dbf",
+    "run-pipeline.py": "cc8740988dccfb7deebe5136597e8ceca3bd816d0a77db628f88c60e6cb32fbc",
+    "run-recovery.py": "1a5205cbb27797337867902e818f93670d71913b54739274b5c6a763cf7a677a",
+    "collect-mixed.py": "1664637ba6a8cb097db77fe02a7303fffce4c2802846020a955301339f9bae13",
+    "summarize-load.py": "b8b9ca1f452d25c9036ee3edee9d627b934276d03e3c41c1a8a26083497e2691",
+    "replay-prebuilt.sh": "bd807efa3f48de2c4682c444938fc2eb8d6482064e0b7e096b83d68009560cbe"
+  },
+  "shared_wave_script_identity": {
+    "testing/kurtosis/scripts/cross-chain-wave.sh": {
+      "sha256": "bc39d21e3936b4249a8f4965df6dd27e982a1192ad30a415d1bdd783201ebb93",
+      "matches_b0195b0b": true
+    },
+    "testing/kurtosis/scripts/lib.sh": {
+      "sha256": "ab87c083d2879cfff1b7d630ccd8d8731c38d3d03a405c633ab715d66aab245f",
+      "matches_b0195b0b": true
+    },
+    "scripts/ci/wait-wave-settlement.py": {
+      "sha256": "3b354a685c7947fb8fca34de7277fd2bfa4500a093dcee289189bc096d37dec5",
+      "matches_b0195b0b": true
+    }
+  },
+  "phases": {
+    "sequential": {
+      "runtime_source": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+      "enclave": "eez-main-ab-20261024",
+      "interval": {
+        "started_at": 1792864289.418,
+        "ended_at": 1792865190.38,
+        "elapsed_seconds": 900.962184062
+      },
+      "admission": {
+        "planned": 15000,
+        "accepted": 3802,
+        "per_stage": [
+          {
+            "rate": 5,
+            "seconds": 300,
+            "planned_offers": 1500,
+            "accepted": 1191,
+            "accepted_per_second": 3.97,
+            "expired_schedule_slots": 309,
+            "backpressure_slots": 0
+          },
+          {
+            "rate": 15,
+            "seconds": 300,
+            "planned_offers": 4500,
+            "accepted": 1284,
+            "accepted_per_second": 4.28,
+            "expired_schedule_slots": 3216,
+            "backpressure_slots": 0
+          },
+          {
+            "rate": 30,
+            "seconds": 300,
+            "planned_offers": 9000,
+            "accepted": 1327,
+            "accepted_per_second": 4.423333333333333,
+            "expired_schedule_slots": 7673,
+            "backpressure_slots": 0
+          }
+        ],
+        "retries": 0,
+        "rpc_response_ms": {
+          "count": 3802,
+          "min": 0.9999275207519531,
+          "p50": 116.99986457824707,
+          "p95": 495.00012397766113,
+          "max": 993.0000305175781,
+          "mean": 206.33220703961786
+        },
+        "scheduled_slots": 15000,
+        "rpc_submissions": 3802,
+        "scope": "scheduled_slots includes expired and withheld offers; rpc_submissions is the actual sole-send count, all accepted. No failed or ambiguous send occurred."
+      },
+      "liveness": {
+        "observed_head_age_seconds": {
+          "count": 901,
+          "min": -5.615999937057495,
+          "p50": 0.3919999599456787,
+          "p95": 1.4100000858306885,
+          "max": 1.4300000667572021,
+          "mean": -0.8819622464238208
+        },
+        "head_minus_safe_blocks": {
+          "count": 901,
+          "min": 0,
+          "p50": 6,
+          "p95": 12,
+          "max": 12,
+          "mean": 4.602663706992231
+        },
+        "pending_ordinary_max": 50,
+        "queue_max": {
+          "queued": 5,
+          "inFlight": 1,
+          "blocked": 0,
+          "unknown": 5
+        },
+        "observed_same_height_replacements": 0,
+        "canonical_header_cadence_seconds": 2,
+        "scope": "One-second sampling and final canonical ancestry; future block timestamps cover intentional intervals between commits."
+      },
+      "settlement": {
+        "submission_to_canonical_safe_seconds": {
+          "count": 3802,
+          "min": 6.727137088775635,
+          "p50": 13.790082931518555,
+          "p95": 25.41477394104004,
+          "max": 30.93915891647339,
+          "mean": 14.297444600108296
+        },
+        "latency_without_matching_log_count": 0,
+        "all_receipts_canonical_and_safe": true
+      },
+      "proving": {
+        "canonical_window_signer_ms": {
+          "count": 67,
+          "min": 17,
+          "p50": 20,
+          "p95": 33,
+          "max": 34,
+          "mean": 21.80597014925373
+        },
+        "canonical_attempt_roundtrip_ms": {
+          "count": 67,
+          "min": 27,
+          "p50": 34,
+          "p95": 49,
+          "max": 54,
+          "mean": 35.76119402985075
+        },
+        "preparation_through_proof_ms": {
+          "count": 67,
+          "min": 202,
+          "p50": 222,
+          "p95": 270,
+          "max": 306,
+          "mean": 227.86567164179104
+        }
+      },
+      "resources": {
+        "host_available_min_bytes": 15465390080,
+        "container_cpu_percent": {
+          "8973aa1bf21a": {
+            "count": 90,
+            "min": 0.36,
+            "p50": 3.93,
+            "p95": 42.41,
+            "max": 49.05,
+            "mean": 7.501333333333333
+          },
+          "3c7db632572b": {
+            "count": 90,
+            "min": 0.0,
+            "p50": 0.0,
+            "p95": 0.88,
+            "max": 2.79,
+            "mean": 0.21855555555555556
+          },
+          "b327739081a9": {
+            "count": 90,
+            "min": 0.16,
+            "p50": 1.005,
+            "p95": 4.52,
+            "max": 5.0,
+            "mean": 1.521111111111111
+          }
+        },
+        "container_memory_samples": {
+          "8973aa1bf21a": [
+            "1.657GiB",
+            "1.718GiB",
+            "1.725GiB",
+            "1.755GiB",
+            "1.794GiB",
+            "1.82GiB",
+            "1.83GiB",
+            "1.858GiB",
+            "1.85GiB",
+            "1.871GiB",
+            "1.875GiB",
+            "1.891GiB",
+            "1.93GiB",
+            "1.967GiB",
+            "1.974GiB",
+            "1.998GiB",
+            "1.9GiB",
+            "2.011GiB",
+            "2.015GiB",
+            "2.017GiB",
+            "2.019GiB",
+            "2.01GiB",
+            "2.025GiB",
+            "2.027GiB",
+            "2.046GiB",
+            "2.059GiB",
+            "2.064GiB",
+            "2.069GiB",
+            "2.072GiB",
+            "2.079GiB",
+            "2.081GiB",
+            "2.092GiB",
+            "2.094GiB",
+            "2.099GiB",
+            "2.103GiB",
+            "2.107GiB",
+            "2.119GiB",
+            "2.13GiB",
+            "2.141GiB",
+            "2.142GiB",
+            "2.145GiB",
+            "2.146GiB",
+            "2.149GiB",
+            "2.154GiB",
+            "2.156GiB",
+            "2.166GiB",
+            "2.173GiB",
+            "2.183GiB",
+            "2.185GiB",
+            "2.192GiB",
+            "2.198GiB",
+            "2.199GiB",
+            "2.201GiB",
+            "2.204GiB",
+            "2.221GiB",
+            "2.222GiB",
+            "2.224GiB",
+            "2.225GiB",
+            "2.227GiB",
+            "2.228GiB",
+            "2.22GiB",
+            "2.231GiB",
+            "2.234GiB",
+            "2.235GiB",
+            "2.237GiB",
+            "2.23GiB",
+            "2.247GiB",
+            "2.253GiB",
+            "2.255GiB",
+            "2.256GiB",
+            "2.258GiB",
+            "2.262GiB",
+            "2.269GiB",
+            "2.271GiB",
+            "2.274GiB",
+            "2.275GiB",
+            "2.277GiB",
+            "2.27GiB",
+            "2.281GiB",
+            "2.292GiB",
+            "2.293GiB",
+            "2.3GiB"
+          ],
+          "3c7db632572b": [
+            "139.2MiB",
+            "139.4MiB",
+            "139.5MiB",
+            "139.8MiB",
+            "139.9MiB",
+            "140.1MiB",
+            "140.3MiB",
+            "140.4MiB",
+            "140.5MiB",
+            "140.6MiB",
+            "140.7MiB",
+            "140.8MiB",
+            "140.9MiB",
+            "140MiB",
+            "141.1MiB",
+            "141.2MiB",
+            "141.3MiB",
+            "141.4MiB",
+            "141.5MiB",
+            "141.6MiB",
+            "141.7MiB",
+            "141.8MiB",
+            "141.9MiB",
+            "141MiB",
+            "142.1MiB",
+            "142.2MiB",
+            "142.3MiB",
+            "142.4MiB",
+            "142.5MiB",
+            "142.6MiB",
+            "142.7MiB",
+            "142.8MiB",
+            "142MiB",
+            "143.2MiB",
+            "143.3MiB",
+            "143.4MiB"
+          ],
+          "b327739081a9": [
+            "3.033GiB",
+            "3.034GiB",
+            "3.038GiB",
+            "3.041GiB",
+            "3.042GiB",
+            "3.043GiB",
+            "3.045GiB",
+            "3.046GiB",
+            "3.048GiB",
+            "3.049GiB",
+            "3.04GiB",
+            "3.051GiB",
+            "3.052GiB",
+            "3.053GiB",
+            "3.054GiB",
+            "3.055GiB",
+            "3.056GiB",
+            "3.057GiB",
+            "3.058GiB",
+            "3.059GiB",
+            "3.05GiB",
+            "3.061GiB",
+            "3.062GiB",
+            "3.063GiB",
+            "3.064GiB",
+            "3.067GiB",
+            "3.068GiB",
+            "3.06GiB"
+          ]
+        }
+      },
+      "evidence_sha256": "8170185e66c4d4c61d753639341090c2ec19d8464cf8d5da3b4ba0bbadd4791e",
+      "limits": [
+        "Shared host and independently bootstrapped chains; not a maximum-capacity benchmark.",
+        "Offered rate and actual accepted throughput are separate.",
+        "CPU samples use Docker percent of one logical CPU, not normalized whole-host utilization.",
+        "Safe latency uses canonical hash-bound node events; first unsafe receipt observation is not canonical settlement.",
+        "Cold follower result is recorded separately."
+      ],
+      "ordinary_gas_cost_wei": "800229212055000"
+    },
+    "pipeline": {
+      "runtime_source": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+      "enclave": "eez-main-ab-20261024",
+      "interval": {
+        "started_at": 1792865632.641,
+        "ended_at": 1792865813.61,
+        "elapsed_seconds": 180.968935823
+      },
+      "admission": {
+        "planned": 5400,
+        "accepted": 4415,
+        "per_stage": [
+          {
+            "rate": 30,
+            "seconds": 180,
+            "planned_offers": 5400,
+            "accepted": 4415,
+            "accepted_per_second": 24.52777777777778,
+            "expired_schedule_slots": 0,
+            "backpressure_slots": 985
+          }
+        ],
+        "retries": 0,
+        "rpc_response_ms": {
+          "count": 4415,
+          "min": 0.9999275207519531,
+          "p50": 3.000020980834961,
+          "p95": 36.00001335144043,
+          "max": 120.00012397766113,
+          "mean": 17.151989024195775
+        },
+        "scheduled_slots": 5400,
+        "rpc_submissions": 4415,
+        "scope": "scheduled_slots includes expired and withheld offers; rpc_submissions is the actual sole-send count, all accepted. No failed or ambiguous send occurred."
+      },
+      "liveness": {
+        "observed_head_age_seconds": {
+          "count": 181,
+          "min": -5.380000114440918,
+          "p50": 0.6419999599456787,
+          "p95": 1.6429998874664307,
+          "max": 1.6489999294281006,
+          "mean": 0.20891158093405032
+        },
+        "head_minus_safe_blocks": {
+          "count": 181,
+          "min": 0,
+          "p50": 13,
+          "p95": 24,
+          "max": 24,
+          "mean": 12.994475138121548
+        },
+        "pending_ordinary_max": 128,
+        "queue_max": {
+          "queued": 0,
+          "inFlight": 0,
+          "blocked": 0,
+          "unknown": 0
+        },
+        "observed_same_height_replacements": 0,
+        "canonical_header_cadence_seconds": 2,
+        "scope": "One-second sampling and final canonical ancestry; future block timestamps cover intentional intervals between commits."
+      },
+      "settlement": {
+        "submission_to_canonical_safe_seconds": {
+          "count": 4415,
+          "min": 6.869825124740601,
+          "p50": 26.077831983566284,
+          "p95": 53.01948308944702,
+          "max": 54.8788321018219,
+          "mean": 27.87035385663215
+        },
+        "latency_without_matching_log_count": 0,
+        "all_receipts_canonical_and_safe": true
+      },
+      "proving": {
+        "canonical_window_signer_ms": {
+          "count": 4,
+          "min": 47,
+          "p50": 57.5,
+          "p95": 60,
+          "max": 60,
+          "mean": 55.5
+        },
+        "canonical_attempt_roundtrip_ms": {
+          "count": 4,
+          "min": 79,
+          "p50": 104.0,
+          "p95": 107,
+          "max": 107,
+          "mean": 98.5
+        },
+        "preparation_through_proof_ms": {
+          "count": 4,
+          "min": 350,
+          "p50": 505.5,
+          "p95": 508,
+          "max": 508,
+          "mean": 467.25
+        }
+      },
+      "resources": {
+        "host_available_min_bytes": 15402221568,
+        "container_cpu_percent": {
+          "8973aa1bf21a": {
+            "count": 18,
+            "min": 0.54,
+            "p50": 3.675,
+            "p95": 9.63,
+            "max": 9.63,
+            "mean": 4.2588888888888885
+          },
+          "3c7db632572b": {
+            "count": 18,
+            "min": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "max": 0.0,
+            "mean": 0.0
+          },
+          "b327739081a9": {
+            "count": 18,
+            "min": 0.43,
+            "p50": 0.815,
+            "p95": 4.48,
+            "max": 4.48,
+            "mean": 1.4283333333333335
+          }
+        },
+        "container_memory_samples": {
+          "8973aa1bf21a": [
+            "2.328GiB",
+            "2.337GiB",
+            "2.347GiB",
+            "2.349GiB",
+            "2.34GiB",
+            "2.351GiB",
+            "2.352GiB",
+            "2.353GiB",
+            "2.355GiB",
+            "2.356GiB",
+            "2.357GiB",
+            "2.35GiB",
+            "2.362GiB",
+            "2.366GiB",
+            "2.36GiB"
+          ],
+          "3c7db632572b": [
+            "141.4MiB",
+            "141.5MiB",
+            "142.3MiB",
+            "142.5MiB",
+            "142.7MiB",
+            "142.8MiB",
+            "143.2MiB",
+            "143.3MiB",
+            "143.4MiB",
+            "143MiB",
+            "144.1MiB",
+            "144.4MiB",
+            "144.7MiB",
+            "144MiB"
+          ],
+          "b327739081a9": [
+            "3.047GiB",
+            "3.048GiB",
+            "3.051GiB",
+            "3.053GiB",
+            "3.054GiB",
+            "3.055GiB",
+            "3.056GiB",
+            "3.059GiB",
+            "3.05GiB"
+          ]
+        }
+      },
+      "evidence_sha256": "8170185e66c4d4c61d753639341090c2ec19d8464cf8d5da3b4ba0bbadd4791e",
+      "limits": [
+        "Shared host and independently bootstrapped chains; not a maximum-capacity benchmark.",
+        "Offered rate and actual accepted throughput are separate.",
+        "CPU samples use Docker percent of one logical CPU, not normalized whole-host utilization.",
+        "Safe latency uses canonical hash-bound node events; first unsafe receipt observation is not canonical settlement.",
+        "Cold follower result is recorded separately."
+      ],
+      "ordinary_gas_cost_wei": "927154543035000"
+    }
+  },
+  "cross_chain": {
+    "waves": 12,
+    "sources": 96,
+    "each_direction": 48,
+    "all_terminal_committed": true,
+    "canonical_l1_source_and_post_binding_checked": true,
+    "wrapped_returns_checked": 24,
+    "wrapper_values": [
+      {
+        "source": "0xc64dde0080115528e506eed32a700972a1d0b4c78e7876c98a98375ef51b8951",
+        "direction": "in",
+        "input_ok_changed_newValue": [
+          301,
+          1,
+          1,
+          301
+        ]
+      },
+      {
+        "source": "0x2945ac9f149f8967f25412f449b10aed4edba70a633c87522e13654e843ce160",
+        "direction": "out",
+        "input_ok_changed_newValue": [
+          601,
+          1,
+          1,
+          601
+        ]
+      },
+      {
+        "source": "0xd5ea9cfffd7c02a40964a05a915e59d1328177530495ce793d7179e9f2fda9d7",
+        "direction": "in",
+        "input_ok_changed_newValue": [
+          302,
+          1,
+          1,
+          302
+        ]
+      },
+      {
+        "source": "0xabc3426f84332926e4832f6783e6bc4562b8b58a59a6e2b21161ce49b7622d3c",
+        "direction": "out",
+        "input_ok_changed_newValue": [
+          602,
+          1,
+          1,
+          602
+        ]
+      },
+      {
+        "source": "0x5e1edff8f699cc7036008b832a7c685d7d16551713e8bc8e71a870f26cfa30e0",
+        "direction": "in",
+        "input_ok_changed_newValue": [
+          303,
+          1,
+          1,
+          303
+        ]
+      },
+      {
+        "source": "0x5ed6640b0e3e02a1d520bb0e99f97e90c4f48e874f5975efd7f4e5c0779915b8",
+        "direction": "out",
+        "input_ok_changed_newValue": [
+          603,
+          1,
+          1,
+          603
+        ]
+      },
+      {
+        "source": "0x992edb82028c27436c897c0cb53dae8d72cf5ae086328fa900c1467d5ee3fd01",
+        "direction": "in",
+        "input_ok_changed_newValue": [
+          304,
+          1,
+          1,
+          304
+        ]
+      },
+      {
+        "source": "0x5cb8ca90f224a08f98c19e76ab1137c6ee0b7c8abb5ef795d3ca320bad194d80",
+        "direction": "out",
+        "input_ok_changed_newValue": [
+          604,
+          1,
+          1,
+          604
+        ]
+      },
+      {
+        "source": "0xd40bbc61c193426df5d385d1f2fc19b7cc0a00829e76809e172155f8891a78d0",
+        "direction": "in",
+        "input_ok_changed_newValue": [
+          305,
+          1,
+          1,
+          305
+        ]
+      },
+      {
+        "source": "0xe0e3f63dfdf170397f61204525858fb0c3d1bb12356a8edd3f9e98659c7e8631",
+        "direction": "out",
+        "input_ok_changed_newValue": [
+          605,
+          1,
+          1,
+          605
+        ]
+      },
+      {
+        "source": "0xd86deba24f7f2f19cb1d0eb0ae09a52a04964206067e1f8806599d2bffecb966",
+        "direction": "in",
+        "input_ok_changed_newValue": [
+          306,
+          1,
+          1,
+          306
+        ]
+      },
+      {
+        "source": "0xed8ab9d6f350cd98700bdcd7b227191c9d8cace11947d88733a86c7023126666",
+        "direction": "out",
+        "input_ok_changed_newValue": [
+          606,
+          1,
+          1,
+          606
+        ]
+      },
+      {
+        "source": "0x0b88f6d4eb72200f54f93455541f177764cc495df55e1754f0ebd20659b199a2",
+        "direction": "in",
+        "input_ok_changed_newValue": [
+          307,
+          1,
+          1,
+          307
+        ]
+      },
+      {
+        "source": "0x57bd0c43e1c686d1cbe2549a9755556fcbcb88d2deb3e0f39a13029d6c8d5a6c",
+        "direction": "out",
+        "input_ok_changed_newValue": [
+          607,
+          1,
+          1,
+          607
+        ]
+      },
+      {
+        "source": "0x7dadbeb412996225d7d542768dd05e38e737f943c5324950a181eb97299a3ad9",
+        "direction": "in",
+        "input_ok_changed_newValue": [
+          308,
+          1,
+          1,
+          308
+        ]
+      },
+      {
+        "source": "0x0b88702c12f614147878efc54c84344c03fbc9285f073c182fde3aa3977992c9",
+        "direction": "out",
+        "input_ok_changed_newValue": [
+          608,
+          1,
+          1,
+          608
+        ]
+      },
+      {
+        "source": "0x1aa56c999970e837b926bdd891cc68d5e177a5ba4d24457b61b83c53d5cb7b04",
+        "direction": "in",
+        "input_ok_changed_newValue": [
+          309,
+          1,
+          1,
+          309
+        ]
+      },
+      {
+        "source": "0xa24cc26bae11cb6d4799c8100fa4a204f257e446b2d855da9157f494d41f0368",
+        "direction": "out",
+        "input_ok_changed_newValue": [
+          609,
+          1,
+          1,
+          609
+        ]
+      },
+      {
+        "source": "0xd35d74daab23f669c77eefe4476dc9e334eea864e555d2c7a0f3cb8390538dfb",
+        "direction": "in",
+        "input_ok_changed_newValue": [
+          310,
+          1,
+          1,
+          310
+        ]
+      },
+      {
+        "source": "0xa25ddd9e6db3eab03ecbfd645b0585145569f56c30096f4c65dc42560387447d",
+        "direction": "out",
+        "input_ok_changed_newValue": [
+          610,
+          1,
+          1,
+          610
+        ]
+      },
+      {
+        "source": "0xa377d50b428fe65a859a03f6ff809f5ddcd1498349c0d0039a060fde83e94189",
+        "direction": "in",
+        "input_ok_changed_newValue": [
+          311,
+          1,
+          1,
+          311
+        ]
+      },
+      {
+        "source": "0x550df8c2b684199458146fd659ef26e0f22b5e2f16946e6f66653355827b870f",
+        "direction": "out",
+        "input_ok_changed_newValue": [
+          611,
+          1,
+          1,
+          611
+        ]
+      },
+      {
+        "source": "0x67d744ad2e60458a9075d8750c9610d17b1d90c0acec6c4553eb000a96130b20",
+        "direction": "in",
+        "input_ok_changed_newValue": [
+          312,
+          1,
+          1,
+          312
+        ]
+      },
+      {
+        "source": "0xfb85c1bce7b6b6e52461d1a01534953015666ca6bd3fbf766e8ef425ff18d04e",
+        "direction": "out",
+        "input_ok_changed_newValue": [
+          612,
+          1,
+          1,
+          612
+        ]
+      }
+    ],
+    "native_receipts_checked_separately": 96,
+    "scope": "Existing wave destination state/value oracle plus exact wrapper return events, canonical source ownership and KZG-bound post relationships; no assertion of every arbitrary internal call trace."
+  },
+  "accounting": {
+    "verified": true,
+    "first": 416,
+    "last": 1291,
+    "base_fee_mode": "burn",
+    "all_non_native_base_fees": "1880079368795",
+    "all_non_native_tips": "12608373615199563",
+    "balances": {
+      "beneficiary": {
+        "before": "0x2a99ce2477c2f5d",
+        "after": "0x2d668220603b4a8",
+        "delta": 12608373615199563
+      },
+      "vault": {
+        "before": "0x0",
+        "after": "0x0",
+        "delta": 0
+      }
+    },
+    "ordinary_gas_cost_wei": "1732423779786000",
+    "sender_and_recipient_exact": true
+  },
+  "recovery": {
+    "planned_pause_seconds": 72,
+    "paused_at": 1792865967.984071,
+    "restored_at": 1792866040.0273044,
+    "planned_ordinary_transfers": 24,
+    "maximum_gas_budget_wei": "50400000000000",
+    "generator_sha256": "6528e4ed7ffa0775ef21919912f54bf1dc0375bff08f8af8506e2c2cdb83074c",
+    "maximum_head_age_seconds": 2.0025975704193115,
+    "l2_advanced_blocks": 36,
+    "l1_advanced_blocks": 6,
+    "sender_nonce_progress_during_pause": 22,
+    "maximum_observed_commit_gap_seconds": 6.026135206222534,
+    "candidate_continuity_required": false,
+    "result": "canonical_recovery_verified",
+    "signer_restored_running": true,
+    "sender_exit_code": 0,
+    "all_24_receipts_canonical_and_accounted": true,
+    "scope": "Signer outage only; baseline continuity is observed, not assumed. No 4-second wall-clock SLA. All 24 transfers settle after restoration."
+  },
+  "cold_replay": {
+    "checked_blocks": 1308,
+    "checked_derived_blocks": 1308,
+    "checked_receipts": 8289,
+    "safe_l2_block": 1308,
+    "safe_l2_block_hash": "0xe6a02fa7caa605f0cdaab0b8a4f3fe8b07aa9a28d7b68a56bdb4fe0a9cfcb6a2",
+    "source": "canonical_l1_only",
+    "verified": true,
+    "exit_code": 0,
+    "duration_seconds": 15.02,
+    "input_sha256": "8170185e66c4d4c61d753639341090c2ec19d8464cf8d5da3b4ba0bbadd4791e",
+    "test_sha256": "e10fdfde343995edf8b2d0f5d1f31ef87644ab12a0031031a52555196c043028",
+    "follower_sha256": "f7c52c7db46a5575faf195f09eded8c4c1ae5dad7568a8dae4e07bbb047a225e",
+    "min_available_bytes": 14562791424,
+    "full_batches": 124,
+    "native_receipts_explicitly_compared_in_harness": false,
+    "limits": [
+      "The old baseline receipt parser cannot decode native type0x76; all96 native receipts and their canonical post links were checked separately, then the cold follower necessarily executed them to reach the canonical endpoint.",
+      "The harness compares selected receipt status and canonical block inclusion, not every receipt log or gas field.",
+      "Every height1..1308 belongs to exactly one unchanged full canonical claim; no partial claim was rewritten."
+    ]
+  },
+  "bundle_exclusions": {
+    "count": 27,
+    "before_measured_count": 27,
+    "since_measured_count": 0,
+    "first": {
+      "timestamp": "2026-10-24T17:39:03.230364Z",
+      "target_block": 7,
+      "transaction_hash": "0x5a12c2746469b027baa24d4b4525ea0c1f14d272091d7ab5337ffe0229ad5609",
+      "reason": "excluded"
+    },
+    "last": {
+      "timestamp": "2026-10-24T17:44:15.349488Z",
+      "target_block": 33,
+      "transaction_hash": "0x3c1e0ae28285ea682dbce7ce00b2808112004534740e157d72b7a754fd5a52ad",
+      "reason": "excluded"
+    },
+    "rows": [
+      {
+        "timestamp": "2026-10-24T17:39:03.230364Z",
+        "target_block": 7,
+        "transaction_hash": "0x5a12c2746469b027baa24d4b4525ea0c1f14d272091d7ab5337ffe0229ad5609",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:39:15.394754Z",
+        "target_block": 8,
+        "transaction_hash": "0x81951c46af7cf98c87a6e712873b4765ca0169343f7c001946e99fa7754f1014",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:39:27.414382Z",
+        "target_block": 9,
+        "transaction_hash": "0x451634d5ccb9d03aabf8bd462b87a0cd328dd7615044865911f21248a509343a",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:39:39.355268Z",
+        "target_block": 10,
+        "transaction_hash": "0xa87c1dab43cfe0683a8e8f6e4a5293cbcfaf51a99727f97fc453cb0dc0780f9f",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:39:51.340745Z",
+        "target_block": 11,
+        "transaction_hash": "0xa9ddd4849fa694952f1dcf854e783d09a668fb2559bfdb3515f528cdf344f738",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:40:03.331382Z",
+        "target_block": 12,
+        "transaction_hash": "0xe25e9da65daf1b3f926377937d6e0a70dc1b7d81684950bee9e4b5a43896d936",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:40:15.376078Z",
+        "target_block": 13,
+        "transaction_hash": "0xa1c42d080bde2fefa234ca839dfeecfaf2bcad9396fdc35c831d85e96183e640",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:40:27.341256Z",
+        "target_block": 14,
+        "transaction_hash": "0x93f521d71e4fe56402cd34d28ae3aa94880082a3b923480753bfda9d77ddba9a",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:40:39.332843Z",
+        "target_block": 15,
+        "transaction_hash": "0xa13f1768f5aecfc4d41882672f3fef200a4d73d0103d64ed4473104a1645b10b",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:40:51.320052Z",
+        "target_block": 16,
+        "transaction_hash": "0x770c3af63bd971904b7646c98492fcb0b97ac3ee003367fce298a2f6a61c24f9",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:41:03.336101Z",
+        "target_block": 17,
+        "transaction_hash": "0x2ebdcab2c7bd954c5d34509fe1dec65b63e5ea670ac23c76980c70679554c471",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:41:15.346642Z",
+        "target_block": 18,
+        "transaction_hash": "0x74992671568aeb8349b70013613dee1b6af1fc034efb0fa5adbc1b760fa3d633",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:41:27.413294Z",
+        "target_block": 19,
+        "transaction_hash": "0xa036b81f30be9220a3871d0d03e15b64d35c6a1b9f407a282b454af4b06dac0c",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:41:39.362159Z",
+        "target_block": 20,
+        "transaction_hash": "0x2e37885f7b88970c3a52380b3ac268321cd2e30be04fc84914eaa416b10ed9d8",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:41:51.338594Z",
+        "target_block": 21,
+        "transaction_hash": "0x9e9e777f5326829002ec652ba1909303a64d9d28632f9dcf4ce226b66710aeb1",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:42:03.335390Z",
+        "target_block": 22,
+        "transaction_hash": "0x92c790fdf6bc84e29f9ddab12804e6d4735445906a9fe237ec5616536d309ce0",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:42:15.397638Z",
+        "target_block": 23,
+        "transaction_hash": "0xf933ad5cc734dea1d3412c0af8d6fed0435edc719420ef25b1a7e9b9bfde1d58",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:42:27.367306Z",
+        "target_block": 24,
+        "transaction_hash": "0x2be473b7e4a0039fc49bef3a39d2d390037794d3db3160d4859ba020016ce100",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:42:39.322914Z",
+        "target_block": 25,
+        "transaction_hash": "0xe63c0494404ee2af5c3c71d1d850ad7c0ef98c1a5d7a7e18d0e5355683989ac8",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:42:51.368314Z",
+        "target_block": 26,
+        "transaction_hash": "0xb5e0bc01997c893c15aae634ef1556ee854aacb79e2c9f9d5c9fcb2c51fe8887",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:43:03.426424Z",
+        "target_block": 27,
+        "transaction_hash": "0x835f13430a1701b7b386dc5a7c80501c34e5b84e238905398625b4411dae4b82",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:43:15.347438Z",
+        "target_block": 28,
+        "transaction_hash": "0x03fe14cd4f13921ed3ad2f20bf031e1b806ce58f2a94275df0568d813d814e8f",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:43:27.335336Z",
+        "target_block": 29,
+        "transaction_hash": "0x7e70a3ac993c0b9b6486a66dd0597636f92e131d3b541c033ccb1fee4c1044cd",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:43:39.347318Z",
+        "target_block": 30,
+        "transaction_hash": "0xdf1046c31fa4fe447c0b8468bd55ba2936143459a5866e697bad9ad59dfded77",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:43:51.425108Z",
+        "target_block": 31,
+        "transaction_hash": "0x902de8ecb4ec13bccbe1b082590e9091c3748603a498e48326466c109379c526",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:44:03.357991Z",
+        "target_block": 32,
+        "transaction_hash": "0x65139dd0cb2e93fb8ca13f9f324cbf85a1f5ec3f4ce40951e856a49d80fd8e24",
+        "reason": "excluded"
+      },
+      {
+        "timestamp": "2026-10-24T17:44:15.349488Z",
+        "target_block": 33,
+        "transaction_hash": "0x3c1e0ae28285ea682dbce7ce00b2808112004534740e157d72b7a754fd5a52ad",
+        "reason": "excluded"
+      }
+    ],
+    "interpretation": "These are excluded attempts reported by the submitter, not accepted-source loss. The count is over node history; canonical source consumption is checked independently."
+  },
+  "preserved_session_anomaly": {
+    "observed_at": "2026-10-24T18:20:16.883922+00:00",
+    "exec_session": 84168,
+    "outer_exit_code": 143,
+    "child_sender_exit_code": 0,
+    "supervisor_record_result": "completed",
+    "limitation": "Outer shell/session reported SIGTERM after the complete child result; cause not established. Preserve as distinct from completed accounting assertions; do not rewrite it to exit0."
+  },
+  "maintenance": {
+    "complete": true,
+    "started_at": 1792866673.5520682,
+    "completed_at": 1792866723.1021605,
+    "safe_l2_number": 1596,
+    "safe_l2_hash": "0x9865a35e1ed153fc3af6f80d155efa1433097a1272f2aede82505cc743836a9b",
+    "latest_l2_number": 1607,
+    "latest_l2_hash": "0xeb3ecd9009de1f9c92fa000eb7bc05e23935a5023fa6e85be7273b455a3e775c",
+    "node_and_builder_stopped_cleanly": true,
+    "canonical_l1_and_signer_untouched": true,
+    "archives": [
+      {
+        "role": "node",
+        "source": "/data",
+        "path": "artifacts/extended-validation/baseline/serial-maintenance/snapshot/node/data.tar.gz",
+        "bytes": 27412170,
+        "sha256": "fe97444a7c00e77f7b70c071140bdaeb58ac94b39a0baaeeeb489f6b1f7f0e1c",
+        "members": 50,
+        "full_readback": true
+      },
+      {
+        "role": "node",
+        "source": "/tmp/eez-l1-embedded",
+        "path": "artifacts/extended-validation/baseline/serial-maintenance/snapshot/node/eez-l1-embedded.tar.gz",
+        "bytes": 19335390,
+        "sha256": "4f3a96ba8c1a10474c4443adca8d9c72a051636ca233c89bf75b6f33907400a3",
+        "members": 43,
+        "full_readback": true
+      },
+      {
+        "role": "node",
+        "source": "/tmp/eez-bundle-captures",
+        "path": "artifacts/extended-validation/baseline/serial-maintenance/snapshot/node/eez-bundle-captures.tar.gz",
+        "bytes": 283149,
+        "sha256": "66280bf4eee0fdec605c3ae3fe758cb9a1be3e0dd8e3e00cf3ca9f0c31ab329c",
+        "members": 82,
+        "full_readback": true
+      },
+      {
+        "role": "node",
+        "source": "/genesis",
+        "path": "artifacts/extended-validation/baseline/serial-maintenance/snapshot/node/genesis.tar.gz",
+        "bytes": 129486,
+        "sha256": "78d2c953dec6a54191b4373f83930d179f68b23de3ce1f5378f0c90aebf7f968",
+        "members": 15,
+        "full_readback": true
+      },
+      {
+        "role": "node",
+        "source": "/out",
+        "path": "artifacts/extended-validation/baseline/serial-maintenance/snapshot/node/out.tar.gz",
+        "bytes": 68861,
+        "sha256": "4df6c7a3181fa4a11acd0d24e003a176312873b9d52e8ff66912f653ccaf1416",
+        "members": 21,
+        "full_readback": true
+      },
+      {
+        "role": "builder",
+        "source": "/data",
+        "path": "artifacts/extended-validation/baseline/serial-maintenance/snapshot/builder/data.tar.gz",
+        "bytes": 19375759,
+        "sha256": "ec5af225a3a93f702f4f66cf8699eceab428c79d6b9177232b05d8f9e7567ced",
+        "members": 44,
+        "full_readback": true
+      },
+      {
+        "role": "builder",
+        "source": "/config",
+        "path": "artifacts/extended-validation/baseline/serial-maintenance/snapshot/builder/config.tar.gz",
+        "bytes": 905,
+        "sha256": "977371cc53f3cf1df1cd0dcca419d9ace6f492d3f635279f8ec97ed120dd389a",
+        "members": 2,
+        "full_readback": true
+      },
+      {
+        "role": "builder",
+        "source": "/network-configs",
+        "path": "artifacts/extended-validation/baseline/serial-maintenance/snapshot/builder/network-configs.tar.gz",
+        "bytes": 129576,
+        "sha256": "f3e5c2df3767e2ec5bf79c0daf95ae4a3688c67d258b10f442013b409e3de2e0",
+        "members": 15,
+        "full_readback": true
+      }
+    ],
+    "scope": "Deliberate shutdown after all measurements and replay; excluded from liveness. No enclave or data was deleted."
+  },
+  "preserved_preflight_failures": [
+    {
+      "phase": "shutdown preflight",
+      "failure": "unsupported eez_getQueueStatus method",
+      "correction": "Use existing eez_getCrossChainQueueStatus.",
+      "lifecycle_commands_before_failure": 0
+    },
+    {
+      "phase": "shutdown preflight",
+      "failure": "stat utility absent in builder image",
+      "correction": "Use Docker archive HEAD API to check the same paths.",
+      "lifecycle_commands_before_failure": 0
+    }
+  ],
+  "raw_evidence": {
+    "availability": "local-only, not included in repository or a remotely retrievable artifact",
+    "root": "artifacts/extended-validation/baseline",
+    "replay_input_sha256": "8170185e66c4d4c61d753639341090c2ec19d8464cf8d5da3b4ba0bbadd4791e",
+    "all_measured_receipts_sha256": "2480ad7cf44e150a4b2b1425b7d59ce87d5b535e4e3e4c8900a0194aa236839a",
+    "node_log_sha256": "a8957a583fd1f7b107443c02430f47a3cd14c5c86636e46410bc45240cbadf79",
+    "signer_log_sha256": "396055bbb5d638448fc1acb9f3acee2bd5738cded216a5ebe060bed78314bc89",
+    "snapshot_manifest_sha256": "b66c9469bca3e42862e76b6ae4ee1e1fb271cb67ae6269c984e572fbe012947f"
+  },
+  "remaining": [
+    "Repeat the identical campaign and pending-debug control using verified final candidate shipping artifacts.",
+    "Compare rates and resources with explicit independently bootstrapped-chain/shared-host caveats; this baseline alone proves no candidate parity or throughput improvement.",
+    "The pipeline outer shell reported143 after complete child/supervisor success; its cause remains unknown and is not rewritten as a clean outer exit."
+  ]
+}

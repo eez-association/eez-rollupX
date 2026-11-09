@@ -9,6 +9,10 @@ description            = "L1 RPC client + Submitter task that posts L2 batches t
 [features]
 chain-spec = ["dep:reth-chainspec", "dep:reth_gnosis"]
 
+[[example]]
+name = "verify_blob_evidence"
+required-features = ["chain-spec"]
+
 [dependencies]
 eez-blob-codec.workspace    = true
 eez-protocol.workspace      = true
@@ -46,7 +50,7 @@ alloy-network.workspace               = true
 alloy-transport                      = { version = "2", default-features = false }
 eez-payload-codec.workspace          = true
 eez-primitives.workspace             = true
-eez-evm.workspace                    = true
+eez-evm = { workspace = true, features = ["stateless"] }
 reth-chainspec.workspace             = true
 reth-primitives-traits.workspace     = true
 stateless-reth.workspace             = true

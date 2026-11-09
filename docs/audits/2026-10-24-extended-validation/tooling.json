@@ -1,0 +1,62 @@
+{
+  "selected": 417,
+  "passed": 410,
+  "errors": 1,
+  "skipped": 6,
+  "error": "NativeRelocationTest.test_real_producer_and_all_consumers_without_build_machine_or_compiler: host mold linker missing, compile exited101 before fixture assertions",
+  "skips": [
+    "DockerPayloadTest real scratch image opt-in",
+    "RealRelayResourcesTest two isolated Kurtosis opt-in cases",
+    "RuntimeDockerTest three real image-build opt-in cases"
+  ],
+  "log_sha256": "0ddd496eecc56371a6b78f007dda5569be97dce6a0fba8caecaf383bca3ed21f",
+  "environment_correction": "Task-local extracted mold2.40.4 and its missing shared libraries; no source/configuration or global package change",
+  "retry": {
+    "result": "PASS",
+    "selected": 1,
+    "passed": 1,
+    "skipped": 0,
+    "test_seconds": 60.234,
+    "guard": {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "test_native_artifacts.NativeRelocationTest.test_real_producer_and_all_consumers_without_build_machine_or_compiler",
+        "-v"
+      ],
+      "exit": 0,
+      "seconds": 61.02,
+      "minimum_available_bytes": 20683497472,
+      "guard_cancelled": false,
+      "jobs": 1
+    },
+    "log_local_only": "artifacts/extended-validation/checks/tooling-native-linker-fixed/output.log",
+    "log_sha256": "e232510205c3164830bb8ab244a3562cc6c227701e1d9e9bee41e36065f9b107",
+    "reason": "Install only missing task-local linker prerequisites; exact test and assertions unchanged",
+    "interpretation": "Environment correction, not a retry-only product flake; first full-suite failure retained"
+  },
+  "source": "28049ff734ab931cbde01246c5d238cce6ef65bf plus protocol test-only additions",
+  "command": "EEZ_TEST_NATIVE_ARCHIVE=1 python3 -m unittest discover -s scripts/ci/tests -v",
+  "result": "FAIL; first result retained",
+  "environment": {
+    "source": "Ubuntu resolute authenticated package index, apt-get download",
+    "scope": "task-local extraction only; no system installation",
+    "packages": {
+      "libmimalloc3_3.2.8+ds-2_amd64.deb": "9c61fbce8c5b6c08fe577f917fd1a7cd5f84676553f4611058c3a000d11e2454",
+      "libtbb12_2022.3.0-2_amd64.deb": "9e58d374ec6f5c3a690f5a427819d7d762030d474aa3ea91f52d0c7226ff2741",
+      "libtbbbind-2-5_2022.3.0-2_amd64.deb": "fb527d56921d375024b202a7ca7c0b5b8b4e8afb419552885b7db02c1c14e4b2",
+      "libtbbmalloc2_2022.3.0-2_amd64.deb": "d79793e790d6d3dfd8cd5c4434e09c3bca2098ecf57d6f097bef4df9106a6d8d",
+      "mold_2.40.4+dfsg-2.1ubuntu1_amd64.deb": "9499a1a43065e77ee52361a9f5f4c65646bb65191d42151ea23208e04d6b2a24"
+    },
+    "mold_version": "2.40.4",
+    "purpose": "native artifact relocation fixture requires -fuse-ld=mold"
+  },
+  "log_local_only": "artifacts/extended-validation/checks/tooling-final/output.log",
+  "combined_coverage": {
+    "distinct_tests_passed": 411,
+    "opt_in_skipped": 6,
+    "single_full_green_run": false,
+    "limits": "Six explicit Docker/Kurtosis opt-in tests were not executed. The fixture uses synthetic workspaces; actual candidate payload provenance and process execution have independent records."
+  }
+}

@@ -33,10 +33,6 @@ pub struct NestedPairVerification {
     pub l2_outbound_hashes: Vec<B256>,
     /// Net L1→L2 value minus L2→L1 value for this rollup.
     pub ether_delta: I256,
-    /// Number of separate L1→L2 callback deliveries belonging to each
-    /// source-L2 root. Canonical mutable outbound entries contain callbacks
-    /// directly, so each count is zero. Empty for inbound verification.
-    pub outbound_callback_counts: Vec<usize>,
 }
 
 /// Verify one settlement entry against the complete ordered L2 execution
@@ -208,7 +204,7 @@ pub fn verify_nested_pair(
 
     l1.finish()?;
     l2.finish()?;
-    finish_facts(facts, Vec::new())
+    finish_facts(facts)
 }
 
 /// Verify a top-level L2 static source entry against the immediate L1 host
@@ -227,10 +223,7 @@ pub fn verify_static_outbound_pair(
     )
 }
 
-fn finish_facts(
-    facts: AccumulatedFacts,
-    outbound_callback_counts: Vec<usize>,
-) -> ProtocolResult<NestedPairVerification> {
+fn finish_facts(facts: AccumulatedFacts) -> ProtocolResult<NestedPairVerification> {
     let inflow = I256::try_from(facts.l1_to_l2_value).map_err(|_| {
         crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
             "nested pair L1-to-L2 value exceeds I256".into(),
@@ -249,7 +242,6 @@ fn finish_facts(
     Ok(NestedPairVerification {
         l2_outbound_hashes: facts.l2_outbound_hashes,
         ether_delta,
-        outbound_callback_counts,
     })
 }
 
@@ -537,7 +529,7 @@ fn verify_outbound_tables(
         .into());
     }
     l1.finish()?;
-    finish_facts(facts, vec![0; source_count])
+    finish_facts(facts)
 }
 
 /// Bind an L2 static source's callbacks to the L1 host rows that answer them.

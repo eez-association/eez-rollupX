@@ -142,7 +142,7 @@ jobs:
         env:
           KURTOSIS_ENCLAVE: eez-ci
           KURTOSIS_RESOURCE_CHECK: "true"
-          EEZ_PROTOCOL_MAX_PARALLEL: "2"
+          EEZ_PROTOCOL_MAX_PARALLEL: "4"
         run: bash testing/kurtosis/run-ci.sh
       - name: Upload local E2E failure diagnostics
         if: ${{ failure() && steps.init.outputs.published == 'false' }}

@@ -25,7 +25,7 @@ fn item(bytes: usize) -> Result<usize> {
 
 fn ordinary(tx: &eez_primitives::EezTxEnvelope) -> Result<()> {
     use alloy_consensus::Typed2718;
-    if matches!(tx, eez_primitives::EezTxEnvelope::System(_)) || tx.ty() == 3 {
+    if tx.is_cross_chain_system() || tx.ty() == 3 {
         return Err(Error::UnsupportedTransaction);
     }
     Ok(())

@@ -2,9 +2,12 @@
 
 Create a **new rollup** from an unused deployment checkout; deployment spends
 Chiado test xDAI. Run commands from the repository root and stop on failure.
-For an existing rollup, use [restart](chiado-deployment.md#restart-and-stop) or
-[set up another Composer](chiado-existing-rollup.md).
-Fresh-host deployment and restart rehearsal are pending.
+This revision requires the offline-history profile from genesis, with new
+contracts and fresh L2 datadirs. For an existing rollup, keep its matching
+release and follow that release's restart/Composer procedure; these binaries
+do not migrate it. See the [profile boundary](chiado-deployment.md#offline-v2-proving-and-fresh-network-boundary).
+Fresh-host deployment remains pending. A compatible runtime restart on an
+existing offline-profile network was [validated separately](../audits/2026-10-26-network-916969-runtime-update/README.md).
 
 Required: Linux amd64, local Docker Engine/Compose, Git, Bash, curl, jq, OpenSSL,
 and Foundry **1.7.1** `cast` for startup checks. Reserve the
@@ -26,6 +29,13 @@ Edit `.env`: set a synchronized Chiado `EEZ_L1_RPC_URL` and dedicated poster,
 proof-signer keys. Keep the poster separate from the proof signer. Native L2
 transactions use a fixed address and need no key. Fund the poster with test xDAI; it also deploys
 unless you set and fund a separate `EEZ_DEPLOY_KEY`.
+
+Set `EEZ_L2_TREASURY_RECIPIENT` to the initial L2 treasury recipient. Base fees
+accumulate in the fixed FeeVault predeploy; anyone may trigger its `withdraw()`.
+`EEZ_L2_TREASURY_OWNER` defaults to the deployment `OWNER`; set an L2 governance or
+multisig address for production. That owner also initially owns the vault ProxyAdmin. It can propose a recipient
+with `proposeRecipient(address)`; the recipient must call `acceptRecipient()` on L2.
+See the [treasury operation and upgrade rules](fee-vault.md). Set `EEZ_L2_FEE_RECIPIENT` separately for the block beneficiary's priority fees.
 
 The example enables the [live Chiado policy/timing preset](chiado-deployment.md#1-configure):
 automatic admission, `always` settlement, and explicit fee ceilings. Review those

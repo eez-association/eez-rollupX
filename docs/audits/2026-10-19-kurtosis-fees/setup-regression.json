@@ -1,0 +1,15 @@
+{
+  "candidate_protocol": "af9255775e144f71982abcd34dc920510096dc9d",
+  "type": "controlled runner test with mocked RPC/signing",
+  "retained_setup_nonce": 1,
+  "minimum_trigger_nonce": 2,
+  "node_reported_nonce": 0,
+  "front_reported_nonce": 0,
+  "runner_exit_code": 0,
+  "attempted_signing_nonces": [
+    0
+  ],
+  "stdout": "target: 0x1111111111111111111111111111111111111111\ncalldata: 0x1234\nvalue: 0\ngas limit: 1000000\nnonce: 0 (rpc=0 front=0)\n",
+  "stderr": "",
+  "broadcast_performed": false
+}

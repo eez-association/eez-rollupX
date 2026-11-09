@@ -1,0 +1,69 @@
+{
+  "date": "2026-10-24",
+  "commit": "a887fadddf0351d2ce57e8d7d5cc9f5545c22f97",
+  "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "scope": "Published validation-fixture and evidence-collector corrections only; production source, lockfile, features and protocol unchanged since 0e34a326.",
+  "checks": {
+    "source_secret_scan": {
+      "files": 39,
+      "result": "PASS",
+      "staged_blobs_match_scanned_bytes": true,
+      "log_sha256": "ae949ff458b2ea26f0e9da94a7fa17544f1e0cc7c2ba1623acafd5f48e1b6f59"
+    },
+    "commit_history_secret_scan": {
+      "commits": 1,
+      "result": "PASS",
+      "log_sha256": "94eb6e8d8e434864754b57064390469c285aecb7be870cd819394501796bc498"
+    },
+    "local_document_paths": {
+      "base": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+      "head": "0e34a326536befc31ee62a92647bfc3dca9ddee2",
+      "markdown_files": 74,
+      "local_targets_checked": 906,
+      "missing": [],
+      "scope": "Local inline and reference target paths outside fenced blocks; external URLs and fragments not checked; uncommitted audit updates included"
+    },
+    "independent_static_review": {
+      "result": "No blocking finding or weakened assertion",
+      "scope": [
+        "example genesis fixture and negative tests",
+        "paired YAML scalar parsing and malformed-input cases",
+        "accepted idle-cutoff synchronization and retained semantic assertions",
+        "static-local-write table/trace/blob evidence oracle"
+      ],
+      "limits": "No new runtime execution; focused and combined test evidence is recorded separately."
+    }
+  },
+  "cold_replay_contract_review": {
+    "fresh_state": true,
+    "input_sources": [
+      "genesis and explicit environment",
+      "canonical L1 RPC",
+      "L1 Beacon blob data"
+    ],
+    "no_composer_database_or_unsafe_overlay": true,
+    "explicit_assertions": [
+      "selected original pre/post commitment hashes are canonical",
+      "decoded range length and parent continuity",
+      "beneficiary and extraData",
+      "ordered V0 transaction bodies, with terminal reconstructed suffix bound by final hash",
+      "selected receipt status and canonical block membership",
+      "final selected safe endpoint"
+    ],
+    "assembly_obligations": [
+      "retain all 112 maintenance parts with exact original claims",
+      "check selection uniqueness and continuity separately",
+      "cover every expected receipt in selected complete ranges",
+      "retain partial-post claims separately without replacing them with applied-prefix hashes"
+    ],
+    "limits": [
+      "The harness does not itself require the full 112-part inventory, unique or contiguous selected batches.",
+      "Receipt log, gas, index and contract-value assertions belong to the separately recorded live oracles.",
+      "Receipt-to-batch mapping values and expected_headers are not consumed by this harness.",
+      "A selected partly applied post cannot pass unless its original full claimed endpoint is canonical; a later complete endpoint still requires the new follower to derive earlier partial execution.",
+      "This is independent state reconstruction using the same follower implementation, not an implementation-diverse client or a new signer-without-RPC test."
+    ]
+  },
+  "local_evidence_directory": "artifacts/pr-readiness",
+  "availability": "Raw logs and full scan inventory local-only; portable results here."
+}

@@ -130,6 +130,121 @@ class CiTimingTest(unittest.TestCase):
         self.assertGreaterEqual(trigger_lead - proof - slack - 150, 1350)
 
 
+@unittest.skipIf(yaml is None, "PyYAML not installed")
+class FeeProfileTest(unittest.TestCase):
+    def runtime_services(self, args):
+        """Evaluate the package until all three runtime services are wired."""
+        class RuntimeReached(Exception):
+            pass
+
+        services = {}
+
+        def add_service(name, config):
+            services[name] = config
+            if name == "eez-follower":
+                raise RuntimeReached
+
+        participant = SimpleNamespace(
+            el_context=SimpleNamespace(service_name="el-1-reth-lighthouse",
+                                       rpc_http_url="http://l1:8545", enode="enode"),
+            cl_context=SimpleNamespace(enr="enr", multiaddr="peer", peer_id="id",
+                                       beacon_http_url="http://beacon:5052"))
+        ethereum = SimpleNamespace(run=lambda *_: SimpleNamespace(all_participants=[participant]))
+        resources = SimpleNamespace(configure_mev_relay_cpu=lambda *_: None,
+                                    relay_startup_plan=lambda plan: plan)
+        namespace = {
+            "import_module": lambda name: ethereum if "ethereum-package" in name else resources,
+            "ServiceConfig": dict, "StoreSpec": dict, "PortSpec": dict,
+            "PostHttpRequestRecipe": dict, "fail": fail,
+            "type": lambda value: "string" if isinstance(value, str) else type(value).__name__,
+        }
+        source = REPO / "testing/kurtosis/main.star"
+        exec(compile(source.read_text(), str(source), "exec"), namespace)
+        args["eez"].update(enable_explorers=False, enable_blobscan=False, enable_ui=False,
+                           builder_rpc_url="http://builder:8645")
+        def run_sh(**kwargs):
+            if kwargs["description"].startswith("deploy EEZ contracts"):
+                services["deployment"] = kwargs
+            return SimpleNamespace(files_artifacts=["fixture"])
+
+        plan = SimpleNamespace(add_service=add_service, wait=lambda **_: None, run_sh=run_sh)
+        with self.assertRaises(RuntimeReached):
+            namespace["run"](plan, args)
+        return services
+
+    def test_history_capture_is_opt_in_and_offset_reaches_fresh_deployment(self):
+        args = yaml.safe_load((REPO / "testing/kurtosis/ci-args.yaml").read_text())
+        services = self.runtime_services(args)
+        self.assertNotIn("EEZ_L2_HISTORY_UPDATE_OFFSET", services["deployment"]["env_vars"])
+        self.assertNotIn("eez-prove-capture", services)
+        self.assertEqual(services["eez-node"]["env_vars"]["EEZ_PROVER_URL"],
+                         "http://eez-proof-signer:50061")
+        args["eez"].update(history_update_offset=5, prove_capture_image="fixture:capture")
+        services = self.runtime_services(args)
+        self.assertEqual(services["deployment"]["env_vars"]["EEZ_L2_HISTORY_UPDATE_OFFSET"], "5")
+        self.assertEqual(services["eez-node"]["env_vars"]["EEZ_PROVER_URL"],
+                         "http://eez-prove-capture:50061")
+        self.assertEqual(services["eez-prove-capture"]["cmd"],
+                         ["0.0.0.0:50061", "http://eez-proof-signer:50061", "/data/captures"])
+        self.assertNotIn("EEZ_L2_HISTORY_UPDATE_OFFSET", services["eez-proof-signer"]["env_vars"])
+        for invalid in (-1, "5", "", None, True):
+            with self.subTest(offset=invalid):
+                args["eez"]["history_update_offset"] = invalid
+                with self.assertRaisesRegex(ValueError, "history_update_offset"):
+                    self.runtime_services(args)
+
+    def test_removed_fee_expiry_reaches_node_for_startup_rejection(self):
+        for value in ("2000000000", "", "0", "invalid"):
+            with self.subTest(value=value):
+                args = yaml.safe_load((REPO / "testing/kurtosis/ci-args.yaml").read_text())
+                key = "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP"
+                args["eez"]["settlement_env"][key] = value
+                services = self.runtime_services(args)
+                self.assertEqual(services["eez-node"]["env_vars"][key], value)
+                for role in ("eez-proof-signer", "eez-follower"):
+                    self.assertNotIn(key, services[role].get("env_vars", {}))
+
+    def test_default_profiles_collect_both_directions_on_the_node_only(self):
+        for filename in ("ci-args.yaml", "devnet-args.yaml"):
+            with self.subTest(filename=filename):
+                args = yaml.safe_load((REPO / "testing/kurtosis" / filename).read_text())
+                fees = args["eez"]["settlement_env"]
+                self.assertEqual(fees["EEZ_FEES_L1_TO_L2_ENABLED"], "true")
+                self.assertEqual(fees["EEZ_FEES_L2_TO_L1_ENABLED"], "true")
+                self.assertEqual(fees["EEZ_FEES_PROFIT_BPS"], "2000")
+                self.assertEqual(fees["EEZ_FEES_RISK_BPS"], "0")
+                self.assertEqual(fees["EEZ_FEES_L1_PER_L2_NUMERATOR"], "1")
+                self.assertEqual(fees["EEZ_FEES_L1_PER_L2_DENOMINATOR"], "1")
+                for cost in ("PROVING", "OPERATIONS", "TREASURY"):
+                    self.assertEqual(fees[f"EEZ_FEES_{cost}_COST_L1"], "0")
+                self.assertEqual(fees["EEZ_FEES_EXCLUDED_SENDERS"], "")
+                self.assertNotIn("EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP", fees)
+                self.assertTrue(1 <= int(fees["EEZ_FEES_L1_REFUND_PERCENT"]) <= 99)
+                recipient = fees["EEZ_L2_FEE_RECIPIENT"]
+                self.assertNotEqual(int(recipient, 16), 0)
+                self.assertNotEqual(int(fees["EEZ_FEES_L1_REFUND_RECIPIENT"], 16), 0)
+                self.assertNotEqual(recipient, fees["EEZ_FEES_L1_REFUND_RECIPIENT"])
+                services = self.runtime_services(args)
+                node_env = services["eez-node"]["env_vars"]
+                self.assertNotIn("EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP", node_env)
+                for key, value in fees.items():
+                    self.assertEqual(node_env[key], value)
+                self.assertIn("--suggested-fee-recipient=" + recipient,
+                              services["eez-follower"]["cmd"])
+                for role in ("eez-proof-signer", "eez-follower"):
+                    self.assertFalse(any(key.startswith("EEZ_FEES_") for key in
+                                         services[role].get("env_vars", {})))
+
+    def test_specialized_policy_profiles_keep_collection_opt_in(self):
+        for filename in ("blob-args.yaml", "crosschain-limit-args.yaml",
+                         "partial-consumption-args.yaml", "settlement-policy-args.yaml"):
+            with self.subTest(filename=filename):
+                args = yaml.safe_load((REPO / "testing/kurtosis" / filename).read_text())
+                services = self.runtime_services(args)
+                for flag in ("EEZ_FEES_L1_TO_L2_ENABLED", "EEZ_FEES_L2_TO_L1_ENABLED"):
+                    self.assertNotIn(flag, services["eez-node"]["env_vars"])
+
+
 class RelayReadinessTest(unittest.TestCase):
     def test_housekeeper_completion_gates_the_next_relay_service(self):
         namespace = {"ExecRecipe": dict, "struct": lambda **kwargs: SimpleNamespace(**kwargs)}
@@ -263,6 +378,32 @@ class SettlementEnvironmentTest(unittest.TestCase):
                            EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE="90",
                            EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE="3500000000")
         self.assertEqual(configure(cross_chain), cross_chain)
+        for name in [
+            'EEZ_FEES_L1_TO_L2_ENABLED',
+            'EEZ_FEES_L2_TO_L1_ENABLED',
+            'EEZ_FEES_L1_PER_L2_NUMERATOR',
+            'EEZ_FEES_L1_PER_L2_DENOMINATOR',
+            'EEZ_FEES_PROVING_COST_L1',
+            'EEZ_FEES_OPERATIONS_COST_L1',
+            'EEZ_FEES_TREASURY_COST_L1',
+            'EEZ_FEES_RISK_BPS',
+            'EEZ_FEES_PROFIT_BPS',
+            'EEZ_FEES_EXCLUDED_SENDERS',
+            'EEZ_FEES_QUOTE_BASE_FEE_PERCENT',
+            'EEZ_FEES_L1_REFUND_RECIPIENT',
+            'EEZ_FEES_L1_REFUND_PERCENT',
+            'EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP',
+            'EEZ_L2_FEE_SHADOW_POLICY',
+            'EEZ_L1_FEE_REFUND_POLICY',
+            'EEZ_L2_FEE_ENFORCE_TARIFF',
+        ]:
+            self.assertNotIn(name, configure(values))
+            for value in ("true", "false", "", "invalid", "90"):
+                explicit = dict(values, **{name: value})
+                self.assertEqual(configure(explicit), explicit)
+            with self.assertRaises(ValueError):
+                configure(dict(values, **{name: True}))
+        self.assertIn('get("EEZ_FEES_L2_TO_L1_ENABLED", "false")', (REPO / "testing/kurtosis/main.star").read_text())
         without_priority_bound = dict(values)
         without_priority_bound.pop("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE")
         with self.assertRaises(ValueError):

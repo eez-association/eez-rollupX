@@ -155,6 +155,26 @@ channels. Recheck the context generation before replying; invalidation returns
 a retryable context error. Do not publish hypothetical L2 blocks to obtain their
 hashes: use the existing local block/group builders.
 
+As of the 2026-10-15 wallet compatibility fix, the two known transient cases
+retain JSON-RPC code `-32000` and their existing messages, adding
+`error.data = {"code":"settlement_reconciliation_pending","retryable":true}`
+or `{"code":"estimation_context_changed","retryable":true}`. These typed
+reasons describe estimator availability only; they never authorize execution,
+queue eviction, or settlement completion. Other errors receive no retry hint,
+and execution-revert data remains the original bytes. Clients may retry a fresh
+estimate on the same front with bounded backoff. Do not substitute cached gas,
+an ordinary-node estimate, or a guessed limit for an unavailable Composer.
+
+The dashboard makes at most four attempts, waiting 1, 2 and 4 seconds between
+known transient responses. Changing bridge inputs or unmounting cancels its
+request/backoff; backend workers still retain their permits until they exit.
+Persistent unavailability stays a blocking error with a retry message. Upgrade
+Composer to expose these optional hints before relying on automatic client
+retries. Older clients ignore the additive data; newer clients surface older
+unstructured errors without guessing retryability from their message text.
+The [compatibility audit](../audits/2026-10-15-wallet-rpc-compatibility/README.md)
+records baseline failures, live read-only sampling and validation of this change.
+
 Reuse the protocol builders used by
 [`prepare_post_batch_raw`](../../crates/eez-composer/src/composer.rs), keeping
 wallet preparation separate from its DA/proof/signing work. Reuse ABI encoding,

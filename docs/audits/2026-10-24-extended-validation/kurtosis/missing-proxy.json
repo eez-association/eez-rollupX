@@ -1,0 +1,374 @@
+{
+  "date": "2026-10-24T17:28:01.029956+00:00",
+  "runtime_source": "319ebc2dbfdace3d5e708a2c9881cc741529aec4",
+  "runtime_ci": 40104687331,
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "enclave": "eez-native-v1-review-20261024",
+  "result": "pass_for_fee_enabled_early_admission",
+  "staged_terminal_eviction_oracle": "not reached and not claimed",
+  "cases": [
+    {
+      "job": "topLevelStaticReentrantMissingProxy-1",
+      "side": "L1",
+      "hash": "0x196b806bdfe02ba777e8d4984de517682b7217995385594f79e6d3bb25296131",
+      "exact_error_events": [
+        {
+          "timestamp": "2026-10-24T17:24:10.035711Z",
+          "level": "ERROR",
+          "fields": {
+            "message": "target execution failed",
+            "error": "static callback source proxy 0x8A1A81a88aF55bb5b2510555d08b8aF4F1Ba1AC3 is not deployed on chain 7331; it must exist before the read"
+          },
+          "target": "eez_evm_inspector::inspector"
+        },
+        {
+          "timestamp": "2026-10-24T17:24:10.035726Z",
+          "level": "ERROR",
+          "fields": {
+            "message": "target execution failed",
+            "error": "static callback source proxy 0x8A1A81a88aF55bb5b2510555d08b8aF4F1Ba1AC3 is not deployed on chain 7331; it must exist before the read"
+          },
+          "target": "eez_evm_inspector::inspector"
+        }
+      ],
+      "admission_error": {
+        "code": -32003,
+        "data": {
+          "code": "quote_unavailable",
+          "message": "quote unavailable: gas estimation"
+        },
+        "message": "settlement tariff admission failed"
+      },
+      "missing_proxy": "0x8a1a81a88af55bb5b2510555d08b8af4f1ba1ac3",
+      "submitted_at": "2026-10-24T17:24:10.028046+00:00",
+      "completed_at": "2026-10-24T17:24:10.041492+00:00",
+      "assertions": {
+        "specific_missing_proxy_error": true,
+        "chain_and_proxy_bound": true,
+        "unchanged_nonce_and_balance": true,
+        "no_receipt_on_direct_or_front": true,
+        "no_queue_ownership": true,
+        "proxy_remains_absent": true
+      },
+      "staged_terminal_simulation_failed_oracle": false,
+      "scope": "fee-enabled early admission rejection, not terminal queue eviction",
+      "source_intent": {
+        "from": "0x0435e301ac6cecd2092ee35bc5129ca49f18e46b",
+        "to": "0xb9bb9381fb6592d7257d6c133c7fa9571fa9b767",
+        "data": "0xd09de08a",
+        "value": "0x0",
+        "nonce": "0x4"
+      },
+      "signed_transaction": "0x02f871821ca304843b9aca00843b9aca0e830f424094b9bb9381fb6592d7257d6c133c7fa9571fa9b7678084d09de08ac001a02f4233c6182cae3488a3a68fd0fdc372364bd7a04c63469477ebd6d8f7ca93c9a049ef76acc554ae99623dd1ebcf28adbdf6bf2bcf4ff9c6b3ed162098c5d97c63",
+      "nonce_before": "0x4",
+      "nonce_later": "0x4",
+      "balance_before": "0xddce3665342c982",
+      "balance_later": "0xddce3665342c982",
+      "later_observation": {
+        "at": "2026-10-24T17:26:52.376513+00:00",
+        "receipt_direct": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": null
+        },
+        "receipt_front": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": null
+        },
+        "ownership": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": null
+        },
+        "missing_proxy_code": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": "0x"
+        }
+      },
+      "source_blocks_elapsed": 13,
+      "queue_before": {
+        "blocked": 0,
+        "blockedReasons": {},
+        "evaluatedAtMs": 1792857591047,
+        "inFlight": 0,
+        "lastCanonicalCompletion": {
+          "l1Block": {
+            "hash": "0x5f7f8799768ae4872418dfaadf3904881dee884037dee115a1d8fcbfca3640d2",
+            "number": 1598
+          },
+          "observedAtMs": 1792857603009
+        },
+        "oldestPendingAgeMs": null,
+        "oldestServiceAgeMs": null,
+        "queued": 0,
+        "ready": 0,
+        "sourceState": {
+          "l1": {
+            "hash": "0x58ae5f316c35a807eee816d8af5abe5e2cbb8b8bb19c6876fadd81c039a4e258",
+            "number": 1597
+          },
+          "l2": {
+            "hash": "0xa7bbd8e66649669eed8a25512ec413d324235096c2ae6ee5a04f5a1fb1501ab9",
+            "number": 9623
+          }
+        },
+        "unknown": 0
+      },
+      "queue_after": {
+        "blocked": 0,
+        "blockedReasons": {},
+        "evaluatedAtMs": 1792857591047,
+        "inFlight": 0,
+        "lastCanonicalCompletion": {
+          "l1Block": {
+            "hash": "0x5f7f8799768ae4872418dfaadf3904881dee884037dee115a1d8fcbfca3640d2",
+            "number": 1598
+          },
+          "observedAtMs": 1792857603009
+        },
+        "oldestPendingAgeMs": null,
+        "oldestServiceAgeMs": null,
+        "queued": 0,
+        "ready": 0,
+        "sourceState": {
+          "l1": {
+            "hash": "0x58ae5f316c35a807eee816d8af5abe5e2cbb8b8bb19c6876fadd81c039a4e258",
+            "number": 1597
+          },
+          "l2": {
+            "hash": "0xa7bbd8e66649669eed8a25512ec413d324235096c2ae6ee5a04f5a1fb1501ab9",
+            "number": 9623
+          }
+        },
+        "unknown": 0
+      },
+      "debug_trace_context": {
+        "l1ChainId": "0x1ca3",
+        "l1ParentHash": "0xc8e4ed7df021eaa399df46290c24e5f394141a863814c78e1c8063f600f43f9a",
+        "l1ParentNumber": 2012,
+        "l1TargetNumber": 2013,
+        "l1TargetTimestamp": 1792862577,
+        "l2ChainId": "0xaa29e",
+        "l2ParentHash": "0xcb8007a7bf20540b2c379573515c0cc05bd6a08e50c15abc56324af06f92384b",
+        "l2ParentNumber": 12113,
+        "l2Timestamp": 1792862577,
+        "nonce": "0x4",
+        "pendingPredecessors": 0,
+        "rollupId": 1,
+        "simulation": true
+      }
+    },
+    {
+      "job": "topLevelStaticReentrantMissingProxyL2-1",
+      "side": "L2",
+      "hash": "0xd3ea0468096c703501960572a655a71d39b25e25041d9c7d7e956f0a88e4180f",
+      "exact_error_events": [
+        {
+          "timestamp": "2026-10-24T17:24:10.057677Z",
+          "level": "ERROR",
+          "fields": {
+            "message": "target execution failed",
+            "error": "static callback source proxy 0x21c4012E63a1B13DFd19c3bc77BBD5C01bB4F9A1 is not deployed on chain 696990; it must exist before the read"
+          },
+          "target": "eez_evm_inspector::inspector"
+        },
+        {
+          "timestamp": "2026-10-24T17:24:10.057687Z",
+          "level": "ERROR",
+          "fields": {
+            "message": "target execution failed",
+            "error": "static callback source proxy 0x21c4012E63a1B13DFd19c3bc77BBD5C01bB4F9A1 is not deployed on chain 696990; it must exist before the read"
+          },
+          "target": "eez_evm_inspector::inspector"
+        },
+        {
+          "timestamp": "2026-10-24T17:24:10.057701Z",
+          "level": "DEBUG",
+          "fields": {
+            "message": "advisory fee quote unavailable",
+            "error": "static callback source proxy 0x21c4012E63a1B13DFd19c3bc77BBD5C01bB4F9A1 is not deployed on chain 696990; it must exist before the read",
+            "context": "source simulation"
+          },
+          "target": "eez_composer::composer::fees::quote"
+        }
+      ],
+      "admission_error": {
+        "code": -32003,
+        "data": {
+          "code": "quote_unavailable",
+          "message": "quote unavailable: source simulation"
+        },
+        "message": "settlement tariff admission failed"
+      },
+      "missing_proxy": "0x21c4012e63a1b13dfd19c3bc77bbd5c01bb4f9a1",
+      "submitted_at": "2026-10-24T17:24:10.054584+00:00",
+      "completed_at": "2026-10-24T17:24:10.061941+00:00",
+      "assertions": {
+        "specific_missing_proxy_error": true,
+        "chain_and_proxy_bound": true,
+        "unchanged_nonce_and_balance": true,
+        "no_receipt_on_direct_or_front": true,
+        "no_queue_ownership": true,
+        "proxy_remains_absent": true
+      },
+      "staged_terminal_simulation_failed_oracle": false,
+      "scope": "fee-enabled early admission rejection, not terminal queue eviction",
+      "source_intent": {
+        "from": "0x8c52041a64c21d606e9356008168d14bd465457d",
+        "to": "0x4244578a1a5a9615d72f00b51ebf50c9e3842ea5",
+        "data": "0xd09de08a",
+        "value": "0x0",
+        "nonce": "0x4"
+      },
+      "signed_transaction": "0x02f86a830aa29e040163830f4240944244578a1a5a9615d72f00b51ebf50c9e3842ea58084d09de08ac080a029700858be29709853d7fec9e77082d9d9fdcd85aada4597591c46cf016bf8e1a01f2416370fd99de6d0dab828182d31eed754a5de8a79bbf549ae4908d2b13a08",
+      "nonce_before": "0x4",
+      "nonce_later": "0x4",
+      "balance_before": "0xde0b6b3a42e9fbc",
+      "balance_later": "0xde0b6b3a42e9fbc",
+      "later_observation": {
+        "at": "2026-10-24T17:26:52.388745+00:00",
+        "receipt_direct": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": null
+        },
+        "receipt_front": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": null
+        },
+        "ownership": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": null
+        },
+        "missing_proxy_code": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": "0x"
+        }
+      },
+      "source_blocks_elapsed": 81,
+      "queue_before": {
+        "blocked": 0,
+        "blockedReasons": {},
+        "evaluatedAtMs": 1792857591047,
+        "inFlight": 0,
+        "lastCanonicalCompletion": {
+          "l1Block": {
+            "hash": "0x5f7f8799768ae4872418dfaadf3904881dee884037dee115a1d8fcbfca3640d2",
+            "number": 1598
+          },
+          "observedAtMs": 1792857603009
+        },
+        "oldestPendingAgeMs": null,
+        "oldestServiceAgeMs": null,
+        "queued": 0,
+        "ready": 0,
+        "sourceState": {
+          "l1": {
+            "hash": "0x58ae5f316c35a807eee816d8af5abe5e2cbb8b8bb19c6876fadd81c039a4e258",
+            "number": 1597
+          },
+          "l2": {
+            "hash": "0xa7bbd8e66649669eed8a25512ec413d324235096c2ae6ee5a04f5a1fb1501ab9",
+            "number": 9623
+          }
+        },
+        "unknown": 0
+      },
+      "queue_after": {
+        "blocked": 0,
+        "blockedReasons": {},
+        "evaluatedAtMs": 1792857591047,
+        "inFlight": 0,
+        "lastCanonicalCompletion": {
+          "l1Block": {
+            "hash": "0x5f7f8799768ae4872418dfaadf3904881dee884037dee115a1d8fcbfca3640d2",
+            "number": 1598
+          },
+          "observedAtMs": 1792857603009
+        },
+        "oldestPendingAgeMs": null,
+        "oldestServiceAgeMs": null,
+        "queued": 0,
+        "ready": 0,
+        "sourceState": {
+          "l1": {
+            "hash": "0x58ae5f316c35a807eee816d8af5abe5e2cbb8b8bb19c6876fadd81c039a4e258",
+            "number": 1597
+          },
+          "l2": {
+            "hash": "0xa7bbd8e66649669eed8a25512ec413d324235096c2ae6ee5a04f5a1fb1501ab9",
+            "number": 9623
+          }
+        },
+        "unknown": 0
+      },
+      "debug_trace_context": {
+        "l1ChainId": "0x1ca3",
+        "l1ParentHash": "0xc8e4ed7df021eaa399df46290c24e5f394141a863814c78e1c8063f600f43f9a",
+        "l1ParentNumber": 2012,
+        "l1TargetNumber": 2013,
+        "l1TargetTimestamp": 1792862577,
+        "l2ChainId": "0xaa29e",
+        "l2ParentHash": "0xcb8007a7bf20540b2c379573515c0cc05bd6a08e50c15abc56324af06f92384b",
+        "l2ParentNumber": 12113,
+        "l2Timestamp": 1792862577,
+        "nonce": "0x4",
+        "pendingPredecessors": 0,
+        "rollupId": 1,
+        "simulation": true
+      }
+    }
+  ],
+  "evidence": [
+    {
+      "path": "artifacts/extended-validation/kurtosis/missing-proxy/confirmed-rejections.json",
+      "sha256": "3a5b7891b810d70b86f06ecdadf0dca3b6317fd42e202f4ff211c0b3c97aab69",
+      "availability": "local only"
+    },
+    {
+      "path": "artifacts/extended-validation/kurtosis/missing-proxy/first-probe-error.txt",
+      "sha256": "0a97c2f6990d7b0ad2199052011ca3f27171eb9346fd23aab9dc21482bf9acc3",
+      "availability": "local only"
+    },
+    {
+      "path": "artifacts/extended-validation/kurtosis/missing-proxy/signed-admission-log.json",
+      "sha256": "87cd9eb59e5c00e5ac736ebe14df80498748047fbb14772fdecff44137ec910f",
+      "availability": "local only"
+    },
+    {
+      "path": "artifacts/extended-validation/kurtosis/missing-proxy/topLevelStaticReentrantMissingProxy-1-admission.json",
+      "sha256": "1f3fbd5948be3d59faacea1f7f778a1c0a0835ee3ce781fdcc6114a5910e548a",
+      "availability": "local only"
+    },
+    {
+      "path": "artifacts/extended-validation/kurtosis/missing-proxy/topLevelStaticReentrantMissingProxy-1-debug-quote.json",
+      "sha256": "a68bf6827084b969cd0495f3e1e8a18caa4c81632828815dce491844e1655e9a",
+      "availability": "local only"
+    },
+    {
+      "path": "artifacts/extended-validation/kurtosis/missing-proxy/topLevelStaticReentrantMissingProxyL2-1-admission.json",
+      "sha256": "c654d9e2499f2f4b6f34cba0b431f3e2985b35b884e78ae5d2a50d197c7d9257",
+      "availability": "local only"
+    },
+    {
+      "path": "artifacts/extended-validation/kurtosis/missing-proxy/topLevelStaticReentrantMissingProxyL2-1-debug-quote.json",
+      "sha256": "877585cdcd4cb1e6ec2f33a3e73d89fb7119522d08838c70c5c247282b2e2b50",
+      "availability": "local only"
+    },
+    {
+      "path": "artifacts/extended-validation/kurtosis/owned-resource-inventory.json",
+      "sha256": "9ef03773118765be95c96adb9722446542ac84a977d2a80aa77cc5c808df54b6",
+      "availability": "local only"
+    },
+    {
+      "path": "artifacts/extended-validation/kurtosis/preflight.json",
+      "sha256": "82d5724d2afc0ed8c85e5da6ae83b4046c547f02b792eec03d8d9b91b503d53e",
+      "availability": "local only"
+    }
+  ]
+}

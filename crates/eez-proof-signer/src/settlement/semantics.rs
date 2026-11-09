@@ -468,33 +468,18 @@ fn outbound_sidecars(
     rollup_id: u64,
     transaction_index: usize,
 ) -> Result<Vec<Vec<u8>>, SemanticBindingError> {
-    let callback_entries = target_entries(composition, RollupId(rollup_id), transaction_index)?;
-    let counts = &composition.source.callback_entry_counts;
-    if counts.len() != composition.source.batch.entries.len()
-        || counts.iter().sum::<usize>() != callback_entries.len()
-    {
+    if !target_entries(composition, RollupId(rollup_id), transaction_index)?.is_empty() {
         return Err(SemanticBindingError::OutboundSidecars {
             transaction: transaction_index,
         });
     }
-    let mut encoded = Vec::with_capacity(
-        composition.source.batch.entries.len()
-            + callback_entries.len()
-            + composition.source.l2_static_entries.len(),
-    );
-    let mut callback_cursor = 0usize;
-    for (entry, callback_count) in composition
+    let mut encoded = composition
         .source
         .batch
         .entries
         .iter()
-        .zip(counts.iter().copied())
-    {
-        encoded.push(entry.abi_encode());
-        let callback_end = callback_cursor + callback_count;
-        encoded.extend_from_slice(&callback_entries[callback_cursor..callback_end]);
-        callback_cursor = callback_end;
-    }
+        .map(ExecutionEntrySol::abi_encode)
+        .collect::<Vec<_>>();
     encoded.extend(
         composition
             .source
@@ -508,17 +493,9 @@ fn outbound_sidecars(
 fn expected_outbound_sidecars(group: &[super::outbound::AuthorizedOutboundEffect]) -> Vec<Vec<u8>> {
     group
         .iter()
-        .flat_map(|effect| {
-            let source = match effect.derived_source_entry() {
-                OutboundSourceEntry::Mutable(entry) => entry.abi_encode(),
-                OutboundSourceEntry::Static(entry) => entry.abi_encode(),
-            };
-            std::iter::once(source).chain(
-                effect
-                    .derived_callback_entries()
-                    .iter()
-                    .map(eez_protocol::entries::InboundSidecar::encoded),
-            )
+        .map(|effect| match effect.derived_source_entry() {
+            OutboundSourceEntry::Mutable(entry) => entry.abi_encode(),
+            OutboundSourceEntry::Static(entry) => entry.abi_encode(),
         })
         .collect()
 }

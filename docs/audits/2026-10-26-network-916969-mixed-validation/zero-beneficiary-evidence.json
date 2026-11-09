@@ -1,0 +1,283 @@
+{
+  "reviewDate": "2026-10-26",
+  "source": "9e3599abf2f1f08c4bcfff41f496f3365b5c4561",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "result": "cause_identified_for_all_nine_blocks",
+  "method": "Correlate retained live logs with canonical header hashes and exact deployed source; no new workload or induced recovery. Canonical headers rechecked with read-only RPC. Independent follower agreement and fee balance checks refer to the original 300-block validation.",
+  "rpcRecheckedAtUtc": "2026-10-26T14:32:47.383989+00:00",
+  "counts": {
+    "canonical_exclusion_reconciliation": 5,
+    "observation_deadline_replacement": 4
+  },
+  "sourceLocations": {
+    "replace_timed_out_attempt": "crates/eez-composer/src/composer.rs:2456",
+    "reconcile_attempt": "crates/eez-composer/src/composer.rs:2758"
+  },
+  "localOnlyEvidence": {
+    "path": "artifacts/rog-network-validation-20261026/run/live-node.log",
+    "sha256": "691293d35a611a774893ddf0eafa6475b86c01b6d78aeced691bafa4364889b2",
+    "availability": "Local only; full logs are not committed."
+  },
+  "blocks": [
+    {
+      "height": 53475,
+      "hash": "0x47b93b22a833c05cc959a2090b5a0022e6fe008253952308086748f1bd99c1d5",
+      "timestamp": 1793022100,
+      "transactions": 0,
+      "gasUsed": 0,
+      "beneficiary": "0x0000000000000000000000000000000000000000",
+      "originalBlock": {
+        "hash": "0x398d8f4f65f6be222f90cd4ced848d58778aa473033e158a59fc9d1d147d3bed",
+        "transactionCount": 2,
+        "logLine": 970
+      },
+      "commitLogLine": 1004,
+      "cause": "observation_deadline_replacement",
+      "producerFunction": "replace_timed_out_attempt",
+      "recoveryEvent": {
+        "line": 1005,
+        "timestamp": "2026-10-26T13:41:42.282083Z",
+        "event_name": "eez.composer.settlement.replacement",
+        "original_post_batch": "0x9340ba609b0113370d90714de859fadb8ec59a0bbda3653c3cf415a7701d5c47",
+        "target_block": 23700885,
+        "original_timestamp": 1793022100,
+        "replacement_timestamp": 1793022105
+      }
+    },
+    {
+      "height": 53480,
+      "hash": "0x9ce78f1d23739e97225178fd71a20d6b12adbdef3d1cc92e8131f0e87017e619",
+      "timestamp": 1793022105,
+      "transactions": 0,
+      "gasUsed": 0,
+      "beneficiary": "0x0000000000000000000000000000000000000000",
+      "originalBlock": {
+        "hash": "0xa93c7196c19d50deec79ef8c22cdee777678cf9abad69dce30f10c00383a94b1",
+        "transactionCount": 2,
+        "logLine": 1075
+      },
+      "commitLogLine": 1111,
+      "cause": "observation_deadline_replacement",
+      "producerFunction": "replace_timed_out_attempt",
+      "recoveryEvent": {
+        "line": 1113,
+        "timestamp": "2026-10-26T13:41:47.255158Z",
+        "event_name": "eez.composer.settlement.replacement",
+        "original_post_batch": "0x2406f345d391f045621458c054030a3dcc94342b872b3b226be11178e1b17de4",
+        "target_block": 23700885,
+        "original_timestamp": 1793022105,
+        "replacement_timestamp": 1793022110
+      }
+    },
+    {
+      "height": 53530,
+      "hash": "0xd5f21fc6472ce31ffec169a6f9c7c4bdb6af9dac8e8e0e4520cc62becb30ebaa",
+      "timestamp": 1793022155,
+      "transactions": 0,
+      "gasUsed": 0,
+      "beneficiary": "0x0000000000000000000000000000000000000000",
+      "originalBlock": {
+        "hash": "0xe840c0627e6c4913a71755b72ac0ad3a160763254cfa538d3af8f3f99300abb7",
+        "transactionCount": 6,
+        "logLine": 1929
+      },
+      "commitLogLine": 1971,
+      "cause": "observation_deadline_replacement",
+      "producerFunction": "replace_timed_out_attempt",
+      "recoveryEvent": {
+        "line": 1972,
+        "timestamp": "2026-10-26T13:42:37.255274Z",
+        "event_name": "eez.composer.settlement.replacement",
+        "original_post_batch": "0xdaa0e772b7c89815c58deba1cfa803b28904a622bc4b4bfebd1f7fe11f27c9fc",
+        "target_block": 23700892,
+        "original_timestamp": 1793022155,
+        "replacement_timestamp": 1793022160
+      }
+    },
+    {
+      "height": 53535,
+      "hash": "0x364f2e223101fff5bc7307880369f8dafd03ce23f0e7da7a501287af1b377012",
+      "timestamp": 1793022160,
+      "transactions": 0,
+      "gasUsed": 0,
+      "beneficiary": "0x0000000000000000000000000000000000000000",
+      "originalBlock": {
+        "hash": "0x2d3a0f19a89c9d3b534f4c595bd8ef24d6b2bb52c4924883875b040776e8c45c",
+        "transactionCount": 6,
+        "logLine": 2080
+      },
+      "commitLogLine": 2117,
+      "cause": "observation_deadline_replacement",
+      "producerFunction": "replace_timed_out_attempt",
+      "recoveryEvent": {
+        "line": 2118,
+        "timestamp": "2026-10-26T13:42:42.254121Z",
+        "event_name": "eez.composer.settlement.replacement",
+        "original_post_batch": "0xa956ac42b65e5feb80e7df6c8573513d03941a61c55fb6b623dde65a84c198aa",
+        "target_block": 23700892,
+        "original_timestamp": 1793022160,
+        "replacement_timestamp": 1793022165
+      }
+    },
+    {
+      "height": 53550,
+      "hash": "0x66dcf34028802e670fbcc13284814aa765bd4d99b95d85123e7d82bf67ebb21d",
+      "timestamp": 1793022175,
+      "transactions": 0,
+      "gasUsed": 0,
+      "beneficiary": "0x0000000000000000000000000000000000000000",
+      "originalBlock": {
+        "hash": "0x08e0cf9bc8844b4ed8dfe0e71c1cb31aa8841375682ebe1553095d61aa3fa4af",
+        "transactionCount": 2,
+        "logLine": 2493
+      },
+      "commitLogLine": 2537,
+      "cause": "canonical_exclusion_reconciliation",
+      "producerFunction": "reconcile_attempt",
+      "recoveryEvent": {
+        "line": 2541,
+        "timestamp": "2026-10-26T13:42:57.268919Z",
+        "event_name": "eez.composer.settlement.reconciled",
+        "post_batch_hash": "0x6048330ae7605bfcf4736f84fb2df8866527371ccd1b118856e0cbe1c72c6805",
+        "at_l1": 23700894,
+        "canonical_l2_number": 53545,
+        "outcomes": "[Retryable { source_nonce: 6 }]",
+        "attempt_charge": "ExcludedSlot"
+      },
+      "exclusionObservation": {
+        "line": 2519,
+        "timestamp": "2026-10-26T13:42:55.809598Z",
+        "event": "eez.composer.bundle.observed",
+        "classification": "Excluded"
+      }
+    },
+    {
+      "height": 53555,
+      "hash": "0x176629cab98a78752e1aaa5290dece253643500da40e917ec5c82b37b23d5e29",
+      "timestamp": 1793022180,
+      "transactions": 0,
+      "gasUsed": 0,
+      "beneficiary": "0x0000000000000000000000000000000000000000",
+      "originalBlock": {
+        "hash": "0x8ed56a254e73fd22f71dae635129d7bd51b24fae676be04cfc273e34afe2de28",
+        "transactionCount": 2,
+        "logLine": 2609
+      },
+      "commitLogLine": 2650,
+      "cause": "canonical_exclusion_reconciliation",
+      "producerFunction": "reconcile_attempt",
+      "recoveryEvent": {
+        "line": 2652,
+        "timestamp": "2026-10-26T13:43:02.269316Z",
+        "event_name": "eez.composer.settlement.reconciled",
+        "post_batch_hash": "0xf37d1130ecb4b2ec989ac2589978d5b0aa04830fe0127bfdc153a8e992281071",
+        "at_l1": 23700895,
+        "canonical_l2_number": 53545,
+        "outcomes": "[Retryable { source_nonce: 6 }]",
+        "attempt_charge": "ExcludedSlot"
+      },
+      "exclusionObservation": {
+        "line": 2633,
+        "timestamp": "2026-10-26T13:43:00.802372Z",
+        "event": "eez.composer.bundle.observed",
+        "classification": "Excluded"
+      }
+    },
+    {
+      "height": 53605,
+      "hash": "0x309892694dc3fa14d63ae6b821bf7d6fc67debbfd2058fb6d469c4ea0ecfe13d",
+      "timestamp": 1793022230,
+      "transactions": 0,
+      "gasUsed": 0,
+      "beneficiary": "0x0000000000000000000000000000000000000000",
+      "originalBlock": {
+        "hash": "0x350d736c37fa080289c577660176ddbe72e09c2807aa7229c2f4900592e12592",
+        "transactionCount": 4,
+        "logLine": 3506
+      },
+      "commitLogLine": 3550,
+      "cause": "canonical_exclusion_reconciliation",
+      "producerFunction": "reconcile_attempt",
+      "recoveryEvent": {
+        "line": 3553,
+        "timestamp": "2026-10-26T13:43:52.257193Z",
+        "event_name": "eez.composer.settlement.reconciled",
+        "post_batch_hash": "0xd6b3b80f782c17b90f7970c2bee8fcb11b43fb34392189672d76a31b57f42311",
+        "at_l1": 23700903,
+        "canonical_l2_number": 53600,
+        "outcomes": "[Retryable { source_nonce: 10 }, Retryable { source_nonce: 10 }, Retryable { source_nonce: 8 }]",
+        "attempt_charge": "ExcludedSlot"
+      },
+      "exclusionObservation": {
+        "line": 3532,
+        "timestamp": "2026-10-26T13:43:50.297423Z",
+        "event": "eez.composer.bundle.observed",
+        "classification": "Excluded"
+      }
+    },
+    {
+      "height": 53610,
+      "hash": "0x86916f9853fc121a8d789281d8d391cafe1569fd215339f79a3e641870b301bf",
+      "timestamp": 1793022235,
+      "transactions": 0,
+      "gasUsed": 0,
+      "beneficiary": "0x0000000000000000000000000000000000000000",
+      "originalBlock": {
+        "hash": "0xe0a1750105eb17dbb6a40225ec0eee41d4d33acd01be2c8d1ab0168878e24b04",
+        "transactionCount": 4,
+        "logLine": 3641
+      },
+      "commitLogLine": 3686,
+      "cause": "canonical_exclusion_reconciliation",
+      "producerFunction": "reconcile_attempt",
+      "recoveryEvent": {
+        "line": 3689,
+        "timestamp": "2026-10-26T13:43:57.256941Z",
+        "event_name": "eez.composer.settlement.reconciled",
+        "post_batch_hash": "0xbd10544f943dd9e30aa29d253270c401a9f7949dd65a9819f26535c3da3c926f",
+        "at_l1": 23700904,
+        "canonical_l2_number": 53600,
+        "outcomes": "[Retryable { source_nonce: 10 }, Retryable { source_nonce: 10 }, Retryable { source_nonce: 8 }]",
+        "attempt_charge": "ExcludedSlot"
+      },
+      "exclusionObservation": {
+        "line": 3668,
+        "timestamp": "2026-10-26T13:43:55.294845Z",
+        "event": "eez.composer.bundle.observed",
+        "classification": "Excluded"
+      }
+    },
+    {
+      "height": 53615,
+      "hash": "0x30f15d5b71a7e81ef26a0e37f746de456645e8be3f237cd65b6de67c4d8faa88",
+      "timestamp": 1793022240,
+      "transactions": 0,
+      "gasUsed": 0,
+      "beneficiary": "0x0000000000000000000000000000000000000000",
+      "originalBlock": {
+        "hash": "0x7cc271293fca9fedf28ef5aa5b75d620a15d52cc9ee23257fa5425e972186742",
+        "transactionCount": 4,
+        "logLine": 3779
+      },
+      "commitLogLine": 3823,
+      "cause": "canonical_exclusion_reconciliation",
+      "producerFunction": "reconcile_attempt",
+      "recoveryEvent": {
+        "line": 3825,
+        "timestamp": "2026-10-26T13:44:02.256181Z",
+        "event_name": "eez.composer.settlement.reconciled",
+        "post_batch_hash": "0xeb6bcd96091f86d43d2a6b36671728d1c49047e91c63c6ec3ba562b55461d154",
+        "at_l1": 23700905,
+        "canonical_l2_number": 53600,
+        "outcomes": "[Retryable { source_nonce: 10 }, Retryable { source_nonce: 10 }, Retryable { source_nonce: 8 }]",
+        "attempt_charge": "ExcludedSlot"
+      },
+      "exclusionObservation": {
+        "line": 3805,
+        "timestamp": "2026-10-26T13:44:00.600399Z",
+        "event": "eez.composer.bundle.observed",
+        "classification": "Excluded"
+      }
+    }
+  ]
+}

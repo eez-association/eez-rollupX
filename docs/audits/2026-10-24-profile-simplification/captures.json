@@ -1,0 +1,89 @@
+[
+  {
+    "fixture": "native-offline-bidirectional",
+    "scenario": "bidirectional",
+    "blocks": 90,
+    "entries": [
+      {
+        "destination": 1,
+        "l1_to_l2": 0,
+        "l2_to_l1": 0,
+        "success": true
+      },
+      {
+        "destination": 1,
+        "l1_to_l2": 0,
+        "l2_to_l1": 1,
+        "success": true
+      },
+      {
+        "destination": 1,
+        "l1_to_l2": 0,
+        "l2_to_l1": 0,
+        "success": true
+      }
+    ],
+    "file": "7022291a7b2dd03848c78eb513be554e857b5be5f72fd23bd9be4ae1574606a2.v2.protobuf",
+    "from": 1,
+    "operations_bytes": 7173,
+    "ordinary_transactions": 24,
+    "static_entries": 0,
+    "to": 90,
+    "request_sha256": "2d9ca84f9296c814a80d6055ff57755349e7ee40d6589de0f85b2a0740b8274f",
+    "public_inputs_hash": "a44bf5b9c1072d4e1c8f2a6404f78eafcbbbd50cb223fcc29cc16a7b851cf1e5"
+  },
+  {
+    "fixture": "native-osaka-lookup",
+    "scenario": "lookup",
+    "blocks": 105,
+    "entries": [
+      {
+        "destination": 1,
+        "l1_to_l2": 0,
+        "l2_to_l1": 0,
+        "success": true
+      },
+      {
+        "destination": 1,
+        "l1_to_l2": 0,
+        "l2_to_l1": 0,
+        "success": false
+      }
+    ],
+    "file": "6d7e6503072f81e6bd4c1fd3021086769d5cb1f501c252174b322103e81ef4ae.v2.protobuf",
+    "from": 1,
+    "operations_bytes": 9432,
+    "ordinary_transactions": 30,
+    "static_entries": 0,
+    "to": 105,
+    "request_sha256": "f48508d9fffa3dc54049b2bc234e3a53a443872ab03c2305b586110755a61ca5",
+    "public_inputs_hash": "830a2136c5bfdf1e76aafa2d2d22bfaf71b284037b078788697c9c97c3344fbc"
+  },
+  {
+    "fixture": "native-osaka-changing-static",
+    "scenario": "static",
+    "blocks": 90,
+    "entries": [
+      {
+        "destination": 1,
+        "l1_to_l2": 0,
+        "l2_to_l1": 0,
+        "success": true
+      },
+      {
+        "destination": 1,
+        "l1_to_l2": 0,
+        "l2_to_l1": 5,
+        "success": true
+      }
+    ],
+    "file": "062237564a1ed4771d1ca5208de73b4ac1ba1fca2830c4a4c76738e933019287.v2.protobuf",
+    "from": 1,
+    "operations_bytes": 7174,
+    "ordinary_transactions": 24,
+    "static_entries": 0,
+    "to": 90,
+    "request_sha256": "aac731c77798ecd859f4e74c0d5885901fb8cbfd4818d35a617c802d0e1d19aa",
+    "public_inputs_hash": "cf0174d85e19c63765c9a2533f2ce643f82ecfc4143d268b0e622c96a31547a3"
+  }
+]

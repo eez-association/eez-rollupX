@@ -1,0 +1,17 @@
+{
+  "method": "Independent Python construction from draft D.4.3 and current counts.rs; Rust codec not executed",
+  "draft_revision": "2c6d346bea0b3736f7453c35174291495694d1fc",
+  "six_empty_blocks": {
+    "draft_hex": "0x00060000000000000600000000000000000000000000000000000000000600",
+    "draft_bytes": 31,
+    "rollupx_hex": "0x0006c40600000000000000000000000000000000000000000600",
+    "rollupx_bytes": 26,
+    "rollupx_rejects_draft_reason": "second consecutive Empty(1) token violates counts::read previous_empty check"
+  },
+  "six_hundred_empty_blocks": {
+    "draft_bytes": 628,
+    "rollupx_bytes": 31,
+    "rollupx_hex": "0x00d804ffd804d8041111111111111111111111111111111111111111d80400",
+    "existing_rust_regression": "crates/eez-driver/src/derivation/tests.rs::issue_35_six_hundred_empty_blocks_use_the_exact_direct_31_byte_body"
+  }
+}

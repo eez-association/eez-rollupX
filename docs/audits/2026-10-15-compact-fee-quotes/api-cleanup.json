@@ -1,0 +1,166 @@
+{
+  "date": "2026-10-15",
+  "status": "API cleanup validated locally; not built into new Docker images or deployed",
+  "source": {
+    "backend_baseline": "dbf53ef2e155e15042c774f74e59bb93bab219f8",
+    "backend_implementation": "854ad0d7b3f2dfbf9ee110a1c4cbc36faf7a628e",
+    "dashboard_baseline": "6cc89033064276843325af5607bb3bfd724cc44c",
+    "dashboard_implementation": "0650ec83ea16fcf927d67877bad4ebac63b6e90d",
+    "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+    "branch": "feat/compact-fee-quotes"
+  },
+  "api_changes": {
+    "compact_root_fields": [
+      "version",
+      "chainId",
+      "nonce",
+      "expiresAt",
+      "options"
+    ],
+    "debug_enforcement_field": "diagnostics.recoveryMode",
+    "sdk_input": "transaction",
+    "binding_field": "requestHash",
+    "detailed_unsigned_input": "request",
+    "input_error_codes": [
+      "invalid_transaction",
+      "unsupported_transaction"
+    ],
+    "normalized_binding_bytes_changed": false,
+    "pricing_changed": false,
+    "compatibility_aliases": false
+  },
+  "executables": {
+    "profile": "local dev; profile.dev.package.eez-node.opt-level=0; CARGO_BUILD_JOBS=2; Rust 1.95.0; locked dependencies",
+    "runtime_sha256": {
+      "eez-composer": "b81cc928d3717534f7ee269debe3aa520b0eb889e0269fba8f0ffb7a2c7b906f",
+      "eez-follower": "9d07c7ac7fb182b835986dac5b7912f5fafdc7523ca7e32082a0009cddb9aa12",
+      "eez-proof-signer": "56cb7edfaec95340a0690a46064c9827c41c8cbd62860a7fa0587799b8607545"
+    },
+    "harness_sha256": "f7a3238c627d536f382cb023aa90753841bc164f7b014169b1fe740a7cc8a153",
+    "runtime_frozen_before_test_harness_build": true
+  },
+  "checks": {
+    "composer_units": {
+      "passed": 351,
+      "failed": 0,
+      "ignored": 1,
+      "ignored_reason": "existing manual blocked-backlog timing profile"
+    },
+    "node_units": {
+      "passed": 86,
+      "failed": 0,
+      "ignored": 0
+    },
+    "native_fee_and_safe_process": {
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0,
+      "filter": "fee_quotes:: --test-threads=1",
+      "semantic_assertions": true,
+      "independent_follower_replay": true,
+      "tests": [
+        "fee_quotes::compact_nested_eip1559_estimates_both_types_settles_and_replays",
+        "fee_quotes::compact_nested_legacy_estimates_both_types_settles_and_replays",
+        "fee_quotes::compact_ordinary_calls_boundaries_and_fee_sensitive_rejection",
+        "fee_quotes::enforced_nested_quote_rejects_underpayment_and_replays",
+        "fee_quotes::legacy_rpc_quote_rejects_underpayment_settles_and_replays",
+        "fee_quotes::unsigned_nested_quote_matches_receipt_and_replays",
+        "safe_fee_quotes::entirely_l2_safe_keeps_ordinary_gas_rules",
+        "safe_fee_quotes::gnosis_safe_factory_nested_initialization_is_funded_and_replays",
+        "safe_fee_quotes::safe_factory_nested_initialization_is_funded_and_replays"
+      ]
+    },
+    "sdk": {
+      "passed": 5
+    },
+    "dashboard_payment": {
+      "passed": 4
+    },
+    "dashboard_discovery": {
+      "passed": 27
+    },
+    "dashboard_gas_estimation": {
+      "passed": 4
+    },
+    "dashboard_bridge_max": {
+      "passed": 9
+    },
+    "dashboard_browser_fees": {
+      "passed": true,
+      "scenarios": 16,
+      "realTransactionsBroadcast": 0,
+      "selectedWallets": [
+        "Rabby",
+        "MetaMask"
+      ]
+    },
+    "dashboard_browser_bridge": {
+      "passed": true,
+      "scenarios": 27,
+      "composerOnly": true,
+      "rawGas": "422319",
+      "bothDirectionsAndAssets": true,
+      "manualOverrides": true,
+      "failedEstimatesBlockSubmission": true,
+      "staleEstimatesBlocked": true,
+      "selectedMetaMask": true,
+      "type2FeesUnchanged": true,
+      "realTransactionsBroadcast": 0
+    },
+    "dashboard_production_build": {
+      "result": "passed",
+      "warning": "existing bundle chunk above 500 kB",
+      "evidence": "command output observed in session; no standalone build log captured"
+    },
+    "workspace_clippy": {
+      "result": "passed",
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings"
+    },
+    "rust_format": {
+      "result": "passed",
+      "command": "cargo +1.95.0 fmt --all --check"
+    },
+    "integration_contract_build": {
+      "result": "passed; unchanged contracts"
+    },
+    "edited_javascript_syntax": {
+      "result": "passed; updated Kurtosis drivers not executed"
+    },
+    "sdk_copies_identical": true,
+    "documentation": {
+      "diff_check": "passed",
+      "existing_local_link_targets_checked": 61,
+      "missing_targets": 0
+    }
+  },
+  "first_failures": [],
+  "evidence": {
+    "availability": "local only; raw logs, binaries and datadirs are ignored and unavailable in another checkout",
+    "root": "artifacts/compact-fee-api-polish-20261015",
+    "log_sha256": {
+      "runtime-build.log": "54bed50c44144e5f575240cffe5ac582c81cde2a175116027adcd87c6e2fbead",
+      "harness-build.log": "fe546b05e8234506e180fa7af9f6b3aa1639d7854b2afe8d87ce3bb3390860cb",
+      "native-fees.log": "87aff3162c9ae775121d6e3a4361885538f847ab116b01a6a6245e712e85e6b2",
+      "units.log": "e31ed3e84b31049b2120b52c8964ed68d6777035fbccccced0459a7c9674211f",
+      "clippy.log": "45b9295049bf6db81a4db722c659360e0fe2d3d531219b22053a603c6d6af6dc",
+      "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sdk.log": "8fc2ed7709eed9ca414333a13efb1e22da948656c46892fb8982d8ddd758ddd4",
+      "ui-payment.log": "99fdc885a0129a2ceb19da43edee159610dae451a8dbfabd133cf02720d93dfa",
+      "ui-discovery.log": "707f67fb8896f6d676f69a96ac00e4c2e07845b6333305d61d8447994d33662e",
+      "ui-estimation.log": "a1f1ff5f5c983b93c14b9072465e37958366995017d7aaaa5fb6ca5bc23340c2",
+      "ui-bridge-max.log": "f4dc74e4d89b810f9dcced17a97ef25690b79239840283188b3598f27496216c",
+      "ui-browser-fees.log": "ae8e8e2be6e9648f2cd88b507774ee6c97766f255e2ea227449d42d00563fc5e",
+      "ui-browser-bridge.log": "d1fbfead7ddd4a6239189eefa6ebbb9e1a1dd1517a5034401b0328adb7b4553f",
+      "contracts-build.log": "0ea4f2745a7e642db818afc90a69334ecdc7e0c2d5e77811a959e887d6ffc039"
+    }
+  },
+  "not_run": [
+    "new Docker/release image build",
+    "Kurtosis topology/PBS qualification of this API cleanup",
+    "live deployment of this API cleanup",
+    "full CI promotion lanes and staged protocol/stress matrix",
+    "actual wallet extension tests",
+    "actual Falcon signature workload"
+  ],
+  "earlier_deployment_evidence": "deployment.json applies only to backend a9313f9a and dashboard 6cc8903; it does not include this cleanup"
+}

@@ -1,0 +1,324 @@
+{
+  "date": "2026-10-15T15:33:42.873349+00:00",
+  "backendBaseline": "4fc21ca100392daebd2852bedc345aa5fad46620",
+  "implementation": "149968a373696a5f01cfb1ef8d6aae176f122a42",
+  "runtimeSource": "a9313f9ad4eb54e79d628172381866accb3f7da7",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "dashboardSource": "6cc89033064276843325af5607bb3bfd724cc44c",
+  "images": {
+    "node": {
+      "tag": "eez-node:compact-fees-a9313f9a",
+      "id": "sha256:06ddfa128e6f15bff244f804b5c6a27756fa9c6f6bbe2d2512f11a06d59bb7d5",
+      "source": "a9313f9ad4eb54e79d628172381866accb3f7da7",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+      "executables": {
+        "eez-composer": "d3d052fa22fb57d733040b24702d44b012e6393606d83a091c1aefd40edf3187",
+        "eez-follower": "9b57a417e1da89380de49c979505f35b0260253a2c1fca366eb66c24132b5cc6",
+        "eez-genesis-state-root": "67354b6171a7eef8d75669cbe9da77e461d56044e020195061f1d0510f8f39d6",
+        "eez-genesis-block-hash": "43384a827e5d12b15acb990aa71974d1cfe9ca8f77301813d9498dd77d951242"
+      }
+    },
+    "signer": {
+      "tag": "eez-proof-signer:compact-fees-a9313f9a",
+      "id": "sha256:a13bd7abccd89f197b454f12d432f6c122f4e285602cd941525f52c9cd7a8b7e",
+      "source": "a9313f9ad4eb54e79d628172381866accb3f7da7",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+      "executables": {
+        "eez-proof-signer": "a52b15731dd6c1b59791494435a54139a91140ce03f5033fb9d86cc383ed87d5"
+      }
+    },
+    "deploy": {
+      "tag": "eez-deploy:compact-fees-a9313f9a",
+      "id": "sha256:0de6c52897ade563e5733dff032e322cdeb6f4c36b2e83703d9f971bcbbc9bf6",
+      "source": "a9313f9ad4eb54e79d628172381866accb3f7da7",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+      "executables": {}
+    },
+    "ui": {
+      "tag": "eez-rollup-ui:compact-fees-6cc8903",
+      "id": "sha256:d4aa0839a275f253455aeb58f49087e69f79f2ac816304ca8edef85a56d75d32",
+      "source": "6cc89033064276843325af5607bb3bfd724cc44c"
+    }
+  },
+  "build": {
+    "profile": "release",
+    "cargoLocked": true,
+    "localDevelopmentImages": true,
+    "registryPublished": false,
+    "ciPromoted": false
+  },
+  "previousDeployment": {
+    "runtimeSource": "712f713f3601d9ecbf678e69db67eb656cad0fb1",
+    "images": {
+      "node": {
+        "imageId": "sha256:c8ad0faa6cb415bc101917c4194aa1456686b894df1854ec80ab6cb7e03d0af8"
+      },
+      "signer": {
+        "imageId": "sha256:ea6c1977080d98fc5c671f1c6d26a7974558287c5c9f00eaf390cf1ab2c623f8"
+      },
+      "ui": {
+        "imageId": "sha256:f28626e221a6f57640b9f7cb5a305c62574a0f80edf4f1c7c9c27aa1d6a2914e"
+      }
+    }
+  },
+  "deployment": {
+    "network": "ROG Chiado",
+    "l1ChainId": 10200,
+    "l2ChainId": 906969,
+    "deployedBeforeKurtosisCompletion": true,
+    "maintenanceAndQueueDrain": true,
+    "cleanWriterStops": true,
+    "stoppedDatabasesCopied": true,
+    "originalsRetained": true,
+    "matchingUiUpgrade": true,
+    "policyPreserved": true,
+    "contractsAndGenesisUnchanged": true,
+    "publicRoutingRestored": true,
+    "identities": {
+      "node": {
+        "imageId": "sha256:06ddfa128e6f15bff244f804b5c6a27756fa9c6f6bbe2d2512f11a06d59bb7d5",
+        "startedAt": "2026-10-15T15:19:36.215819304Z",
+        "source": "a9313f9ad4eb54e79d628172381866accb3f7da7",
+        "executables": {
+          "eez-composer": "d3d052fa22fb57d733040b24702d44b012e6393606d83a091c1aefd40edf3187",
+          "eez-follower": "9b57a417e1da89380de49c979505f35b0260253a2c1fca366eb66c24132b5cc6",
+          "eez-genesis-state-root": "67354b6171a7eef8d75669cbe9da77e461d56044e020195061f1d0510f8f39d6",
+          "eez-genesis-block-hash": "43384a827e5d12b15acb990aa71974d1cfe9ca8f77301813d9498dd77d951242"
+        }
+      },
+      "signer": {
+        "imageId": "sha256:a13bd7abccd89f197b454f12d432f6c122f4e285602cd941525f52c9cd7a8b7e",
+        "startedAt": "2026-10-15T15:19:30.626749225Z",
+        "source": "a9313f9ad4eb54e79d628172381866accb3f7da7",
+        "executables": {
+          "eez-proof-signer": "a52b15731dd6c1b59791494435a54139a91140ce03f5033fb9d86cc383ed87d5"
+        }
+      },
+      "ui": {
+        "imageId": "sha256:d4aa0839a275f253455aeb58f49087e69f79f2ac816304ca8edef85a56d75d32",
+        "startedAt": "2026-10-15T15:19:36.678683261Z",
+        "source": "6cc89033064276843325af5607bb3bfd724cc44c",
+        "executables": {}
+      },
+      "genesisSha256": "ec2ca22f45a8801ca4e955c4ab4dd6f2cea268bd85a63a85a22d755cf48cc7bf"
+    },
+    "history": {
+      "verified": true,
+      "oldSafe": {
+        "number": "0xa6f2c",
+        "hash": "0xd4d30b89543f5383fc342a27c4ec22c30699c82d598025c6ea8a5373ded12fad"
+      },
+      "newSafe": {
+        "number": "0xa712f",
+        "hash": "0x95ce33dde91604d54c52f2ce785df8e286ddedd1285258c67107d81730da7443"
+      },
+      "queue": {
+        "blocked": 0,
+        "blockedReasons": {},
+        "evaluatedAtMs": 1792077602260,
+        "inFlight": 0,
+        "lastCanonicalCompletion": {
+          "l1Block": {
+            "hash": "0x4981283067e5d7ced90002f6dc437b4d203894c922cf1a25355de3936d246b27",
+            "number": 23534201
+          },
+          "observedAtMs": 1792077606002
+        },
+        "oldestPendingAgeMs": null,
+        "oldestServiceAgeMs": null,
+        "queued": 0,
+        "ready": 0,
+        "sourceState": {
+          "l1": {
+            "hash": "0xfdf984ebb48ac7a66d79421383c7ab6426d17c3ecf4d337cc4edbb7cd6a8fb91",
+            "number": 23534200
+          },
+          "l2": {
+            "hash": "0xe03e5827d45d114b9462dbea4772cbc59c98daaa2f47bdbeb44bf217da667807",
+            "number": 684024
+          }
+        },
+        "unknown": 0
+      }
+    }
+  },
+  "live": {
+    "source": "0x78fda602502e8ff1e4c5216a18b04aa84ab24b737b471aa4093127a53ef777c1",
+    "posting": "0xb98ab030d0f24229cebf0c46cc1e665321ae51bd53fe7d5e8c7c312045602eae",
+    "type": "0x0",
+    "sourceGasUsed": 99149,
+    "quotedL1Gas": 173707,
+    "postings": [
+      {
+        "hash": "0xb98ab030d0f24229cebf0c46cc1e665321ae51bd53fe7d5e8c7c312045602eae",
+        "actualPostingCostL1": "304779001215949",
+        "requiredL2": "365734801459139",
+        "paidL2": "365734801552714",
+        "actualL1Gas": 173707
+      }
+    ],
+    "underpaymentRejectedBeforeExecution": true,
+    "oneWalletRequest": true,
+    "canonicalReferencesBothFronts": true,
+    "blobAuthenticated": true,
+    "semanticBytesBound": true,
+    "compactAndDebugPublicChecks": true,
+    "manualCastCommandsExecuted": true,
+    "publicBrowserSmoke": true
+  },
+  "kurtosis": {
+    "enclave": "eez-compact-fees-20261015",
+    "sameRuntimeAndUiImages": true,
+    "enclaveStoppedAfterCapture": true,
+    "stateRetained": true,
+    "l1ChainId": 7331,
+    "l2ChainId": 696990,
+    "genesisAndProxyBindingsVerified": true,
+    "nested": {
+      "sources": [
+        {
+          "transactionHash": "0xafd3950bb8cea28488c50ffcc12ef652f7395133f100df9bf30665d8479242c7",
+          "type": "0x2",
+          "sourceGasUsed": 116225,
+          "quotedL1Gas": 475632,
+          "posting": "0xf6e10847c8c5460453acdb3cc3ee537bd157c9b93c99bb66b1dfd833762b6eec",
+          "grossL2Tip": "574535651867675"
+        },
+        {
+          "transactionHash": "0xc4ad8ce253489a616873a6b041b53823a793c7500810afc180053ddca27370da",
+          "type": "0x2",
+          "sourceGasUsed": 116225,
+          "quotedL1Gas": 475632,
+          "posting": "0xf6e10847c8c5460453acdb3cc3ee537bd157c9b93c99bb66b1dfd833762b6eec",
+          "grossL2Tip": "574535651867675"
+        }
+      ],
+      "sameNativeBlock": true,
+      "underpaymentRejectedBeforeExecution": true,
+      "receiptCostAndStateAssertions": true
+    },
+    "bridge": {
+      "inboundHash": "0x1e448f949089a2f2540492380d92bc6236131a19e99aa2519388218dbb151d71",
+      "sources": [
+        {
+          "transactionHash": "0x2aa72a36c5a66a5da2053f7e0795ba633542843f7828ed3b05608aa061578867",
+          "type": "0x2",
+          "sourceGasUsed": 404208,
+          "quotedL1Gas": 492775,
+          "posting": "0xc887283557a2575d131973a51767462f4cd5669e81551f298c0641d1e7c27475",
+          "grossL2Tip": "593972106160608",
+          "actualL1Gas": 492799,
+          "actualL1Cost": "494725629360708",
+          "requiredL2Tip": "593670755232850",
+          "tipCostRatio": 1.2006091273826824
+        },
+        {
+          "transactionHash": "0x1f15533b8e4b384a492fde36fab169764e8201ab3554d3cca419f6d97875cd53",
+          "type": "0x0",
+          "sourceGasUsed": 115373,
+          "quotedL1Gas": 182933,
+          "posting": "0xd369de8a75c0c7fbbc2bb0dcff268e8dbd227ed97b58e0f9f5311ad913b970dd",
+          "grossL2Tip": "220325830915448",
+          "actualL1Gas": 182945,
+          "actualL1Cost": "183572407813232",
+          "requiredL2Tip": "220286889375879",
+          "tipCostRatio": 1.2002121317687853
+        }
+      ],
+      "balanceDeltasVerified": true,
+      "measuredTariffToleranceBps": 200
+    },
+    "browser": {
+      "verified": true,
+      "wallet": "injected fixture adapter",
+      "realTransactions": 1,
+      "source": "0xb7ed53a16cd0f1cfed76f2e8803548aca50083e5f27e94f77feb0260eb4b1f3c",
+      "posting": "0x3e7c4afd2f39c95e6f4793fbc1684903fea0ac808dd88f52ad1fb4f0b0e20eb4",
+      "oneQuoteAndOneSignature": true,
+      "actualFeesAndTargetState": true
+    },
+    "referenceSources": 5,
+    "physicalL2References": 9,
+    "authenticatedBlobPostings": 5,
+    "independentReplay": {
+      "checked_blocks": 60,
+      "checked_derived_blocks": 60,
+      "checked_receipts": 5,
+      "safe_l2_block": 264,
+      "safe_l2_block_hash": "0xc2b977e728967e2cb9fae8082c0281551175dd95b29142c2a634a9d90655c53e",
+      "source": "canonical_l1_only",
+      "verified": true
+    },
+    "selectedReplayTests": 1
+  },
+  "checks": {
+    "runtimeBuilds": "passed",
+    "deployImageBuild": "passed",
+    "dashboardBuild": "passed",
+    "publicApi": "passed",
+    "liveCanonicalCanary": "passed",
+    "kurtosisNested": "passed",
+    "kurtosisBridge": "passed",
+    "kurtosisBrowser": "passed",
+    "kurtosisBlobs": "passed",
+    "kurtosisIndependentReplay": "passed"
+  },
+  "limits": [
+    "Full protocol staged/stress matrix and complete CI release lanes were not run.",
+    "Actual MetaMask/Rabby extensions and actual Falcon signature workload were not exercised.",
+    "Independent follower replay was on Kurtosis; no full-history Chiado replay was attempted.",
+    "L1-origin fee quotes remain unsupported; no builder refund recovery policy was added.",
+    "A 16M ordinary-L2 quote validates request/native admission, not 16M Falcon execution.",
+    "No durable queue recovery or future fee guarantee is established."
+  ],
+  "localCorrections": [
+    {
+      "kind": "orchestration",
+      "description": "Deployment download stopped before workloads because ENCLAVE was unset; caller corrected to the explicit new enclave."
+    },
+    {
+      "kind": "smoke fixture",
+      "description": "16M nested quote on the small canary wallet failed native validation; its max fee reservation exceeded its balance. Funded ordinary-L2 comparison accepted and preserved 16M."
+    }
+  ],
+  "localEvidence": {
+    "directory": "artifacts/compact-fee-quotes-deployment-20261015",
+    "operationDirectory": "data/compact-fees-upgrade-20261015.fxxcd1va",
+    "availability": "local-only ignored artifacts; not included in another checkout"
+  },
+  "harnessSha256": "8e86755b0db86ca9eecc9cbc09d5eda9c3bc8512163d78104ebb841483e521de",
+  "blobVerifierSha256": "da99270dabdd0f2c8f3b28c5bfcdac91506149955fd40c27cdc0867b0e4b88af",
+  "evidenceSha256": {
+    "docker-node-build.log": "9ce34a0dc0286c333766824998f65b1be4423c505683911d689870b306475a2e",
+    "docker-signer-build.log": "b886c3d1185f2916d7481385e0ca5260bea570409a0959d72d80773928b6cffc",
+    "docker-deploy-build.log": "99c53100794d2548b22795ba6dc95d3790bfffdc5d16403e30acf9218e853726",
+    "docker-ui-build.log": "c09ceb66cf7cd6b0511a4cf6bb2fc178f536fdcc592500ad4b0c514ddd132e67",
+    "kurtosis-args.yaml": "1e0ea7bd1b3b3ecf6f23cf19062e2fb93185ba683a435d1a07d92afa29821807",
+    "run-kurtosis-fees.sh": "b885da349a08da55353d1cc71fa52c79d5b90b7ce7e90b6d0e3a7138aeae12fc",
+    "kurtosis-images.json": "250e706ef40e6b6d8b828fb1a1c492f96e1bc6fd2b0ba44dd6cbf197d3e8ff8b",
+    "kurtosis-start.log": "57617982a7528e31eb7825e0ef763d18f52564ab4dba39855228bd150b71ec92",
+    "kurtosis-deployment-check.log": "8f62c63509a5a0bcad54c014daf9c915a29b8214c8a69c4e153dcec67864f010",
+    "kurtosis-nested-fees.log": "07b9070c0ec6aa7c963b75aed2c319e1b85141e8cdc210c3008cc366a18bd041",
+    "kurtosis-bridge-fees.log": "74e92e38d037d5980f9bd6771427b62b09fb8c6a975fa10a4d8bbb72611c2754",
+    "kurtosis-ui-fees.log": "52707b8d3d3f3c74d6754126fc39b0e6a5f5a1d750342a8489877b4ae071f359",
+    "kurtosis-references.log": "cd81386c86fbb87fd549a980155d3195783ccec95b4c766220cfd3cde5675393",
+    "kurtosis-blobs.log": "931c82533a7eb31f4fe23709c824f33cf475f5ca619b3bc2255bc3d8d0959432",
+    "kurtosis-independent-replay.log": "397327864cbdb59791385fe4cc5be255a5c8e231ff88b955c16f513a859ba333",
+    "kurtosis-nested-fees.json": "d474aa35f18dfdf132f0d50e5edee338d638268d5619de0c9951f8350b199720",
+    "kurtosis-bridge-fees.json": "f5d45ce015e901feeef47f5e2e8d4b0d2e27b8ceb0e18b4d5e297e457ad259cf",
+    "kurtosis-ui-fees.json": "47a58f236bd5d0f1dc61ac4632cadc84a665af9d62f1c8adeb9459298474131d",
+    "fee-replay-summary.json": "472e96cabe018d91247446c2d4d3c36670fd5be703ea1de271878cb8cdbc1031",
+    "independent-replay.json": "8821389226766ee9c943a0f6c346048bf7fe9f46968a73b8efd8dd730538f75b",
+    "live-canary.json": "1fd19fd9003fd4f14e56d8d0b6c1363435d2cf642bbe31a1686beed24329e06a",
+    "live-blob.verified.json": "55ab321c93aeb179eb65f08c4d6e942eff2a555c9b92db70f93788d6283d3f72",
+    "local-api.json": "e09b3ab8057a69663260fb5066476559dd1ed0a23e6f9ec8101a0d9e9f778b46",
+    "public-api.json": "0dfb182e89bae1374b60e0c11d7a896e8d103bd8eb328dc741428dd3c2050ddf",
+    "public-ui.json": "f41d17c342505d00b44d9dc80107ccc2630c558d7ac4bd194a992821ce646996",
+    "manual-cast-results.json": "01ad499defa8f0808cc9047f755937f98ec4eecfa751f82fd24e90c8aab70740",
+    "ui-migration-prompt.txt": "c6f7c16629c1243a63558e0fb32a6d98c5fb0ced21b69bcdf6f9b4bc28f50876",
+    "manual-cast.sh": "25db95694dd6f21d60c898d73da3ee1448de7b4c02efd3663cb9255069b8c450",
+    "deployment-download.first-configuration-error.log": "c8dadb5f9120eb822ff6d817e269515e494bf6b74de7fbaf14c0013900c0deb3",
+    "live-16m-first.json": "3c6b429a3cf733a529a8b12b8209400f9068a05f46d68927d92d673eda0ea04a",
+    "kurtosis-stop.log": "c827a69f3b4ca6e0c56a65112689870940c10fbfd01e05239d85130fbdd50b44"
+  }
+}

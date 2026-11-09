@@ -1,0 +1,14 @@
+{
+  "bidirectional": {
+    "target/debug/deps/node_e2e-969bf1dbfc9e03d4": "e7512b6736722cdea5358b58e4a06e48ee94b34ef6737c3bdba12bc72eb00199",
+    "target/debug/eez-proof-signer": "705a3486c408cf08ed362f31c585ecaa74637b8a0eb39b767b8ca682d2603ad5"
+  },
+  "lookup": {
+    "target/debug/deps/node_e2e-969bf1dbfc9e03d4": "e7512b6736722cdea5358b58e4a06e48ee94b34ef6737c3bdba12bc72eb00199",
+    "target/debug/eez-proof-signer": "705a3486c408cf08ed362f31c585ecaa74637b8a0eb39b767b8ca682d2603ad5"
+  },
+  "static": {
+    "target/debug/deps/node_e2e-969bf1dbfc9e03d4": "e7512b6736722cdea5358b58e4a06e48ee94b34ef6737c3bdba12bc72eb00199",
+    "target/debug/eez-proof-signer": "705a3486c408cf08ed362f31c585ecaa74637b8a0eb39b767b8ca682d2603ad5"
+  }
+}

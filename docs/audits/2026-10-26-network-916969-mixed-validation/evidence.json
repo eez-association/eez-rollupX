@@ -1,0 +1,374 @@
+{
+  "source": "9e3599abf2f1f08c4bcfff41f496f3365b5c4561",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "chainIds": {
+    "l1": 10200,
+    "l2": 916969
+  },
+  "result": "pass",
+  "artifacts": [
+    {
+      "source": "9e3599abf2f1f08c4bcfff41f496f3365b5c4561",
+      "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+      "image": "sha256:baa5bd9b469a834a8a0147551fb6f44a0b615d26f79ddd3705ebf7bd67d41ec1",
+      "binary": "eez-composer",
+      "sha256": "a2c92bf6dc956a78156b8d7fb8c4a29d9491ae41429f51d4e8cacb3ac19fc6fc",
+      "startedAt": "2026-10-26T12:44:46.141267599Z",
+      "restarts": 0,
+      "role": "composer"
+    },
+    {
+      "source": "9e3599abf2f1f08c4bcfff41f496f3365b5c4561",
+      "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+      "image": "sha256:2373bbcead6df61787a177e2e13e1a2a37449f0c93c32ae79c43d31cb1d2cf9a",
+      "binary": "eez-proof-signer",
+      "sha256": "43680285f6ab00260e91201bf80d545a3b332a2094ab6a525135176b8a52c1cf",
+      "startedAt": "2026-10-26T12:44:40.541076466Z",
+      "restarts": 0,
+      "role": "signer"
+    },
+    {
+      "source": "9e3599abf2f1f08c4bcfff41f496f3365b5c4561",
+      "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+      "image": "sha256:baa5bd9b469a834a8a0147551fb6f44a0b615d26f79ddd3705ebf7bd67d41ec1",
+      "binary": "eez-follower",
+      "sha256": "6b126905227068416657a23dccb7d0af258a9f70d4a378801dfc328abe5767ab",
+      "startedAt": "2026-10-26T13:39:07.275015838Z",
+      "restarts": 0,
+      "role": "validationFollower"
+    }
+  ],
+  "ordinary": {
+    "result": "pass",
+    "accepted": 4500,
+    "canonicalSuccessfulReceipts": 4500,
+    "durationSeconds": 900.0000868109055,
+    "skippedTicks": 0,
+    "positions": {
+      "4": 456,
+      "1": 2738,
+      "2": 795,
+      "3": 511
+    },
+    "ordinaryBlocks": 717,
+    "ordinaryWithMultipleTestTransactions": 519,
+    "emptyOrdinaryBlocks": 125,
+    "oneTestTransactionOrdinaryBlocks": 73,
+    "syncBlocks": 179,
+    "syncWithTestTransactions": 0,
+    "settlements": 72,
+    "fullBlobsRetrieved": 72,
+    "exactNonceAdvance": true,
+    "gasCostWei": 945004630500000,
+    "balanceMatchesGas": true,
+    "firstInclusionObservationSeconds": {
+      "samples": 4365,
+      "p50": 1.383350133895874,
+      "p95": 3.7851200103759766,
+      "max": 4.192937612533569
+    },
+    "queue": {
+      "queued": 0,
+      "inFlight": 1,
+      "blocked": 0,
+      "unknown": 0
+    },
+    "independentFollowerReplay": true,
+    "independentKzgVerification": true,
+    "kzgVerificationMethod": "independent-follower-blob-reconstruction",
+    "loadError": null
+  },
+  "independentReplay": {
+    "verified": true,
+    "source": "canonical_l1_and_beacon_only",
+    "followerSource": "9e3599abf2f1f08c4bcfff41f496f3365b5c4561",
+    "followerImage": "ghcr.io/eez-association/eez-rollupx-node@sha256:baa5bd9b469a834a8a0147551fb6f44a0b615d26f79ddd3705ebf7bd67d41ec1",
+    "checkedReceipts": 4500,
+    "checkedBlocks": 668,
+    "safeL2Block": "0xd47b",
+    "safeL2Hash": "0x213fab272e41610c3874d617424f528b3bb1f17e9ccef3c74d939abb281d71df",
+    "kzgVerification": "independent-follower-blob-reconstruction"
+  },
+  "crossChain": {
+    "result": "pass",
+    "plannedWaves": 30,
+    "checkedCompleteWaves": 30,
+    "originalRunnerResult": "pass",
+    "checkedInboundReceipts": 120,
+    "checkedOutboundReceipts": 120,
+    "independentlyCheckedBlocks": 168,
+    "stateChecks": [
+      {
+        "layer": "L2",
+        "address": "0x826393320d52D9f00950C4A962FA6B9A0a85B363",
+        "expected": 330,
+        "block": "0xd7cd"
+      },
+      {
+        "layer": "L2",
+        "address": "0x0Fe76475a6887aA170A701F8Eb9e49062519f009",
+        "expected": 230,
+        "block": "0xd7cd"
+      },
+      {
+        "layer": "L1",
+        "address": "0x095E316787195F2cB2F7d14050477541e7c2d2f5",
+        "expected": 630,
+        "block": "0x169a6d1"
+      },
+      {
+        "layer": "L1",
+        "address": "0xE6E2885eE54b57b5133fE65508D9C2ffE9b399BD",
+        "expected": 530,
+        "block": "0x169a6d1"
+      },
+      {
+        "side": "in",
+        "kind": "dep",
+        "recipient": "0xd231ade4f85fbed4fd2720c874d4614869da23fd",
+        "before": 0,
+        "amount": 4650000000000000,
+        "block": "0xd7cd"
+      },
+      {
+        "side": "out",
+        "kind": "wd",
+        "recipient": "0x9e7a70b4d4114ee6ea21685394c3485b9533baf1",
+        "before": 0,
+        "amount": 2325000000000000,
+        "block": "0x169a6d1"
+      }
+    ],
+    "safeL2Number": "0xd7cd",
+    "safeL2Hash": "0xcaefb3d2704c4e4e96e6aaa4acc7e5152fcf8ad70ecba5d24e338250bd7e1774",
+    "observedUniqueHashes": 240,
+    "observationErrors": 0,
+    "observationIsSampled": true,
+    "finalizedL1": false,
+    "queue": {
+      "queued": 0,
+      "inFlight": 0,
+      "blocked": 0,
+      "unknown": 0
+    }
+  },
+  "feeAccounting": {
+    "result": "pass",
+    "quoteBoundTransactions": 240,
+    "fundingPerActorWei": 150000000000000000,
+    "directions": {
+      "in": {
+        "receipts": 120,
+        "gasCostWei": 59220177677006539,
+        "transferredWei": 4650000000000000,
+        "remainingTestActorBalanceWei": 86129822322993461,
+        "exactBalanceAccounting": true,
+        "nonce": 120,
+        "snapshot": "0x169a6de",
+        "snapshotHash": "0xf54006533cb0b1dd06caa84ef8751bc580ff3e15855c8865ae5e22f342084faf"
+      },
+      "out": {
+        "receipts": 120,
+        "gasCostWei": 49176976367428807,
+        "transferredWei": 2325000000000000,
+        "remainingTestActorBalanceWei": 98498023632571193,
+        "exactBalanceAccounting": true,
+        "nonce": 120,
+        "snapshot": "0xd7cd",
+        "snapshotHash": "0xcaefb3d2704c4e4e96e6aaa4acc7e5152fcf8ad70ecba5d24e338250bd7e1774"
+      }
+    },
+    "ordinary": {
+      "receipts": 4500,
+      "gasCostWei": 945004630500000,
+      "exactBalanceAccounting": true
+    }
+  },
+  "feeDistribution": {
+    "result": "pass",
+    "firstBlock": 53391,
+    "lastBlock": 53690,
+    "sampleBlocks": 300,
+    "ordinaryTransactions": 1167,
+    "nativeTransactions": 92,
+    "baseFeeCreditedToVaultWei": 1341540032,
+    "priorityFeesCreditedToBeneficiaryWei": 9948953232998067,
+    "exactVaultBalanceDelta": true,
+    "exactBeneficiaryBalanceDelta": true,
+    "independentFollowerBalancesMatch": true,
+    "canonicalAtRead": true,
+    "emptyZeroBeneficiaryBlocks": 9,
+    "zeroBeneficiaryFeesWei": 0
+  },
+  "history": {
+    "result": "pass",
+    "sampleBlocks": 300,
+    "firstBlock": 53391,
+    "lastBlock": 53690,
+    "lastBlockHash": "0x68512157ae0a99bf71373c6a7e66cc0d241d4cd7f770535f6d10b01fc868b226",
+    "independentFollowerMatched": true,
+    "historyTransactions": 60,
+    "emptyRepeats": 10,
+    "importedHeaders": 50,
+    "consecutiveL1HashesVerified": 51,
+    "minOriginAgeSeconds": 3,
+    "maxOriginAgeSeconds": 17,
+    "opcodeChecksPerNode": 300,
+    "opcodeCheck": "read-only eth_call with state override, not a new proven transaction",
+    "missingHashRevertsPerNode": 2,
+    "zeroFeeSuccessfulHistoryReceipts": 60,
+    "intervalSeconds": 5,
+    "minimumDelaySeconds": 3,
+    "externalL1EndpointHashesMatched": true,
+    "canonicalAtRead": true
+  },
+  "publicRoutes": [
+    {
+      "route": "/rpc/l1",
+      "httpStatus": 200,
+      "elapsedMs": 231,
+      "chainId": 10200
+    },
+    {
+      "route": "/rpc/l2",
+      "httpStatus": 200,
+      "elapsedMs": 230,
+      "chainId": 916969
+    },
+    {
+      "route": "/composer/l1",
+      "httpStatus": 200,
+      "elapsedMs": 230,
+      "chainId": 10200
+    },
+    {
+      "route": "/composer/l2",
+      "httpStatus": 200,
+      "elapsedMs": 209,
+      "chainId": 916969
+    },
+    {
+      "route": "/dashboard/",
+      "httpStatus": 200,
+      "elapsedMs": 210
+    },
+    {
+      "route": "/explorer/",
+      "httpStatus": 200,
+      "elapsedMs": 290
+    },
+    {
+      "route": "/blobscan/",
+      "httpStatus": 200,
+      "elapsedMs": 360
+    }
+  ],
+  "finalHealth": {
+    "utc": "2026-10-26T14:14:20.366710+00:00",
+    "unchangedProductionProcesses": true,
+    "unchangedArtifacts": true,
+    "safeL2Number": 55395,
+    "safeL2Hash": "0xf9c37fb0dc1019c7e3515f3e3ee3a932acdc1ad5412c6c0ac1de7edeed7578ae",
+    "independentFollowerMatch": true,
+    "queue": {
+      "queued": 0,
+      "inFlight": 0,
+      "blocked": 0,
+      "unknown": 0
+    },
+    "l1Syncing": false,
+    "l2Syncing": false
+  },
+  "cleanup": {
+    "utc": "2026-10-26T14:19:55.748998+00:00",
+    "productionRunning": true,
+    "productionRestarts": 0,
+    "ownedFollowerStopped": true,
+    "followerExitCode": 0,
+    "followerDataRetained": true
+  },
+  "diagnostics": {
+    "eez-node-chiado": {
+      "levels": {
+        "INFO": 35881,
+        "WARN": 111
+      },
+      "warningsAndErrors": {
+        "displaced transaction could not reenter the pool": 35,
+        "Process stalled, awaiting read-write transaction lock.": 40,
+        "bundle dropped; composer will retry on next tick": 36
+      }
+    },
+    "eez-proof-signer-chiado": {
+      "levels": {
+        "INFO": 2766
+      },
+      "warningsAndErrors": {}
+    },
+    "rog-916969-validation-follower": {
+      "levels": {
+        "INFO": 10640,
+        "WARN": 163
+      },
+      "warningsAndErrors": {
+        "Blocked waiting for execution cache mutex": 163
+      }
+    },
+    "bundleDropReasons": {
+      "slot_skipped": 19,
+      "excluded": 17
+    },
+    "displacedSourcesIndependentlyVerifiedCanonical": 21,
+    "sampledReceiptMovementsBySide": {
+      "out": 33
+    },
+    "sampledReceiptMovements": 33
+  },
+  "toolingTests": {
+    "test_settlement_evidence.py": 11,
+    "test_chiado_mixed_validation.py": 5,
+    "failures": 0
+  },
+  "privateEvidence": {
+    "availability": "Local only; ignored artifacts are unavailable in another checkout. Secrets excluded from this inventory.",
+    "directory": "artifacts/rog-network-validation-20261026",
+    "sha256": {
+      "preflight.json": "baa66fea55394e2e8082bfb2e87d5776077f453ee3fb61b409e9e4947fa5829d",
+      "launch.sh": "1c1e0cd1a7ae612954c7675ece7fdd6eba76c1614abe87d5d1d448edaab2015a",
+      "launch.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "launch.log": "bae006abb651ec4bc1273e68edcec2952db49d8db969d73d980a34ce3097f513",
+      "run/identity.json": "20e9f4cba05b1ef36d17e1a947ca98af6ce6d8a140905c3f72034af3d7c12d32",
+      "run/run.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "run/live-mixed.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "run/independent-verification.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "run/live-waves.log": "1d6b4c33e930321ce98ee82c5919ac408a9f39846a317260bd50fdb775be4c53",
+      "run/live-ordinary.log": "a92fd38f90c4a477a7a57cea32cc489e45f9f8be17dca7a1335babd04bee216e",
+      "run/independent-verification.log": "754f7fa885447f7b17b0dcf232fad91a78de97b529a40eb1b43169726427666d",
+      "run/live-node.log": "691293d35a611a774893ddf0eafa6475b86c01b6d78aeced691bafa4364889b2",
+      "run/live-signer.log": "0e7ac717abb0ca0b16873733e91bfb2c232d7ad9e43c1d2344ef5ad8e8547916",
+      "run/live-follower.log": "21b8b227b9282d74d7298b470e25f1b992d11af80a82513ab336fa2aa45a4da1",
+      "run/cross-chain-receipt-history.jsonl": "70cdfd3d7a1060d0b0621d2e67a965af002ed8d1d9f495b862f4848f66cf2b1f",
+      "run/independent-cross-chain-summary.json": "e567bb96b9ede10ea50b7f1bc4c580dd611db0c1abdd4c5c3a0b93ce91a746f5",
+      "run/independent-cross-chain-receipts.json": "56846dd2f1c4e414d66ed749cade7d90d902c04dbddf57aa5422c636f9b8f11b",
+      "run/live-mixed-ordinary/metadata.json": "bd2ede3715f992b068662666882104ac8825fb68fe7ba0bfb9477aa3e9183392",
+      "run/live-mixed-ordinary/summary.json": "6023790d72625de32486add3db8d1d0b1441123e6e4ef924204fc77530ef571e",
+      "run/live-mixed-ordinary/settlements.json": "72bb98d76f938153a3f03d6dc3af828a59d90e0bf9088d705d3f80dd3dba92ef",
+      "run/live-mixed-ordinary/independent-replay.json": "9e2abe2fd64e47952092ba0ddb724b584c02f30c088186ea2e3bb99f6aac550c",
+      "history-sample.json": "4376fa442fc1a61bbaf6e59b557c34824d823ecc4460f89c153ed15e0a272da3",
+      "history-sample-details.json": "e5774e59b61c325cca4df42b977b793fea770a98bc160d855db2b892fae72c8a",
+      "check-history.py": "231249234037a2dba57267c15bfe4f902fcfdd32f1b38328bd23373313d3c292",
+      "fee-accounting.json": "9dd879b3dc7a9a74e8a64cb42dd78e8216dcef032d62f9d5c98d5e83ed0c077a",
+      "check-fees.py": "62bbbf6b52fda6b98f55f882e3361f3b973956b82d62c5bc40d542c1b3d8cefc",
+      "fee-distribution-sample.json": "7e58dbb6ce4c7559dd1bcf7bddffee519b002d4979ee5be39dbac1d27a2e9030",
+      "check-fee-distribution.py": "b0f4a2c6d40c12964627d803e87bd63830bebd913fe6204da76036b9c75aa358",
+      "initial-check-fee-distribution.py": "91a1001fcc534469cd5c01ac0d8a136d3e62872c4537d43227544a3abedce51d",
+      "initial-fee-distribution-check.log": "07b856bd3b65301afbe6b061b33a2f2a6a6fa11d59af238d5aa78480d2b78c9b",
+      "initial-fee-distribution-check.exit": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "displaced-source-reconciliation.json": "fff117328e51ce3b268d33081f122ae55a9d0dcc3344f256b66cf360c089cf43",
+      "final-health.json": "3de00e88cf9cfefc3b47d35ca6c94c216d06b801788a0ec9a071513df22e8bd3",
+      "final-artifact-identity.json": "de1c69f91beeff6b68d1d1b098d4250b07bf9bd7891a97ad2a28a7b07cc77e20",
+      "final-runtime-diagnostics.json": "101dccad6bf62fc471c5cf6333d7197d96cb6be5c695ffbcf2a2914bebc4b2c7",
+      "cleanup.json": "7725f65e59b7a9102a7f8976324b05462823c299926f84abbcd4281ade963e3f"
+    }
+  }
+}

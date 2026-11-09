@@ -17,17 +17,36 @@ SPEC.loader.exec_module(canary)
 
 
 class PartialConsumptionCanaryTest(unittest.TestCase):
-    def test_mandatory_policy_uses_sync_invocation_as_the_wave_barrier(self):
+    def test_idle_cutoff_opens_collection_before_composer_is_invoked(self):
         self.assertTrue(canary.is_sync_boundary({
-            "event_name": "eez.composer.sync_slot.invoked",
+            "event_name": "eez.sequencer.slot.decision",
+            "prepare": False, "skip_post": True,
         }))
         for event_name in (
+            "eez.composer.sync_slot.invoked",
             "eez.composer.phase1.bundle.dispatched",
             "eez.composer.bundle.dispatched",
             "eez.deriver.safe.advanced",
         ):
             with self.subTest(event_name=event_name):
-                self.assertFalse(canary.is_sync_boundary({"event_name": event_name}))
+                self.assertFalse(canary.is_sync_boundary({
+                    "event_name": event_name, "prepare": False, "skip_post": True,
+                }))
+
+    def test_active_uncertain_or_malformed_decisions_do_not_open_collection(self):
+        for fields in (
+            {"prepare": True, "skip_post": False},
+            {"prepare": False, "skip_post": False},
+            {"prepare": True, "skip_post": True},
+            {"prepare": "false", "skip_post": "true"},
+            {"prepare": 0, "skip_post": 1},
+            {"prepare": None, "skip_post": True},
+            {"prepare": False}, {"skip_post": True}, {},
+        ):
+            with self.subTest(fields=fields):
+                self.assertFalse(canary.is_sync_boundary({
+                    "event_name": "eez.sequencer.slot.decision", **fields,
+                }))
 
     def test_extracts_only_the_final_included_postbatch_identity(self):
         post = "0x" + "12" * 32

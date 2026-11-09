@@ -1,0 +1,90 @@
+{
+  "protocol": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+  "rollupx_base": "46d694faf88ae06941764b1858373b7c13987635",
+  "runtime_source": "110f952143853d0edbc51d6d8c2cb67be4d828f3",
+  "stage_results": {
+    "protocol": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+    "state_chaining_exit": 0,
+    "protocol_subset_exit": 0
+  },
+  "state_chaining": {
+    "result": "pass",
+    "cases": 9,
+    "inbound_cases": 3,
+    "outbound_cases": 3,
+    "additional_cases": [
+      "invalid-call admission and ordered survivors",
+      "mixed directions in separate FIFO posts",
+      "repeated inbound calls in one source transaction"
+    ],
+    "assertions": [
+      "ordered return values",
+      "source/destination contract state",
+      "same-Sync order for same-direction transactions",
+      "proof signer validation",
+      "L1 commitment matches L2 safe block hash"
+    ],
+    "limit": "Fee-enabled L2 same-Sync tests use independent source accounts. No claim of future-held L2 nonce support or precise quote margins."
+  },
+  "protocol_subset": {
+    "result": "pass",
+    "count": 4,
+    "suite_complete": false,
+    "semantic_and_causal_evidence_complete": true,
+    "note": "Funding failures corrected; nestedCounter is an unexplained retry-only pass."
+  },
+  "files_local_only": [
+    {
+      "path": "artifacts/pr54-fees-corrections/state-chaining.log",
+      "sha256": "8dd7874cb280063550a2c41c85dfc3966c18c53d3d1461a10b4fc88db8fcd396",
+      "bytes": 5148
+    },
+    {
+      "path": "artifacts/pr54-fees-corrections/protocol-suite.log",
+      "sha256": "6588d88ffa9fc89ac333bc6f44c13d636f5d2f5871479282abc85c0b306c6bfd",
+      "bytes": 3675
+    },
+    {
+      "path": "artifacts/pr54-fees-corrections/eez-node-final.log",
+      "sha256": "9c3ce17c47d80ca45d1285b85b36c12818c80f91f9fb1e64c11c997413ba297e",
+      "bytes": 8589302
+    },
+    {
+      "path": "artifacts/pr54-fees-corrections/eez-proof-signer-final.log",
+      "sha256": "b345b3a6713bbd05bb08485e9247b6e4e7e64c304056360013f092783419a3fc",
+      "bytes": 537368
+    },
+    {
+      "path": "artifacts/pr54-fees-corrections/stage-results.json",
+      "sha256": "7ad4026d3be098c4fec1ccc1dcbcb6bf1a61589a0f3e2bb2217a24885714a1db",
+      "bytes": 118
+    },
+    {
+      "path": "artifacts/pr54-fees-v2/kurtosis/ci-args.yaml",
+      "sha256": "81642d51b5e880008008e66779bd481815f57f35e9ba5f4c056e599a9d8b9179",
+      "bytes": 5188
+    },
+    {
+      "path": "artifacts/pr54-fees-final/tooling-tests.log",
+      "sha256": "a39e4d7e581218a5fe2938a1669a3eae7981f982d410012bf0d1e053bd3cd32b",
+      "bytes": 65972
+    },
+    {
+      "path": "artifacts/pr54-fees-corrections/enclave-stop.log",
+      "sha256": "d536e01988d375b7feffc7d30d2efa64c27210065bb6f6328c2c040a3bc956fe",
+      "bytes": 164
+    }
+  ],
+  "limits": [
+    "Full fee-enabled lane still failed on canonical protocol quote retry classification.",
+    "Fresh Rust/native release matrix and standalone follower replay were not run.",
+    "No Falcon workload; Safe qualification used a standard EOA-owner fixture.",
+    "Ignored logs are local-only, without durable retention guarantees."
+  ],
+  "owned_enclave_disposition": {
+    "name": "eez-pr54-fees-20261019-v2",
+    "state": "stopped",
+    "data_retained": true,
+    "at_utc": "2026-10-19T11:15:45Z"
+  }
+}

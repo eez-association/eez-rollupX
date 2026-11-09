@@ -1,0 +1,134 @@
+{
+  "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "suite": {
+    "discovered": 64,
+    "eligible": 34,
+    "selected": 2,
+    "excluded_from_all": [
+      "catchNestedRevertAfterCallback",
+      "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+      "catchRemoteRevertAfterCallback",
+      "catchNestedRevertAfterCallbackL2",
+      "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+      "catchRemoteRevertAfterCallbackL2",
+      "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+      "nestedRollbackRestoresInnerThenOuterStateL2",
+      "rollbackGroupWithStaticReadThenWriteL2",
+      "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+      "mutableCallMakesReadThatCallsBack",
+      "nestedStaticLocalWriteL2",
+      "staticLocalWrite",
+      "staticReadCallsBackAndReadsAgain",
+      "staticThenNestedWrites",
+      "topLevelStaticReentrantMissingProxy",
+      "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+      "mutableCallMakesReadThatCallsBackL2",
+      "nestedStaticLocalWriteL1",
+      "staticLocalWriteL2",
+      "staticReadCallsBackAndReadsAgainL2",
+      "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+      "staticReadHandlesFailedCallbackL2",
+      "staticReadPropagatesFailedCallbackL2",
+      "staticReadThenCatchFailedWriteL2",
+      "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+      "staticReadThenRollbackWriteL2",
+      "staticReadThenWriteWithCallbackL2",
+      "staticThenNestedWritesL2",
+      "topLevelStaticReentrantMissingProxyL2"
+    ],
+    "complete": false
+  },
+  "accounting": {
+    "valid": true,
+    "missing": [],
+    "duplicates": [],
+    "unexpected": []
+  },
+  "evidence_complete": false,
+  "passed": [
+    "staticThenNestedWrites"
+  ],
+  "failed": [
+    "staticLocalWrite"
+  ],
+  "skipped": [],
+  "causal_coverage": {
+    "complete": false,
+    "missing": [
+      "staticLocalWrite"
+    ],
+    "paired": [
+      "staticThenNestedWrites"
+    ],
+    "no_destination_required": []
+  },
+  "semantic_blob_coverage": {
+    "complete": false,
+    "missing": [
+      "staticLocalWrite"
+    ],
+    "authenticated": [
+      "staticThenNestedWrites"
+    ]
+  },
+  "snapshot": "R03 release; final CI build pending",
+  "phase_seconds": 108,
+  "runner_exit": 1,
+  "upstream_results": [
+    [
+      "staticLocalWrite",
+      "PASS"
+    ],
+    [
+      "staticThenNestedWrites",
+      "PASS"
+    ]
+  ],
+  "summary_sha256": "fbd8219f0bd3db2f75190cf8a17ea5ad5237b47fd2b971a8da84715fc2558567",
+  "failure_cause": "staticLocalWrite is a static lookup-only case, but the collector routes it through mutable-table evidence and rejects the absent mutable-table marker. A multi-candidate lookup oracle is still required; do not weaken field matching.",
+  "negative_missing_proxy": {
+    "runner": "pinned staged.sh with verification enabled",
+    "scenarios": [
+      "topLevelStaticReentrantMissingProxy",
+      "topLevelStaticReentrantMissingProxyL2"
+    ],
+    "exit_code": 1,
+    "seconds": 30,
+    "deployment_and_funding_passed": true,
+    "trigger_transactions_sent": 0,
+    "observed_error": {
+      "code": -32004,
+      "data_code": "quote_unavailable",
+      "message": "quote unavailable: gas estimation"
+    },
+    "expected_terminal_simulation_failed_observed": false,
+    "limitation": "Fee quotation rejects before signing/submission; the staged terminal-ownership rejection oracle was not reached. No quote bypass or hidden retry was used.",
+    "log_sha256": "882d6435750557da153fa59608e58db85fca9cac0773871823843abb1a9620a4"
+  },
+  "static_local_write_readonly_continuation": {
+    "result": "PASS",
+    "new_broadcasts": 0,
+    "same_trigger_and_post": true,
+    "evidence": "artifacts/pr-readiness/static-local-write-oracle/revalidated-final.json",
+    "evidence_sha256": "22c0b378e724c4af486d3877b3e7e586917838d2aa73b7643d4e5e65c652f0e3",
+    "claims": {
+      "upstream_pass_required": true,
+      "receipts_revalidated": true,
+      "post_batch_preceded_trigger": true,
+      "no_destination_delivery_required": true,
+      "l2_absence_verified": true,
+      "blob_kzg_authenticated": true,
+      "native_semantics_decoded": true,
+      "semantic_trigger_bound": true,
+      "actual_lookup_result_traced": true,
+      "lookup_root_bound": true
+    },
+    "oracle_regression_tests": 30,
+    "oracle_regression_skips": 0,
+    "limitations": [
+      "Original suite remains one PASS/one FAIL; the later result is a read-only continuation.",
+      "all_trigger_bytes_bound is false and is not promoted to true.",
+      "Independent cold follower execution remains pending."
+    ]
+  }
+}

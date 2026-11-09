@@ -39,11 +39,9 @@ pub(crate) use blocks::{
     SettlingBlockObservations, inspect_settling_block, verify_no_intermediate_system_transactions,
 };
 pub(crate) use da::{DaPayloadError, verify_da_payload};
-pub(crate) use effect_binding::{
-    BoundEffectSequence, EffectPrefixError, bind_effects_to_execution,
-};
 #[cfg(test)]
-pub(crate) use effect_binding::{ClaimedEntryShape, ObservedEffectKind};
+pub(crate) use effect_binding::{BoundEffectSequence, ClaimedEntryShape, ObservedEffectKind};
+pub(crate) use effect_binding::{EffectPrefixError, bind_effects_to_execution};
 pub(crate) use inbound::{AuthorizedInboundEffects, InboundEffectError, authorize_inbound_effects};
 #[cfg(test)]
 pub(crate) use inbound::{InboundCandidate, InboundObservationError};

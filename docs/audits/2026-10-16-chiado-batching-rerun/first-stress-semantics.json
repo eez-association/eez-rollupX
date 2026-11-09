@@ -1,0 +1,17 @@
+{
+  "verifiedAt": "2026-10-16T10:48:57.943765+00:00",
+  "jobs": 770,
+  "passed": 770,
+  "failed": 0,
+  "notVerifiable": 0,
+  "finalContinuation": {
+    "passed": 168,
+    "alreadyVerified": 602,
+    "workers": 16
+  },
+  "interruptedContinuationsRetained": true,
+  "absenceChecksSeconds": 60,
+  "latencyResult": "failed_600s_deadline",
+  "all870SourcesEventuallyCanonical": true,
+  "receiptsReplaced": false
+}

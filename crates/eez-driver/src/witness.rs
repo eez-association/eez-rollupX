@@ -73,18 +73,19 @@ pub use reth_trie::ExecutionWitnessMode;
 /// Propagates re-execution / witness-augmentation failures. Missing ancestors
 /// or a header whose number/hash does not match the block's ancestry fail before
 /// a witness can be persisted or sent to the signer.
-pub fn block_witness<P, E>(
+pub fn block_witness<P>(
     provider: &P,
-    evm_config: &E,
+    evm_config: &EezEvmConfig,
     block: &RecoveredBlock<Block>,
     mode: ExecutionWitnessMode,
 ) -> eyre::Result<BlockWitness>
 where
     P: StateProviderFactory + HeaderProvider<Header = Header>,
-    E: ConfigureEvm<Primitives = EezPrimitives>,
 {
-    let witness = block_execution_witness(provider, evm_config, block, mode)?;
+    let (evm_config, l1_headers_rlp) = capture_history(provider, evm_config, block)?;
+    let witness = block_execution_witness(provider, &evm_config, block, mode)?;
     Ok(BlockWitness {
+        l1_headers_rlp,
         number: block.header().number(),
         hash: block.hash(),
         parent_hash: block.header().parent_hash(),
@@ -111,10 +112,17 @@ pub fn block_witness_with_observations<P>(
 where
     P: StateProviderFactory + HeaderProvider<Header = Header>,
 {
-    let (witness, outcomes) =
-        block_execution_witness_with_observations(provider, evm_config, block, mode, observations)?;
+    let (evm_config, l1_headers_rlp) = capture_history(provider, evm_config, block)?;
+    let (witness, outcomes) = block_execution_witness_with_observations(
+        provider,
+        &evm_config,
+        block,
+        mode,
+        observations,
+    )?;
     Ok((
         BlockWitness {
+            l1_headers_rlp,
             number: block.header().number(),
             hash: block.hash(),
             parent_hash: block.header().parent_hash(),
@@ -123,6 +131,37 @@ where
         },
         outcomes,
     ))
+}
+
+/// Persist only the immutable range needed by this block. The final candidate
+/// adds its anchor bridge later; capture does not duplicate four days of future
+/// headers in every block. Freeze the same checked snapshot for re-execution.
+fn capture_history<P: StateProviderFactory>(
+    provider: &P,
+    config: &EezEvmConfig,
+    block: &RecoveredBlock<Block>,
+) -> eyre::Result<(EezEvmConfig, Vec<Bytes>)> {
+    let header = block.header();
+    let state = provider.state_by_block_hash(header.parent_hash)?;
+    let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state.as_ref()));
+    let first = config.history_state(&mut db)?.endpoint;
+    let last = match block.body().transactions.first() {
+        Some(eez_primitives::EezTxEnvelope::History(tx)) => {
+            tx.validate()?;
+            tx.blocks
+                .last()
+                .ok_or_else(|| eyre::eyre!("empty history import"))?
+                .number
+        }
+        _ => first,
+    };
+    let chain = config.l1_headers(header.timestamp)?;
+    let range = std::sync::Arc::new(chain.range(first, last)?);
+    let raw = range.raw_headers().collect();
+    let config = config
+        .clone()
+        .with_l1_history(std::sync::Arc::new(eez_evm::history::WitnessHistory(range)))?;
+    Ok((config, raw))
 }
 
 /// Replay a terminal block and its observations without constructing a trie
@@ -519,22 +558,88 @@ mod tests {
         assert_eq!(target[2], Bytes::from_static(b"c"));
     }
 
-    /// An empty block 2 over a mock provider, whose parent is the pin for
-    /// observations scheduled before its first transaction.
+    /// A history-only block 2 over a mock provider, whose parent is the pin
+    /// for observations scheduled before its first transaction.
     fn observation_fixture() -> (MockEthProvider, EezEvmConfig, RecoveredBlock<Block>, B256) {
+        use eez_protocol::l1_history::{
+            HISTORY_ADDRESS, HeaderChain, HeaderRules, WitnessHistory, genesis_storage,
+        };
+        let reference = Header {
+            timestamp: 964,
+            ..Default::default()
+        };
+        let imported = Header {
+            number: 1,
+            parent_hash: reference.hash_slow(),
+            timestamp: 976,
+            ..Default::default()
+        };
+        let endpoint = Header {
+            number: 2,
+            parent_hash: imported.hash_slow(),
+            timestamp: 2_000,
+            ..Default::default()
+        };
         let mut genesis: serde_json::Value =
             serde_json::from_slice(include_bytes!("../../../genesis.json")).unwrap();
         genesis["timestamp"] = serde_json::json!("0x3dc");
+        genesis["mixHash"] = serde_json::json!(reference.mix_hash);
         // A private L1: mainnet references require the 2-second, six-position schedule.
         genesis["config"]["rollupX"]["l1Reference"]["chainId"] = serde_json::json!(1337);
         genesis["config"]["rollupX"]["blockIntervalSeconds"] = serde_json::json!(12);
         genesis["config"]["rollupX"]["syncIntervalBlocks"] = serde_json::json!(2);
-        genesis["config"]["rollupX"]["l1Reference"]["timestamp"] = serde_json::json!(988);
+        genesis["config"]["rollupX"]["historyUpdateOffset"] = serde_json::json!(1);
+        genesis["config"]["rollupX"]["l1Reference"]["timestamp"] = serde_json::json!(964);
+        genesis["config"]["rollupX"]["l1Reference"]["hash"] =
+            serde_json::json!(reference.hash_slow());
+        genesis["config"]["rollupX"]["l1Reference"]["prevRandao"] =
+            serde_json::json!(reference.mix_hash);
+        genesis["alloc"][format!("{HISTORY_ADDRESS:#x}")]["storage"] =
+            serde_json::to_value(genesis_storage()).unwrap();
         let chain_spec = Arc::new(
             eez_evm::profile::chain_spec(serde_json::from_value(genesis).unwrap()).unwrap(),
         );
-        let evm_config = EezEvmConfig::new(Arc::clone(&chain_spec));
+        let mut chain = HeaderChain::default();
+        chain
+            .append(
+                &[
+                    alloy_rlp::encode(reference).into(),
+                    alloy_rlp::encode(imported).into(),
+                    alloy_rlp::encode(endpoint).into(),
+                ],
+                &HeaderRules {
+                    london_block: None,
+                    shanghai_time: None,
+                    cancun_time: None,
+                    prague_time: None,
+                    unsupported_time: None,
+                },
+                3,
+            )
+            .unwrap();
+        let evm_config = EezEvmConfig::new(Arc::clone(&chain_spec))
+            .with_l1_history(Arc::new(WitnessHistory(Arc::new(chain))))
+            .unwrap();
         let provider: MockEthProvider = MockEthProvider::new();
+        for address in [
+            eez_protocol::l1_history::HISTORY_ADDRESS,
+            eez_protocol::l1_history::HISTORY_IMPLEMENTATION_ADDRESS,
+            eez_protocol::l1_history::HISTORY_ADMIN_ADDRESS,
+        ] {
+            let account = &chain_spec.genesis.alloc[&address];
+            provider.add_account(
+                address,
+                ExtendedAccount::new(account.nonce.unwrap(), U256::ZERO)
+                    .with_bytecode(account.code.clone().unwrap())
+                    .extend_storage(
+                        account
+                            .storage
+                            .iter()
+                            .flatten()
+                            .map(|(key, value)| (*key, U256::from_be_bytes(value.0))),
+                    ),
+            );
+        }
         let parent = Header {
             number: 1,
             timestamp: 1_000,
@@ -548,7 +653,12 @@ mod tests {
             ..Default::default()
         };
         let parent_hash = parent.hash_slow();
-        provider.add_header(parent_hash, parent);
+        provider.add_header(parent_hash, parent.clone());
+        let state = reth_storage_api::StateProviderFactory::latest(&provider).unwrap();
+        let mut db =
+            super::StateProviderDatabase::new(super::EvmStateProviderAdapter(state.as_ref()));
+        let (_, transaction) = evm_config.prepare_history(&mut db, &parent, 1_012).unwrap();
+        let transaction = transaction.unwrap();
         let block = RecoveredBlock::new_unhashed(
             Block::new(
                 Header {
@@ -565,11 +675,12 @@ mod tests {
                     ..Default::default()
                 },
                 alloy_consensus::BlockBody {
+                    transactions: vec![transaction],
                     withdrawals: Some(Default::default()),
                     ..Default::default()
                 },
             ),
-            Vec::new(),
+            vec![eez_primitives::SYSTEM_ADDRESS],
         );
         (provider, evm_config, block, parent_hash)
     }
@@ -610,7 +721,7 @@ mod tests {
                 } else {
                     parent.number += 1;
                 }
-                provider.add_header(parent_hash, parent);
+                provider.add_header(parent_hash, parent.clone());
             }
             let error = block_execution_witness(
                 &provider,
@@ -713,7 +824,7 @@ mod tests {
         );
 
         let observation = BlockObservation {
-            after_transactions: 0,
+            after_transactions: 1,
             manager_address: MANAGER,
             claim: FifoObservationClaim {
                 pinned_block_hash: parent_hash,
@@ -800,7 +911,7 @@ mod tests {
                 &block,
                 ExecutionWitnessMode::Legacy,
                 &[BlockObservation {
-                    after_transactions: 0,
+                    after_transactions: 1,
                     manager_address: MANAGER,
                     claim: FifoObservationClaim {
                         pinned_block_hash: parent_hash,

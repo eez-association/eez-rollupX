@@ -1,0 +1,228 @@
+{
+  "reason": "First candidate fixed simple code visibility but extended re-entry still used stale session state.",
+  "processRun": {
+    "passed": 0,
+    "failed": 2,
+    "ignored": 0,
+    "filteredOut": 158,
+    "seconds": 315.52,
+    "exitCode": 101
+  },
+  "executables": {
+    "eez-composer": {
+      "bytes": 852474216,
+      "sha256": "0c136eea4af0dd7d5ece3f9160e0e719d9d41556c54acc5b3c0bf7e7e151fc85"
+    },
+    "eez-follower": {
+      "bytes": 711863080,
+      "sha256": "7be7d884f34677cd1b1e653ba7e87d6e0c502358588bf1b3ff5b965746c0df79"
+    },
+    "node_e2e-1e3ad82bc8bdefb9": {
+      "bytes": 606576552,
+      "sha256": "612ef4ae7d28969c012281f016961a4aa4b11adabc47e3e4d30b6a6c88debc03"
+    },
+    "eez-proof-signer": {
+      "bytes": 480734936,
+      "sha256": "d8fa1525e402eeba048196537536f4708ad058a7da57f5a0143cef630d6973dc"
+    }
+  },
+  "cases": {
+    "create": {
+      "existing": {
+        "hash": "0x5edc4d9c353834ea14cedfbad2576d2b2d964f0894b0089f5bfe2c0fb01d5d79",
+        "ownership": {
+          "canonical": {
+            "hash": "0xa3c44e47dbe383a45a2109254b3fa252915121601365b4032e3661e8d5d750e7",
+            "number": 9
+          },
+          "reason": "Committed",
+          "state": "terminal"
+        }
+      },
+      "fresh": {
+        "hash": "0xeff4d13cb7e8f602e465c5181d2b556d58c2aea873b8e7a7c88d976da580916a",
+        "ownership": {
+          "canonical": {
+            "hash": "0x60aded75074bba6c275deffb4bf292c8e710be9c6726d922f7cf18c6e5fe3a36",
+            "number": 10
+          },
+          "reason": "Committed",
+          "state": "terminal"
+        }
+      },
+      "reentry": {
+        "hash": "0x73b588bc89d369aa6fe1a469feb6a3ecff91964b1361b6e519989962e2789ebf",
+        "ownership": {
+          "canonical": null,
+          "observedAtMs": 1792339208020,
+          "reason": "SimulationFailed",
+          "rejection": {
+            "calls": [
+              {
+                "caller": "0x6179fbb91b239b574a4565e2c55a6fd38c3372d3",
+                "depth": 1,
+                "gasUsed": 30408,
+                "returnData": "0x0000000000000000000000009cdcfb34e6de7f5ff816da821b849bff72350280",
+                "returnLength": 32,
+                "selector": "0x0512b73a",
+                "sourceRollupId": 1,
+                "static": false,
+                "success": true,
+                "target": "0xcba6b9a951749b8735c603e7ffc5151849248772",
+                "targetRollupId": 0
+              },
+              {
+                "caller": "0xcba6b9a951749b8735c603e7ffc5151849248772",
+                "depth": 2,
+                "gasUsed": 120716,
+                "returnData": "0x0000000000000000000000009cdcfb34e6de7f5ff816da821b849bff72350280",
+                "returnLength": 32,
+                "selector": "0x27f4e1d6",
+                "sourceRollupId": 0,
+                "static": false,
+                "success": true,
+                "target": "0x673cd70fa883394a1f3deb3221937ceb7c2618d7",
+                "targetRollupId": 1
+              },
+              {
+                "caller": "0x6179fbb91b239b574a4565e2c55a6fd38c3372d3",
+                "depth": 1,
+                "gasUsed": 30187,
+                "returnData": "0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001e6578697374696e67206368696c6420686173207374616c652073746174650000",
+                "returnLength": 100,
+                "selector": "0x0512b73a",
+                "sourceRollupId": 1,
+                "static": false,
+                "success": false,
+                "target": "0xcba6b9a951749b8735c603e7ffc5151849248772",
+                "targetRollupId": 0
+              },
+              {
+                "caller": "0xcba6b9a951749b8735c603e7ffc5151849248772",
+                "depth": 2,
+                "gasUsed": 29724,
+                "returnData": "0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001e6578697374696e67206368696c6420686173207374616c652073746174650000",
+                "returnLength": 100,
+                "selector": "0x27f4e1d6",
+                "sourceRollupId": 0,
+                "static": false,
+                "success": false,
+                "target": "0x673cd70fa883394a1f3deb3221937ceb7c2618d7",
+                "targetRollupId": 1
+              }
+            ],
+            "error": "protocol: source transaction does not execute successfully",
+            "omittedCalls": 0,
+            "source": {
+              "gasUsed": 34781,
+              "output": "0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001e6578697374696e67206368696c6420686173207374616c652073746174650000",
+              "outputLength": 100
+            }
+          },
+          "replacementHash": null,
+          "state": "terminal"
+        }
+      }
+    },
+    "create2": {
+      "existing": {
+        "hash": "0xe835512ce338e7f8fd1ba4a34bc8c10b80728c3182f68785bf40ba97fdec4ade",
+        "ownership": {
+          "canonical": {
+            "hash": "0xab8bf72a14291795dd63aec61a51aa6ecfcda263e31ddbedb333f376317c7336",
+            "number": 9
+          },
+          "reason": "Committed",
+          "state": "terminal"
+        }
+      },
+      "fresh": {
+        "hash": "0x37942e08fa1070469d4823003dcee4ed81d7c589995f962ce130da1d4ca6789e",
+        "ownership": {
+          "canonical": {
+            "hash": "0x38db4fbc24c41845443ef44c1d1fa8ff88e0d757a2cc5334682f88559143a027",
+            "number": 10
+          },
+          "reason": "Committed",
+          "state": "terminal"
+        }
+      },
+      "reentry": {
+        "hash": "0xee96a09c1d9a9194e4e54ad8b0fa0d33628243c750a9423f750246d2b50958af",
+        "ownership": {
+          "canonical": null,
+          "observedAtMs": 1792339050015,
+          "reason": "SimulationFailed",
+          "rejection": {
+            "calls": [
+              {
+                "caller": "0x6179fbb91b239b574a4565e2c55a6fd38c3372d3",
+                "depth": 1,
+                "gasUsed": 30420,
+                "returnData": "0x0000000000000000000000003d93c8a4ff3a1eb3a6c23a4201ebf6393182b65e",
+                "returnLength": 32,
+                "selector": "0x0512b73a",
+                "sourceRollupId": 1,
+                "static": false,
+                "success": true,
+                "target": "0xcba6b9a951749b8735c603e7ffc5151849248772",
+                "targetRollupId": 0
+              },
+              {
+                "caller": "0xcba6b9a951749b8735c603e7ffc5151849248772",
+                "depth": 2,
+                "gasUsed": 120788,
+                "returnData": "0x0000000000000000000000003d93c8a4ff3a1eb3a6c23a4201ebf6393182b65e",
+                "returnLength": 32,
+                "selector": "0x27f4e1d6",
+                "sourceRollupId": 0,
+                "static": false,
+                "success": true,
+                "target": "0x673cd70fa883394a1f3deb3221937ceb7c2618d7",
+                "targetRollupId": 1
+              },
+              {
+                "caller": "0x6179fbb91b239b574a4565e2c55a6fd38c3372d3",
+                "depth": 1,
+                "gasUsed": 30199,
+                "returnData": "0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001e6578697374696e67206368696c6420686173207374616c652073746174650000",
+                "returnLength": 100,
+                "selector": "0x0512b73a",
+                "sourceRollupId": 1,
+                "static": false,
+                "success": false,
+                "target": "0xcba6b9a951749b8735c603e7ffc5151849248772",
+                "targetRollupId": 0
+              },
+              {
+                "caller": "0xcba6b9a951749b8735c603e7ffc5151849248772",
+                "depth": 2,
+                "gasUsed": 29736,
+                "returnData": "0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001e6578697374696e67206368696c6420686173207374616c652073746174650000",
+                "returnLength": 100,
+                "selector": "0x27f4e1d6",
+                "sourceRollupId": 0,
+                "static": false,
+                "success": false,
+                "target": "0x673cd70fa883394a1f3deb3221937ceb7c2618d7",
+                "targetRollupId": 1
+              }
+            ],
+            "error": "protocol: source transaction does not execute successfully",
+            "omittedCalls": 0,
+            "source": {
+              "gasUsed": 34793,
+              "output": "0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000001e6578697374696e67206368696c6420686173207374616c652073746174650000",
+              "outputLength": 100
+            }
+          },
+          "replacementHash": null,
+          "state": "terminal"
+        }
+      }
+    }
+  },
+  "sourceBase": "0bb1396d9cb660738b17d43a6cdbf9a564177823",
+  "protocolHead": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "runtimeDelta": "Uncommitted created-account propagation and full-journal snapshots, before the retained-session refresh correction. This prototype was not published; executable hashes identify its first process run."
+}

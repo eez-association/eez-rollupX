@@ -51,16 +51,21 @@ fn system_transactions() -> super::SystemTransactionReconstructor {
 fn build_inbound_transactions(
     entries: &[ExecutionEntrySol],
     context: &eez_protocol::system_tx::SystemTxContext,
-    starting_nonce: u64,
+    sources: &[B256],
 ) -> Vec<TransactionSigned> {
     let entries = entries
         .iter()
         .map(|entry| eez_protocol::entries::InboundSidecar::try_from(entry).unwrap())
         .collect::<Vec<_>>();
-    eez_protocol::system_tx::build_inbound_system_txs(&entries, context, starting_nonce)
+    eez_protocol::system_tx::build_inbound_system_txs(&entries, context)
         .unwrap()
         .into_iter()
-        .map(|raw| TransactionSigned::decode_2718_exact(raw.as_ref()).unwrap())
+        .zip(sources)
+        .map(|(plan, &source)| {
+            plan.at_position(crate::testkit::SYNTHETIC_BLOCK_GAS_LIMIT, 0, source)
+                .unwrap()
+                .into()
+        })
         .collect()
 }
 
@@ -72,6 +77,7 @@ fn verify_da_payload<'a>(
     outbound: &AuthorizedOutboundEffects,
     inbound: &AuthorizedInboundEffects<'_>,
     reconstructor: &super::SystemTransactionReconstructor,
+    semantics: &[eez_protocol::blob_semantics::SemanticTransaction],
 ) -> Result<(), DaPayloadError> {
     let convert = |(number, rlp): (u64, &[u8])| {
         alloy_rlp::decode_exact::<EezBlock>(rlp).map_err(|error| {
@@ -89,10 +95,25 @@ fn verify_da_payload<'a>(
     let preceding = preceding
         .map(convert)
         .collect::<Result<Vec<_>, DaPayloadError>>()?;
+    // This unit fixture explicitly supplies synthetic zero-valued prefix
+    // checkpoints. Captured/process suites establish real execution hashes.
+    let terminal_block = convert(terminal)?;
+    let count = alloy_rlp::decode_exact::<EezBlock>(terminal_block.rlp())
+        .unwrap()
+        .body
+        .transactions
+        .len();
     let terminal = crate::validate::ValidatedSettlingBlock::for_test(
-        convert(terminal)?,
+        terminal_block,
         Vec::new(),
-        Vec::new(),
+        (0..count)
+            .map(
+                |transaction_index| crate::validate::TransactionStateCheckpoint {
+                    transaction_index,
+                    block_hash: B256::ZERO,
+                },
+            )
+            .collect(),
     );
     let window = crate::validate::ValidatedWindow::for_test(
         B256::ZERO,
@@ -101,7 +122,21 @@ fn verify_da_payload<'a>(
         preceding,
         terminal,
     );
-    super::verify_da_payload(payload, &window, outbound, inbound, reconstructor)
+    super::verify_da_payload(
+        payload,
+        &window,
+        outbound,
+        inbound,
+        reconstructor,
+        semantics,
+        &crate::testkit::proof_context(
+            &eez_protocol::EvmBatch {
+                blockNumber: u64::MAX,
+                ..Default::default()
+            },
+            crate::testkit::l1_target(),
+        ),
+    )
 }
 
 fn verify_anchor_only_da_payload<'a>(
@@ -117,6 +152,7 @@ fn verify_anchor_only_da_payload<'a>(
         &AuthorizedOutboundEffects::default(),
         &AuthorizedInboundEffects::default(),
         &system_transactions(),
+        &[],
     )
 }
 
@@ -161,6 +197,10 @@ fn expected_rollup_id() -> NonZeroU64 {
 fn carrier_batch() -> CanonicalPostBatch {
     let batch = EvmBatch {
         blockNumber: u64::MAX,
+        expectedRootPerRollup: vec![ExpectedRootPerRollupSol {
+            rollupId: 1,
+            root: B256::repeat_byte(0x42),
+        }],
         proofSystems: vec![EXPECTED_PROOF_SYSTEM],
         rollupIdsWithProofSystems: vec![rollup_row(1)],
         ..Default::default()
@@ -267,6 +307,31 @@ fn settling_with_effect_candidates(
 
 fn settling_with_system_flags(system_sender_flags: Vec<bool>) -> SettlingBlockObservations {
     SettlingBlockObservations::for_test(system_sender_flags, Vec::new(), Vec::new())
+}
+
+/// Explicit decoded candidates for tests of shape/checkpoint binding. These
+/// flat zero-value calls are not a substitute for execution authorization.
+fn settling_with_flat_effects(flags: Vec<bool>) -> SettlingBlockObservations {
+    let mut settling = settling_with_system_flags(flags.clone());
+    let batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
+    for (index, native) in flags.iter().copied().enumerate() {
+        if !native {
+            continue;
+        }
+        if flags.get(index + 1) == Some(&false) {
+            settling.outbound_load_candidates_mut_for_test().push(
+                OutboundLoadCandidate::decoded_for_test(
+                    index,
+                    flat_outbound_sidecar(&batch.entries[1]),
+                ),
+            );
+        } else {
+            settling
+                .inbound_candidates_mut_for_test()
+                .push(observed_inbound_candidate(index, U256::ZERO, true));
+        }
+    }
+    settling
 }
 
 fn settling_with_outbound_pairs(batch: &CanonicalPostBatch) -> SettlingBlockObservations {
@@ -532,7 +597,7 @@ fn target_system_inbound_transaction() -> TransactionSigned {
         inspect_inbound_candidate(U256::ZERO, &calldata, true, expected_rollup_id()).unwrap();
     let entry = observation.derived_da_entry.as_entry().clone();
 
-    build_inbound_transactions(&[entry], &system_transaction_context(), 0)
+    build_inbound_transactions(&[entry], &system_transaction_context(), &[B256::ZERO])
         .into_iter()
         .next()
         .unwrap()
@@ -564,7 +629,13 @@ fn block_rlp(transactions: Vec<TransactionSigned>) -> Vec<u8> {
         transactions,
         ..Default::default()
     };
-    alloy_rlp::encode(EezBlock::new(Default::default(), body))
+    alloy_rlp::encode(EezBlock::new(
+        alloy_consensus::Header {
+            gas_limit: crate::testkit::SYNTHETIC_BLOCK_GAS_LIMIT,
+            ..Default::default()
+        },
+        body,
+    ))
 }
 
 fn validated_block(number: u64, rlp: Vec<u8>, system_senders: Vec<bool>) -> ValidatedBlock {
@@ -581,7 +652,13 @@ fn block_and_payload_transactions(transactions: Vec<TransactionSigned>) -> (Vec<
         ..Default::default()
     };
     let payload_transactions = body.encoded_2718_transactions_iter().collect();
-    let block = EezBlock::new(Default::default(), body);
+    let block = EezBlock::new(
+        alloy_consensus::Header {
+            gas_limit: crate::testkit::SYNTHETIC_BLOCK_GAS_LIMIT,
+            ..Default::default()
+        },
+        body,
+    );
     (alloy_rlp::encode(block), payload_transactions)
 }
 

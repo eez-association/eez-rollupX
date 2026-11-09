@@ -1,0 +1,141 @@
+{
+  "runtime_source": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+  "enclave": "eez-native-v1-review-20261024",
+  "enclave_uuid": "78c4b5eee3a844b99f4864b33c0d0643",
+  "snapshot_sha256": "ee0101b4e7efb30fe373b6934bd990f884ebd544b0905bb8b4b485d31cc68a01",
+  "snapshot_local_only": "artifacts/extended-validation/candidate/maintenance-before-fresh/preservation/snapshot.json",
+  "complete_archives": [
+    {
+      "role": "node",
+      "source": "/data",
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/preservation/node/data.tar.gz",
+      "bytes": 26989298,
+      "sha256": "2afe0bbba8bb2cf9ed1f5b0800b9b8cad6993f4d84f5cf948dff4cd915bd8d74",
+      "members": 59,
+      "full_readback": true
+    },
+    {
+      "role": "node",
+      "source": "/tmp/eez-l1-embedded",
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/preservation/node/eez-l1-embedded.tar.gz",
+      "bytes": 6984622,
+      "sha256": "51c4f288f700ae0aee8e90364263c382389e730bef8356cdc315df56cd7dec59",
+      "members": 54,
+      "full_readback": true
+    },
+    {
+      "role": "node",
+      "source": "/tmp/eez-bundle-captures",
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/preservation/node/eez-bundle-captures.tar.gz",
+      "bytes": 541646,
+      "sha256": "15d9b586f456011c5ae29dc9ff97e8861d1286b71046bab7dc2b04715002be80",
+      "members": 166,
+      "full_readback": true
+    },
+    {
+      "role": "node",
+      "source": "/genesis",
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/preservation/node/genesis.tar.gz",
+      "bytes": 89348,
+      "sha256": "75f69bf5af7d6037d781fbe37d170dc79131e216c91b3ecf89f91179e3994de9",
+      "members": 15,
+      "full_readback": true
+    },
+    {
+      "role": "node",
+      "source": "/out",
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/preservation/node/out.tar.gz",
+      "bytes": 62975,
+      "sha256": "b49e5eb6c057b2e59bdebfde4016a4425fb49a0c5f6c1f756c48bf1e8614d0a2",
+      "members": 21,
+      "full_readback": true
+    },
+    {
+      "role": "builder",
+      "source": "/data",
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/preservation/builder/data.tar.gz",
+      "bytes": 7075869,
+      "sha256": "d2c0b762b78b6f06221cd1ae4f05206a814e8e8f97705de4107ca6c98295ae43",
+      "members": 49,
+      "full_readback": true
+    },
+    {
+      "role": "builder",
+      "source": "/config",
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/preservation/builder/config.tar.gz",
+      "bytes": 865,
+      "sha256": "c3c0fcb37abe7d8be2312c7085d03db929ebb16dadcfc8e9f417161fcb653999",
+      "members": 2,
+      "full_readback": true
+    },
+    {
+      "role": "builder",
+      "source": "/network-configs",
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/preservation/builder/network-configs.tar.gz",
+      "bytes": 89408,
+      "sha256": "b66a235b361a3ba07fa14ca002367c9cb3c0735ccdb859f171506c61ebebe886",
+      "members": 15,
+      "full_readback": true
+    }
+  ],
+  "roles": {
+    "node": {
+      "container": "a56d567d59b186a48af93c471a1e357e3eb8fba24585a06ad160af52286546d1",
+      "state_after": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-10-24T19:58:59.630203002Z",
+        "FinishedAt": "2026-10-24T20:05:57.875108328Z"
+      },
+      "log_sha256": "a8b83ea499b63baf3e56e5cbe1a67c53ac4437dc7c1a51c3e7e422f140dbcc6d"
+    },
+    "builder": {
+      "container": "449d59445aa534d7ab342d961b178d1421e074e411ba49d61f365fc313f8a877",
+      "state_after": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-10-24T19:57:21.37943851Z",
+        "FinishedAt": "2026-10-24T20:05:58.545386797Z"
+      },
+      "log_sha256": "f1072ffb4719baf7993a5d7cd51900d31a5d60aebcf980de7794264872b2235c"
+    },
+    "signer": {
+      "container": "60d7ec6cd15ae7551b1dc76cf903b69d5d4b820add4cef97098d94391ddc7849",
+      "state_after": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-10-24T19:57:18.072950848Z",
+        "FinishedAt": "2026-10-24T20:05:59.187413255Z"
+      },
+      "log_sha256": "1e44c6dfcaf489f227f7ba7887fdb2cbeb033d528916514f52e5f9a13222c202"
+    }
+  },
+  "last_latest": 17004,
+  "last_safe": 12504,
+  "full_catch_up_completed": false,
+  "maintenance_excluded_from_liveness": true,
+  "initial_supervisor_failure": "Compared stopped empty IPAddress to running IP, before node startup; continuation checked IPAMConfig, network identity and ownership.",
+  "builder_recovery_diagnostic": "Builder CL ran continuously while execution client was stopped; logs show synchronization and subsequent canonical advancement. Independent diagnosis retained separately.",
+  "fresh_comparison_enclave": "eez-final-ab-20261024"
+}

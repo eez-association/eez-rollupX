@@ -1,0 +1,771 @@
+{
+  "status": "Final runtime load, semantic oracles, three controls and cold replay PASS. First preparation/analysis failures retained; all three owned enclaves stopped without deletion.",
+  "recorded_at": "2026-10-24T21:08:37.910994+00:00",
+  "runtime_source": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+  "producer_merge": "c35cf5bc71548f74b8d72e3fa2a0a66113eab0c8",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "ci_run": 40123208325,
+  "enclave": "eez-final-ab-20261024",
+  "enclave_uuid": "ca2e0c2232ce4c17a42704d8002f92bb",
+  "genesis_l1": "0x1467162d70da2c5ed3b41ea341c7b8bcbc479546b01b45dd95cee03cfdaf2f63",
+  "genesis_l2": "0x738f7115f7d0bd23c533e9015e09cf9c5d49131fcd2fb4731593746797106358",
+  "images": {
+    "node": "ghcr.io/eez-association/eez-rollupx-node@sha256:3b7ba4efb57e2b0a51c47534ddb7703cfb8ac65a3a65515a69d0c8f13ada9633",
+    "signer": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:995266fa4b8756b73e4d533163729531bbf2731aa53c7cbe7e07f96bcfae82fa",
+    "deploy": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:9352d2367768e32af6b6905248eb010ceb49029015e62bd54bc08784b7c7d8f9"
+  },
+  "binaries_sha256": {
+    "eez-composer": "8dd137a877ee837f3f37c9182e3cb5a8642aa20923d77c95e9d635edadd57704",
+    "eez-follower": "3ebfb9d5f4d54f2e49b3e72553c1812d4aecb69cdfb19ca8614ef451e92fc9cd",
+    "eez-proof-signer": "332597c24b1de4d9722e42abd3fe212297c501db555e265a477f44eb6625599c",
+    "eez-genesis-state-root": "87c0463218c4af9457411e9e8b51cdfe097234ec84c3e1a4f406e3e2c719df31",
+    "eez-genesis-block-hash": "852368677738bf66477ed338aaf44d1f04b2cdcf4d401c01927990117669ad5c",
+    "e2e-causal-verify": "f7ad179e91db4d7b245a1da3574a906446af86e1e0b941a2f3929cd8258e8dfd",
+    "verify_blob_evidence": "d595b92f9e32527c7c7943c06b152ab61194dd1e151373e800c28c1da250cc1b"
+  },
+  "archived_test_sha256": "d61f9bc69873cb9dec3d091ee20b252831abad70c0c3b8d00763f0349618995a",
+  "identity_record": "final-runtime-identity.json",
+  "phases": {
+    "sequential": {
+      "runtime_source": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+      "enclave": "eez-final-ab-20261024",
+      "interval": {
+        "started_at": 1792873282.572,
+        "ended_at": 1792874183.526,
+        "elapsed_seconds": 900.9547222729999
+      },
+      "admission": {
+        "planned": 15000,
+        "offered": 15000,
+        "accepted": 3890,
+        "per_stage": [
+          {
+            "rate": 5,
+            "seconds": 300,
+            "planned_offers": 1500,
+            "accepted": 1147,
+            "accepted_per_second": 3.8233333333333333,
+            "expired_schedule_slots": 353,
+            "backpressure_slots": 0
+          },
+          {
+            "rate": 15,
+            "seconds": 300,
+            "planned_offers": 4500,
+            "accepted": 1415,
+            "accepted_per_second": 4.716666666666667,
+            "expired_schedule_slots": 3085,
+            "backpressure_slots": 0
+          },
+          {
+            "rate": 30,
+            "seconds": 300,
+            "planned_offers": 9000,
+            "accepted": 1328,
+            "accepted_per_second": 4.426666666666667,
+            "expired_schedule_slots": 7672,
+            "backpressure_slots": 0
+          }
+        ],
+        "retries": 0,
+        "rpc_response_ms": {
+          "count": 3890,
+          "min": 0.0,
+          "p50": 106.50002956390381,
+          "p95": 495.999813079834,
+          "max": 999.000072479248,
+          "mean": 198.24190372672976
+        }
+      },
+      "liveness": {
+        "observed_head_age_seconds": {
+          "count": 901,
+          "min": -5.4709999561309814,
+          "p50": 0.5460000038146973,
+          "p95": 1.5789999961853027,
+          "max": 1.5850000381469727,
+          "mean": -0.6459877909089828
+        },
+        "head_minus_safe_blocks": {
+          "count": 901,
+          "min": 0,
+          "p50": 6,
+          "p95": 14,
+          "max": 24,
+          "mean": 5.331853496115428
+        },
+        "pending_ordinary_max": 52,
+        "queue_max": {
+          "queued": 5,
+          "inFlight": 1,
+          "blocked": 0,
+          "unknown": 5
+        },
+        "observed_same_height_replacements": 0,
+        "canonical_header_cadence_seconds": 2,
+        "scope": "One-second sampling and final canonical ancestry; future block timestamps cover intentional intervals between commits."
+      },
+      "settlement": {
+        "submission_to_canonical_safe_seconds": {
+          "count": 3890,
+          "min": 6.540943145751953,
+          "p50": 14.092039465904236,
+          "p95": 31.59883403778076,
+          "max": 43.029327154159546,
+          "mean": 15.445681106278094
+        },
+        "latency_without_matching_log_count": 0,
+        "all_receipts_canonical_and_safe": true
+      },
+      "proving": {
+        "canonical_window_signer_ms": {
+          "count": 0
+        },
+        "window_duration_unavailable_count": 64,
+        "request_context_unavailable_count": 64,
+        "canonical_attempt_roundtrip_ms": {
+          "count": 64,
+          "min": 19,
+          "p50": 23.0,
+          "p95": 34,
+          "max": 52,
+          "mean": 25.359375
+        },
+        "preparation_through_proof_ms": {
+          "count": 64,
+          "min": 185,
+          "p50": 202.5,
+          "p95": 242,
+          "max": 257,
+          "mean": 206.375
+        }
+      },
+      "resources": {
+        "host_available_min_bytes": 13957517312,
+        "container_cpu_percent": {
+          "922fbfea66ef": {
+            "count": 89,
+            "min": 0.36,
+            "p50": 5.45,
+            "p95": 46.09,
+            "max": 58.12,
+            "mean": 8.926853932584269
+          },
+          "834b306d01d2": {
+            "count": 89,
+            "min": 0.0,
+            "p50": 0.0,
+            "p95": 2.18,
+            "max": 2.76,
+            "mean": 0.2891011235955056
+          },
+          "983c4140fca8": {
+            "count": 89,
+            "min": 0.17,
+            "p50": 0.61,
+            "p95": 4.3,
+            "max": 4.98,
+            "mean": 1.1912359550561797
+          }
+        },
+        "container_memory_samples": {
+          "922fbfea66ef": [
+            "1.606GiB",
+            "1.624GiB",
+            "1.62GiB",
+            "1.631GiB",
+            "1.639GiB",
+            "1.659GiB",
+            "1.65GiB",
+            "1.672GiB",
+            "1.675GiB",
+            "1.676GiB",
+            "1.67GiB",
+            "1.685GiB",
+            "1.691GiB",
+            "1.699GiB",
+            "1.705GiB",
+            "1.711GiB",
+            "1.722GiB",
+            "1.733GiB",
+            "1.738GiB",
+            "1.743GiB",
+            "1.753GiB",
+            "1.766GiB",
+            "1.776GiB",
+            "1.778GiB",
+            "1.784GiB",
+            "1.786GiB",
+            "1.798GiB",
+            "1.803GiB",
+            "1.816GiB",
+            "1.821GiB",
+            "1.828GiB",
+            "1.829GiB",
+            "1.831GiB",
+            "1.835GiB",
+            "1.839GiB",
+            "1.83GiB",
+            "1.843GiB",
+            "1.846GiB",
+            "1.851GiB",
+            "1.853GiB",
+            "1.865GiB",
+            "1.868GiB",
+            "1.86GiB",
+            "1.874GiB",
+            "1.876GiB",
+            "1.878GiB",
+            "1.879GiB",
+            "1.885GiB",
+            "1.886GiB",
+            "1.888GiB",
+            "1.889GiB",
+            "1.88GiB",
+            "1.891GiB",
+            "1.895GiB",
+            "1.896GiB",
+            "1.899GiB",
+            "1.89GiB",
+            "1.8GiB",
+            "1.901GiB",
+            "1.904GiB",
+            "1.906GiB",
+            "1.907GiB",
+            "1.911GiB",
+            "1.914GiB",
+            "1.918GiB",
+            "1.919GiB",
+            "1.922GiB",
+            "1.924GiB",
+            "1.927GiB",
+            "1.928GiB",
+            "1.932GiB",
+            "1.938GiB",
+            "1.93GiB",
+            "1.941GiB",
+            "1.954GiB",
+            "1.963GiB",
+            "1.965GiB"
+          ],
+          "834b306d01d2": [
+            "143.1MiB",
+            "143.6MiB",
+            "143.7MiB",
+            "144.1MiB",
+            "144.2MiB",
+            "144.3MiB",
+            "144.4MiB",
+            "144.5MiB",
+            "144.6MiB",
+            "144.7MiB",
+            "144.8MiB",
+            "144.9MiB",
+            "145.1MiB",
+            "145.2MiB",
+            "145.3MiB",
+            "145.4MiB",
+            "145.5MiB",
+            "145.6MiB",
+            "145.7MiB",
+            "145.8MiB",
+            "145.9MiB",
+            "146.1MiB",
+            "146.2MiB",
+            "146.3MiB",
+            "146.4MiB",
+            "146.5MiB",
+            "146.6MiB",
+            "146.7MiB",
+            "146.8MiB",
+            "146.9MiB",
+            "146MiB",
+            "147.1MiB",
+            "147.2MiB",
+            "147MiB"
+          ],
+          "983c4140fca8": [
+            "3.019GiB",
+            "3.022GiB",
+            "3.024GiB",
+            "3.025GiB",
+            "3.029GiB",
+            "3.032GiB",
+            "3.033GiB",
+            "3.035GiB",
+            "3.036GiB",
+            "3.037GiB",
+            "3.038GiB",
+            "3.039GiB",
+            "3.041GiB",
+            "3.042GiB",
+            "3.043GiB",
+            "3.044GiB",
+            "3.045GiB",
+            "3.047GiB",
+            "3.048GiB",
+            "3.049GiB",
+            "3.04GiB",
+            "3.052GiB",
+            "3.053GiB",
+            "3.054GiB",
+            "3.055GiB",
+            "3.056GiB",
+            "3.057GiB",
+            "3.058GiB",
+            "3.059GiB",
+            "3.05GiB",
+            "3.061GiB",
+            "3.062GiB",
+            "3.063GiB",
+            "3.065GiB",
+            "3.068GiB",
+            "3.06GiB",
+            "3.071GiB"
+          ]
+        }
+      },
+      "evidence_sha256": "5aede4d73f2e94e34a145f29aa6aa2a45452081e02017eae69af101e2def9c66",
+      "limits": [
+        "Shared host and independently bootstrapped chains; not a maximum-capacity benchmark.",
+        "Offered rate and actual accepted throughput are separate.",
+        "CPU samples use Docker percent of one logical CPU, not normalized whole-host utilization.",
+        "Safe latency uses canonical hash-bound node events; first unsafe receipt observation is not canonical settlement.",
+        "Cold follower result is recorded separately.",
+        "Canonical signer windows are joined by exact pre/post hashes. Missing request context or duration is unavailable, never inferred from event proximity or per-block timings."
+      ],
+      "ordinary_gas_cost_wei": "834906717771000",
+      "skipped_schedule": 11110,
+      "withheld_backpressure": 0,
+      "all_receipts_and_accounting_verified": true
+    },
+    "pipeline": {
+      "runtime_source": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+      "enclave": "eez-final-ab-20261024",
+      "interval": {
+        "started_at": 1792874682.284,
+        "ended_at": 1792874863.236,
+        "elapsed_seconds": 180.95189138499998
+      },
+      "admission": {
+        "planned": 5400,
+        "offered": 5400,
+        "accepted": 4561,
+        "per_stage": [
+          {
+            "rate": 30,
+            "seconds": 180,
+            "planned_offers": 5400,
+            "accepted": 4561,
+            "accepted_per_second": 25.33888888888889,
+            "expired_schedule_slots": 0,
+            "backpressure_slots": 839
+          }
+        ],
+        "retries": 0,
+        "rpc_response_ms": {
+          "count": 4561,
+          "min": 0.9999275207519531,
+          "p50": 3.000020980834961,
+          "p95": 36.00001335144043,
+          "max": 105.00001907348633,
+          "mean": 17.397501729502277
+        }
+      },
+      "liveness": {
+        "observed_head_age_seconds": {
+          "count": 181,
+          "min": -5.749000072479248,
+          "p50": 0.2850000858306885,
+          "p95": 1.2860000133514404,
+          "max": 1.319000005722046,
+          "mean": -0.15151932358083145
+        },
+        "head_minus_safe_blocks": {
+          "count": 181,
+          "min": 0,
+          "p50": 12,
+          "p95": 24,
+          "max": 24,
+          "mean": 12.408839779005525
+        },
+        "pending_ordinary_max": 128,
+        "queue_max": {
+          "queued": 0,
+          "inFlight": 0,
+          "blocked": 0,
+          "unknown": 0
+        },
+        "observed_same_height_replacements": 0,
+        "canonical_header_cadence_seconds": 2,
+        "scope": "One-second sampling and final canonical ancestry; future block timestamps cover intentional intervals between commits."
+      },
+      "settlement": {
+        "submission_to_canonical_safe_seconds": {
+          "count": 4561,
+          "min": 6.698195934295654,
+          "p50": 25.7981960773468,
+          "p95": 52.264196157455444,
+          "max": 54.71198081970215,
+          "mean": 27.35983664872902
+        },
+        "latency_without_matching_log_count": 0,
+        "all_receipts_canonical_and_safe": true
+      },
+      "proving": {
+        "canonical_window_signer_ms": {
+          "count": 0
+        },
+        "window_duration_unavailable_count": 4,
+        "request_context_unavailable_count": 4,
+        "canonical_attempt_roundtrip_ms": {
+          "count": 4,
+          "min": 94,
+          "p50": 127.5,
+          "p95": 131,
+          "max": 131,
+          "mean": 120
+        },
+        "preparation_through_proof_ms": {
+          "count": 4,
+          "min": 310,
+          "p50": 528.0,
+          "p95": 539,
+          "max": 539,
+          "mean": 476.25
+        }
+      },
+      "resources": {
+        "host_available_min_bytes": 10938126336,
+        "container_cpu_percent": {
+          "922fbfea66ef": {
+            "count": 18,
+            "min": 2.52,
+            "p50": 8.08,
+            "p95": 62.12,
+            "max": 62.12,
+            "mean": 10.571111111111112
+          },
+          "834b306d01d2": {
+            "count": 18,
+            "min": 0.0,
+            "p50": 0.81,
+            "p95": 1.57,
+            "max": 1.57,
+            "mean": 0.5683333333333334
+          },
+          "983c4140fca8": {
+            "count": 18,
+            "min": 0.22,
+            "p50": 0.38,
+            "p95": 5.04,
+            "max": 5.04,
+            "mean": 0.9466666666666667
+          }
+        },
+        "container_memory_samples": {
+          "922fbfea66ef": [
+            "1.988GiB",
+            "2.005GiB",
+            "2.007GiB",
+            "2.015GiB",
+            "2.033GiB",
+            "2.036GiB",
+            "2.039GiB",
+            "2.03GiB",
+            "2.041GiB",
+            "2.042GiB",
+            "2.044GiB",
+            "2.045GiB",
+            "2.046GiB",
+            "2.047GiB",
+            "2.052GiB",
+            "2.057GiB"
+          ],
+          "834b306d01d2": [
+            "147.1MiB",
+            "147.4MiB",
+            "147.5MiB",
+            "147.6MiB",
+            "148.7MiB",
+            "149.1MiB",
+            "149.7MiB",
+            "149MiB",
+            "151.2MiB",
+            "151.3MiB",
+            "151.4MiB",
+            "151.6MiB"
+          ],
+          "983c4140fca8": [
+            "3.043GiB",
+            "3.044GiB",
+            "3.046GiB",
+            "3.049GiB",
+            "3.059GiB",
+            "3.062GiB",
+            "3.063GiB",
+            "3.064GiB",
+            "3.066GiB",
+            "3.069GiB",
+            "3.06GiB",
+            "3.07GiB"
+          ]
+        }
+      },
+      "evidence_sha256": "5aede4d73f2e94e34a145f29aa6aa2a45452081e02017eae69af101e2def9c66",
+      "limits": [
+        "Shared host and independently bootstrapped chains; not a maximum-capacity benchmark.",
+        "Offered rate and actual accepted throughput are separate.",
+        "CPU samples use Docker percent of one logical CPU, not normalized whole-host utilization.",
+        "Safe latency uses canonical hash-bound node events; first unsafe receipt observation is not canonical settlement.",
+        "Cold follower result is recorded separately.",
+        "Canonical signer windows are joined by exact pre/post hashes. Missing request context or duration is unavailable, never inferred from event proximity or per-block timings."
+      ],
+      "ordinary_gas_cost_wei": "957814693269000",
+      "skipped_schedule": 0,
+      "withheld_backpressure": 839,
+      "all_receipts_and_accounting_verified": true
+    }
+  },
+  "comparison": {
+    "sequential": {
+      "baseline_accepted": 3802,
+      "candidate_accepted": 3890,
+      "offered_schedule_identical": true,
+      "baseline_local_inclusion_p50_s": 2.072713851928711,
+      "candidate_local_inclusion_p50_s": 2.235650897026062,
+      "baseline_canonical_safe_p50_s": 13.790082931518555,
+      "candidate_canonical_safe_p50_s": 14.092039465904236,
+      "baseline_local_inclusion_p95_s": 7.586912155151367,
+      "candidate_local_inclusion_p95_s": 7.445368051528931,
+      "baseline_canonical_safe_p95_s": 25.41477394104004,
+      "candidate_canonical_safe_p95_s": 31.59883403778076
+    },
+    "pipeline": {
+      "baseline_accepted": 4415,
+      "candidate_accepted": 4561,
+      "offered_schedule_identical": true,
+      "baseline_local_inclusion_p50_s": 1.4004640579223633,
+      "candidate_local_inclusion_p50_s": 1.4251630306243896,
+      "baseline_canonical_safe_p50_s": 26.077831983566284,
+      "candidate_canonical_safe_p50_s": 25.7981960773468,
+      "baseline_local_inclusion_p95_s": 6.938282012939453,
+      "candidate_local_inclusion_p95_s": 6.891354084014893,
+      "baseline_canonical_safe_p95_s": 53.01948308944702,
+      "candidate_canonical_safe_p95_s": 52.264196157455444
+    }
+  },
+  "performance_limit": "Sequential canonical-safe p95 was slower: 31.60 s versus 25.41 s; pipeline 52.26 s versus 53.02 s. Single shared-host campaigns on independent histories do not identify cause, capacity or SLA, establish performance parity, or rule out a temporal regression. Local inclusion is measured separately.",
+  "cross_chain": {
+    "waves": 12,
+    "sources": 96,
+    "each_direction": 48,
+    "all_terminal_committed": true,
+    "wrapped_return_checks": 24,
+    "wrapper_expected": "[input,1,1,input]",
+    "inbound_final_setter": 312,
+    "inbound_final_noret": 212,
+    "inbound_deposits_wei": "780000000000000",
+    "outbound_final_setter": 612,
+    "outbound_final_noret": 512,
+    "outbound_withdrawals_wei": "390000000000000",
+    "block_hash_commitment_divergences": 0,
+    "matched_signer_attestation": true,
+    "native_receipts_explicit_in_replay": 96,
+    "scope": "Existing destination state/value oracle plus canonical ownership/DA binding and exact Wrapped return events, not every arbitrary internal trace."
+  },
+  "ordinary_accounting": {
+    "measured_and_control_accepted": 8523,
+    "preparatory_accepted": 2,
+    "total_actor_accepted": 8525,
+    "gas_cost_measured_and_controls_wei": "1807841485128000",
+    "preparatory_gas_cost_wei": "1081363836000",
+    "total_actor_gas_cost_wei": "1808922848964000",
+    "max_intention_budget": 20474,
+    "max_gas_reserve_wei": "42995400000000000",
+    "actor_funding_wei": "50000000000000000",
+    "preparatory_group": {
+      "source_sha256": "69be6f1222ced90796c4e68484fab37ff6c29fd970213a3ae44fa659c42f12f6",
+      "transaction_hashes": [
+        "0x5d2a1e9200c4e603e40b9c1536aa73fee0c1241d86b9897b0a3dfb6393db56f9",
+        "0x0ddf40016f8d3c796c8468976c52ad6e6d5545fd287d00c341082969a700ed8e"
+      ],
+      "canonical_receipts_rechecked": true,
+      "gas_cost_wei": "1081363836000",
+      "included_in_measured_statistics": false,
+      "origin": "mixed-r2 aborted after the separate bootstrap quote_limit rejection"
+    }
+  },
+  "fee_accounting": {
+    "verified": true,
+    "first": 300,
+    "last": 1307,
+    "base_fee_mode": "vault",
+    "all_non_native_base_fees": "18705932080051",
+    "all_non_native_tips": "13712676299263350",
+    "balances": {
+      "beneficiary": {
+        "before": "0x182bbaa9dd963c",
+        "after": "0x48e355e99a63b2",
+        "delta": 13712676299263350
+      },
+      "vault": {
+        "before": "0x5363ddbfaad59",
+        "after": "0x547412c6a810c",
+        "delta": 18705932080051
+      }
+    },
+    "ordinary_gas_cost_wei": "1807841485128000",
+    "sender_and_recipient_exact": true
+  },
+  "cross_chain_fees": {
+    "verified": true,
+    "quotes_checked": 96,
+    "quote_gas_equals_used_count": 0,
+    "canonical_posts_with_payout": 48,
+    "refund_percent": 90,
+    "refund_recipient": "0x5555555555555555555555555555555555555555",
+    "total_actual_income_wei": "12891401340453977",
+    "total_actual_post_cost_wei": "10003450586784936",
+    "shortfall_posts": 0,
+    "formula": "floor(largest(gasUsed * (effectiveGasPrice - baseFee)) * refundPercent / 100) - payoutGasUsed * payoutEffectiveGasPrice",
+    "oracle_reference": {
+      "path": "testing/kurtosis/scripts/verify-l1-fees.mjs",
+      "sha256": "38c27294b96ea96ac1c83440d240d603d980eb17bb977fe30650c397285abaca",
+      "formula": "floor(largest(gasUsed * (effectiveGasPrice - baseFee)) * refundPercent / 100) - payoutGasUsed * payoutEffectiveGasPrice"
+    },
+    "limits": [
+      "Quotes are advisory; gas-used equality is measured, not assumed.",
+      "Per-batch cost recovery/profit is not required by the subsidized batching policy.",
+      "The maximum-tip source is inferred from receipts; this does not authenticate submitted refundTxHashes or distinguish tied/rounded payer identities.",
+      "Quote-to-transaction equality proves applied fields, effective price and limits, not the economic correctness of the quotation algorithm by itself.",
+      "L2 beneficiary/FeeVault totals and exact ordinary balances are checked by collect-mixed.py."
+    ]
+  },
+  "faults_record": "candidate-faults.json",
+  "timing_record": "candidate-fault-timing.json",
+  "cold_replay": {
+    "checked_blocks": 1332,
+    "checked_derived_blocks": 1332,
+    "checked_receipts": 8669,
+    "safe_l2_block": 1332,
+    "safe_l2_block_hash": "0x417657f031008c4a0ec6e4a01271f8b5945887302029343ffe195176b192f236",
+    "source": "canonical_l1_only",
+    "verified": true,
+    "exit_code": 0,
+    "duration_seconds": 13.77,
+    "input_sha256": "5aede4d73f2e94e34a145f29aa6aa2a45452081e02017eae69af101e2def9c66",
+    "test_sha256": "d61f9bc69873cb9dec3d091ee20b252831abad70c0c3b8d00763f0349618995a",
+    "follower_sha256": "3ebfb9d5f4d54f2e49b3e72553c1812d4aecb69cdfb19ca8614ef451e92fc9cd",
+    "full_batches": 124,
+    "coverage_contiguous_from_genesis": true,
+    "all_original_claims_preserved": true,
+    "explicit_native_receipts": 96,
+    "explicit_preparatory_receipts": 2,
+    "scope": "Receipt status and canonical block inclusion are directly compared. The exact endpoint hash forces full derivation/execution. Receipt logs, gas and arbitrary contract values are checked by separate campaign oracles, not this archived harness."
+  },
+  "endpoint_state_root": "0xc4c9a7306828c13dfe3ce0eb765629d5d1fea4b2bd10f9605696e7777f553792",
+  "bundle_exclusions_record": "candidate-dropped-bundles.json",
+  "first_failures_record": "candidate-first-attempts.json",
+  "optional_metrics_first_failure": {
+    "path": "artifacts/extended-validation/candidate-fresh/mixed-metrics-first.log",
+    "sha256": "ff6f0fefaba7bc65fbad086cb11935aa62da48e2186a900788d9fb0eb1af1221",
+    "reason": "Audit reader assumed window_signed span/request_id and elapsed_ms that final events do not emit. Read-only continuation retains exact pre/post hash binding and reports unavailable context/duration without inferring attribution."
+  },
+  "scripts_sha256": {
+    "workloads/check-cross-chain-fees.py": "2bcf2fdf9e349090a80bceaf183da805b95344e7a3eeffcfdf193de7c8354a95",
+    "workloads/collect-mixed.py": "8df68a8329d2f530176754f11724d3010ec7487425f874dcce7e788d64a47461",
+    "workloads/inclusion-metrics.py": "c1ae830abaa10cb118c36d7ca826d0627e13884170daffc9701df689464838ac",
+    "workloads/run-l1-fault.py": "572b45f7ecf4695dba1a15aa598a38c59b0ff38301868a6256ff3fb2c9492be1",
+    "workloads/summarize-load.py": "9055b950bea3cb6a18d44bb182a4d728245d1856d9615e088f4a7209fbaa9bca"
+  },
+  "raw_evidence": [
+    {
+      "path": "artifacts/extended-validation/candidate-fresh/final-evidence/replay-input.json",
+      "sha256": "5aede4d73f2e94e34a145f29aa6aa2a45452081e02017eae69af101e2def9c66",
+      "bytes": 17065272,
+      "availability": "local-only retained; unavailable from another checkout"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate-fresh/final-evidence/cross-chain-fees.json",
+      "sha256": "4d96304e81af897c8a1ef4476038dc79dbe9a8daf750799f18ab3016c73c3813",
+      "bytes": 799399,
+      "availability": "local-only retained; unavailable from another checkout"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate-fresh/final-evidence/fee-accounting.json",
+      "sha256": "e8ada6d7dcd2b6eabf59f7892aa659f5efd79e5530e8eb434491ee444999f1c5",
+      "bytes": 535,
+      "availability": "local-only retained; unavailable from another checkout"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate-fresh/final-evidence/independent-replay.json",
+      "sha256": "b1609c998b69723a133a42221f0bd977ed1c074515a8df1444f4875351948a69",
+      "bytes": 262,
+      "availability": "local-only retained; unavailable from another checkout"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate-fresh/cold-replay-first.log",
+      "sha256": "fe0bf73c535622639cca60c8a1e36d1388a6adb58e03ec5bc8ab0d6f196aede0",
+      "bytes": 204,
+      "availability": "local-only retained; unavailable from another checkout"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate-fresh/cold-replay-first-intent.json",
+      "sha256": "604b36751447de326b86a5cc738a9b354abc443698ae9bd2c9fa377f111ad0f5",
+      "bytes": 667,
+      "availability": "local-only retained; unavailable from another checkout"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate-fresh/mixed-r3/supervisor.json",
+      "sha256": "4bf8864db6ad49e1f9e02325537f5991278bb81863d7840ce541cbc1912344ee",
+      "bytes": 3446,
+      "availability": "local-only retained; unavailable from another checkout"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate-fresh/pipeline-first/supervisor.json",
+      "sha256": "16433692d43bc210a5162f04a40eb4f99e07c750ff7bc772dcc55b613c14bd93",
+      "bytes": 2093,
+      "availability": "local-only retained; unavailable from another checkout"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate-fresh/mixed-r2/abort-accounting.json",
+      "sha256": "69be6f1222ced90796c4e68484fab37ff6c29fd970213a3ae44fa659c42f12f6",
+      "bytes": 6303,
+      "availability": "local-only retained; unavailable from another checkout"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate-fresh/final-logs/manifest.json",
+      "sha256": "5893f43f1a2b067bf53dfea0b4834053a6f127ca9ea7914979fae5ed4d95a15c",
+      "bytes": 884,
+      "availability": "local-only retained; unavailable from another checkout"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate-fresh/mixed-metrics-first.log",
+      "sha256": "ff6f0fefaba7bc65fbad086cb11935aa62da48e2186a900788d9fb0eb1af1221",
+      "bytes": 329,
+      "availability": "local-only retained; unavailable from another checkout"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate-fresh/closure/result.json",
+      "sha256": "addcff2eb981f5e4c1d03796a28d463ab94b96a998c93c12a42067c946bee138",
+      "bytes": 50647,
+      "availability": "local-only retained; unavailable from another checkout"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate-fresh/closure/final-health.json",
+      "sha256": "d610937731796cb53fea2d8d82a7980d9ccdbe41406bda9dd43bda82bb6e3f96",
+      "bytes": 12027,
+      "availability": "local-only retained; unavailable from another checkout"
+    }
+  ],
+  "closure_record": "enclave-closure.json",
+  "limits": [
+    "Final archive explicitly checks 96 native 0x45 receipts; baseline native 0x76 receipts were authenticated separately outside its old receipt parser.",
+    "Two preparatory receipts are excluded from measured workload and latency statistics.",
+    "Live signer configuration has no L1/L2 RPC source; this does not assert a firewall. Source processes enforce outgoing-connect denial separately.",
+    "Old long-maintenance network demonstrated two canonical parts before its deliberate stop, not full drain. This fresh final network is the comparable load run.",
+    "MissingProxy admission negatives belong to their recorded earlier runtime and do not replace the staged terminal SimulationFailed oracle.",
+    "No maximum-capacity, four-day wall-clock, durable queue recovery or hard real-time guarantee is inferred."
+  ]
+}

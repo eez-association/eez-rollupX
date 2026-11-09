@@ -1,0 +1,481 @@
+{
+  "review_revision": "1109dbab7f12fc735a6bf6986e7d7e7f987495d7",
+  "baseline_revision": "79bf3ac91be970b8bdcf64e914011df00fe33e0b",
+  "protocol_revision": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "checks": {
+    "rx02-before-target": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "-p",
+        "eez-proof-signer",
+        "split_nested_hosts_consume_events_by_verified_call_count",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 101,
+      "seconds": 55.02,
+      "minimum_available_bytes": 24195612672,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "5d9f9b858298b9b75f7eb1eaab0296a441b95a1d04d0420f00492e3f363ed682",
+      "log_location": "artifacts/extended-validation/checks/rx02-before-target/output.log",
+      "availability": "local-only"
+    },
+    "rx01-before-basefee": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "-p",
+        "eez-proof-signer",
+        "scheduled_history_observations",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 101,
+      "seconds": 16.01,
+      "minimum_available_bytes": 23951425536,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "f66c34927c8434ad442eee00db7d9c388a2c51d3689d0462c238f2f74d935acf",
+      "log_location": "artifacts/extended-validation/checks/rx01-before-basefee/output.log",
+      "availability": "local-only"
+    },
+    "rx01-before-signing-typed": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "-p",
+        "eez-proof-signer",
+        "service::tests::derivation::history_observations",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 101,
+      "seconds": 35.01,
+      "minimum_available_bytes": 23987892224,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "c5098e3e3cf140fcf942a24d615a5855e2a9679e8db900ca6ac9d89eda14459f",
+      "log_location": "artifacts/extended-validation/checks/rx01-before-signing-typed/output.log",
+      "availability": "local-only"
+    },
+    "rx01-before-attestation": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "-p",
+        "eez-proof-signer",
+        "scheduled_history_earlier_state_observations_never_sign",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 101,
+      "seconds": 6.0,
+      "minimum_available_bytes": 24307900416,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "06b3c6e60e88e31ba70287450e0ae4f728edd61d723bd588bf14638f5348a979",
+      "log_location": "artifacts/extended-validation/checks/rx01-before-attestation/output.log",
+      "availability": "local-only"
+    },
+    "rx01-after": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "-p",
+        "eez-proof-signer",
+        "scheduled_history",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 34.01,
+      "minimum_available_bytes": 23862886400,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "e91a1ae7d78f622b3e09cd1d699f44c06250e45f32bd5cf10a7cf16f9db57482",
+      "log_location": "artifacts/extended-validation/checks/rx01-after/output.log",
+      "availability": "local-only"
+    },
+    "rx02-after": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "-p",
+        "eez-proof-signer",
+        "settlement::tests::outbound",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 19.01,
+      "minimum_available_bytes": 23892246528,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "f621dee02ba2f39a7f14a1887b1d403f7dfaee31bdd7af491ef9e0919d03e1d4",
+      "log_location": "artifacts/extended-validation/checks/rx02-after/output.log",
+      "availability": "local-only"
+    },
+    "rx01-fixture-export": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "-p",
+        "eez-proof-signer",
+        "--",
+        "--ignored",
+        "--exact",
+        "service::tests::derivation::history_observations::regenerate_history_observation_process_fixtures"
+      ],
+      "exit": 0,
+      "seconds": 39.01,
+      "minimum_available_bytes": 23932588032,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "23b47648c191876c2d4f80c781543167b41a0f8e5e49b5c58fb3d5759df557d7",
+      "log_location": "artifacts/extended-validation/checks/rx01-fixture-export/output.log",
+      "availability": "local-only"
+    },
+    "deny": {
+      "command": [
+        "cargo",
+        "deny",
+        "check",
+        "advisories",
+        "bans",
+        "sources"
+      ],
+      "exit": 0,
+      "log_sha256": "60ff4d3a3c1a688c4ac7310d064aa139af281c2349947227ae78d7b01bc371f7",
+      "log_location": "artifacts/prover-review/checks/deny.log",
+      "availability": "local-only",
+      "limits": "Existing reviewed advisory exceptions retained; no new ignore entries."
+    },
+    "audit": {
+      "command": [
+        "cargo",
+        "audit"
+      ],
+      "exit": 0,
+      "log_sha256": "7128af41cf90fe37e43958fb80efe50de7b26a1cbf0bc40ffd4218d395e6f64d",
+      "log_location": "artifacts/prover-review/checks/audit.log",
+      "availability": "local-only",
+      "limits": "Existing reviewed advisory exceptions retained; no new ignore entries."
+    },
+    "rx01-process-after": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "-p",
+        "eez-node-e2e",
+        "--test",
+        "node_e2e",
+        "--",
+        "cross_chain::history_observations::",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 1134.31,
+      "minimum_available_bytes": 14417711104,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "2c362ffb665f130df01572e49746d823af6f79d2e6cbe046e986f8972bca1384",
+      "log_location": "artifacts/extended-validation/checks/rx01-process-after/output.log",
+      "availability": "local-only"
+    },
+    "rx01-process-before": {
+      "command": [
+        "target/debug/deps/node_e2e-0cb5b6bfb86a29d0",
+        "--exact",
+        "cross_chain::history_observations::scheduled_history_observations_are_bound_before_offline_signing",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 101,
+      "seconds": 3.0,
+      "minimum_available_bytes": 24046006272,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "f9bada394f72a9cdec732f83e3ea80ef3d1b88516320ab5170d94ed916a3a9b7",
+      "log_location": "artifacts/extended-validation/checks/rx01-process-before/output.log",
+      "availability": "local-only"
+    },
+    "rx-unit-suites": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "-p",
+        "eez-proof-signer",
+        "-p",
+        "eez-control-rpc",
+        "-p",
+        "eez-prover-client",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit": 0,
+      "seconds": 501.14,
+      "minimum_available_bytes": 23434104832,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "8c09881f51cbbddcc51fdfd193f888df962b42a437d2d800ecffd546cd5d91a1",
+      "log_location": "artifacts/extended-validation/checks/rx-unit-suites/output.log",
+      "availability": "local-only"
+    },
+    "rx-clippy-workspace": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "clippy",
+        "--locked",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 101,
+      "seconds": 203.05,
+      "minimum_available_bytes": 23593463808,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "1d0ba7bdd5663dccd2234228c270da9d7fa0ea252f75ac8c1c4a7f21febb9491",
+      "log_location": "artifacts/extended-validation/checks/rx-clippy-workspace/output.log",
+      "availability": "local-only"
+    },
+    "rx-clippy-workspace-final": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "clippy",
+        "--locked",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 59.02,
+      "minimum_available_bytes": 23876034560,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "4a1fd569ec62482a0a0a2b805b55d2d2de6f98775b77a35c09c1b077cefbfe56",
+      "log_location": "artifacts/extended-validation/checks/rx-clippy-workspace-final/output.log",
+      "availability": "local-only"
+    },
+    "rx-signer-check": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "check",
+        "--locked",
+        "-p",
+        "eez-proof-signer",
+        "--all-targets"
+      ],
+      "exit": 0,
+      "seconds": 161.05,
+      "minimum_available_bytes": 23996231680,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "fcdd48cb76d297c6562826f995c5fadd86d1772b57749e3fc24d17d55014c687",
+      "log_location": "artifacts/extended-validation/checks/rx-signer-check/output.log",
+      "availability": "local-only"
+    },
+    "rx-signer-clippy": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "clippy",
+        "--locked",
+        "-p",
+        "eez-proof-signer",
+        "--all-targets",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 38.01,
+      "minimum_available_bytes": 23832944640,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "6db475a8f73280e8ef97f663628ebce4ddd47f89962797dcc5a22bc1cb83f5f1",
+      "log_location": "artifacts/extended-validation/checks/rx-signer-clippy/output.log",
+      "availability": "local-only"
+    },
+    "rx-signer-doc": {
+      "command": [
+        "env",
+        "RUSTDOCFLAGS=-D warnings",
+        "cargo",
+        "+1.95.0",
+        "doc",
+        "--locked",
+        "-p",
+        "eez-proof-signer",
+        "--no-deps"
+      ],
+      "exit": 0,
+      "seconds": 5.0,
+      "minimum_available_bytes": 24038907904,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "a51fef3aaf052a50f4e041007065717919c385decf670f4baf3c0023fe7396b3",
+      "log_location": "artifacts/extended-validation/checks/rx-signer-doc/output.log",
+      "availability": "local-only"
+    },
+    "rx-unit-final": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "-p",
+        "eez-proof-signer",
+        "-p",
+        "eez-control-rpc",
+        "-p",
+        "eez-prover-client",
+        "--",
+        "--test-threads=2"
+      ],
+      "exit": 0,
+      "seconds": 30.01,
+      "minimum_available_bytes": 24062578688,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "c338d86ab0023739ac96b4f0976e7b8bde582023318b85909c924f129f0d5782",
+      "log_location": "artifacts/extended-validation/checks/rx-unit-final/output.log",
+      "availability": "local-only"
+    }
+  },
+  "notes": [
+    "Before/after tests used the same isolated worktree and pinned dependencies; production fixes followed the recorded baseline failures.",
+    "Fixture-compilation and configuration failures are retained locally but are not listed as product defect reproductions.",
+    "The pre-fix unit-test executable was overwritten by Cargo; source identities, selected regression names and first failure logs are retained."
+  ],
+  "retained_pre_fix_process_binary": {
+    "sha256": "5945de0915f4ea6ef89c0bec9eb2d61f07c847e5adfe3e55dd760ef40ea30406",
+    "source_base": "d46f0a148a29ecdeea2eefa15e7380e72deeb277",
+    "prior_record": "../2026-10-24-extended-validation/stabilization.md",
+    "local_path": "artifacts/prover-review/pre-fix-eez-proof-signer",
+    "availability": "local-only",
+    "used_for_this_process_regression": true,
+    "result": "Verified signature over static-before-history outcome; selected regression fails as expected."
+  },
+  "fixture_manifest_sha256": "cd859702597b9804842abce62a7376120be71603c08ab0d29bd4e6b495226b86",
+  "static_checks": {
+    "cargo_fmt_all_check": "pass",
+    "git_diff_check": "pass",
+    "frozen_conformance_manifest": "29 verified, not regenerated",
+    "edited_document_links": "all relative file targets exist"
+  },
+  "candidate_process_binaries": {
+    "signer_sha256": "cd2e8fd3186068895d68c81ca0931a6409090e091787e8381b4cc09ad1af482e",
+    "node_e2e_sha256": "9c38ba7d40bfafd832cb9bf59e63bf220985dcc3fc7cec3e03a4c36a90d54812"
+  },
+  "candidate_process": {
+    "logs": [
+      {
+        "path": "artifacts/prover-review/logs/eez-proof-signer-1761118-0.log",
+        "sha256": "85471c7ffad803f6e12ed88ce9be18e781656393d44ecf519c02fe119ab0a4a6",
+        "availability": "local-only"
+      }
+    ],
+    "outcomes": [
+      {
+        "event": "rejected",
+        "gate": "observation_replay",
+        "error": "observation 0 result differs from authenticated EVM replay"
+      },
+      {
+        "event": "rejected",
+        "gate": "observation_replay",
+        "error": "observation 0 result differs from authenticated EVM replay"
+      },
+      {
+        "event": "signed",
+        "public_inputs_hash": "0x4af44e99ebc463d6fdef3de4b49f549651b8d9fb75563c256bf7104f3dd12b3d",
+        "from": 1,
+        "to": 6
+      },
+      {
+        "event": "rejected",
+        "gate": "observation_replay",
+        "error": "observation 0 result differs from authenticated EVM replay"
+      },
+      {
+        "event": "rejected",
+        "gate": "observation_replay",
+        "error": "observation 0 result differs from authenticated EVM replay"
+      },
+      {
+        "event": "signed",
+        "public_inputs_hash": "0x578436dd5e4636b4141ccc143e50333ce85cf2856ae4818d163d27c9cccbcb56",
+        "from": 1,
+        "to": 6
+      }
+    ]
+  },
+  "baseline_process": {
+    "logs": [
+      {
+        "path": "artifacts/prover-review/baseline-process-logs/eez-proof-signer-1776092-0.log",
+        "sha256": "487b61d4b7115b2a0e0a6e11b448cc9b4ada7dc3d9e2cf9c46bd3c10ab420b63",
+        "availability": "local-only"
+      }
+    ],
+    "outcomes": [
+      {
+        "event": "signed",
+        "public_inputs_hash": "0x38bda179df222c2d9edc484d575b83096bcdbdf847af74a4dc295d0ff86c5ac4",
+        "from": 1,
+        "to": 6
+      }
+    ]
+  },
+  "unit_counts": {
+    "eez-proof-signer": {
+      "passed": 328,
+      "ignored_utilities": 3
+    },
+    "eez-control-rpc": {
+      "passed": 7
+    },
+    "eez-prover-client": {
+      "passed": 34
+    }
+  },
+  "production_files": {
+    "crates/eez-proof-signer/src/validate/stateless.rs": "8aa56b8c10a40c27441bf179af1302e4b38fc59572a9d87c1df972ddc8b6e882",
+    "crates/eez-proof-signer/src/settlement/outbound.rs": "6d7221ab107db9522c77a07baf819c9263fd2d45267c22aeb8a34623aa9b9df0"
+  },
+  "final_unit_binary_sha256": {
+    "target/debug/deps/eez_proof_signer-fd0bb3b4560a12c1": "e707778bb203439b385d543d5e29085e49f49c2b0ac934222d532a398a6fb68b",
+    "target/debug/deps/eez_control_rpc-17a1d34bef5f0509": "269d3399fac71bb0286bbb40c1c36f4e3257902abcb374da99afc9195978d36f",
+    "target/debug/deps/eez_prover_client-c49388847cc929bf": "34c74c788139b3ac5529427b50ced542f5d40c3a66ac38ea4293537dbbcda3e3"
+  }
+}

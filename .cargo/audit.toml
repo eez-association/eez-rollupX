@@ -15,6 +15,21 @@ ignore = [
     # compression DoS. Reached via reth's p2p DNS discovery, not enabled here.
     "RUSTSEC-2026-0118",
     "RUSTSEC-2026-0119",
+    # Owner-approved temporary risk acceptance, 2026-10-25: pinned Alloy/REVM
+    # still require crypto-bigint 0.5 through k256/p256. Remove from both audit
+    # configs when a compatible upstream fix is integrated; review on dependency
+    # updates. This does not establish that our signing paths are unaffected.
+    # Scope and removal criteria: docs/audits/2026-10-24-extended-validation/dependencies.md
+    "RUSTSEC-2026-0387",
+    # Owner-approved temporary risk acceptance, 2026-10-27: pinned Reth/Gnosis
+    # compression dependencies still use the affected zstd family. Remove each
+    # ID from both audit configs when its compatible upstream fix is integrated.
+    # This is not a finding of non-reachability; see the zstd exception record in
+    # docs/audits/2026-10-24-extended-validation/dependencies.md
+    "RUSTSEC-2026-0391",
+    "RUSTSEC-2026-0398",
+    "RUSTSEC-2026-0403",
+    "RUSTSEC-2026-0410",
 
     # ── seen only by cargo-audit's graph ───────────────────────────────────
     # tracing-subscriber 0.2.x ANSI escape injection through log fields.

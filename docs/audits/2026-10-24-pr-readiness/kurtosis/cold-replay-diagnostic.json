@@ -1,0 +1,66 @@
+{
+  "result": "FAIL",
+  "stage": "diagnostic R03; not final clean-feature CI artifact",
+  "phase_seconds": 27,
+  "test_seconds": 22.69,
+  "test_count": 1,
+  "test_passed": 0,
+  "test_failed": 1,
+  "follower_sha256": "365a51a80244c205e1e15925f4fb778695eea50153a58cf0c03ad5881ac802d5",
+  "harness_sha256": "ed039f2878f21b6a8e1ca7c1f173f1c02085e583ec2ae78d3e4b0fe2caf5f35b",
+  "input_sha256": "a1a120fb46d0b52e61be3eb6360b38f1aafc52e817a193f10840d6d4f25c68f6",
+  "log_sha256": "76450f7a024676dcc11b6e347a493269f3f540b9f876281a10a9969d9c31f79a",
+  "failure": {
+    "location": "crates/eez-node-e2e/tests/kurtosis_policy_replay.rs:183",
+    "error": "Alloy Ethereum receipt decoding rejects the native type0x45: Unexpected type flag. Got69",
+    "receipt": "0x002092f236597d5de9f7603e8d0f5828573f45b1ce4d2fd84cc8268a72fb0d6d",
+    "height": 4791,
+    "receipt_status": "0x1",
+    "receipt_type": "0x45"
+  },
+  "checks_completed_before_failure": {
+    "endpoint": {
+      "safe_l2_block": 7194,
+      "safe_l2_block_hash": "0x26e0195d1e46e1eefc0f3bfed0359c9f8e61db73e2c2c66fd199283478b72139"
+    },
+    "selected_complete_batches": 183,
+    "unique_selected_block_heights": 3384,
+    "maintenance_parts_selected": 112,
+    "canonical_replay_cursor_logged": 7290,
+    "receipt_checks": "Failed decoding the first lexicographically selected receipt; no assertion of719receipt success."
+  },
+  "checks_pending": {
+    "final_ci_runtime": true
+  },
+  "first_datadir": "artifacts/pr-readiness/kurtosis/live/replay-diagnostic-r03-datadirs/eez-node-kurtosis-policy-independent-1956548-eTm8vC",
+  "first_log": "artifacts/pr-readiness/kurtosis/live/phases/replay-diagnostic-r03.log",
+  "limits": "The follower reached and checked the canonical endpoint and all selected full-batch block assertions before the harness failed. This is not a passing test, not complete receipt coverage, and not proof of clean shipping-artifact compliance.",
+  "continuation": {
+    "result": "PASS",
+    "phase": "replay-diagnostic-r03-native",
+    "test_count": 1,
+    "test_passed": 1,
+    "test_failed": 0,
+    "test_seconds": 24.3,
+    "phase_seconds": 28,
+    "same_input_and_follower": true,
+    "input_sha256": "a1a120fb46d0b52e61be3eb6360b38f1aafc52e817a193f10840d6d4f25c68f6",
+    "harness_sha256": "dbc2905c917c1c0d19f694596fe43a5dc77781f495a8574870c04ee56b0f77bc",
+    "harness_source_sha256": "f9bb5b8870e31284beaabbf563cd713fa437f0f975229eac9ec90ec1fd964cba",
+    "fix": "Decode only the eth_getTransactionReceipt response as AnyTransactionReceipt; all block providers, ordering and status/canonical-membership assertions unchanged.",
+    "log_sha256": "f49a44f1754385d8a557b9e29c31d8c9397832d0e8c1adc2071e0c132a0896c9",
+    "result_sha256": "a1a25a161a6642d49dcd066c7c217ff4b95d322d4c155ea796ddea4efc0dfe52",
+    "independent_replay": {
+      "checked_blocks": 3384,
+      "checked_derived_blocks": 3384,
+      "checked_receipts": 719,
+      "safe_l2_block": 7194,
+      "safe_l2_block_hash": "0x26e0195d1e46e1eefc0f3bfed0359c9f8e61db73e2c2c66fd199283478b72139",
+      "source": "canonical_l1_only",
+      "verified": true
+    },
+    "selected_maintenance_parts": 112,
+    "all_selection_counts_match": true,
+    "scope": "PASS for retained R03 shipping-feature variant. The clean-feature CI runtime is still pending."
+  }
+}

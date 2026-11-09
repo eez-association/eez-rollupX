@@ -1,3 +1,10 @@
+## RollupX application examples
+
+Read the network's delayed L1 history directly through `getL1BlockHash(number)`
+at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077`. A zero result means the block is
+outside the retained history range. See the [history API and polling rules](L1_HISTORY_SPEC.md#application-polling)
+for sequential consumption, strict error handling and compatibility.
+
 ## Foundry
 
 **Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**

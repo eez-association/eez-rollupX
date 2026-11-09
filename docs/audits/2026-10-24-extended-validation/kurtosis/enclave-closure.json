@@ -1,0 +1,78 @@
+{
+  "completed": true,
+  "started_at": 1792875868.609997,
+  "ended_at": 1792876029.0362122,
+  "operation": "kurtosis enclave stop; no enclave rm, Docker rm, volume deletion, datadir deletion, reset or key deletion",
+  "raw_manifest_sha256": "addcff2eb981f5e4c1d03796a28d463ab94b96a998c93c12a42067c946bee138",
+  "availability": "Bulk logs, original containers, writable layers, named volumes and fixture keys retained locally. Fresh datadirs remain in the stopped original containers/volumes; no separate full fresh-network database archive was created. Existing baseline/old-network snapshots remain unchanged.",
+  "available_memory_bytes_after": 25050886144,
+  "enclaves": [
+    {
+      "name": "eez-main-ab-20261024",
+      "uuid": "ad654d451d2148d095678a22b0c9942b",
+      "intent_at": 1792875869.6593862,
+      "stopped_at": 1792875921.5422244,
+      "stop_exit": 0,
+      "container_count_before": 41,
+      "volume_count_before": 34,
+      "running_before": 15,
+      "running_after": 0,
+      "all_original_containers_present": true,
+      "all_original_volumes_present": true
+    },
+    {
+      "name": "eez-native-v1-review-20261024",
+      "uuid": "78c4b5eee3a844b99f4864b33c0d0643",
+      "intent_at": 1792875923.424792,
+      "stopped_at": 1792875975.356828,
+      "stop_exit": 0,
+      "container_count_before": 42,
+      "volume_count_before": 35,
+      "running_before": 14,
+      "running_after": 0,
+      "all_original_containers_present": true,
+      "all_original_volumes_present": true
+    },
+    {
+      "name": "eez-final-ab-20261024",
+      "uuid": "ca2e0c2232ce4c17a42704d8002f92bb",
+      "intent_at": 1792875976.4804208,
+      "stopped_at": 1792876029.014147,
+      "stop_exit": 0,
+      "container_count_before": 42,
+      "volume_count_before": 35,
+      "running_before": 17,
+      "running_after": 0,
+      "all_original_containers_present": true,
+      "all_original_volumes_present": true
+    }
+  ],
+  "final_health": {
+    "l1_latest": {
+      "number": "0x103",
+      "hash": "0x1f785ad53af38a82fbddff41652816d61a64d2e2cb362c2f8e46f8ee6af6f134",
+      "stateRoot": "0xc02760f4d32eeb011a6568f99584e2f5a6c52ca30cb783a41859774b517b89e5"
+    },
+    "l2_latest": {
+      "number": "0x638",
+      "hash": "0xa5cff88b142b387cff594db7bbe1ac92424080422d392d2281f51264584c807f",
+      "stateRoot": "0x869701c00985f37f9c4329fb378072b1f889d4767a96c2b55f6d2558fbe64583"
+    },
+    "l2_safe": {
+      "number": "0x624",
+      "hash": "0x397bb12497602c6eed483c9d5fbf5097eadd12abb37887f5ebd9ef21176d61f7",
+      "stateRoot": "0x02eab0adc6057d248266b566e20251bcb6e2e01be7b96d9af40000144413fda0"
+    },
+    "replay_endpoint": {
+      "number": "0x534",
+      "hash": "0x417657f031008c4a0ec6e4a01271f8b5945887302029343ffe195176b192f236",
+      "stateRoot": "0xc4c9a7306828c13dfe3ce0eb765629d5d1fea4b2bd10f9605696e7777f553792"
+    }
+  },
+  "final_queue": {
+    "queued": 0,
+    "inFlight": 0,
+    "blocked": 0,
+    "unknown": 0
+  }
+}

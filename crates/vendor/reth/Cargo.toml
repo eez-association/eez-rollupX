@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["reth-engine-tree", "reth-node-builder"]
+members = ["reth-engine-tree", "reth-node-builder", "reth-rpc-builder"]
 
 [workspace.package]
 version = "2.7.0"
@@ -112,10 +112,29 @@ secp256k1 = { "version" = "0.30", "default-features" = false, "features" = ["glo
 serde_json = { "version" = "1.0", "default-features" = false, "features" = ["alloc"] }
 tempfile = "3.20"
 thiserror = { "version" = "2.0.0", "default-features" = false }
-tokio = { "version" = "1.52.3", "default-features" = false }
+tokio = { "version" = "1.53.3", "default-features" = false }
 tokio-stream = "0.1.11"
 tracing = { "version" = "0.1.0", "default-features" = false, "features" = ["attributes"] }
+
+alloy-network = { "version" = "2.5.0", "default-features" = false }
+alloy-rpc-types-eth = { "version" = "2.5.0", "default-features" = false }
+alloy-rpc-types-trace = { "version" = "2.5.0", "default-features" = false }
+clap = "4"
+dyn-clone = "1.0.17"
+http = "1.0"
+pin-project = "1.1.12"
+reqwest = { "version" = "0.13", "default-features" = false, "features" = ["rustls", "stream"] }
+reth-ipc = { "git" = "https://github.com/paradigmxyz/reth", "tag" = "v2.7.0" }
+reth-network-peers = { "default-features" = false, "git" = "https://github.com/paradigmxyz/reth", "tag" = "v2.7.0" }
+reth-rpc-eth-api = { "git" = "https://github.com/paradigmxyz/reth", "tag" = "v2.7.0" }
+reth-rpc-server-types = { "git" = "https://github.com/paradigmxyz/reth", "tag" = "v2.7.0" }
+reth-storage-api = { "default-features" = false, "git" = "https://github.com/paradigmxyz/reth", "tag" = "v2.7.0" }
+serde = { "version" = "1.0", "default-features" = false }
+tokio-util = { "version" = "0.7.11", "features" = ["codec"] }
+tower = "0.5"
+tower-http = "0.6"
 
 [patch."https://github.com/paradigmxyz/reth"]
 reth-engine-tree = { path = "reth-engine-tree" }
 reth-node-builder = { path = "reth-node-builder" }
+reth-rpc-builder = { path = "reth-rpc-builder" }

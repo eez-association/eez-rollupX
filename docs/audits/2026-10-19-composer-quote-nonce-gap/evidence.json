@@ -1,0 +1,539 @@
+{
+  "source_commit": "b488f7a8c46cbc69f71322583d1edbbdfb108a26",
+  "protocol_commit": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+  "runtime_source": "110f952143853d0edbc51d6d8c2cb67be4d828f3",
+  "enclave": "eez-nonce-gap-20261019",
+  "reproduced": true,
+  "ordinary_control_rounds": 6,
+  "settlement_rounds": 1,
+  "request": {
+    "from": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+    "to": "0xd0112ca8596c4f24a6e336093b736a816aa8fc43",
+    "data": "0x55241077000000000000000000000000000000000000000000000000000000000000002a",
+    "value": "0x0",
+    "nonce": "0xa"
+  },
+  "node_nonce": "0xa",
+  "front_nonce": "0xa",
+  "source_receipt": {
+    "transactionHash": "0xcb80d662ef1d1246a68ca46efb99dab1024d858f2abc10c361b82208f72fe1b4",
+    "blockNumber": "0x28",
+    "blockHash": "0xf3f9c44216d3fa74df9f089caba422f1fd486e356ed1a1908c35b276212e96d0",
+    "status": "0x1"
+  },
+  "companion_receipt": {
+    "transactionHash": "0xac1f0472bb4065f0b47711e03691c814fe2dc2056d0cd3beb714c86c6214d042",
+    "blockNumber": "0x28",
+    "blockHash": "0xf3f9c44216d3fa74df9f089caba422f1fd486e356ed1a1908c35b276212e96d0",
+    "status": "0x1"
+  },
+  "same_l1_block": true,
+  "observations": [
+    {
+      "started": "2026-10-19T11:36:08.230Z",
+      "finished": "2026-10-19T11:36:08.232Z",
+      "milliseconds": 1.8564960000003339,
+      "transaction": {
+        "from": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+        "to": "0xd0112ca8596c4f24a6e336093b736a816aa8fc43",
+        "data": "0x55241077000000000000000000000000000000000000000000000000000000000000002a",
+        "value": "0x0",
+        "nonce": "0xa"
+      },
+      "error": {
+        "code": -32602,
+        "data": {
+          "code": "invalid_transaction",
+          "message": "invalid transaction: queued nonce prefix has a gap"
+        },
+        "message": "invalid transaction: queued nonce prefix has a gap"
+      },
+      "nonce": null,
+      "options": null,
+      "context": null
+    },
+    {
+      "started": "2026-10-19T11:36:08.230Z",
+      "finished": "2026-10-19T11:36:08.237Z",
+      "milliseconds": 6.712626000000455,
+      "transaction": {
+        "from": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+        "to": "0xd0112ca8596c4f24a6e336093b736a816aa8fc43",
+        "data": "0x55241077000000000000000000000000000000000000000000000000000000000000002a",
+        "value": "0x0"
+      },
+      "error": null,
+      "nonce": "0x9",
+      "options": [
+        {
+          "estimatedFee": "0x1cc7667b6d5b6",
+          "gas": "0x1aefa",
+          "maxFeePerGas": "0x150a432c6",
+          "maxPriorityFeePerGas": "0x15057f659",
+          "requestHash": "0x445911af09a61cbe0778edd33f60f6f0d31cd6a9bfac07b41bd55ab1e5786319",
+          "type": "0x2"
+        }
+      ],
+      "context": {
+        "l1ParentHash": "0xc336159d6914128350f5cfc8860235bc4ff6dd3d6594589744c473776b1a57c1",
+        "l2ParentHash": "0xc07c448bb6dbe01c457b3e39e6940d305a31a31da9e64b546e2d621efbe1be7a",
+        "rollupId": 1,
+        "settledL2Hash": "0x640048dae1667d97504d4fcdbb55bb491da00cb7fc0ef1f70799671478bb9f0b"
+      }
+    },
+    {
+      "started": "2026-10-19T11:36:08.237Z",
+      "finished": "2026-10-19T11:36:08.239Z",
+      "milliseconds": 2.2291709999990417,
+      "transaction": {
+        "from": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+        "to": "0xd0112ca8596c4f24a6e336093b736a816aa8fc43",
+        "data": "0x55241077000000000000000000000000000000000000000000000000000000000000002a",
+        "value": "0x0",
+        "nonce": "0xa"
+      },
+      "error": {
+        "code": -32602,
+        "data": {
+          "code": "invalid_transaction",
+          "message": "invalid transaction: queued nonce prefix has a gap"
+        },
+        "message": "invalid transaction: queued nonce prefix has a gap"
+      },
+      "nonce": null,
+      "options": null,
+      "context": null
+    },
+    {
+      "started": "2026-10-19T11:36:08.390Z",
+      "finished": "2026-10-19T11:36:08.729Z",
+      "milliseconds": 338.7310600000055,
+      "transaction": {
+        "from": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+        "to": "0xd0112ca8596c4f24a6e336093b736a816aa8fc43",
+        "data": "0x55241077000000000000000000000000000000000000000000000000000000000000002a",
+        "value": "0x0",
+        "nonce": "0xa"
+      },
+      "error": {
+        "code": -32602,
+        "data": {
+          "code": "invalid_transaction",
+          "message": "invalid transaction: queued nonce prefix has a gap"
+        },
+        "message": "invalid transaction: queued nonce prefix has a gap"
+      },
+      "nonce": null,
+      "options": null,
+      "context": null
+    },
+    {
+      "started": "2026-10-19T11:36:08.880Z",
+      "finished": "2026-10-19T11:36:09.228Z",
+      "milliseconds": 348.3129819999958,
+      "transaction": {
+        "from": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+        "to": "0xd0112ca8596c4f24a6e336093b736a816aa8fc43",
+        "data": "0x55241077000000000000000000000000000000000000000000000000000000000000002a",
+        "value": "0x0",
+        "nonce": "0xa"
+      },
+      "error": {
+        "code": -32602,
+        "data": {
+          "code": "invalid_transaction",
+          "message": "invalid transaction: queued nonce prefix has a gap"
+        },
+        "message": "invalid transaction: queued nonce prefix has a gap"
+      },
+      "nonce": null,
+      "options": null,
+      "context": null
+    },
+    {
+      "started": "2026-10-19T11:36:09.379Z",
+      "finished": "2026-10-19T11:36:12.237Z",
+      "milliseconds": 2857.863459,
+      "transaction": {
+        "from": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+        "to": "0xd0112ca8596c4f24a6e336093b736a816aa8fc43",
+        "data": "0x55241077000000000000000000000000000000000000000000000000000000000000002a",
+        "value": "0x0",
+        "nonce": "0xa"
+      },
+      "error": null,
+      "nonce": "0xa",
+      "options": [
+        {
+          "estimatedFee": "0xead1dea4b30c",
+          "gas": "0x1aefa",
+          "maxFeePerGas": "0xabace42c",
+          "maxPriorityFeePerGas": "0xab6a044a",
+          "requestHash": "0xea2806a746bfe4ed8562b183bb19c619f30cb00ed4cdaa074413de13032c58ab",
+          "type": "0x2"
+        }
+      ],
+      "context": {
+        "l1ParentHash": "0xf3f9c44216d3fa74df9f089caba422f1fd486e356ed1a1908c35b276212e96d0",
+        "l2ParentHash": "0x75a681eeeeb8a70c39797792945018868fe003602afc48dfd060763591fee191",
+        "rollupId": 1,
+        "settledL2Hash": "0xf2191508c4911e8fdc5128e415404d1c71d66ebb5da4dff498b319f05fda1bd8"
+      }
+    }
+  ],
+  "future_nonce_control": {
+    "started": "2026-10-19T11:36:12.240Z",
+    "finished": "2026-10-19T11:36:12.242Z",
+    "milliseconds": 1.965089999997872,
+    "transaction": {
+      "from": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+      "to": "0xd0112ca8596c4f24a6e336093b736a816aa8fc43",
+      "data": "0x55241077000000000000000000000000000000000000000000000000000000000000002a",
+      "value": "0x0",
+      "nonce": "0xb"
+    },
+    "error": {
+      "code": -32602,
+      "data": {
+        "code": "invalid_transaction",
+        "message": "invalid transaction: queued nonce prefix has a gap"
+      },
+      "message": "invalid transaction: queued nonce prefix has a gap"
+    },
+    "nonce": null,
+    "options": null,
+    "context": null
+  },
+  "current_nonce_control": {
+    "started": "2026-10-19T11:36:12.242Z",
+    "finished": "2026-10-19T11:36:12.249Z",
+    "milliseconds": 7.171068000003288,
+    "transaction": {
+      "from": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+      "to": "0xd0112ca8596c4f24a6e336093b736a816aa8fc43",
+      "data": "0x55241077000000000000000000000000000000000000000000000000000000000000002a",
+      "value": "0x0",
+      "nonce": "0xa"
+    },
+    "error": null,
+    "nonce": "0xa",
+    "options": [
+      {
+        "estimatedFee": "0xead1dea4b30c",
+        "gas": "0x1aefa",
+        "maxFeePerGas": "0xabace42c",
+        "maxPriorityFeePerGas": "0xab6a044a",
+        "requestHash": "0xea2806a746bfe4ed8562b183bb19c619f30cb00ed4cdaa074413de13032c58ab",
+        "type": "0x2"
+      }
+    ],
+    "context": {
+      "l1ParentHash": "0xf3f9c44216d3fa74df9f089caba422f1fd486e356ed1a1908c35b276212e96d0",
+      "l2ParentHash": "0x75a681eeeeb8a70c39797792945018868fe003602afc48dfd060763591fee191",
+      "rollupId": 1,
+      "settledL2Hash": "0xf2191508c4911e8fdc5128e415404d1c71d66ebb5da4dff498b319f05fda1bd8"
+    }
+  },
+  "source_nonce_after": "0xa",
+  "target_value_after": "0x0000000000000000000000000000000000000000000000000000000000000054",
+  "chain_evidence": {
+    "sampled": {
+      "number": "0x27",
+      "hash": "0xc336159d6914128350f5cfc8860235bc4ff6dd3d6594589744c473776b1a57c1",
+      "nonce": "0x9"
+    },
+    "mined": {
+      "number": "0x28",
+      "hash": "0xf3f9c44216d3fa74df9f089caba422f1fd486e356ed1a1908c35b276212e96d0",
+      "nonce": "0xa"
+    },
+    "post": {
+      "hash": "0x2cb28539ae11d0a2c963d43d53851489448059abfa6937515c28379a33faa8fd",
+      "index": "0x0",
+      "type": "0x3"
+    },
+    "companionOwnership": {
+      "canonical": {
+        "hash": "0xf3f9c44216d3fa74df9f089caba422f1fd486e356ed1a1908c35b276212e96d0",
+        "number": 40
+      },
+      "reason": "Committed",
+      "state": "terminal"
+    },
+    "compactAfterCatchUp": {
+      "chainId": "0x1ca3",
+      "expiresAt": "0x6ad6011c",
+      "nonce": "0xa",
+      "options": [
+        {
+          "estimatedFee": "0xe9fb4235036c",
+          "gas": "0x1aefa",
+          "maxFeePerGas": "0xab0ffd8c",
+          "maxPriorityFeePerGas": "0xaaf5baa1",
+          "requestHash": "0xea2806a746bfe4ed8562b183bb19c619f30cb00ed4cdaa074413de13032c58ab",
+          "type": "0x2"
+        }
+      ],
+      "version": 1
+    }
+  },
+  "original_correlated_events": [
+    {
+      "timestamp": "2026-10-19T10:57:13.055305Z",
+      "target": "reth_node_events::node",
+      "fields": {
+        "message": "Received new payload from consensus engine",
+        "number": 133,
+        "hash": "0x3a0d4badb650e82073f322aeb3f94af22da0aa40553fa53bfa151d65904ce627"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T10:57:13.057690Z",
+      "target": "reth_node_events::node",
+      "fields": {
+        "message": "Block added to canonical chain",
+        "number": 133,
+        "hash": "0x3a0d4badb650e82073f322aeb3f94af22da0aa40553fa53bfa151d65904ce627"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T10:57:13.061456Z",
+      "target": "reth_node_events::node",
+      "fields": {
+        "message": "Canonical chain committed",
+        "number": 133,
+        "hash": "0x3a0d4badb650e82073f322aeb3f94af22da0aa40553fa53bfa151d65904ce627"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T10:57:13.102444Z",
+      "target": "eez_l1::l1_watcher",
+      "fields": {
+        "message": "L1 poll cycle failed; will retry next tick",
+        "error": "L1 source incomplete at block 133: tx 0x382ef92943a7da002be2b05eaf3a24a3e813eb170d4c28b51001e28037f678e9 unavailable (beacon blob sidecars for slot 133 returned HTTP 404 Not Found: {\"code\":404,\"message\":\"NOT_FOUND: beacon block at slot 133\",\"stacktraces\":[]})"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T10:57:14.049552Z",
+      "target": "eez_deriver::deriver",
+      "fields": {
+        "message": "advanced L2 safe head from L1-confirmed batch",
+        "event_name": "eez.deriver.safe.advanced",
+        "l1_block_number": 133
+      }
+    },
+    {
+      "timestamp": "2026-10-19T10:57:14.053906Z",
+      "target": "eez_composer::composer::posting",
+      "fields": {
+        "message": "selected network posting quote",
+        "event_name": "eez.composer.postbatch.fee_quote",
+        "sample_block": 132,
+        "sample_hash": "0xd34d83f4f15cba4b667126df7a8f6927e0ce20fc6ceaefe9dfec2a8bb8845308"
+      }
+    }
+  ],
+  "fresh_correlated_events": [
+    {
+      "timestamp": "2026-10-19T11:36:08.063682Z",
+      "target": "reth_node_events::node",
+      "fields": {
+        "message": "Received new payload from consensus engine",
+        "number": 40,
+        "hash": "0xf3f9c44216d3fa74df9f089caba422f1fd486e356ed1a1908c35b276212e96d0"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T11:36:08.063736Z",
+      "target": "reth_node_events::node",
+      "fields": {
+        "message": "Block added to canonical chain",
+        "number": 40,
+        "hash": "0xf3f9c44216d3fa74df9f089caba422f1fd486e356ed1a1908c35b276212e96d0"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T11:36:08.078787Z",
+      "target": "reth_node_events::node",
+      "fields": {
+        "message": "Canonical chain committed",
+        "number": 40,
+        "hash": "0xf3f9c44216d3fa74df9f089caba422f1fd486e356ed1a1908c35b276212e96d0"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T11:36:08.119848Z",
+      "target": "eez_l1::l1_watcher",
+      "fields": {
+        "message": "L1 poll cycle failed; will retry next tick",
+        "error": "L1 source incomplete at block 40: tx 0x2cb28539ae11d0a2c963d43d53851489448059abfa6937515c28379a33faa8fd unavailable (beacon blob sidecars for slot 40 returned HTTP 404 Not Found: {\"code\":404,\"message\":\"NOT_FOUND: beacon block at slot 40\",\"stacktraces\":[]})"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T11:36:08.231212Z",
+      "target": "eez_composer::composer::posting",
+      "fields": {
+        "message": "selected network posting quote",
+        "event_name": "eez.composer.postbatch.fee_quote",
+        "sample_block": 39,
+        "sample_hash": "0xc336159d6914128350f5cfc8860235bc4ff6dd3d6594589744c473776b1a57c1"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T11:36:08.231236Z",
+      "target": "eez_composer::composer::posting",
+      "fields": {
+        "message": "selected network posting quote",
+        "event_name": "eez.composer.postbatch.fee_quote",
+        "sample_block": 39,
+        "sample_hash": "0xc336159d6914128350f5cfc8860235bc4ff6dd3d6594589744c473776b1a57c1"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T11:36:08.238889Z",
+      "target": "eez_composer::composer::posting",
+      "fields": {
+        "message": "selected network posting quote",
+        "event_name": "eez.composer.postbatch.fee_quote",
+        "sample_block": 39,
+        "sample_hash": "0xc336159d6914128350f5cfc8860235bc4ff6dd3d6594589744c473776b1a57c1"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T11:36:08.728406Z",
+      "target": "eez_composer::composer::posting",
+      "fields": {
+        "message": "selected network posting quote",
+        "event_name": "eez.composer.postbatch.fee_quote",
+        "sample_block": 39,
+        "sample_hash": "0xc336159d6914128350f5cfc8860235bc4ff6dd3d6594589744c473776b1a57c1"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T11:36:09.227569Z",
+      "target": "eez_composer::composer::posting",
+      "fields": {
+        "message": "selected network posting quote",
+        "event_name": "eez.composer.postbatch.fee_quote",
+        "sample_block": 39,
+        "sample_hash": "0xc336159d6914128350f5cfc8860235bc4ff6dd3d6594589744c473776b1a57c1"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T11:36:09.922146Z",
+      "target": "eez_deriver::deriver",
+      "fields": {
+        "message": "advanced L2 safe head from L1-confirmed batch",
+        "event_name": "eez.deriver.safe.advanced",
+        "l1_block_number": 40
+      }
+    },
+    {
+      "timestamp": "2026-10-19T11:36:12.231503Z",
+      "target": "eez_composer::composer::posting",
+      "fields": {
+        "message": "selected network posting quote",
+        "event_name": "eez.composer.postbatch.fee_quote",
+        "sample_block": 40,
+        "sample_hash": "0xf3f9c44216d3fa74df9f089caba422f1fd486e356ed1a1908c35b276212e96d0"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T11:36:12.241645Z",
+      "target": "eez_composer::composer::posting",
+      "fields": {
+        "message": "selected network posting quote",
+        "event_name": "eez.composer.postbatch.fee_quote",
+        "sample_block": 40,
+        "sample_hash": "0xf3f9c44216d3fa74df9f089caba422f1fd486e356ed1a1908c35b276212e96d0"
+      }
+    },
+    {
+      "timestamp": "2026-10-19T11:36:12.244100Z",
+      "target": "eez_composer::composer::posting",
+      "fields": {
+        "message": "selected network posting quote",
+        "event_name": "eez.composer.postbatch.fee_quote",
+        "sample_block": 40,
+        "sample_hash": "0xf3f9c44216d3fa74df9f089caba422f1fd486e356ed1a1908c35b276212e96d0"
+      }
+    }
+  ],
+  "original_worker_log_mtime_utc": "2026-10-19T10:57:14.056645Z",
+  "local_only_files": [
+    {
+      "path": "artifacts/composer-nonce-gap/reproduction.json",
+      "sha256": "c3b0fe508c949393626bc652834636e4f50d271c0a27dd384c20dd9d3ad74935"
+    },
+    {
+      "path": "artifacts/composer-nonce-gap/reproduction.log",
+      "sha256": "9712a1526763edf5bfe7bc5608703ea63de564d2f12c654a6b7223149aea05d9"
+    },
+    {
+      "path": "artifacts/composer-nonce-gap/reproduce.mjs",
+      "sha256": "e84cf83a33978a83454fe5a275b5e5495b19073ffd7549938166fa0698de385f"
+    },
+    {
+      "path": "artifacts/composer-nonce-gap/ordinary-controls.json",
+      "sha256": "f0f11a5542ad3b1b59f7d4dbe6cb9f4e693e5bbb5aa75bd64f5d5b090e2f9293"
+    },
+    {
+      "path": "artifacts/composer-nonce-gap/ordinary-controls.log",
+      "sha256": "dcf6c535cf8f7cb19314f93620f9d58877243b0220db8f9d8edb3c764788741b"
+    },
+    {
+      "path": "artifacts/composer-nonce-gap/ordinary-controls.mjs",
+      "sha256": "1dae9f78bd00df735ee24d36dc5b4a10d97fee636f342b0d60d2c8e881dc193f"
+    },
+    {
+      "path": "artifacts/composer-nonce-gap/invalid-options-reproduction.json",
+      "sha256": "8b812dbacc78078caa09fd1a86e8b5130f65a0778d926f0057235cfe99212a02"
+    },
+    {
+      "path": "artifacts/composer-nonce-gap/invalid-options-reproduction.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/composer-nonce-gap/node-final.log",
+      "sha256": "c62e0d7b39350e12b213f9c427c5b62f6b524c9e22cb5de541f371071024798c"
+    },
+    {
+      "path": "artifacts/composer-nonce-gap/signer-final.log",
+      "sha256": "b96b35de9b702c4947871846ab7c7377610158fdc15674e249953ca37d358b1e"
+    },
+    {
+      "path": "artifacts/composer-nonce-gap/args.yaml",
+      "sha256": "81642d51b5e880008008e66779bd481815f57f35e9ba5f4c056e599a9d8b9179"
+    },
+    {
+      "path": "artifacts/composer-nonce-gap/readiness-transfer.json",
+      "sha256": "3e1059a36d81e0189c07e2bb1dfac2705655b610fe80ee325cb3c102f571157b"
+    },
+    {
+      "path": "artifacts/composer-nonce-gap/start.log",
+      "sha256": "c4b48ece2b560cc907a507d818a5f9c6f15380ba8219687dd99986e19a2ff04e"
+    },
+    {
+      "path": "artifacts/composer-nonce-gap/enclave-stop.log",
+      "sha256": "00baf95418bb881b0d37a3023ba67de13e71e28f63fa1f415c37960e99a91a98"
+    }
+  ],
+  "limits": [
+    "Original quote has no request-correlated snapshot trace; historical attribution uses timing and the confirmed matching mechanism.",
+    "No production runtime changes or deployment. No performance benchmark or full CI rerun.",
+    "Initial readiness-only probe was stopped. A separate probe used types instead of transactionTypes; its input-validation results are retained and excluded."
+  ],
+  "chiado_image_read_only_check": {
+    "container": "eez-node-chiado",
+    "reference": "ghcr.io/eez-association/eez-rollupx-node@sha256:2fc8c6e121d1bd2116a0f78766ebd7c99b305e8e01720a2c91e693b21908a0b6",
+    "image_id": "sha256:2fc8c6e121d1bd2116a0f78766ebd7c99b305e8e01720a2c91e693b21908a0b6",
+    "matches_reproduction": true,
+    "deployment_modified": false
+  },
+  "owned_enclave_disposition": {
+    "name": "eez-nonce-gap-20261019",
+    "state": "stopped",
+    "data_retained": true,
+    "completed_at": "2026-10-19T13:40:33+02:00"
+  }
+}

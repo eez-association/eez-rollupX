@@ -1,0 +1,139 @@
+{
+  "status": "PASS",
+  "baseline_fork_commit": "0e34a326536befc31ee62a92647bfc3dca9ddee2",
+  "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "scenario": "script/e2e/scenarios/static/L1_to_L2/staticLocalWrite/E2EStaticLocalWrite.s.sol",
+  "scope": "test evidence collector only; no runtime, protocol, dependency or network lifecycle changes",
+  "source_files": [
+    {
+      "path": "testing/kurtosis/scripts/collect-protocol-e2e-evidence.sh",
+      "sha256": "bd699f014a7f8958c0a2d04f654f3ce7a133da88ae04a20f8edbc39fdfe7edd8"
+    },
+    {
+      "path": "testing/kurtosis/scripts/verify-l1-lookup.sh",
+      "sha256": "78e712818e70df067f2c52cda76e0510f52361b40c851b44cac13ed2e5e8bff0"
+    },
+    {
+      "path": "testing/kurtosis/scripts/lookup-entry.jq",
+      "sha256": "b7b3656b6ab1b289f45aecdd71b9c6273b67ff8bb342ccf24d7eeeb702411345"
+    },
+    {
+      "path": "testing/kurtosis/scripts/lookup-trace.jq",
+      "sha256": "fb5f219cbf83ce60aba7e6f8e932b13ea8bcf9f2438af41e477d37b422eb038a"
+    },
+    {
+      "path": "scripts/ci/tests/test_protocol_lookup_evidence.py",
+      "sha256": "cf9374623328af86880fd6e1f68af7ef6f217fd2f594847c08541e98cfdc16d3"
+    },
+    {
+      "path": "scripts/ci/tests/fixtures/protocol-lookup/staticLocalWrite.txt",
+      "sha256": "0a751ad9a47ff304079918294a4ce5eb447d98bed014f45f55b66a827c242cbe"
+    },
+    {
+      "path": "scripts/ci/tests/fixtures/protocol-lookup/staticLocalWrite-trace.json",
+      "sha256": "d1af05807590efa1b5baf65f5c906932b8d5d5d21cc4df890d131398eac3550b"
+    }
+  ],
+  "first_failure": {
+    "upstream": "PASS",
+    "collector": "FAIL: posted L1 table was not field-matched",
+    "preserved_log_sha256": "0a751ad9a47ff304079918294a4ce5eb447d98bed014f45f55b66a827c242cbe",
+    "dispatch_regression_log": "artifacts/pr-readiness/static-local-write-oracle/baseline-regression.log",
+    "dispatch_regression_log_sha256": "10a01047b85f9920229667eb7526f0bbb8b3d642626a9784ffbbba00ee7241c0"
+  },
+  "revalidation": {
+    "mode": "read-only continuation using original canonical trigger and settlement; no rebroadcast",
+    "trigger_hash": "0xbdcb4a911b1b2a2657a0164fdbf9c903ef0eb85a78dec481e216fbbf3b2bd1bc",
+    "settlement_hash": "0x6b06a4aeefbdb59368918d730deabf13e3745991dc3e6c6711fa442658db5bd4",
+    "l1_block_number": 891,
+    "candidate_count": 3,
+    "distinct_candidate_results": 2,
+    "selected_candidate_indices": [
+      0,
+      1,
+      0
+    ],
+    "callback_attempts": [
+      1,
+      2,
+      1
+    ],
+    "logical_results": [
+      1,
+      2,
+      1
+    ],
+    "lookup_root": {
+      "verified": true,
+      "root": "0xca86fbdb1a5fe9a35dc66abd5190f3c3bee83e49abdb1bb9ff854102cb308c3f",
+      "kind": "canonical_block_boundary"
+    },
+    "claims": {
+      "upstream_pass_required": true,
+      "receipts_revalidated": true,
+      "post_batch_preceded_trigger": true,
+      "no_destination_delivery_required": true,
+      "l2_absence_verified": true,
+      "blob_kzg_authenticated": true,
+      "native_semantics_decoded": true,
+      "semantic_trigger_bound": true,
+      "actual_lookup_result_traced": true,
+      "lookup_root_bound": true
+    },
+    "l2_absence_range": {
+      "from": 5377,
+      "to": 5970
+    },
+    "semantic_transaction_count": 2,
+    "matched_logical_actions": 6,
+    "settlement_claim": {
+      "post_block_hash": "0xca86fbdb1a5fe9a35dc66abd5190f3c3bee83e49abdb1bb9ff854102cb308c3f",
+      "pre_block_hash": "0xc703f70fd6274ba1f8269ce1b089dd0f6aeb7eabdbea255232e27922ded8917a"
+    },
+    "blob_block_count": 6,
+    "all_trigger_bytes_bound": false,
+    "blob_verifier_sha256": "eab594596d172ea907d6fab71c921e7fbbe68bb1203613cc4274b287e15d396d",
+    "result_json": "artifacts/pr-readiness/static-local-write-oracle/revalidated-final.json",
+    "result_sha256": "22c0b378e724c4af486d3877b3e7e586917838d2aa73b7643d4e5e65c652f0e3",
+    "log": "artifacts/pr-readiness/static-local-write-oracle/revalidated-final.log",
+    "log_sha256": "f3b12e73e34db278378d6281fcd72d504bec454b1e0ac5223a2341f4ab3c2c71"
+  },
+  "unit_test_boundaries": "Real shell/jq; mocked cast RPC, KZG output and Forge absence boundary. Captured callTracer also tested directly.",
+  "initial_full_unit_run": {
+    "tests": 28,
+    "failures": 4,
+    "reason": "shared /tmp Disk quota exceeded in existing L2 cases; repeated with private /tmp bind",
+    "log": "artifacts/pr-readiness/static-local-write-oracle/regressions.log",
+    "log_sha256": "ebc2fe4c581ed9479a5d35e46c4774713baa2bfa1edb75be46f994138241630e"
+  },
+  "limitations": [
+    "Original runner result remains FAIL for evidence collection; this is a separate read-only continuation, not a new whole-suite run.",
+    "No cold follower replay is asserted by this record.",
+    "Native blob L1 brackets intentionally carry empty tx_data; table identity and canonical trace bind this trigger, so all_trigger_bytes_bound remains false.",
+    "Large sidecars and raw continuation evidence remain local-only under ignored artifacts; small public captured trace/log fixtures are committed."
+  ],
+  "intermediate_revalidation": {
+    "result_json": "artifacts/pr-readiness/static-local-write-oracle/revalidated.json",
+    "result_sha256": "fb86bcda877d881305642a50deeb79bcb4ba541e7e5bd6950583b19b2a5901c7",
+    "log": "artifacts/pr-readiness/static-local-write-oracle/revalidated.log",
+    "log_sha256": "a3e07b7ba067afa1aa95b669e5fc034a9cc1d36afcda086c885ece42c9f05158",
+    "l2_absence_range": {
+      "from": 5377,
+      "to": 5838
+    }
+  },
+  "validation": {
+    "unit_command": "TMPDIR=\"$PWD/artifacts/tmp\" bwrap --bind / / --dev /dev --bind \"$PWD/artifacts/tmp\" /tmp --chdir \"$PWD\" python3 -m unittest scripts.ci.tests.test_protocol_lookup_evidence -v",
+    "unit_tests": 30,
+    "unit_failures": 0,
+    "unit_skipped": 0,
+    "unit_elapsed_seconds": 159.521,
+    "unit_log": "artifacts/pr-readiness/static-local-write-oracle/regressions-private-tmp.log",
+    "unit_log_sha256": "6c692b838f28832a88e101c83508d6a514618654c36806cd3f0ae9f54b854eb4",
+    "captured_trace": "PASS, including malformed forwarding and callback multiplicity rejections",
+    "live_command": "bash artifacts/pr-readiness/static-local-write-oracle/revalidate-readonly-final.sh",
+    "shell_syntax": "PASS: bash -n testing/kurtosis/scripts/collect-protocol-e2e-evidence.sh testing/kurtosis/scripts/verify-l1-lookup.sh",
+    "diff_whitespace": "PASS: git diff --check",
+    "rust_or_contract_build": "not required for test-only shell/jq correction"
+  }
+}

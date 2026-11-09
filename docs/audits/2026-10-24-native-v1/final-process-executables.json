@@ -1,0 +1,25 @@
+{
+  "scope": "Six-case source-based process run after fee recognizer, synthetic value credit and immutable quote snapshot corrections, before the collector-fixture correction. Five passed; four-node case failed its collector-profile assertion. No prebuilt override; signer network disabled. Local debug executables, not published release artifacts.",
+  "base_commit": "3e23955dc477c9e675364776f118b1cecda75774",
+  "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "validation_source_manifest": "crates/eez-proof-signer/tests/fixtures/streaming-v2/manifest.json",
+  "validation_source_manifest_sha256": "2853b72c39452d9fa6081299aa519dee96e13564b6847abe670e595a4c602ba4",
+  "executables": {
+    "target/debug/eez-composer": {
+      "sha256": "de6ace628c2ad5c731014f5b979ee2f4c7efa71d0882b9342882c42cca7901f4",
+      "bytes": 854442312
+    },
+    "target/debug/eez-follower": {
+      "sha256": "a9c5601009353e4f7f5e0094d8c9a5a51f9ad8fc406d6ef345001d0fae18c7e0",
+      "bytes": 712651224
+    },
+    "target/debug/eez-proof-signer": {
+      "sha256": "b0e85557ecb53c0c9eaeafdf3647a71e2a28419682d3e951acebd97ad1f6698a",
+      "bytes": 470929048
+    },
+    "target/debug/deps/node_e2e-969bf1dbfc9e03d4": {
+      "sha256": "85b7d3284c75bf12e74ebf49914fc02452b84e8864c732416362097afe5c6e4a",
+      "bytes": 609385240
+    }
+  }
+}

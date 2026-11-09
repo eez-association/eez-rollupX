@@ -1,0 +1,321 @@
+{
+  "recorded_at": "2026-10-24T12:19:40.508862+00:00",
+  "test": "settlement_policy::general_block_rule_consolidates_empty_history_before_the_pure_interval",
+  "failure_location": "crates/eez-node-e2e/tests/settlement_policy.rs:2596",
+  "failure": "empty consolidation missing: timed out after 180s",
+  "source_baseline": "3e23955dc477c9e675364776f118b1cecda75774 plus frozen pre-R03 patch",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "executables_sha256": {
+    "artifacts/pr-readiness/runtime-bin/node_e2e-final": "f012c3f6d9957afaff9633589e491fce238f4ed602ec0e4191c75fe8f172991f",
+    "artifacts/pr-readiness/runtime-bin/eez-proof-signer-final": "2e8bafcd0c8efcde1f572900bfff200432c7ac16a26a0df4765bda875890bb2f",
+    "artifacts/pr-readiness/runtime-bin/final-source/eez-composer": "f613f0a2e9c0562ef505b9a241212f966d6fc5b0553f2489298afda16179e100",
+    "artifacts/pr-readiness/runtime-bin/final-source/eez-follower": "48507de679a2671cd9850eaaf959e8a51538f287342524f62994b46c63649e6f"
+  },
+  "current_relevant_source_sha256": {
+    "crates/eez-node-e2e/tests/settlement_policy.rs": "dfea3734823dada3e2ad8fdaaa1ca4c58ebaa0bc45f8b4bee61ea7828db8c50f",
+    "crates/eez-composer/src/composer/costs.rs": "d667ce5c4cdcd53371943051170106cf410328462779bf1bc464dd478e4fcc09",
+    "crates/eez-composer/src/composer/policy.rs": "4fd4314a4e58fbdadf0b666438f1506781bf9a031dc2e9765f28b554d0c43e65",
+    "crates/eez-composer/src/settlement_policy/mod.rs": "399cacb82c5dfa34c9bf074bde0ac2d499eb4dc11005fc933437258fbe30b3f0"
+  },
+  "configured_limits": [
+    {
+      "line": 5,
+      "time": "2026-10-24T12:09:05.199073Z",
+      "maximum_blocks": 65536,
+      "max_blocks": null
+    },
+    {
+      "line": 13,
+      "time": "2026-10-24T12:09:05.293251Z",
+      "maximum_blocks": null,
+      "max_blocks": 65536
+    }
+  ],
+  "events": [
+    {
+      "line": 127,
+      "time": "2026-10-24T12:09:35.034402Z",
+      "event": "eez.composer.settlement.decision",
+      "fields": {
+        "reasons": "{\"general\"}",
+        "unsettled_blocks": 30,
+        "pending_pure_l2_transactions": 6,
+        "settlement_age_ms": 30000,
+        "anchor_l2_number": 0,
+        "required_endpoint": "Some(L2Endpoint { number: 30, hash: 0x7d48a7be11148072ef8ed5e1bcda84649ce982edda861265700c18646d7c34a2 })"
+      }
+    },
+    {
+      "line": 167,
+      "time": "2026-10-24T12:09:40.018442Z",
+      "event": "eez.composer.postbatch.actual_cost",
+      "fields": {
+        "action": "apply",
+        "post_batch_hash": "0x21233e72e0b8d302894e6aeeffe3f4c618ac6ab67b68c02b3de5b3a88e92e658",
+        "post_included": true,
+        "post_success": "Some(true)",
+        "settled_l2_blocks": 30,
+        "included_l2_transactions": 12,
+        "post_total_cost": "220620123707228",
+        "post_cost_per_l2_transaction": "Some(18385010308935)",
+        "post_blob_gas_used": 131072,
+        "applied_endpoint": "Some(L2Endpoint { number: 30, hash: 0x7d48a7be11148072ef8ed5e1bcda84649ce982edda861265700c18646d7c34a2 })"
+      }
+    },
+    {
+      "line": 263,
+      "time": "2026-10-24T12:10:05.020262Z",
+      "event": "eez.composer.settlement.decision",
+      "fields": {
+        "reasons": "{\"general\"}",
+        "unsettled_blocks": 30,
+        "pending_pure_l2_transactions": 0,
+        "settlement_age_ms": 30000,
+        "anchor_l2_number": 30,
+        "required_endpoint": "Some(L2Endpoint { number: 60, hash: 0xfbf01a5b91148e9bb7cf28b088af8576c82a3ae15fec34be765e7aa6e6918e08 })"
+      }
+    },
+    {
+      "line": 303,
+      "time": "2026-10-24T12:10:10.020869Z",
+      "event": "eez.composer.postbatch.actual_cost",
+      "fields": {
+        "action": "apply",
+        "post_batch_hash": "0xb17445367b78c0b32fb38609360374b0ccc4836d2067f390a615fd154c2dbe12",
+        "post_included": true,
+        "post_success": "Some(true)",
+        "settled_l2_blocks": 30,
+        "included_l2_transactions": 6,
+        "post_total_cost": "163638293545070",
+        "post_cost_per_l2_transaction": "Some(27273048924178)",
+        "post_blob_gas_used": 131072,
+        "applied_endpoint": "Some(L2Endpoint { number: 60, hash: 0xfbf01a5b91148e9bb7cf28b088af8576c82a3ae15fec34be765e7aa6e6918e08 })"
+      }
+    },
+    {
+      "line": 399,
+      "time": "2026-10-24T12:10:35.017262Z",
+      "event": "eez.composer.settlement.decision",
+      "fields": {
+        "reasons": "{\"general\"}",
+        "unsettled_blocks": 30,
+        "pending_pure_l2_transactions": 0,
+        "settlement_age_ms": 30000,
+        "anchor_l2_number": 60,
+        "required_endpoint": "Some(L2Endpoint { number: 90, hash: 0xf4fc2ef9c68e2e4c1fc5c43b58b5a90c0ded3165879ba72fec3defa51bf51cbc })"
+      }
+    },
+    {
+      "line": 439,
+      "time": "2026-10-24T12:10:40.024269Z",
+      "event": "eez.composer.postbatch.actual_cost",
+      "fields": {
+        "action": "apply",
+        "post_batch_hash": "0x8c31fb3bc1b697b7cbded71cf46e8df526ce2a9964dc8ed5c39c5dfeeb743d94",
+        "post_included": true,
+        "post_success": "Some(true)",
+        "settled_l2_blocks": 30,
+        "included_l2_transactions": 6,
+        "post_total_cost": "149022312995204",
+        "post_cost_per_l2_transaction": "Some(24837052165867)",
+        "post_blob_gas_used": 131072,
+        "applied_endpoint": "Some(L2Endpoint { number: 90, hash: 0xf4fc2ef9c68e2e4c1fc5c43b58b5a90c0ded3165879ba72fec3defa51bf51cbc })"
+      }
+    },
+    {
+      "line": 535,
+      "time": "2026-10-24T12:11:05.021856Z",
+      "event": "eez.composer.settlement.decision",
+      "fields": {
+        "reasons": "{\"general\"}",
+        "unsettled_blocks": 30,
+        "pending_pure_l2_transactions": 0,
+        "settlement_age_ms": 30000,
+        "anchor_l2_number": 90,
+        "required_endpoint": "Some(L2Endpoint { number: 120, hash: 0x3e201bde8dd5ce7734846061c462aa5c078ccf54f0190e4ccceca28060f6dc18 })"
+      }
+    },
+    {
+      "line": 575,
+      "time": "2026-10-24T12:11:10.024078Z",
+      "event": "eez.composer.postbatch.actual_cost",
+      "fields": {
+        "action": "apply",
+        "post_batch_hash": "0x217995f01e6c2cc650dbb2f9a6dc1e5dc9b37a926dae74a57732fd5216ebbff2",
+        "post_included": true,
+        "post_success": "Some(true)",
+        "settled_l2_blocks": 30,
+        "included_l2_transactions": 6,
+        "post_total_cost": "142429294167062",
+        "post_cost_per_l2_transaction": "Some(23738215694510)",
+        "post_blob_gas_used": 131072,
+        "applied_endpoint": "Some(L2Endpoint { number: 120, hash: 0x3e201bde8dd5ce7734846061c462aa5c078ccf54f0190e4ccceca28060f6dc18 })"
+      }
+    },
+    {
+      "line": 671,
+      "time": "2026-10-24T12:11:35.015654Z",
+      "event": "eez.composer.settlement.decision",
+      "fields": {
+        "reasons": "{\"general\"}",
+        "unsettled_blocks": 30,
+        "pending_pure_l2_transactions": 0,
+        "settlement_age_ms": 30000,
+        "anchor_l2_number": 120,
+        "required_endpoint": "Some(L2Endpoint { number: 150, hash: 0x1ef8ff66840b0a6be4d6d237f02de388884dde5beafb1c181af8426475178937 })"
+      }
+    },
+    {
+      "line": 711,
+      "time": "2026-10-24T12:11:40.019789Z",
+      "event": "eez.composer.postbatch.actual_cost",
+      "fields": {
+        "action": "apply",
+        "post_batch_hash": "0xb886f24da6047eb0598f648565c320e86b5830afa66cd033dfdebb6b37af52fc",
+        "post_included": true,
+        "post_success": "Some(true)",
+        "settled_l2_blocks": 30,
+        "included_l2_transactions": 6,
+        "post_total_cost": "139490501398442",
+        "post_cost_per_l2_transaction": "Some(23248416899740)",
+        "post_blob_gas_used": 131072,
+        "applied_endpoint": "Some(L2Endpoint { number: 150, hash: 0x1ef8ff66840b0a6be4d6d237f02de388884dde5beafb1c181af8426475178937 })"
+      }
+    },
+    {
+      "line": 807,
+      "time": "2026-10-24T12:12:05.025721Z",
+      "event": "eez.composer.settlement.decision",
+      "fields": {
+        "reasons": "{\"general\"}",
+        "unsettled_blocks": 30,
+        "pending_pure_l2_transactions": 0,
+        "settlement_age_ms": 30000,
+        "anchor_l2_number": 150,
+        "required_endpoint": "Some(L2Endpoint { number: 180, hash: 0xf739c11f7445fb945fbc2d256353cf10fb9f1698b37709c0eb082dd0cef851dd })"
+      }
+    },
+    {
+      "line": 847,
+      "time": "2026-10-24T12:12:10.013121Z",
+      "event": "eez.composer.postbatch.actual_cost",
+      "fields": {
+        "action": "apply",
+        "post_batch_hash": "0xfc26aa2f4af0bd5e6effdfa8edb6bdb6d80ef64e87fdbfde5dd742c83925b10d",
+        "post_included": true,
+        "post_success": "Some(true)",
+        "settled_l2_blocks": 30,
+        "included_l2_transactions": 6,
+        "post_total_cost": "138176388381410",
+        "post_cost_per_l2_transaction": "Some(23029398063568)",
+        "post_blob_gas_used": 131072,
+        "applied_endpoint": "Some(L2Endpoint { number: 180, hash: 0xf739c11f7445fb945fbc2d256353cf10fb9f1698b37709c0eb082dd0cef851dd })"
+      }
+    }
+  ],
+  "diagnosis": "The test requires zero included L2 transactions, but cost coverage counts all canonical body transactions. Scheduled native history imports are transactions even without pure L2 user activity. The general trigger and canonical settlement advanced every 30 blocks; this is a stale test expectation, not a demonstrated settlement stall.",
+  "distinction": "The separate fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonical_replay case passed before this test. No relation to the previously documented Docker port collision.",
+  "proposed_fix": "Keep production metric semantics and the 30-block threshold. Use the existing native-history fixture without application deployments; require general due with zero pure activity, verify that the canonical settled range contains only history transactions, and compare included count and normalized cost to that independent body count. Retain blob and before-pure-interval assertions.",
+  "limits": [
+    "No rerun, compilation or production edit performed in this investigation",
+    "Detailed native-body identity is inferred from the enforced schedule, zero pure activity and source; the proposed corrected regression must independently decode the covered bodies",
+    "Full-suite log was active; the immutable extracted failure is hashed rather than claiming a stable hash for the growing suite output"
+  ],
+  "local_only_sha256": {
+    "artifacts/pr-readiness/general-rule-failure/first-failure.log": "d4f2abfc3d05ca0aa55c39703af0b13d3e963ce3740bbc8c047881b5aeebc925",
+    "artifacts/pr-readiness/native-final/logs/eez-node-node-3221217-525.log": "fb9ce0777855a5cd3f29e266f81d6f5902afca4ac95418c4bca83e2e4ed92743",
+    "artifacts/pr-readiness/general-rule-correction/build-result.json": "298230379bc5bf608922861605ee1dd063f33b6f93e11fb5b924d81c57ada005",
+    "artifacts/pr-readiness/general-rule-correction/executables.json": "0a390e7a5f8c883fe2dfb1ba5447a659aa6df1fddf9a512c866dcd46cfda27f9",
+    "artifacts/pr-readiness/general-rule-correction/process/result.json": "acd04309a4ca26a30fd2fb766e72b6721eca2853bcefd1c2cd856c12173bc55b",
+    "artifacts/pr-readiness/general-rule-correction/process/test.log": "e28580977b4d7aa31585cd75e2a4a65a7348388b141818abb008058ea9b65632",
+    "artifacts/pr-readiness/general-rule-correction/process/logs/eez-node-node-1484564-3.log": "c6f594834bd40ab82eef4cc384d500bf58b5a1dbcef4bc3131001d5cc7ef0dd4",
+    "artifacts/pr-readiness/general-rule-correction/process/logs/eez-proof-signer-1484564-0.log": "f6b8b16f2904ad7a9dbed5f167fe356c3f9d8e6896cb7428a8ee7aad3c75ff4d"
+  },
+  "test_correction": {
+    "source_base": "d1838526480b89651f759d34e27bfbcfca43fb55",
+    "file": "crates/eez-node-e2e/tests/settlement_policy.rs",
+    "sha256": "9d36d9ea7f3d5672d35a80d563b6b8f19d4843b276c8061f4d9789a30552707c",
+    "scope": "Only the named test; no shared helpers, production code, metrics, triggers, limits or timeouts changed",
+    "checks": [
+      "Application-free native history fixture",
+      "First applied L1 post from genesis with matching canonical receipt and L2ExecutionPerformed event",
+      "Canonical L2 endpoint and exact backward parent chain with at least 30 blocks",
+      "Recomputed transaction roots; each body empty or one scheduled native history import with exact envelope, bounded canonical ABI, chain, gas, cutoff and source identity",
+      "Cost transaction count from bodies and normalized totals from the L1 receipt",
+      "General decision from the same genesis anchor with at least 30 unsettled blocks and zero pure activity before the 900000ms pure interval; does not equate the later observed head size to the retained finite drain endpoint"
+    ],
+    "static_checks": "rustfmt on the edited Rust file and git diff --check passed",
+    "compile_and_process_result": "PASS; first execution of the corrected harness",
+    "build": {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-node-e2e --test node_e2e --no-run --message-format=json",
+      "exit_code": 0,
+      "cargo_build_jobs": 1,
+      "elapsed_seconds": 48.01664458599407,
+      "production_binaries_unchanged": true,
+      "cancellation_reason": null
+    },
+    "process": {
+      "started_at": "2026-10-24T13:02:39.853963+00:00",
+      "finished_at": "2026-10-24T13:03:17.870712+00:00",
+      "command": "artifacts/pr-readiness/general-rule-correction/node_e2e settlement_policy::general_block_rule_consolidates_empty_history_before_the_pure_interval --exact --nocapture --test-threads=1",
+      "execution_wrapper": "timeout 300s, bwrap private /tmp, dedicated logs/datadirs; explicit NEXTEST role paths from native-final-executables.json and signer path; no EEZ_TEST_PREBUILT or runtime-directory override",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 178,
+      "harness_elapsed_seconds": 37.23,
+      "exit_code": 0,
+      "signer_no_network": true,
+      "signer_network_policy": "Existing seccomp launcher denies outbound connections while retaining inbound gRPC",
+      "cancellation_reason": null,
+      "test_executable": {
+        "path": "artifacts/pr-readiness/general-rule-correction/node_e2e",
+        "sha256": "8426be87e4d3c5c405721370bdb36530e0b0a09e855224d35ebad48dd4737116",
+        "size": 611475160
+      },
+      "roles_sha256": {
+        "artifacts/pr-readiness/runtime-bin/eez-proof-signer-final": "2e8bafcd0c8efcde1f572900bfff200432c7ac16a26a0df4765bda875890bb2f",
+        "artifacts/pr-readiness/runtime-bin/final-source/eez-composer": "f613f0a2e9c0562ef505b9a241212f966d6fc5b0553f2489298afda16179e100",
+        "artifacts/pr-readiness/runtime-bin/final-source/eez-follower": "48507de679a2671cd9850eaaf959e8a51538f287342524f62994b46c63649e6f"
+      },
+      "production_comparison": "Same composer and signer bytes as original failure; follower identity verified/configured but no follower process is started by this test",
+      "events": [
+        {
+          "line": 126,
+          "time": "2026-10-24T13:03:12.020618Z",
+          "event": "eez.composer.settlement.decision",
+          "fields": {
+            "reasons": "{\"general\"}",
+            "due": true,
+            "unsettled_blocks": 30,
+            "settlement_age_ms": 30000,
+            "pending_pure_l2_transactions": 0,
+            "anchor_l2_hash": "0xb5069a42651cf2ccecc68f64eb65eac76144514e7a1d7c89fa01a3b2bf873ad3"
+          }
+        },
+        {
+          "line": 164,
+          "time": "2026-10-24T13:03:17.012224Z",
+          "event": "eez.composer.postbatch.actual_cost",
+          "fields": {
+            "action": "apply",
+            "post_batch_hash": "0x9b571c60cd5880d6b6cc2d6a7d2bafaefda858562248c70719ec321e18df808a",
+            "post_success": "Some(true)",
+            "settled_l2_blocks": 30,
+            "included_l2_transactions": 6,
+            "post_total_cost": "65354851794782",
+            "post_cost_per_l2_block": "Some(2178495059826)",
+            "post_cost_per_l2_transaction": "Some(10892475299130)",
+            "post_blob_gas_used": 131072,
+            "applied_endpoint": "Some(L2Endpoint { number: 30, hash: 0x3a553297eb126169afa369be7956f561397c3606a2984ce7a9a6498c18668a97 })"
+          }
+        }
+      ],
+      "limitations": [
+        "Corrected-harness comparison is separate from the original full-suite failure; it does not convert that initial run into a pass",
+        "No independent follower replay in this case; no new R03 production validation claimed",
+        "Successful fixture datadirs are removed by normal teardown; logs and invocation/executable identities remain local-only"
+      ]
+    }
+  }
+}

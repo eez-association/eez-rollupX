@@ -1,0 +1,1981 @@
+{
+  "phaseQuotesValidated": 320,
+  "comparisonQuotesValidated": 3600,
+  "completedFixtures": 18,
+  "files": [
+    {
+      "name": "current-1-nested-logs/quote-samples.json",
+      "sha256": "0d9f03af6007a2b763200721d268b1e96b3cf1a23f0e01a46ab6a7ab079c0d67",
+      "samples": 200
+    },
+    {
+      "name": "current-1-safe-ethereum-logs/EthereumOsaka-safe-quote-samples.json",
+      "sha256": "f9135cfa6ea1290b92c5a86fa8a4622f4e47ac257b69fee14562241b42cb44bf",
+      "samples": 200
+    },
+    {
+      "name": "current-1-safe-gnosis-logs/GnosisPrague-safe-quote-samples.json",
+      "sha256": "145dbbb14ba55d2ea0916bfa7c24bcaa3368a9bc04fcc63d373a8ab0580306a1",
+      "samples": 200
+    },
+    {
+      "name": "fixed-1-nested-logs/quote-samples.json",
+      "sha256": "c7fa7ebd593f9aa61788ada9d782c00b7f3d3da5fbc4dfcd991844d3c87a5f9b",
+      "samples": 200
+    },
+    {
+      "name": "fixed-1-safe-ethereum-logs/EthereumOsaka-safe-quote-samples.json",
+      "sha256": "34b73a41d253b56aae005da945b5d42f0c57aa33b0775ab22b989324b7d93dc2",
+      "samples": 200
+    },
+    {
+      "name": "fixed-1-safe-gnosis-logs/GnosisPrague-safe-quote-samples.json",
+      "sha256": "ddafc3a5351ab2cae8f4e994b1f950f3d2b7988bb0a535301061520aba6bc23e",
+      "samples": 200
+    },
+    {
+      "name": "before-1-nested-logs/quote-samples.json",
+      "sha256": "74b7ea12bcad38bb350b6530682a4e96803f2061605020dbff615a10816db68b",
+      "samples": 200
+    },
+    {
+      "name": "before-1-safe-ethereum-logs/EthereumOsaka-safe-quote-samples.json",
+      "sha256": "31e09214971e6bda4d7aacfb1cc2c1f2c957a4be34e2cd2586ab9ca8589d5e3f",
+      "samples": 200
+    },
+    {
+      "name": "before-1-safe-gnosis-logs/GnosisPrague-safe-quote-samples.json",
+      "sha256": "4be54977964fc9f5d38019f7d33a11180f96b3ed7ef68b8c79ad8909b2da370b",
+      "samples": 200
+    },
+    {
+      "name": "before-2-safe-gnosis-logs/GnosisPrague-safe-quote-samples.json",
+      "sha256": "a15653d7e81158358b4d80f149a1d2dc08894d3039167adc8893272035dc8ca4",
+      "samples": 200
+    },
+    {
+      "name": "before-2-safe-ethereum-logs/EthereumOsaka-safe-quote-samples.json",
+      "sha256": "b9ffd02070cee48dde99f8ef603067b67df8bf7cb410e4fc31cef804cdeb84a9",
+      "samples": 200
+    },
+    {
+      "name": "before-2-nested-logs/quote-samples.json",
+      "sha256": "8b3df8ec849039a1fcd7d649b170912f838de42f165f29cda7c255bf16aea372",
+      "samples": 200
+    },
+    {
+      "name": "fixed-2-safe-gnosis-logs/GnosisPrague-safe-quote-samples.json",
+      "sha256": "655585d6aa292516a350a6223e5a43fe458765fce6cd2b254155247a96d3e1bb",
+      "samples": 200
+    },
+    {
+      "name": "fixed-2-safe-ethereum-logs/EthereumOsaka-safe-quote-samples.json",
+      "sha256": "4b83a9d3a1f3c12b9fd163756cc9e222efcf6627b0d1e45d402edf7ca7792a89",
+      "samples": 200
+    },
+    {
+      "name": "fixed-2-nested-logs/quote-samples.json",
+      "sha256": "2b5acc68faa04908579c2e8986a118a6f2d003d4f627c04512c08893ba47c4de",
+      "samples": 200
+    },
+    {
+      "name": "current-2-safe-gnosis-logs/GnosisPrague-safe-quote-samples.json",
+      "sha256": "5b46b339c1e7fbe806a19453f25471cdfd5872defe740381a2638960cb8396c5",
+      "samples": 200
+    },
+    {
+      "name": "current-2-safe-ethereum-logs/EthereumOsaka-safe-quote-samples.json",
+      "sha256": "61de6c5cf56a624cbfce4ed1e274f9cff6301a611e2b33ac0232c58d1f3ffe00",
+      "samples": 200
+    },
+    {
+      "name": "current-2-nested-logs/quote-samples.json",
+      "sha256": "5c2d6c9229b4bae7231351f06b35c455ee80e40eb951a1add72dce96b78950a0",
+      "samples": 200
+    }
+  ],
+  "measurements": [
+    {
+      "workload": "nested",
+      "type": "0x0",
+      "suppliedGas": false,
+      "trace": false,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 11.4728235,
+          "minMs": 10.203202,
+          "maxMs": 19.73666,
+          "roundMediansMs": {
+            "1": 11.523741000000001,
+            "2": 11.429931000000002
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276380
+          ],
+          "quotedGas": [
+            215617
+          ],
+          "runs": []
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 11.545286,
+          "minMs": 10.319652,
+          "maxMs": 18.412409,
+          "roundMediansMs": {
+            "1": 11.92224,
+            "2": 11.271779
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276368,
+            276380
+          ],
+          "quotedGas": [
+            215617
+          ],
+          "runs": []
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 10.653468,
+          "minMs": 9.952587000000001,
+          "maxMs": 18.617848,
+          "roundMediansMs": {
+            "1": 10.856687,
+            "2": 10.533268999999999
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276356,
+            276368
+          ],
+          "quotedGas": [
+            215617
+          ],
+          "runs": []
+        }
+      },
+      "improvementPercent": {
+        "before": 7.141707531716146,
+        "current": 7.724520639852495
+      }
+    },
+    {
+      "workload": "nested",
+      "type": "0x0",
+      "suppliedGas": false,
+      "trace": true,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 14.615721,
+          "minMs": 13.552388,
+          "maxMs": 20.553835,
+          "roundMediansMs": {
+            "1": 14.714779,
+            "2": 14.414088
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276380
+          ],
+          "quotedGas": [
+            215617
+          ],
+          "runs": [
+            14
+          ]
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 14.658410499999999,
+          "minMs": 13.624372,
+          "maxMs": 17.776536,
+          "roundMediansMs": {
+            "1": 14.905649,
+            "2": 14.289553
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276368,
+            276380
+          ],
+          "quotedGas": [
+            215617
+          ],
+          "runs": [
+            14
+          ]
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 13.8155365,
+          "minMs": 12.796999,
+          "maxMs": 17.053558,
+          "roundMediansMs": {
+            "1": 13.989985,
+            "2": 13.557744999999999
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276356,
+            276368
+          ],
+          "quotedGas": [
+            215617
+          ],
+          "runs": [
+            14
+          ]
+        }
+      },
+      "improvementPercent": {
+        "before": 5.4748205716296905,
+        "current": 5.75010503355734
+      }
+    },
+    {
+      "workload": "nested",
+      "type": "0x0",
+      "suppliedGas": true,
+      "trace": false,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 9.7056535,
+          "minMs": 8.92427,
+          "maxMs": 27.727801,
+          "roundMediansMs": {
+            "1": 9.71158,
+            "2": 9.593160999999998
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276380
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 9.652438,
+          "minMs": 8.853882,
+          "maxMs": 12.313727,
+          "roundMediansMs": {
+            "1": 9.869638,
+            "2": 9.333101
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276368,
+            276380
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 9.472439000000001,
+          "minMs": 8.851899999999999,
+          "maxMs": 23.158991,
+          "roundMediansMs": {
+            "1": 9.490516,
+            "2": 9.38479
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276356,
+            276368
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        }
+      },
+      "improvementPercent": {
+        "before": 2.4028727174321585,
+        "current": 1.8648034828091964
+      }
+    },
+    {
+      "workload": "nested",
+      "type": "0x0",
+      "suppliedGas": true,
+      "trace": true,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 11.534529,
+          "minMs": 10.592562999999998,
+          "maxMs": 23.048387,
+          "roundMediansMs": {
+            "1": 11.568136999999998,
+            "2": 11.264263
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276380
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 11.398624,
+          "minMs": 10.59964,
+          "maxMs": 15.201086,
+          "roundMediansMs": {
+            "1": 11.776378000000001,
+            "2": 10.997341
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276368,
+            276380
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 11.218069499999999,
+          "minMs": 10.557636,
+          "maxMs": 13.356779,
+          "roundMediansMs": {
+            "1": 11.249399,
+            "2": 11.037343
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276356,
+            276368
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        }
+      },
+      "improvementPercent": {
+        "before": 2.743584068322169,
+        "current": 1.5840025954010017
+      }
+    },
+    {
+      "workload": "nested",
+      "type": "0x2",
+      "suppliedGas": false,
+      "trace": false,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 11.514465999999999,
+          "minMs": 10.958657,
+          "maxMs": 12.682701,
+          "roundMediansMs": {
+            "1": 11.705242,
+            "2": 11.433011
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276380
+          ],
+          "quotedGas": [
+            215617
+          ],
+          "runs": []
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 11.5619105,
+          "minMs": 10.662666,
+          "maxMs": 15.467602000000001,
+          "roundMediansMs": {
+            "1": 12.10357,
+            "2": 11.266591
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276368,
+            276380
+          ],
+          "quotedGas": [
+            215617
+          ],
+          "runs": []
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 10.984596,
+          "minMs": 10.296394000000001,
+          "maxMs": 24.251966,
+          "roundMediansMs": {
+            "1": 11.019386,
+            "2": 10.811538
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276356,
+            276368
+          ],
+          "quotedGas": [
+            215617
+          ],
+          "runs": []
+        }
+      },
+      "improvementPercent": {
+        "before": 4.601776582604867,
+        "current": 4.993244844785815
+      }
+    },
+    {
+      "workload": "nested",
+      "type": "0x2",
+      "suppliedGas": false,
+      "trace": true,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 14.436975499999999,
+          "minMs": 13.586055,
+          "maxMs": 17.027581,
+          "roundMediansMs": {
+            "1": 14.599612,
+            "2": 14.129019
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276380
+          ],
+          "quotedGas": [
+            215617
+          ],
+          "runs": [
+            14
+          ]
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 14.4704815,
+          "minMs": 13.533968999999999,
+          "maxMs": 28.097701,
+          "roundMediansMs": {
+            "1": 15.029043000000001,
+            "2": 14.22016
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276368,
+            276380
+          ],
+          "quotedGas": [
+            215617
+          ],
+          "runs": [
+            14
+          ]
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 13.7074445,
+          "minMs": 12.770498,
+          "maxMs": 15.315311,
+          "roundMediansMs": {
+            "1": 13.731850999999999,
+            "2": 13.587983
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276356,
+            276368
+          ],
+          "quotedGas": [
+            215617
+          ],
+          "runs": [
+            14
+          ]
+        }
+      },
+      "improvementPercent": {
+        "before": 5.053212149594632,
+        "current": 5.273058812866738
+      }
+    },
+    {
+      "workload": "nested",
+      "type": "0x2",
+      "suppliedGas": true,
+      "trace": false,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 9.732312499999999,
+          "minMs": 9.15959,
+          "maxMs": 22.925495,
+          "roundMediansMs": {
+            "1": 9.74076,
+            "2": 9.637583999999999
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276380
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 9.664134,
+          "minMs": 8.898701,
+          "maxMs": 13.004144,
+          "roundMediansMs": {
+            "1": 9.926083,
+            "2": 9.345406
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276368,
+            276380
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 9.5088755,
+          "minMs": 8.744993,
+          "maxMs": 10.471276,
+          "roundMediansMs": {
+            "1": 9.556564,
+            "2": 9.400796
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276356,
+            276368
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        }
+      },
+      "improvementPercent": {
+        "before": 2.295826403025991,
+        "current": 1.6065433281450825
+      }
+    },
+    {
+      "workload": "nested",
+      "type": "0x2",
+      "suppliedGas": true,
+      "trace": true,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 11.63888,
+          "minMs": 10.56618,
+          "maxMs": 12.692874,
+          "roundMediansMs": {
+            "1": 11.711183,
+            "2": 11.538365
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276380
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 11.8317215,
+          "minMs": 10.485507,
+          "maxMs": 14.944369,
+          "roundMediansMs": {
+            "1": 12.218758999999999,
+            "2": 11.243596
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276368,
+            276380
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 11.3916325,
+          "minMs": 10.623877,
+          "maxMs": 13.137675,
+          "roundMediansMs": {
+            "1": 11.384758999999999,
+            "2": 11.42331
+          },
+          "sourceGas": [
+            183149
+          ],
+          "l1Gas": [
+            276356,
+            276368
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        }
+      },
+      "improvementPercent": {
+        "before": 2.1243238180993385,
+        "current": 3.7195686189875232
+      }
+    },
+    {
+      "workload": "safe-ethereum",
+      "type": "0x0",
+      "suppliedGas": false,
+      "trace": false,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 11.640404,
+          "minMs": 10.492092999999999,
+          "maxMs": 13.394290999999999,
+          "roundMediansMs": {
+            "1": 11.428128,
+            "2": 11.845728999999999
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": []
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 11.5201955,
+          "minMs": 10.318424,
+          "maxMs": 17.347849,
+          "roundMediansMs": {
+            "1": 11.607035999999999,
+            "2": 11.443014
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": []
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 10.7027175,
+          "minMs": 9.718888999999999,
+          "maxMs": 11.948691,
+          "roundMediansMs": {
+            "1": 10.755637,
+            "2": 10.693954
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": []
+        }
+      },
+      "improvementPercent": {
+        "before": 8.055446357360108,
+        "current": 7.096042771149147
+      }
+    },
+    {
+      "workload": "safe-ethereum",
+      "type": "0x0",
+      "suppliedGas": false,
+      "trace": true,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 15.432525,
+          "minMs": 14.495,
+          "maxMs": 21.61079,
+          "roundMediansMs": {
+            "1": 15.234531,
+            "2": 15.571497
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": [
+            14
+          ]
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 15.645498,
+          "minMs": 14.616985000000001,
+          "maxMs": 24.364885,
+          "roundMediansMs": {
+            "1": 15.701909,
+            "2": 15.615222
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": [
+            14
+          ]
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 14.442275,
+          "minMs": 13.576259,
+          "maxMs": 16.336323999999998,
+          "roundMediansMs": {
+            "1": 14.416989,
+            "2": 14.508404
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": [
+            14
+          ]
+        }
+      },
+      "improvementPercent": {
+        "before": 6.416642772326631,
+        "current": 7.6905381982727565
+      }
+    },
+    {
+      "workload": "safe-ethereum",
+      "type": "0x0",
+      "suppliedGas": true,
+      "trace": false,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 10.124023000000001,
+          "minMs": 9.052749,
+          "maxMs": 24.906117,
+          "roundMediansMs": {
+            "1": 9.871826,
+            "2": 10.297232999999999
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 10.134588,
+          "minMs": 9.113264,
+          "maxMs": 16.534896,
+          "roundMediansMs": {
+            "1": 10.077300000000001,
+            "2": 10.159303999999999
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 9.671723499999999,
+          "minMs": 8.95055,
+          "maxMs": 12.18031,
+          "roundMediansMs": {
+            "1": 9.692777,
+            "2": 9.670767
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        }
+      },
+      "improvementPercent": {
+        "before": 4.467586650089617,
+        "current": 4.567176287778074
+      }
+    },
+    {
+      "workload": "safe-ethereum",
+      "type": "0x0",
+      "suppliedGas": true,
+      "trace": true,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 12.250062999999999,
+          "minMs": 11.301953,
+          "maxMs": 19.56145,
+          "roundMediansMs": {
+            "1": 12.065635,
+            "2": 12.519148000000001
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 12.614391,
+          "minMs": 11.389528,
+          "maxMs": 18.624088,
+          "roundMediansMs": {
+            "1": 12.448794,
+            "2": 12.626323
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 11.932668,
+          "minMs": 11.209828,
+          "maxMs": 49.059053999999996,
+          "roundMediansMs": {
+            "1": 11.889757000000001,
+            "2": 11.93386
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        }
+      },
+      "improvementPercent": {
+        "before": 2.590966266867356,
+        "current": 5.404327485964244
+      }
+    },
+    {
+      "workload": "safe-ethereum",
+      "type": "0x2",
+      "suppliedGas": false,
+      "trace": false,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 11.760481,
+          "minMs": 10.945028,
+          "maxMs": 25.925598,
+          "roundMediansMs": {
+            "1": 11.630853,
+            "2": 11.839846
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": []
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 11.8287385,
+          "minMs": 10.950538,
+          "maxMs": 17.946528,
+          "roundMediansMs": {
+            "1": 11.707321,
+            "2": 11.89569
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": []
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 10.80909,
+          "minMs": 10.097928000000001,
+          "maxMs": 13.521125999999999,
+          "roundMediansMs": {
+            "1": 10.797762,
+            "2": 10.809654
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": []
+        }
+      },
+      "improvementPercent": {
+        "before": 8.089728642901605,
+        "current": 8.620095033802633
+      }
+    },
+    {
+      "workload": "safe-ethereum",
+      "type": "0x2",
+      "suppliedGas": false,
+      "trace": true,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 15.5905695,
+          "minMs": 14.253457000000001,
+          "maxMs": 22.829987,
+          "roundMediansMs": {
+            "1": 15.461199,
+            "2": 15.766498
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": [
+            14
+          ]
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 15.742540499999999,
+          "minMs": 14.398836999999999,
+          "maxMs": 22.645752,
+          "roundMediansMs": {
+            "1": 15.612538,
+            "2": 15.749968999999998
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": [
+            14
+          ]
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 14.490348999999998,
+          "minMs": 13.240873,
+          "maxMs": 22.68489,
+          "roundMediansMs": {
+            "1": 14.588122,
+            "2": 14.295718
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": [
+            14
+          ]
+        }
+      },
+      "improvementPercent": {
+        "before": 7.05696158180753,
+        "current": 7.954189477867313
+      }
+    },
+    {
+      "workload": "safe-ethereum",
+      "type": "0x2",
+      "suppliedGas": true,
+      "trace": false,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 10.12078,
+          "minMs": 9.303755,
+          "maxMs": 14.35341,
+          "roundMediansMs": {
+            "1": 9.930828,
+            "2": 10.29036
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 10.0480235,
+          "minMs": 9.342645000000001,
+          "maxMs": 14.353053,
+          "roundMediansMs": {
+            "1": 10.048051000000001,
+            "2": 10.047996
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 9.653834,
+          "minMs": 9.031076,
+          "maxMs": 12.294785000000001,
+          "roundMediansMs": {
+            "1": 9.684266000000001,
+            "2": 9.608082
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        }
+      },
+      "improvementPercent": {
+        "before": 4.613735304986378,
+        "current": 3.9230551162624083
+      }
+    },
+    {
+      "workload": "safe-ethereum",
+      "type": "0x2",
+      "suppliedGas": true,
+      "trace": true,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 12.601159500000001,
+          "minMs": 11.256665,
+          "maxMs": 17.591525999999998,
+          "roundMediansMs": {
+            "1": 12.355648,
+            "2": 12.921764000000001
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 12.639327000000002,
+          "minMs": 11.505147000000001,
+          "maxMs": 17.769992,
+          "roundMediansMs": {
+            "1": 12.596678,
+            "2": 12.688184
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 12.106100999999999,
+          "minMs": 10.955512,
+          "maxMs": 23.704369999999997,
+          "roundMediansMs": {
+            "1": 12.062883999999999,
+            "2": 12.234364
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552600,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        }
+      },
+      "improvementPercent": {
+        "before": 3.928674182721059,
+        "current": 4.21878475016908
+      }
+    },
+    {
+      "workload": "safe-gnosis",
+      "type": "0x0",
+      "suppliedGas": false,
+      "trace": false,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 11.729638,
+          "minMs": 10.238083999999999,
+          "maxMs": 22.484329000000002,
+          "roundMediansMs": {
+            "1": 11.675134,
+            "2": 11.920301
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552588,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": []
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 11.4594215,
+          "minMs": 10.275054,
+          "maxMs": 25.554371,
+          "roundMediansMs": {
+            "1": 11.595518,
+            "2": 11.160543
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": []
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 10.551475,
+          "minMs": 8.483549,
+          "maxMs": 11.642803,
+          "roundMediansMs": {
+            "1": 10.562744,
+            "2": 10.540206
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": []
+        }
+      },
+      "improvementPercent": {
+        "before": 10.044325323594805,
+        "current": 7.923144287868277
+      }
+    },
+    {
+      "workload": "safe-gnosis",
+      "type": "0x0",
+      "suppliedGas": false,
+      "trace": true,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 15.710816999999999,
+          "minMs": 14.350202,
+          "maxMs": 25.310526,
+          "roundMediansMs": {
+            "1": 15.555886999999998,
+            "2": 15.882931
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552588,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": [
+            14
+          ]
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 15.255589,
+          "minMs": 13.855919,
+          "maxMs": 22.958531,
+          "roundMediansMs": {
+            "1": 15.726871,
+            "2": 14.829156
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": [
+            14
+          ]
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 14.1876585,
+          "minMs": 12.559176,
+          "maxMs": 17.405369,
+          "roundMediansMs": {
+            "1": 14.47695,
+            "2": 14.04752
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": [
+            14
+          ]
+        }
+      },
+      "improvementPercent": {
+        "before": 9.694966849909836,
+        "current": 7.000257413856659
+      }
+    },
+    {
+      "workload": "safe-gnosis",
+      "type": "0x0",
+      "suppliedGas": true,
+      "trace": false,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 10.1720915,
+          "minMs": 9.168092,
+          "maxMs": 14.058899,
+          "roundMediansMs": {
+            "1": 10.048798,
+            "2": 10.341143
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552588,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 9.691872,
+          "minMs": 8.375495,
+          "maxMs": 13.518559,
+          "roundMediansMs": {
+            "1": 9.932324,
+            "2": 9.565325
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 9.5751435,
+          "minMs": 9.022033,
+          "maxMs": 22.751947,
+          "roundMediansMs": {
+            "1": 9.47835,
+            "2": 9.616931000000001
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        }
+      },
+      "improvementPercent": {
+        "before": 5.868488304494712,
+        "current": 1.2043958071258132
+      }
+    },
+    {
+      "workload": "safe-gnosis",
+      "type": "0x0",
+      "suppliedGas": true,
+      "trace": true,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 12.455426,
+          "minMs": 11.261306000000001,
+          "maxMs": 19.335103,
+          "roundMediansMs": {
+            "1": 12.226965,
+            "2": 12.559486
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552588,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 11.9765985,
+          "minMs": 10.886201,
+          "maxMs": 17.063446,
+          "roundMediansMs": {
+            "1": 12.329944000000001,
+            "2": 11.878137
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 11.710589500000001,
+          "minMs": 11.198623,
+          "maxMs": 26.461049,
+          "roundMediansMs": {
+            "1": 11.678469,
+            "2": 11.812785
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        }
+      },
+      "improvementPercent": {
+        "before": 5.980016259580346,
+        "current": 2.2210730367223985
+      }
+    },
+    {
+      "workload": "safe-gnosis",
+      "type": "0x2",
+      "suppliedGas": false,
+      "trace": false,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 11.937536999999999,
+          "minMs": 10.85673,
+          "maxMs": 18.752061,
+          "roundMediansMs": {
+            "1": 11.789754,
+            "2": 11.996319
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552588,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": []
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 11.452449,
+          "minMs": 9.349193,
+          "maxMs": 16.643162,
+          "roundMediansMs": {
+            "1": 11.797972,
+            "2": 11.303359
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": []
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 10.704549,
+          "minMs": 10.039182,
+          "maxMs": 11.862597000000001,
+          "roundMediansMs": {
+            "1": 10.81507,
+            "2": 10.612988
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": []
+        }
+      },
+      "improvementPercent": {
+        "before": 10.32866327450963,
+        "current": 6.530480947786799
+      }
+    },
+    {
+      "workload": "safe-gnosis",
+      "type": "0x2",
+      "suppliedGas": false,
+      "trace": true,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 15.75357,
+          "minMs": 14.091662,
+          "maxMs": 29.142511,
+          "roundMediansMs": {
+            "1": 15.742672999999998,
+            "2": 15.764467000000002
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552588,
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": [
+            14
+          ]
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 15.150083500000001,
+          "minMs": 13.406695999999998,
+          "maxMs": 24.986801,
+          "roundMediansMs": {
+            "1": 15.504308,
+            "2": 14.847899
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": [
+            14
+          ]
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 14.236592,
+          "minMs": 13.160776,
+          "maxMs": 18.482469000000002,
+          "roundMediansMs": {
+            "1": 14.241662999999999,
+            "2": 14.189996
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            138960
+          ],
+          "runs": [
+            14
+          ]
+        }
+      },
+      "improvementPercent": {
+        "before": 9.629423679838922,
+        "current": 6.0296136321625005
+      }
+    },
+    {
+      "workload": "safe-gnosis",
+      "type": "0x2",
+      "suppliedGas": true,
+      "trace": false,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 10.100621,
+          "minMs": 9.118818000000001,
+          "maxMs": 20.75882,
+          "roundMediansMs": {
+            "1": 10.040621,
+            "2": 10.258051
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552588,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 9.706982,
+          "minMs": 8.319455,
+          "maxMs": 13.093344,
+          "roundMediansMs": {
+            "1": 9.862305,
+            "2": 9.647065999999999
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 9.5255425,
+          "minMs": 8.881723,
+          "maxMs": 14.781193,
+          "roundMediansMs": {
+            "1": 9.530416,
+            "2": 9.512774
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": []
+        }
+      },
+      "improvementPercent": {
+        "before": 5.693496469177495,
+        "current": 1.8691648959480944
+      }
+    },
+    {
+      "workload": "safe-gnosis",
+      "type": "0x2",
+      "suppliedGas": true,
+      "trace": true,
+      "measurements": {
+        "before": {
+          "n": 50,
+          "medianMs": 12.584552500000001,
+          "minMs": 11.664619,
+          "maxMs": 20.278265,
+          "roundMediansMs": {
+            "1": 12.293973999999999,
+            "2": 12.834793000000001
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552588,
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        },
+        "current": {
+          "n": 50,
+          "medianMs": 12.1388035,
+          "minMs": 10.699054,
+          "maxMs": 13.355505,
+          "roundMediansMs": {
+            "1": 12.407821,
+            "2": 12.009821
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        },
+        "fixed": {
+          "n": 50,
+          "medianMs": 11.937839499999999,
+          "minMs": 10.970597999999999,
+          "maxMs": 15.209791000000001,
+          "roundMediansMs": {
+            "1": 11.908805999999998,
+            "2": 12.045376
+          },
+          "sourceGas": [
+            130042
+          ],
+          "l1Gas": [
+            1552612
+          ],
+          "quotedGas": [
+            6000000
+          ],
+          "runs": [
+            8
+          ]
+        }
+      },
+      "improvementPercent": {
+        "before": 5.138943160672593,
+        "current": 1.6555503184477849
+      }
+    }
+  ],
+  "identity": {
+    "runtimes": {
+      "before": {
+        "eez-composer": "bdb6eae4c011ebce756bd48a4d9cbeca30bf0f51a7edd29cef45ed934b5e11ab",
+        "eez-follower": "675dbd32ff98a771be024ad3802c08b6e2b9a4f7317acadb7ab918ed5e6dbeb0",
+        "eez-proof-signer": "69d885e0e149d8859158fa78f0fb2c5a04af68b7ef2eab26c7d3ce490f16a169"
+      },
+      "current": {
+        "eez-composer": "7296f43a350c3bcf3571a78c578ecf50e9b31150485700a4c1c8d0206472dadc",
+        "eez-follower": "675dbd32ff98a771be024ad3802c08b6e2b9a4f7317acadb7ab918ed5e6dbeb0",
+        "eez-proof-signer": "69d885e0e149d8859158fa78f0fb2c5a04af68b7ef2eab26c7d3ce490f16a169"
+      },
+      "fixed": {
+        "eez-composer": "796c692f4d4165ed6389815d05b62194c21f5a51ae881b3b1eab61b28b317fa9",
+        "eez-follower": "675dbd32ff98a771be024ad3802c08b6e2b9a4f7317acadb7ab918ed5e6dbeb0",
+        "eez-proof-signer": "69d885e0e149d8859158fa78f0fb2c5a04af68b7ef2eab26c7d3ce490f16a169"
+      }
+    },
+    "harness": "27daf2484579b2cff4232848ccd4ad789b8dafe27e0ab6bce2dac6e45e723eb8",
+    "affinity": "1,3,6,8"
+  },
+  "revisions": {
+    "before": "ec9a22a04bd590ae183c1de80df508dd542443a8",
+    "current": "0fc519193b5cd7b5f4e8ef9f42a12bb085053d3c",
+    "fixed": "follow-up source identities below"
+  },
+  "sourceIdentities": {
+    "crates/eez-composer/src/composer/estimate.rs": "541809933cfbcf0e108ba78612984026a8a8e36ba0cba91fd37f5ac33378862d",
+    "crates/eez-composer/src/composer/estimate/preparation.rs": "5a0bdb39e523d2055d5d1586285169b99bc1c3aa7c7e969ed78bd895fac73673",
+    "crates/eez-composer/src/local/build.rs": "356e58f7eeaf166dc2f22a724627df541bdcd0c6557133c017c0555e307e0b4d",
+    "crates/eez-node-e2e/tests/fee_quotes.rs": "f02a7abd21bac3b3b0317eb7bff50ddea624fd86258834ff90c47d6419c69ae0",
+    "crates/eez-node-e2e/tests/fee_quotes/replay_validation.rs": "3cdbaca5fe83fc50e45d1201ebe1685f073fada03fec235e780d9758ea16f221"
+  },
+  "scope": "Serial local development-profile quotes on the same four performance cores; other host services remained running. No release/production/concurrent throughput claim."
+}

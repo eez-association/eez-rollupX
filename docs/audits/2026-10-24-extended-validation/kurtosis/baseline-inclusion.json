@@ -1,0 +1,45 @@
+{
+  "runtime_source": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+  "node_log_sha256": "a8957a583fd1f7b107443c02430f47a3cd14c5c86636e46410bc45240cbadf79",
+  "scope": "Elapsed wall-clock time from the sole RPC send to the first Canonical chain committed event with the exact final canonical receipt block hash. This is local inclusion observation, not L1 settlement.",
+  "phases": {
+    "sequential": {
+      "local_inclusion_seconds": {
+        "count": 3802,
+        "min": 0.003469228744506836,
+        "p50": 2.072713851928711,
+        "p95": 7.586912155151367,
+        "max": 8.386178970336914,
+        "mean": 2.9448903787769436
+      },
+      "missing_count": 0,
+      "negative": []
+    },
+    "pipeline": {
+      "local_inclusion_seconds": {
+        "count": 4415,
+        "min": 0.017050981521606445,
+        "p50": 1.4004640579223633,
+        "p95": 6.938282012939453,
+        "max": 8.005325078964233,
+        "mean": 2.198349668431525
+      },
+      "missing_count": 0,
+      "negative": []
+    },
+    "signer_recovery": {
+      "local_inclusion_seconds": {
+        "count": 24,
+        "min": 0.8026010990142822,
+        "p50": 1.809862494468689,
+        "p95": 6.812802791595459,
+        "max": 6.814978122711182,
+        "mean": 2.8105603754520416
+      },
+      "missing_count": 0,
+      "negative": []
+    }
+  },
+  "analysis_script_sha256": "c1ae830abaa10cb118c36d7ca826d0627e13884170daffc9701df689464838ac",
+  "collection": "Retrospective read-only analysis of the existing baseline record; no new transactions, no retries and no lifecycle operations."
+}

@@ -1,12 +1,12 @@
 //! `eez-proof-signer` — stateless validation and settlement attestation.
 //!
-//! The composer client-streams one posted window per `Prove` RPC: a header
-//! followed by one block-and-witness chunk per declared block. The daemon
-//! re-executes every block, validates the posted batch against the derived
-//! execution facts, and signs the fully authorized, locally recomputed
-//! public-input hash. Settlement entries consist of one anchor, then zero or
-//! more successful mutable outbound call trees, then zero or more fully
-//! reconstructed successful mutable inbound call trees.
+//! The Composer uses v2 Begin, Block and Finalize. The daemon re-executes every
+//! block using the complete supplied L2 witness and canonical L1 header chain.
+//! Finalize checks the selected range, anchor mode, native DA and every effect
+//! before signing the independently recomputed public input. The deployed
+//! manager binds that input to actual L1 context and its accepted L2 commitment.
+//! Startup and request processing need only local profiles and request evidence;
+//! neither an L1 nor an L2 RPC connection is available to the signer.
 //!
 //! This binary is wiring only: configuration, tracing, and serving
 //! [`service::ProveSvc`]. The window discipline lives in [`window`], the
@@ -23,7 +23,6 @@ use tracing::{error, info, warn};
 mod attest;
 mod cancel;
 mod config;
-mod prepared_cache;
 mod service;
 mod settlement;
 #[cfg(test)]
@@ -77,13 +76,7 @@ async fn main() -> eyre::Result<()> {
         max_decoding_message_bytes = limits.max_decoding_message_bytes(),
         stream_idle_timeout_secs = limits.stream_idle_timeout().as_secs(),
         request_timeout_secs = limits.request_timeout().as_secs(),
-        preparation_max_blocks = service::MAX_PREPARATION_BLOCKS,
-        cache_max_entries = prepared_cache::DEFAULT_MAX_ENTRIES,
-        cache_max_bytes = prepared_cache::DEFAULT_MAX_BYTES,
-        maximum_leases = eez_control_rpc::MAX_PREPARATION_LEASES,
-        lease_lifetime_secs = limits.lease_lifetime().as_secs(),
         validator = validator.label(),
-        validation_identity = %validator.validation_identity(config.expected_rollup_id),
         expected_rollup_id = config.expected_rollup_id.get(),
         attester = %config.attester.address(),
         expected_proof_system = %config.attester.expected_proof_system(),
@@ -99,15 +92,10 @@ async fn main() -> eyre::Result<()> {
         schedule.config().l1_reference.chain_id == l1_chain_spec.chain().id(),
         "L2 genesis reference and trusted L1 profile must identify the same chain"
     );
-    let l1_authority = service::l1::L1Authority::new(
-        config.l1_rpc_url,
-        config.registry_address,
-        config.expected_rollup_id.get(),
-        schedule,
-    )?;
     let svc = service::ProveSvc::new(
         Arc::new(service::ServiceState::new(
-            l1_authority,
+            config.registry_address,
+            config.manager_address,
             validator,
             config.expected_rollup_id,
             config.attester,
@@ -118,7 +106,12 @@ async fn main() -> eyre::Result<()> {
     let shutdown_service = svc.clone();
     let serve_result = tonic::transport::Server::builder()
         .add_service(svc.into_server())
-        .serve_with_shutdown(listen_addr, shutdown_signal())
+        .serve_with_shutdown(listen_addr, async {
+            shutdown_signal().await;
+            // A continuously active v2 client must not keep tonic draining forever.
+            // Detached blocking workers remain owned until wait_until_idle below.
+            shutdown_service.stop_streams();
+        })
         .await;
     // A timed-out RPC may leave non-interruptible blocking work running after
     // tonic has drained its request future. Do not terminate that work midway.

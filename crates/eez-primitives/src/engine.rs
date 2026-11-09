@@ -177,12 +177,73 @@ impl From<EezBuiltPayload> for ExecutionData {
     }
 }
 
+/// Exact producer inputs. The optional native history transaction is carried
+/// into the block body, never hidden in header metadata. Payload IDs bind it so
+/// two choices sharing PREVRANDAO cannot reuse each other's cached payload.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EezPayloadAttributes {
+    #[serde(flatten)]
+    pub ethereum: PayloadAttributes,
+    pub history_transaction: Option<Bytes>,
+    /// Structural Sync requests exclude public-pool transactions.
+    pub no_tx_pool: bool,
+}
+impl From<PayloadAttributes> for EezPayloadAttributes {
+    fn from(ethereum: PayloadAttributes) -> Self {
+        Self {
+            ethereum,
+            history_transaction: None,
+            no_tx_pool: false,
+        }
+    }
+}
+impl std::ops::Deref for EezPayloadAttributes {
+    type Target = PayloadAttributes;
+    fn deref(&self) -> &Self::Target {
+        &self.ethereum
+    }
+}
+impl std::ops::DerefMut for EezPayloadAttributes {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ethereum
+    }
+}
+impl reth_payload_primitives::PayloadAttributes for EezPayloadAttributes {
+    fn payload_id(&self, parent: &alloy_primitives::B256) -> alloy_rpc_types_engine::PayloadId {
+        let base = self.ethereum.payload_id(parent);
+        let mut input = base.0.to_vec();
+        input.push(u8::from(self.no_tx_pool));
+        input.push(u8::from(self.history_transaction.is_some()));
+        if let Some(raw) = &self.history_transaction {
+            input.extend_from_slice(raw);
+        }
+        let hash = alloy_primitives::keccak256(input);
+        alloy_rpc_types_engine::PayloadId::new(hash[..8].try_into().expect("eight-byte payload ID"))
+    }
+    fn timestamp(&self) -> u64 {
+        self.ethereum.timestamp
+    }
+    fn withdrawals(&self) -> Option<&Vec<alloy_eips::eip4895::Withdrawal>> {
+        self.ethereum.withdrawals.as_ref()
+    }
+    fn parent_beacon_block_root(&self) -> Option<alloy_primitives::B256> {
+        self.ethereum.parent_beacon_block_root
+    }
+    fn slot_number(&self) -> Option<u64> {
+        self.ethereum.slot_number
+    }
+    fn target_gas_limit(&self) -> Option<u64> {
+        self.ethereum.target_gas_limit
+    }
+}
+
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EezEngineTypes;
 
 impl PayloadTypes for EezEngineTypes {
     type BuiltPayload = EezBuiltPayload;
-    type PayloadAttributes = PayloadAttributes;
+    type PayloadAttributes = EezPayloadAttributes;
     type ExecutionData = ExecutionData;
 
     fn block_to_payload(block: SealedBlock<Block>, bal: Option<Bytes>) -> ExecutionData {

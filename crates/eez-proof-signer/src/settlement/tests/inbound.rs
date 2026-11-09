@@ -391,7 +391,7 @@ fn inbound_effect_entries_handle_mixed_effect_positions_without_authorizing_outb
     // A system/user pair ends at the user transaction (outbound), followed by
     // a terminal system transaction (inbound).
     let observation = observed_inbound_candidate(2, U256::from(4), true);
-    let settling =
+    let mut settling =
         SettlingBlockObservations::for_test(vec![true, false, true], vec![observation], Vec::new());
     let mut batch = effect_batch(
         &[B256::ZERO; 4],
@@ -414,6 +414,12 @@ fn inbound_effect_entries_handle_mixed_effect_positions_without_authorizing_outb
     )
     .current();
 
+    settling
+        .outbound_load_candidates_mut_for_test()
+        .push(OutboundLoadCandidate::decoded_for_test(
+            0,
+            flat_outbound_sidecar(&batch.entries[1]),
+        ));
     let plan = effect_plan(&batch, &settling);
     assert!(verify_inbound_effect_entries(&plan).is_ok());
 }
@@ -425,12 +431,11 @@ fn inbound_effect_entries_reject_missing_extra_or_invalid_observations() {
         &[B256::ZERO, B256::ZERO, B256::repeat_byte(1)],
         &[ClaimedEntryShape::Inbound],
     );
-    let inbound_plan = effect_plan(&inbound_batch, &missing);
     assert_eq!(
-        verify_inbound_effect_entries(&inbound_plan).err(),
-        Some(InboundEffectError::MissingCandidate {
-            entry_index: 1,
-            transaction_index: 0,
+        verify_effect_prefix(&inbound_batch, B256::ZERO, &[], &missing).err(),
+        Some(EffectPrefixError::EffectCountMismatch {
+            claimed: 1,
+            observed: 0
         })
     );
 
@@ -440,11 +445,11 @@ fn inbound_effect_entries_reject_missing_extra_or_invalid_observations() {
         Vec::new(),
     );
     let outbound_batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Outbound]);
-    let outbound_plan = effect_plan(&outbound_batch, &hidden);
     assert_eq!(
-        verify_inbound_effect_entries(&outbound_plan).err(),
-        Some(InboundEffectError::UnexpectedCandidate {
-            transaction_index: 0,
+        verify_effect_prefix(&outbound_batch, B256::ZERO, &[], &hidden).err(),
+        Some(EffectPrefixError::EffectCountMismatch {
+            claimed: 0,
+            observed: 1
         })
     );
 
@@ -456,8 +461,8 @@ fn inbound_effect_entries_reject_missing_extra_or_invalid_observations() {
     assert_eq!(
         verify_effect_prefix(&outbound_batch, B256::ZERO, &[], &conflicting).err(),
         Some(EffectPrefixError::EffectCountMismatch {
-            claimed: 1,
-            observed: 0
+            claimed: 0,
+            observed: 1
         })
     );
 

@@ -72,15 +72,19 @@ done
 l2_chain_id="$(cast chain-id --rpc-url "$L2_RPC")" || die "cannot read L2 chain id"
 verifier_input="$tmp_dir/input.json"
 verifier_output="$tmp_dir/output.json"
+# Packed settlement transactions and receipts can exceed the OS argument limit.
+# Keep the full evidence in files rather than passing it through --argjson.
+printf '%s\n' "$post_tx" >"$tmp_dir/post-tx.json"
+printf '%s\n' "$post_receipt" >"$tmp_dir/post-receipt.json"
 jq -n \
     --argjson rollup_id "$ROLLUP_ID" \
     --argjson l2_chain_id "$l2_chain_id" \
     --argjson beacon_slot "$slot" \
-    --argjson l1_transaction "$post_tx" \
-    --argjson l1_receipt "$post_receipt" \
+    --slurpfile l1_transaction "$tmp_dir/post-tx.json" \
+    --slurpfile l1_receipt "$tmp_dir/post-receipt.json" \
     --slurpfile beacon_sidecars "$sidecars_tmp" \
     '{rollup_id:$rollup_id, l2_chain_id:$l2_chain_id, beacon_slot:$beacon_slot,
-      l1_transaction:$l1_transaction, l1_receipt:$l1_receipt,
+      l1_transaction:$l1_transaction[0], l1_receipt:$l1_receipt[0],
       beacon_sidecars:$beacon_sidecars[0]}' >"$verifier_input"
 "$BLOB_VERIFIER" "$verifier_input" >"$verifier_output" \
     || die "independent KZG/native semantic verification failed"
@@ -117,7 +121,7 @@ for trigger_hash in "${TRIGGER_HASHES[@]}"; do
     raw_triggers+=("$(jq -cn --arg hash "$trigger_hash" --arg raw "$raw" \
         '{hash:$hash, raw_transaction:$raw}')")
 done
-raw_triggers_json="$(printf '%s\n' "${raw_triggers[@]}" | jq -s .)"
+printf '%s\n' "${raw_triggers[@]}" | jq -s . >"$tmp_dir/raw-triggers.json"
 
 mkdir -p "$(dirname "$OUTPUT_JSON")" "$(dirname "$SIDECARS_JSON")"
 cp "$sidecars_tmp" "$SIDECARS_JSON"
@@ -125,11 +129,11 @@ jq \
     --arg trigger_chain "$TRIGGER_CHAIN" \
     --arg sidecars_file "$SIDECARS_JSON" \
     --argjson expected_origin "$expected_origin" \
-    --argjson raw_triggers "$raw_triggers_json" \
+    --slurpfile raw_triggers "$tmp_dir/raw-triggers.json" \
     '. + {semantic_evidence: {
       trigger_chain: $trigger_chain,
       expected_origin: $expected_origin,
-      raw_trigger_transactions: $raw_triggers,
+      raw_trigger_transactions: $raw_triggers[0],
       trigger_binding: (if $trigger_chain == "L2" then "exact_tx_data" else "settlement_table" end),
       semantics_bound_to_settlement: true,
       all_trigger_bytes_bound: ($trigger_chain == "L2"),

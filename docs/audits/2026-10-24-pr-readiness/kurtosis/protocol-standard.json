@@ -1,0 +1,1120 @@
+{
+  "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "suite": {
+    "discovered": 64,
+    "eligible": 34,
+    "selected": 34,
+    "excluded_from_all": [
+      "catchNestedRevertAfterCallback",
+      "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+      "catchRemoteRevertAfterCallback",
+      "catchNestedRevertAfterCallbackL2",
+      "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+      "catchRemoteRevertAfterCallbackL2",
+      "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+      "nestedRollbackRestoresInnerThenOuterStateL2",
+      "rollbackGroupWithStaticReadThenWriteL2",
+      "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+      "mutableCallMakesReadThatCallsBack",
+      "nestedStaticLocalWriteL2",
+      "staticLocalWrite",
+      "staticReadCallsBackAndReadsAgain",
+      "staticThenNestedWrites",
+      "topLevelStaticReentrantMissingProxy",
+      "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+      "mutableCallMakesReadThatCallsBackL2",
+      "nestedStaticLocalWriteL1",
+      "staticLocalWriteL2",
+      "staticReadCallsBackAndReadsAgainL2",
+      "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+      "staticReadHandlesFailedCallbackL2",
+      "staticReadPropagatesFailedCallbackL2",
+      "staticReadThenCatchFailedWriteL2",
+      "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+      "staticReadThenRollbackWriteL2",
+      "staticReadThenWriteWithCallbackL2",
+      "staticThenNestedWritesL2",
+      "topLevelStaticReentrantMissingProxyL2"
+    ],
+    "complete": true
+  },
+  "accounting": {
+    "valid": true,
+    "missing": [],
+    "duplicates": [],
+    "unexpected": []
+  },
+  "evidence_complete": true,
+  "causal_coverage": {
+    "complete": true,
+    "missing": [],
+    "paired": [
+      "multi-call-twice",
+      "multi-call-two-diff",
+      "multi-call-twiceL2",
+      "multi-call-two-diffL2",
+      "counter-multi-tx",
+      "deepNested",
+      "flash-loan",
+      "multi-call-nested",
+      "nestedCounter",
+      "multi-call-nestedL2",
+      "nestedCounterL2",
+      "bridge",
+      "counter",
+      "bridgeL2",
+      "counterL2",
+      "reentrant",
+      "nestedCallRevert",
+      "revertFromOtherChain",
+      "nestedCallRevertL2",
+      "revertCounterL2",
+      "revertFromOtherChainAndCallAgainL2",
+      "revertFromOtherChainL2",
+      "revertFromOtherChainNested",
+      "nestedStaticCounter",
+      "staticReadWrite",
+      "staticReadX2Write",
+      "nestedStaticCounterL2",
+      "staticCounterL2",
+      "staticReadWriteL2",
+      "staticReadX2WriteL2",
+      "topLevelStaticReentrantCounterL2"
+    ],
+    "no_destination_required": [
+      "revertCounter",
+      "topLevelStaticCounter",
+      "topLevelStaticReentrantCounter"
+    ]
+  },
+  "semantic_blob_coverage": {
+    "complete": true,
+    "missing": [],
+    "authenticated": [
+      "multi-call-twice",
+      "multi-call-two-diff",
+      "multi-call-twiceL2",
+      "multi-call-two-diffL2",
+      "counter-multi-tx",
+      "deepNested",
+      "flash-loan",
+      "multi-call-nested",
+      "nestedCounter",
+      "multi-call-nestedL2",
+      "nestedCounterL2",
+      "bridge",
+      "counter",
+      "bridgeL2",
+      "counterL2",
+      "reentrant",
+      "nestedCallRevert",
+      "revertCounter",
+      "revertFromOtherChain",
+      "nestedCallRevertL2",
+      "revertCounterL2",
+      "revertFromOtherChainAndCallAgainL2",
+      "revertFromOtherChainL2",
+      "revertFromOtherChainNested",
+      "nestedStaticCounter",
+      "staticReadWrite",
+      "staticReadX2Write",
+      "topLevelStaticCounter",
+      "topLevelStaticReentrantCounter",
+      "nestedStaticCounterL2",
+      "staticCounterL2",
+      "staticReadWriteL2",
+      "staticReadX2WriteL2",
+      "topLevelStaticReentrantCounterL2"
+    ]
+  },
+  "passed": [
+    "multi-call-twice",
+    "multi-call-two-diff",
+    "multi-call-twiceL2",
+    "multi-call-two-diffL2",
+    "counter-multi-tx",
+    "deepNested",
+    "flash-loan",
+    "multi-call-nested",
+    "nestedCounter",
+    "multi-call-nestedL2",
+    "nestedCounterL2",
+    "bridge",
+    "counter",
+    "bridgeL2",
+    "counterL2",
+    "reentrant",
+    "nestedCallRevert",
+    "revertCounter",
+    "revertFromOtherChain",
+    "nestedCallRevertL2",
+    "revertCounterL2",
+    "revertFromOtherChainAndCallAgainL2",
+    "revertFromOtherChainL2",
+    "revertFromOtherChainNested",
+    "nestedStaticCounter",
+    "staticReadWrite",
+    "staticReadX2Write",
+    "topLevelStaticCounter",
+    "topLevelStaticReentrantCounter",
+    "nestedStaticCounterL2",
+    "staticCounterL2",
+    "staticReadWriteL2",
+    "staticReadX2WriteL2",
+    "topLevelStaticReentrantCounterL2"
+  ],
+  "failed": [],
+  "skipped": [],
+  "snapshot": "R03 release, shipping feature cleanup pending CI",
+  "phase_seconds": 672,
+  "runner_exit": 0,
+  "independent_verification_seconds": 27.384,
+  "summary_sha256": "19105e6a6d0cb899c07d2b6f1b1584eec5c4bb3276cee78b810c539f7e0e7101",
+  "scenarios": [
+    {
+      "scenario": "multi-call-twice",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x63b4e2b010ed0a24c7a1bcabeff9c9011e01b216f7242a3b18364e1765058377"
+      ],
+      "settlement_hashes": [
+        "0x8cb26b644194a94af750eb1c271bda450d21d8532c2013cc0dc628c09b34378b"
+      ],
+      "evidence_sha256": "4a8110353b0a74062ac58a71d1e61ecbcd643a9865a58117d3d55283d93c805d"
+    },
+    {
+      "scenario": "multi-call-two-diff",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0xe987d9d5fe7832b7b81953a984444570ca964d2d4b68fa92fde5f98b84932b23"
+      ],
+      "settlement_hashes": [
+        "0xc82a83ae0cb036cc029c55076fa09e9b01322d80c5a5540660d81324f6f3922d"
+      ],
+      "evidence_sha256": "ff0829bff7b17457c5ba5da422771510376b033b14a1271076077b7b1fff23cb"
+    },
+    {
+      "scenario": "multi-call-twiceL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x4e4e17c37caa33ce2a72079e964b500c06d22256a8af1a66c75fe26e6182c573"
+      ],
+      "settlement_hashes": [
+        "0xa7a050927f2fd50edd362a218ce01aa974a17a2bcae64ef249469b7bf5c19957"
+      ],
+      "evidence_sha256": "2f5c5f9c09a01a8bdc31aaad22e366dea783121bdd663e00eb4373aa6d874f2a"
+    },
+    {
+      "scenario": "multi-call-two-diffL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x3be0b312f009e147e01fbe02f2287b4fe6d016bdf1331049b1c2c7137d40ebf2"
+      ],
+      "settlement_hashes": [
+        "0xa63386008a5a8502c59009bdc390068fb3de7cc93c768644bf8327fdbfab291d"
+      ],
+      "evidence_sha256": "c713b357691cf68c0e0ea89b3d2f45b64f1a545ee3f075465bd7acf864b94b7a"
+    },
+    {
+      "scenario": "counter-multi-tx",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x851dd48f469bdc42552f4ec49a4007818dd5411cb4904eaa443d561b59edfbf9",
+        "0x3bf23ff21997064db9b553e7f44276eec6684d061b07d976620e7acb294bc36f",
+        "0x2f6f07c48e9e40cecb90b352df8e745272712f8afddef29589f6961a8e580a23"
+      ],
+      "settlement_hashes": [
+        "0x48031cc0248612f92696efc04ac7b59b473fe6a670ac44b138aedc56f66886b3"
+      ],
+      "evidence_sha256": "56c8a6a10232005f478dee71910460b91c6b6ea135511919becc934b40c4743c"
+    },
+    {
+      "scenario": "deepNested",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x8adcc0abf9e89ed1feb60cefdaf2ba058553c4ba7dfaf01428ca6313c037690d"
+      ],
+      "settlement_hashes": [
+        "0x1a6dc1cf0c28950032dddbe02db15be5d9539044f7bf8ce28d10b11bf25e40c9"
+      ],
+      "evidence_sha256": "364bbae5969ee9b0c405941c760fced8198e69aa1d3d18c211f3baf3e746d3b1"
+    },
+    {
+      "scenario": "flash-loan",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x75dfb3b1135eac76b82a8313c17840f7f6760cfdd374615fafe67d7c096b70eb"
+      ],
+      "settlement_hashes": [
+        "0x1a6dc1cf0c28950032dddbe02db15be5d9539044f7bf8ce28d10b11bf25e40c9"
+      ],
+      "evidence_sha256": "e66d5e0fdc25e077bb76924be831ce02eec6a7d99c04876078a11e056ef38c73"
+    },
+    {
+      "scenario": "multi-call-nested",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0xa3be6acf83a0405d15e4d0cbc51f491ee8d9585bc8aa716886d659f4a26b0b75"
+      ],
+      "settlement_hashes": [
+        "0x1a6dc1cf0c28950032dddbe02db15be5d9539044f7bf8ce28d10b11bf25e40c9"
+      ],
+      "evidence_sha256": "954f6d08d4a712deb05585f0bbe2f40fb4f8b22f2e24c32e4a25733aea8351b3"
+    },
+    {
+      "scenario": "nestedCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0xf8f7a2dd04be37acc63a08d53088e3d9ffceccaff54b0cd36933a69b6cc5d333"
+      ],
+      "settlement_hashes": [
+        "0x1a6dc1cf0c28950032dddbe02db15be5d9539044f7bf8ce28d10b11bf25e40c9"
+      ],
+      "evidence_sha256": "2dc48c79a682e0c4a9a21248af593005e3abc95e3db76632269eb20d97ef9946"
+    },
+    {
+      "scenario": "multi-call-nestedL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x644ce80e5214087f3d6fea06a2b3618168505cca4e4adfa175cb6bd30361e26c"
+      ],
+      "settlement_hashes": [
+        "0xbcc7b388907bb879447249b863656e0bb6227d25a78ed289c48c04f945413978"
+      ],
+      "evidence_sha256": "aee7eaac7a1f4fc245235e69f8bdd4072fb6caeceee98ce51fa90d3baa66ab28"
+    },
+    {
+      "scenario": "nestedCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0xbe9452f42f6ea796a71f963cc783b1d205081408c99d3ed0133429a6145cf1f0"
+      ],
+      "settlement_hashes": [
+        "0xbcc7b388907bb879447249b863656e0bb6227d25a78ed289c48c04f945413978"
+      ],
+      "evidence_sha256": "c2668207a5ea18b1d8c5f1047cd49b9f091626d65fa50a0528c0fe7f1958cd8d"
+    },
+    {
+      "scenario": "bridge",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x484c8ee0b351638295132954c70f136394776c5a5865a5016e0bf9348c9bab94"
+      ],
+      "settlement_hashes": [
+        "0xf39374c2a42c78f37625fdab191dbf86db75850c5114b25f2c94b37690c3b3a7"
+      ],
+      "evidence_sha256": "cb1893543e34c5c3a5f0bb4a060591bfa3ee1b0c8ff4b27acbfefea1e6188c69"
+    },
+    {
+      "scenario": "counter",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x17b4465b1bb512af8bacebce00857fa2251e26f04b5829133f82972ffbcd4956"
+      ],
+      "settlement_hashes": [
+        "0x03734dc42113913efff5214d4807e0b05b06f64b3c8e244d2d2a4b823ec7c6f1"
+      ],
+      "evidence_sha256": "3e1d3368d32d8e788aeba903dedfd5b574d0dd54dd9e4ef5fc65c48868ee1bb3"
+    },
+    {
+      "scenario": "bridgeL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x02bc9a56e1544c05d21924ca9c0dd7c8474196f0beb0212d63f0cc2b01cb2fc2"
+      ],
+      "settlement_hashes": [
+        "0xbcc7b388907bb879447249b863656e0bb6227d25a78ed289c48c04f945413978"
+      ],
+      "evidence_sha256": "4371e55ddd30863af78cd8eca140784732ba278407fe0264144cd7f17716acd1"
+    },
+    {
+      "scenario": "counterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x48193e7cdf1a7066b48e37b3be6105462a3ad4726b691126f4c7211929828b01"
+      ],
+      "settlement_hashes": [
+        "0xcc8d14341ee0a7dc32806fb1a848437ef34a975474636683f64d070712c5f9ce"
+      ],
+      "evidence_sha256": "02d65ddd00d0e44b00e45b4c949c1a07c1d81d6dbbf604e11da9b8dad02fa2bc"
+    },
+    {
+      "scenario": "reentrant",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x92dc2e983fec920ec74efcf0df188a8a4101908205ee7e0c28661278bfbc0b93"
+      ],
+      "settlement_hashes": [
+        "0x35ea614da94a0c6d04b20c48a76bab27120824f033034ca0a0d31794be477706"
+      ],
+      "evidence_sha256": "1fa9587888f98b3721eedd26555883a10a8407d0845ef513dd08dcb4f873ee94"
+    },
+    {
+      "scenario": "nestedCallRevert",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x69d9b77c5e4c34538ff23b547931cf63ad6da331165bdfb8117dc375b65d46be"
+      ],
+      "settlement_hashes": [
+        "0x2a900661bfde4c6bd750493a26a31191b28ba6d95b72f65efa2baa05aa3b78ed"
+      ],
+      "evidence_sha256": "6618aebd77aa07d75f3d09865753284ec7ae370231dde76ada05ad2e8b692c43"
+    },
+    {
+      "scenario": "revertCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-lookup-only",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_pass_required": true,
+        "receipts_revalidated": true,
+        "post_batch_preceded_trigger": true,
+        "no_destination_delivery_required": true,
+        "l2_absence_verified": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "actual_lookup_result_traced": true,
+        "lookup_root_bound": true
+      },
+      "trigger_hashes": [
+        "0x6dbb084eff5df897dec35db0f25c8c1c6d1531fc190aa82277700d4defd0a8ec"
+      ],
+      "settlement_hashes": [
+        "0x78973cd73bda25b987ab5e0598b84b2e9ca852303c91f6e3846942bb05860e40"
+      ],
+      "evidence_sha256": "8c3179605d31bd742f49f54f5cb6e9268f87bbfaa9d5ff54b2023d83242493e5"
+    },
+    {
+      "scenario": "revertFromOtherChain",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0xc587f1ad52daa64ec48d7c3aba3c96716d205f5cf0cae498e7d536850029377d"
+      ],
+      "settlement_hashes": [
+        "0x2a900661bfde4c6bd750493a26a31191b28ba6d95b72f65efa2baa05aa3b78ed"
+      ],
+      "evidence_sha256": "4532428f181e3dc281d389324579337aa280f2f9c54aeda55a10aa7d30e20bf8"
+    },
+    {
+      "scenario": "nestedCallRevertL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x56eac3a87dd7edb31ac02a2173bfe940e4fd5849c0095fd35e0af414d3a91152"
+      ],
+      "settlement_hashes": [
+        "0x395b2727546eba83f4b99c99d79a47a7b43f6c3ea25fcd8e290a7bcc7345469b"
+      ],
+      "evidence_sha256": "a176ae4636c255df7c863dcb8ec28b00280562dbb2e3c81ce8ecf91682804207"
+    },
+    {
+      "scenario": "revertCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": false
+      },
+      "trigger_hashes": [
+        "0x6509d6d73bffc526d4960a469a082258de305bc42a69490ad39d6ea27549bd61"
+      ],
+      "settlement_hashes": [
+        "0x395b2727546eba83f4b99c99d79a47a7b43f6c3ea25fcd8e290a7bcc7345469b"
+      ],
+      "evidence_sha256": "0a29b1e2947ce1e84264ea79ecf3ad1b16c7c504698b3bc5990d7ab8c5a54db7"
+    },
+    {
+      "scenario": "revertFromOtherChainAndCallAgainL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x342b9a4a7dc9e820be7e25047fd3b575f463e3284897d1944dc49025352d1eb5"
+      ],
+      "settlement_hashes": [
+        "0x395b2727546eba83f4b99c99d79a47a7b43f6c3ea25fcd8e290a7bcc7345469b"
+      ],
+      "evidence_sha256": "b6b3f9617b9a0a9fab7e161e24d977e1a57df0e50e73be53708e226620bd79b0"
+    },
+    {
+      "scenario": "revertFromOtherChainL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": false
+      },
+      "trigger_hashes": [
+        "0x29f776a361086c236e77fe84f6dda3d4f749cb89e4b295f9cf8cedc356748092"
+      ],
+      "settlement_hashes": [
+        "0x395b2727546eba83f4b99c99d79a47a7b43f6c3ea25fcd8e290a7bcc7345469b"
+      ],
+      "evidence_sha256": "793fe835bd5c390e27335a37d0029e4c23716d4cd6de6c91d7b59904a5d7340b"
+    },
+    {
+      "scenario": "revertFromOtherChainNested",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0xa6647cf649d58030e33b0d715c8db581c62c297d97d906303f3fd62d52ea68d8"
+      ],
+      "settlement_hashes": [
+        "0x266ed7dca023b77d4bcf3d1cae990536024d7cc6be4f00fa8d535eb48efb7ded"
+      ],
+      "evidence_sha256": "b194ad4849aeed2738722b720595a3eb19aa7c655dc7f6e141cba73f96060995"
+    },
+    {
+      "scenario": "nestedStaticCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x45e23faabe9eeb2f35fec9803f01fae18783461d2d7ef00e423a188f37636d2f"
+      ],
+      "settlement_hashes": [
+        "0x9cc6e4edf1e5f9e9cc21a102c67c742f46ef3f54a4f00c4c7d76265a6b9a0d2c"
+      ],
+      "evidence_sha256": "a14f5170899e80934e953a7219d6273c978c4f9b31be3045dbb0bc4e35967da7"
+    },
+    {
+      "scenario": "staticReadWrite",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x2a7b1007bd36cb268b6904415398f6f59d65e98158892c044dbe747b6433d4e5"
+      ],
+      "settlement_hashes": [
+        "0x9cc6e4edf1e5f9e9cc21a102c67c742f46ef3f54a4f00c4c7d76265a6b9a0d2c"
+      ],
+      "evidence_sha256": "1ab9281acad1a12bb14c2413c08a7b313cc4bd621481cbf0aef7bab721c44143"
+    },
+    {
+      "scenario": "staticReadX2Write",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x428000e77bce0a40d9ec164ca13e220aa0f87a4bd2d0e6db327d4328989d2377"
+      ],
+      "settlement_hashes": [
+        "0x9cc6e4edf1e5f9e9cc21a102c67c742f46ef3f54a4f00c4c7d76265a6b9a0d2c"
+      ],
+      "evidence_sha256": "3a81e34c0bbcce37514d0ea6bb06d74a0b076b277f7c8357fe785cf48e0ae254"
+    },
+    {
+      "scenario": "topLevelStaticCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-lookup-only",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_pass_required": true,
+        "receipts_revalidated": true,
+        "post_batch_preceded_trigger": true,
+        "no_destination_delivery_required": true,
+        "l2_absence_verified": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "actual_lookup_result_traced": true,
+        "lookup_root_bound": true
+      },
+      "trigger_hashes": [
+        "0x5888f499a63043733ea4bcb37f858d72e6557eab4beca5e749e66db808a5dde3"
+      ],
+      "settlement_hashes": [
+        "0xad74b2553df49dacf1edf712c079ac84f01604cee0dce70e4b350b9022b855a8"
+      ],
+      "evidence_sha256": "85d4a2622352509594bc9c97880a210a2e5173738821d5e93db0014643bb4085"
+    },
+    {
+      "scenario": "topLevelStaticReentrantCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-lookup-only",
+      "trigger_chain": "L1",
+      "claims": {
+        "upstream_pass_required": true,
+        "receipts_revalidated": true,
+        "post_batch_preceded_trigger": true,
+        "no_destination_delivery_required": true,
+        "l2_absence_verified": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "actual_lookup_result_traced": true,
+        "lookup_root_bound": true
+      },
+      "trigger_hashes": [
+        "0x05c6430c2fdbe2855f5a73b1adb367329ba19a2dce102b14dfad471d756b93d4"
+      ],
+      "settlement_hashes": [
+        "0xad74b2553df49dacf1edf712c079ac84f01604cee0dce70e4b350b9022b855a8"
+      ],
+      "evidence_sha256": "f134d031a4c91ee9f0e91a2dca807e0a538698bfd07650395a1d50d8e42e95fc"
+    },
+    {
+      "scenario": "nestedStaticCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0xd10ca9401e371819e91e823f3da49296854b9a31dd13326790c76d1c9f58d5d0"
+      ],
+      "settlement_hashes": [
+        "0xa375ca1c554ec3232a30772b6ce708e7965eacb59cfefdd57a6dd0be2d5fd7bc"
+      ],
+      "evidence_sha256": "027606bc32dacfe03e8f3c1244e2a0fd7bdd139b94dc982f5bcc26ace2b6305a"
+    },
+    {
+      "scenario": "staticCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-static-pool",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_pass_required": true,
+        "receipts_revalidated": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "exact_same_block_static_table_decoded": true,
+        "table_load_preceded_trigger": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "producer_remained_read_only": true
+      },
+      "trigger_hashes": [
+        "0xbe0591c2bf30e89bf5aeac53f2c2b8aa0ee1c20a72f87c7844ce851faef2216c"
+      ],
+      "settlement_hashes": [
+        "0xa375ca1c554ec3232a30772b6ce708e7965eacb59cfefdd57a6dd0be2d5fd7bc"
+      ],
+      "evidence_sha256": "6c5013f892e9a55096ba01c04b282e22a0d75415c9d6a669c6543468c22c88bf"
+    },
+    {
+      "scenario": "staticReadWriteL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0xef9747ccf1fc21a04cd5343f2b3c209e191aff80687f259ab3448864fe3f7c2f"
+      ],
+      "settlement_hashes": [
+        "0xabd01bd049cf5326862b7bf2ff936fb6cf8e10a9fa63d066eed8c6ebfb04cba0"
+      ],
+      "evidence_sha256": "1e9db89d00e6ebc01f0d251c5aa05aeaa00e71a60c899cae8097457d358d249a"
+    },
+    {
+      "scenario": "staticReadX2WriteL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_hashes": [
+        "0x4344e50cbb6cb7e14f529ca7ef56f81b2bff52ea10f16a7ee3963eca4b3f3a56"
+      ],
+      "settlement_hashes": [
+        "0xabd01bd049cf5326862b7bf2ff936fb6cf8e10a9fa63d066eed8c6ebfb04cba0"
+      ],
+      "evidence_sha256": "0c5c370f4a311d183552d2ad4616950bea6e8e5d9f13263a5dcfe8878454f77a"
+    },
+    {
+      "scenario": "topLevelStaticReentrantCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-static-pool",
+      "trigger_chain": "L2",
+      "claims": {
+        "upstream_pass_required": true,
+        "receipts_revalidated": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "exact_same_block_static_table_decoded": true,
+        "table_load_preceded_trigger": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "producer_remained_read_only": true
+      },
+      "trigger_hashes": [
+        "0x73ec5d99da502dbcc591a2887eccc2f1cd190cc174e3ce5f6194c4cf5fcf511f"
+      ],
+      "settlement_hashes": [
+        "0xabd01bd049cf5326862b7bf2ff936fb6cf8e10a9fa63d066eed8c6ebfb04cba0"
+      ],
+      "evidence_sha256": "0bc6c036ae317c4b818fb1221be580266d4ba9f7ced3a3be37ad28a97ffec768"
+    }
+  ],
+  "independent_follower_replay": false,
+  "local_only_evidence": "artifacts/pr-readiness/kurtosis/live/protocol-rpc-corrected/protocol-e2e/summary.json"
+}

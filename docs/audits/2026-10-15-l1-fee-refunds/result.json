@@ -1,0 +1,214 @@
+{
+  "backend_source": "8688d521e1a1037f3a6b49c494ad2f8fac8c7552",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "ui_source": "afd3e3b0910010b6da7cc966ee810e5555135863",
+  "images": {
+    "node": {
+      "tag": "eez-node:l1-fees-20261015",
+      "id": "sha256:d100a10a4eb04f60be5fbc4726a69088743c23148f8233399506f8cdf265d754",
+      "executables": {
+        "eez-composer": "931b476e310c1c72eec93fba2ab241ee1ecff2c586964a0d50a5b671ab7a9b86",
+        "eez-follower": "f8e16eded15ceb7c64d3e83fd5d084cf5084945e53b48c91594a870e74c7910f",
+        "eez-genesis-state-root": "67354b6171a7eef8d75669cbe9da77e461d56044e020195061f1d0510f8f39d6",
+        "eez-genesis-block-hash": "31873e0358bdbcc057a03176aef8104edd8c2e00e1b09d470742704f5414c5c9"
+      }
+    },
+    "signer": {
+      "tag": "eez-proof-signer:l1-fees-20261015",
+      "id": "sha256:9c402ed079cd5d2e43097729519c90ce1394a9c8ea76d1f59ddf05490773ee0b",
+      "executables": {
+        "eez-proof-signer": "412bb907a79ca17b06497933973840701d96942fe7b1606d4aba838e21a9cc93"
+      }
+    },
+    "deploy": {
+      "tag": "eez-deploy:l1-fees-20261015",
+      "id": "sha256:935b50946d0e2a3f5f72d1d93585def5200558d232fd54d9b221995647c4dc73"
+    },
+    "ui": {
+      "tag": "eez-rollup-ui:l1-fees-20261015",
+      "id": "sha256:0df4bf6d584b392a9620a7710de32d5d94613926e063415c4dd3c681d6212e89",
+      "source": "afd3e3b0910010b6da7cc966ee810e5555135863"
+    }
+  },
+  "checks": {
+    "unit_passed": 638,
+    "unit_ignored": 1,
+    "sdk_passed": 6,
+    "chiado_configuration_passed": 19,
+    "fee_safe_process_passed": 13,
+    "policy_process_passed": 9,
+    "fresh_follower_process_passed": 1,
+    "ui_helpers_passed": 8,
+    "ui_fee_browser_scenarios": 32,
+    "ui_bridge_browser_scenarios": 27,
+    "ui_docker_configuration_cases": 7,
+    "clippy": true,
+    "fmt": true
+  },
+  "kurtosis": {
+    "builder_image": "ethpandaops/reth-rbuilder@sha256:916ba84da2690e3e368f57da5b0c73bfd919b452de8b95f64895846e0f3a8308",
+    "refund_sources": [
+      {
+        "name": "nested-0x0",
+        "type": "0x0",
+        "hash": "0xd4051a678cf9eab634c5d3780d2b1e9685d939f43706b36c8e7797417880b925",
+        "postHash": "0x1f4ed38bf44cc13d068ac8134fb8275e7382805caa2962f9cd9121b5c3cc5b3b",
+        "payoutHash": "0x3fa9947b9268ca129149ef3bcbdc1d13b0288e5c8f9b0cb0398fd26c3b70ce6a",
+        "grossUserTipL1": "506596355422472",
+        "receivedRefundL1": "455800076639224",
+        "actualPostingCostL1": "362345475211535",
+        "minimumL1": "362345475211535"
+      },
+      {
+        "name": "nested-0x2",
+        "type": "0x2",
+        "hash": "0x62ba3e7c461cc502c929893722f602cad04d685c302074bb9055b12a3e1bcf31",
+        "postHash": "0xb00d4f2aa3ac85c686bd49a80062d00f81a0b09e0c294ac29ef43daf1a69e3a4",
+        "payoutHash": "0xcd1762e80e324b871fd498c4ac409e095642b39c003b7b84797a8e4111ce4833",
+        "grossUserTipL1": "258150497781176",
+        "receivedRefundL1": "232215579646058",
+        "actualPostingCostL1": "176012983018310",
+        "minimumL1": "176012983018310"
+      },
+      {
+        "name": "safe-create-0x0",
+        "type": "0x0",
+        "hash": "0x1263d17855f723d3aa77ee126044cea26f90498e26f6b44931aeeee9de952a8a",
+        "postHash": "0x674be946f42f281e97a96c94fc74168143eb0b717c46ddf70344529263e5d126",
+        "payoutHash": "0xeed005fd7d11e8745a976c5d7e6168f09be6073e3f01cc0b3a5a42a4ef4bb6c7",
+        "grossUserTipL1": "258968236208948",
+        "receivedRefundL1": "232990859591053",
+        "actualPostingCostL1": "176683141649928",
+        "minimumL1": "176683141649928"
+      },
+      {
+        "name": "safe-create-0x2",
+        "type": "0x2",
+        "hash": "0x7a1bfd571a7c38ecf14cd2e392c5fa455df3bdbd6ea1e19ce55b9ae94f568435",
+        "postHash": "0x09e491de9ac0faba9e0223b36d6df1d532c73ab0649db6f5570dc4940659d0f9",
+        "payoutHash": "0x6d98f1aed58ef644c4827a94a4623df9e3a5e2f45ea7d735c46be40cf5862355",
+        "grossUserTipL1": "508258161394900",
+        "receivedRefundL1": "457361753230410",
+        "actualPostingCostL1": "346134794335997",
+        "minimumL1": "346134794335997"
+      }
+    ],
+    "independent_replay": {
+      "checked_blocks": 114,
+      "checked_derived_blocks": 114,
+      "checked_receipts": 6,
+      "safe_l2_block": 318,
+      "safe_l2_block_hash": "0x5105f55279fd80ea94d5d67f163e10cec4be058b310bad4dc38db6222e07925d",
+      "source": "canonical_l1_only",
+      "verified": true
+    }
+  },
+  "chiado": {
+    "status": "deployed_and_validated",
+    "reopened_at": "2026-10-15T22:30:31.681592+00:00",
+    "refund_percent": 90,
+    "refund_recipient_is_existing_poster": true,
+    "ordinary_l2_settlement_subsidized": true,
+    "refund_sources": [
+      {
+        "name": "nested-0x0",
+        "type": "0x0",
+        "hash": "0x3fba809ea3a2c4253da544ae2a53dd2c896e78d8dfc2b653a0e3f2e5f4cfb615",
+        "postHash": "0x0187582691003ae028638ecdd9853b7cb1ba86c184ffc721c0abad1e3855a3e5",
+        "payoutHash": "0xe04c4c8d241d902e6de27993650a08581e0d584e42484032b27bf53b52b85f55",
+        "grossUserTipL1": "511033335743992",
+        "receivedRefundL1": "459930002022592",
+        "actualPostingCostL1": "365775001642921",
+        "minimumL1": "365775001642921"
+      },
+      {
+        "name": "nested-0x2",
+        "type": "0x2",
+        "hash": "0x26b05bc7c86a3c523f9d725e47a7203de214f51c5752b9d8a5390c92bf3a3673",
+        "postHash": "0x2120d7236a088b2b8162365e80d525188d33e2147ee19ca2b1b8eef7c24a523d",
+        "payoutHash": "0xe1bb14f426fa854e4fa0858bb057f871ee13427df1febdedade81c712a34fa4f",
+        "grossUserTipL1": "431416001877640",
+        "receivedRefundL1": "388274401542876",
+        "actualPostingCostL1": "306062001224930",
+        "minimumL1": "306062001224930"
+      },
+      {
+        "name": "safe-create-0x0",
+        "type": "0x0",
+        "hash": "0x16cb38662faced4bae0060b4df6d8aa2c9b29414b5838d59cbe09c005108e338",
+        "postHash": "0xefebdf4bb61b44ede998da9a4a853b432df7b2d9a6198a179e16677144e533c5",
+        "payoutHash": "0x7d2fcd8a151fc21ebe1bfc00652dd6a7196689b2e0dd7c96eb8be5e5ccd9286a",
+        "grossUserTipL1": "432757335162103",
+        "receivedRefundL1": "389481601498892",
+        "actualPostingCostL1": "307068001231972",
+        "minimumL1": "307068001231972"
+      },
+      {
+        "name": "safe-create-0x2",
+        "type": "0x2",
+        "hash": "0xdcbeb9e715c83f679e3a3a4e219ab94077c88f1b77d209bc7adb1357201ac74d",
+        "postHash": "0x3744e9cf8074cc124b48aa2a1a95bca027236568393b735d8f22c4aba7cf2bae",
+        "payoutHash": "0xf7122f8356625cbc002c47860a9a5fc6d73e25d8ee6dfe8068db156ca8a6af3f",
+        "grossUserTipL1": "682200001779982",
+        "receivedRefundL1": "613980001454983",
+        "actualPostingCostL1": "476650001209523",
+        "minimumL1": "476650001209523"
+      }
+    ],
+    "independent_replay": {
+      "verified": true,
+      "source": "canonical_l1_from_pre_upgrade_checkpoint",
+      "safe_l2_block": 709695,
+      "safe_l2_block_hash": "0xf32bf464c731b126ba6d70012d1b23765866ed7c7ec547e462efa93ee64ef4bd",
+      "state_root": "0x9318e07c76c0f771d3a4942f72a961db0d07481a8df1f83c41017e8b75a14db5",
+      "nested_value": 782,
+      "safe_contracts": [
+        "0x80d094b976e04bce9813e6f116e339479bc68b40",
+        "0xd47acd9f7dde45b1eb7555df6ae9aba71365cdd0"
+      ],
+      "sequencer_rpc_used": false
+    },
+    "public_routes": {
+      "/composer/l1": {
+        "http_status": 200,
+        "chain_id": 10200
+      },
+      "/composer/l2": {
+        "http_status": 200,
+        "chain_id": 906969
+      },
+      "/rpc/l1": {
+        "http_status": 200,
+        "chain_id": 10200
+      },
+      "/rpc/l2": {
+        "http_status": 200,
+        "chain_id": 906969
+      },
+      "reopened_at": "2026-10-15T22:30:31.681592+00:00"
+    },
+    "local_evidence_sha256": {
+      "live-l1-fees.json": "f41ff51cf7598d52c118a8291645f9939efb3cacb508b8fde139ebe34b5a20b5",
+      "live-follower-result.json": "5e3850aef6781ceb9a59835fc70a85934b1daf680187a0ffacf9d00ab6299b10",
+      "qualified-cost-events.json": "299f6a78218f8b7d2c926e5707e461a74d2733f68d14d3c5d02962d5c7c72f7b",
+      "both-fronts-ready.json": "8948aeb2fb73bc4c3090d60cc6b283f883f2865315a147dd3880d9b1f962d4fd",
+      "ui-ready.json": "f1321d9a124ff1892d90ec9c22fe896d06b16bc1b1d201a2cb39957918267e3c",
+      "public-reopened.json": "5472d96a53ca75abdd79d2d05cb3259c7dbf938b8164ff0405976ba42191718e",
+      "queue-before-stop.json": "31f888b00dda9b67b19733800311ccfd721d7f752a3a4ef22cdea507655cb1e4",
+      "chain-before-stop.json": "7ae04e3488c615520a46b8955922ddf23a15704eb9bb3973110c824720b28afa"
+    }
+  },
+  "local_evidence_sha256": {
+    "frozen-fee-process.log": "ba180f337862de023b77a457e585f94989d40245688ddf2fd7164ee048b7ef01",
+    "policy-process.log": "05f65d3785c5a79837a8201d54100d6fa1d57242a396b7898f46d0b03ff262c4",
+    "kurtosis-l1-fees.json": "c215cad8f2abd611eee86e89b58e6ce32e4375e52b8d68f38c029ac500ccd953",
+    "kurtosis-node-complete.log": "297bc212bcad474d74c0631252b40ae1e33668c3638175dd79f52becd702e0ad",
+    "qualified-cost-events.json": "b3700c4265df6c0d8cc67282946d5146c0eed1f72982422986cd91a70737f038",
+    "complete-replay-evidence.json": "0ee4ba7ef9fc697846e6dc94a93486984dc390265bce4b1d4a83866b59b88fb7",
+    "kurtosis-replay.log": "cf1ecfc13975fb5d8f4612956e35b2a4cb807a9fb6da001a48dded61e58b921a",
+    "kurtosis-replay-corrected.log": "7e7a654a47c3d4e519817de1738d03bff361602b311db82ed6802029dc68acd3",
+    "ui-browser-fees-runtime.log": "380c4ece83d3c783dee5a0d6ce4e739603692488ee7e2fb0fd452271f46b22f7",
+    "ui-browser-bridge.log": "d1fbfead7ddd4a6239189eefa6ebbb9e1a1dd1517a5034401b0328adb7b4553f",
+    "images.json": "67cca48c398b055a64951b7a6297c1d76c4987799f0985a39f13af83968e5cfe"
+  }
+}

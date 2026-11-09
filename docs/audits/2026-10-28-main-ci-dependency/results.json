@@ -1,0 +1,150 @@
+{
+  "advisory": "RUSTSEC-2026-0414",
+  "advisory_db_after": "40f5be6fb12ed93fc591bf4ab23b7d793b3f2239",
+  "advisory_db_before": "99670cfc0bc574433034b75876a4b791ccaa2efb",
+  "baseline_commit": "b832ad6a4764c9796eb61f86dcd6a29d85f72c77",
+  "cargo_audit": "0.22.2",
+  "cargo_deny": "0.19.8",
+  "checks": {
+    "audit-after": {
+      "exit": 0
+    },
+    "audit-before": {
+      "exit": 1
+    },
+    "audit-old-db-before": {
+      "exit": 0
+    },
+    "control-rpc-after": {
+      "exit": 0
+    },
+    "control-rpc-before": {
+      "exit": 0
+    },
+    "control-rpc-check-after": {
+      "exit": 0
+    },
+    "control-rpc-clippy": {
+      "exit": 0
+    },
+    "deny-after": {
+      "exit": 0
+    },
+    "deny-before": {
+      "exit": 1
+    },
+    "fmt": {
+      "exit": 0
+    }
+  },
+  "evidence_sha256": {
+    "advisory-history.json": "628326a458d25ee4b03d63780dff8d9b0654e39ff603343dbef016bf69bbd496",
+    "audit-after.json": "484a58492ffc594a2596144ba664c40ae552ea31d083a98da6236a5e41050545",
+    "audit-after.stderr": "5de142ea7cd3d170021af079382014a1643b80a414954aee263dab33459f5b56",
+    "audit-before.json": "ce0a356e31e4c94520bb186bb261a41c36373721ff917505172d3e5b41b7ad36",
+    "audit-before.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "audit-old-db-before.json": "22ccc2e814f32bb9bc5bccf9811cc945280b6b2cd723c6341ba6db8f0f8b8438",
+    "audit-old-db-before.stderr": "c52556e574dc3abe2f1941c309fa9e27a734292cf77cf9added61b6b8ae89e95",
+    "control-rpc-after.log": "8dbaaf7b1a67c49d0a224fc2050a121bf9d55d0ae9477ebc7b6ff4c05637b081",
+    "control-rpc-before.log": "9872ac169db620d95c7cf236492e6c320fb22b73990b81dc9d446235d03197f6",
+    "control-rpc-check-after.log": "9415245b64e360b402b496f2d3fb417b8436f0e5f9ba368a91f6c21e65a9c3c7",
+    "control-rpc-clippy.log": "af9fae949cfba77d722e63cc003213025e784f09c719860507ab2401887594e5",
+    "deny-after-option-error.log": "539a604b98aacc9370d32ebc6a15c99416989d3b690a06554d00ddaee404a777",
+    "deny-after.jsonl": "f087d5fc6f7c2fe3bea5302d0c90f637b8210d737ce9bdb9006dbac9e883fd2b",
+    "deny-before.jsonl": "0036592aaec00523e6849fe1bd3819675fb276e5fa0ff1c0a24d9422662b1e61",
+    "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "generated-comparison.json": "612204d55ce5c511170e2bbe9deb14d19df012ef80cfc353fe6bf66f16590b1d",
+    "lock-digests.json": "9ea94d3b0afe25d207b0fa8d3b63cf9ffa119dd19f998d490f4cc8b1794f6959",
+    "main-lint-122719326039.log": "4f7c661248412fb8ee69c5009fd4bbce88d6e3028c619f689e1872386b2b8a3a",
+    "metadata-after.json": "495a91e0f66bfce02b84599fb8288398ebb5facc066e0c8a9ea7285b6bd1aa52",
+    "metadata-before.json": "e0fa9fc977002661fa1543233b883cc8620e44a935f4cfede10eec0ce60c7845",
+    "pr115-jobs.json": "f4b16b443fe269e918a6ec7c353aaa82ca738b0e972c9dd38a15128cc658f648",
+    "pr115-lint-122570787960.log": "ea452ccb66456fe90db89796bea6b51e68bdee008c9436ee020f556aa07dd66e",
+    "pr115.json": "4a082dcda1a78936acac0330ee4bf650cd9ef85a27e6f79908d7fd5a1a8d4129",
+    "pr116-jobs.json": "3e63691170fd7015864e2ef1058564c8568e7a10d10fbd845f3652e764b8a0d1",
+    "pr116-lint-122617986067.log": "d5fc17390322721c3e0a66d31e1f0a117774ef4da3169d94a913fa3d0d6c22c1",
+    "pr116.json": "075fa3a8b733c92a752b677f58374fdeb598b61864277e54da108bc366789def",
+    "prove.v2.after.rs": "d69840cb22b68e83cb7250a566a58599c4d6b269ac301fb0505e4101ddeea966",
+    "prove.v2.before.rs": "d69840cb22b68e83cb7250a566a58599c4d6b269ac301fb0505e4101ddeea966",
+    "pulldown-cmark-index.jsonl": "1e298611ce14f2976624f0c15a0525e46b79adedb585f84398651f32ba56d7f9",
+    "update-pulldown-cmark.log": "51251206cdbb01756ef29d935c3b38313c6bca9c672cf80038a65e7e67c3e129",
+    "wikilink-repro-results.json": "290e9a8c0e58f2dbb79a5046f357baa0fc22df53a0de7a317d304a83d3424dfd",
+    "wikilink-repro.rs": "c892fb9e23c6ee928ae8c9240b1c75a8f48fd407fb18d545ab97f95b07011f90"
+  },
+  "generated_rpc_sha256": "d69840cb22b68e83cb7250a566a58599c4d6b269ac301fb0505e4101ddeea966",
+  "local_evidence_directory": "artifacts/ci-investigation (ignored; local only)",
+  "lock_digests": {
+    "after": {
+      "keccak256": "0x42edf14379282d6a1070d24e75543124c42ade981975e5aeea4a2cb2baac7ce6",
+      "sha256": "4a7f66b942eaef7e9f5c959cde7a7de23a6a01caa165206a6e6e1b5cebd26350"
+    },
+    "before": {
+      "keccak256": "0x730fe310ae5eef1360d2e065775505a533b2e66d7b83fcf4b80b115c9f5eff85",
+      "sha256": "6d2430d0f78b851f367df8afded52a0c8ee59e046bfbfaa2211d4d865b5df7e1"
+    }
+  },
+  "lock_package_changes": [
+    {
+      "after": {
+        "checksum": "278e9268c93b9e498a2da46c34d90ba93a3255eb99009646398f34bc73ab36eb",
+        "dependencies": [
+          "bitflags",
+          "memchr",
+          "unicase"
+        ],
+        "name": "pulldown-cmark",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "version": "0.13.5"
+      },
+      "before": {
+        "checksum": "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e",
+        "dependencies": [
+          "bitflags",
+          "memchr",
+          "unicase"
+        ],
+        "name": "pulldown-cmark",
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "version": "0.13.4"
+      }
+    }
+  ],
+  "profile_overrides": {
+    "CARGO_BUILD_JOBS": "1",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0"
+  },
+  "protoc": "libprotoc 3.21.12",
+  "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "resolved_graph_unchanged_except_pulldown_version": true,
+  "rust": "1.95.0",
+  "unit_test_executable_sha256": {
+    "eez_control_rpc-20c23f687dc9ef0d": "e08cc6c11426a564b33e9d13bd783869cdc645e335d1f3f52e5f941c0b0b9194",
+    "eez_control_rpc-765e4d99bd8e3e5e": "11b5d812ab9f7f29b744559015a662f92ae90cfcc491817e043867ad199bfcaf"
+  },
+  "validation_version": 6,
+  "wikilink_reproduction": {
+    "0.13.4": {
+      "binary_sha256": "b3f1314044ea3caea28cf7656340989e007e23efe4104515faad802137d2f6d9",
+      "events": {
+        "1": 6,
+        "10": 5116,
+        "16": 327676,
+        "2": 16,
+        "3": 36
+      },
+      "library_sha256": "50af5c964216b1ef8c2e6a85e1d97b94cf5dee1615f8b9fe30bdd476e14b824a"
+    },
+    "0.13.5": {
+      "binary_sha256": "cf5cb8703c0080831b3df73f1f5a0b8f78e25ca858dd45b867e2e888091ebcbe",
+      "events": {
+        "1": 5,
+        "10": 41,
+        "16": 65,
+        "2": 9,
+        "3": 13
+      },
+      "library_sha256": "8e1c2a5af3d3d36e85fabce74bf3e999bb67e3d189a4e0b4a093662ca9179715"
+    }
+  }
+}

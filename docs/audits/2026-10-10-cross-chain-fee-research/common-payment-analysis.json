@@ -1,0 +1,191 @@
+{
+  "checked_at_utc": "2026-10-10T15:45:11.333640+00:00",
+  "scope": "Integer arithmetic model only; synthetic inputs, no live quote, EVM execution, builder simulation or inclusion experiment.",
+  "source_commit": "fa916b13254a36423cad130080dde367bb18a7d6",
+  "protocol_gitlink": "855fe0602484750861b4c31502a1a91355d33ed6",
+  "assumptions": {
+    "users": 10,
+    "refund_percent": 90,
+    "maximum_documented_percent": 99,
+    "net_refund_formula": "floor(selected_external_tips * percent / 100) - payout_cost",
+    "required_batch_receipt_wei": "6000000000000000",
+    "payout_cost_per_independent_settlement_wei": "100000000000000",
+    "non_anchor_inclusion_tip_wei": "20000000000000",
+    "fixed_service_cost_per_post_wei": "3000000000000000",
+    "marginal_service_cost_per_user_wei": "250000000000000",
+    "total_target_profit_wei": "500000000000000",
+    "source_base_fees": "Excluded from comparison; users pay them separately.",
+    "payout_cost": "Illustrative independent-settlement overhead; no assumed same-block transfer coalescing.",
+    "builder_retained": "Positive retained revenue is not proof of a competitive bid or actual acceptance."
+  },
+  "cases": [
+    {
+      "name": "equal_tips_pooled_refund",
+      "source_tips_wei": [
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000"
+      ],
+      "refundable_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "total_user_tips_wei": "10000000000000000",
+      "refundable_tips_wei": "10000000000000000",
+      "net_refund_wei": "8900000000000000",
+      "required_receipt_wei": "6000000000000000",
+      "coverage_passes": true,
+      "builder_retained_before_validator_bid_wei": "1000000000000000"
+    },
+    {
+      "name": "equal_tips_one_source_refund",
+      "source_tips_wei": [
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000",
+        "1000000000000000"
+      ],
+      "refundable_indices": [
+        9
+      ],
+      "total_user_tips_wei": "10000000000000000",
+      "refundable_tips_wei": "1000000000000000",
+      "net_refund_wei": "800000000000000",
+      "required_receipt_wei": "6000000000000000",
+      "coverage_passes": false,
+      "builder_retained_before_validator_bid_wei": "9100000000000000"
+    },
+    {
+      "name": "quoted_pooled_refund",
+      "source_tips_wei": [
+        "677777777777778",
+        "677777777777778",
+        "677777777777778",
+        "677777777777778",
+        "677777777777778",
+        "677777777777778",
+        "677777777777778",
+        "677777777777778",
+        "677777777777778",
+        "677777777777778"
+      ],
+      "refundable_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "total_user_tips_wei": "6777777777777780",
+      "refundable_tips_wei": "6777777777777780",
+      "net_refund_wei": "6000000000000002",
+      "required_receipt_wei": "6000000000000000",
+      "coverage_passes": true,
+      "builder_retained_before_validator_bid_wei": "677777777777778"
+    },
+    {
+      "name": "concentrated_payer_shared_post",
+      "source_tips_wei": [
+        "20000000000000",
+        "20000000000000",
+        "20000000000000",
+        "20000000000000",
+        "20000000000000",
+        "20000000000000",
+        "20000000000000",
+        "20000000000000",
+        "20000000000000",
+        "6777777777777778"
+      ],
+      "refundable_indices": [
+        9
+      ],
+      "total_user_tips_wei": "6957777777777778",
+      "refundable_tips_wei": "6777777777777778",
+      "net_refund_wei": "6000000000000000",
+      "required_receipt_wei": "6000000000000000",
+      "coverage_passes": true,
+      "builder_retained_before_validator_bid_wei": "857777777777778"
+    },
+    {
+      "name": "all_users_charged_full_anchor_amount",
+      "source_tips_wei": [
+        "6777777777777778",
+        "6777777777777778",
+        "6777777777777778",
+        "6777777777777778",
+        "6777777777777778",
+        "6777777777777778",
+        "6777777777777778",
+        "6777777777777778",
+        "6777777777777778",
+        "6777777777777778"
+      ],
+      "refundable_indices": [
+        9
+      ],
+      "total_user_tips_wei": "67777777777777780",
+      "refundable_tips_wei": "6777777777777778",
+      "net_refund_wei": "6000000000000000",
+      "required_receipt_wei": "6000000000000000",
+      "coverage_passes": true,
+      "builder_retained_before_validator_bid_wei": "61677777777777780"
+    }
+  ],
+  "separate_post_model": {
+    "posts": 10,
+    "net_receipt_per_post_wei": "3300000000000000",
+    "tip_per_user_wei": "3777777777777778",
+    "total_required_receipt_wei": "33000000000000000",
+    "total_user_tips_wei": "37777777777777780",
+    "notes": "Each independently posted whole request has its own fixed cost, proof/blob settlement and payout. This does not place ten dependent posts in one block or split replay groups."
+  },
+  "own_funded_anchor_control": {
+    "operator_tip_wei": "10000000000000000",
+    "refund_to_operator_wei": "8900000000000000",
+    "operator_net_before_posting_and_operations_wei": "-1100000000000000",
+    "claim": "A refund of an operator-funded anchor consumes operator funds; other user tips do not become refundable income."
+  },
+  "checks": [
+    "equal shared tips fund pooled refund but not a single-source refund",
+    "99 percent does not repair the insufficient single-source base",
+    "ceil quotes satisfy target and one-wei lower fails for concentrated anchor and separate post",
+    "equal pooled quote is minimal at the common per-user wei granularity",
+    "external-tip conservation holds for every shared-post scenario",
+    "same aggregate target profit in shared and separate-post cost model",
+    "self-funded refund anchor is a net outflow before posting costs"
+  ],
+  "limitations": [
+    "No builder response or actual payout was tested.",
+    "Provider deduction order and rounding must be separately qualified.",
+    "No fair shared-cost claim for concentrated payer.",
+    "Existing signed fee fields cannot be changed by routing to another builder.",
+    "No guaranteed inclusion, block-level atomicity or absence of operating losses."
+  ]
+}

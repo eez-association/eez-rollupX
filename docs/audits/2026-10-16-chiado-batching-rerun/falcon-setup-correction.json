@@ -1,0 +1,15 @@
+{
+  "reason": "Speculative setup receipt followed by several latest-state reads crossed canonical reconciliation.",
+  "failedAt": 1792151266034,
+  "sourcesSigned": 0,
+  "all20SetupTransactionsCanonical": true,
+  "fundedGasAccountsReused": 10,
+  "remainingGasAccountsToFund": 6,
+  "freshFalconKeysAndControllers": 16,
+  "correction": "Wait for canonical L2 setup receipts and bind each controller state assertion to its receipt block.",
+  "runtimeChanged": false,
+  "beforeHarnessSha256": "c01f8c070b6102d350f751161103be3e833967aab077476720ae2df2cab89811",
+  "afterHarnessSha256": "f05a3157b2f9a74bc061445f954079cc8f5cdfcee6a622377898908462c8f0b1",
+  "setupStaging": "Canonical funding barrier, then canonical controller barrier with fixed receipt-block assertions.",
+  "secondPreparatoryRunIntentionallyStoppedBeforeSources": true
+}

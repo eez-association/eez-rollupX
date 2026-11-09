@@ -1,0 +1,457 @@
+{
+  "status": "local validation passed; exact release-artifact CI remains the merge gate; no deployment",
+  "date": "2026-10-17",
+  "repository": "eez-association/eez-rollupX",
+  "pr": 91,
+  "baseline": "b5b34b8bcc8e8e50d639e6bc2dd4cb89bfcd47d8",
+  "pr_base": "2c19e36bed2720c00f89841ccfca47ec7c921e06",
+  "implementation": "5eed3e00ca77a2bcdb9d65f3996058224b102613",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "environment": {
+    "rust": "1.95.0",
+    "foundry": "1.7.1",
+    "llvm": "22",
+    "cargo_locked": true,
+    "profile": "local debug runtime and harness builds; exact shipping feature/artifact qualification remains in CI",
+    "initial_build_jobs": 2,
+    "harness_retry_jobs": 1,
+    "process_test_threads": 1,
+    "prebuilt_overrides_cleared": [
+      "EEZ_TEST_PREBUILT",
+      "EEZ_TEST_RUNTIME_BIN_DIR",
+      "EEZ_TEST_PROOF_SIGNER_BIN"
+    ],
+    "direct_harness_toolchain": {
+      "RUSTUP_TOOLCHAIN": "1.95.0",
+      "CARGO": "1.95.0 absolute executable",
+      "RUSTC": "1.95.0 absolute executable"
+    }
+  },
+  "checks": [
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-composer -p eez-node -p eez-l1 --lib",
+      "result": "pass with local TCP available",
+      "passed": 661,
+      "ignored": 1,
+      "packages": {
+        "eez-composer": 378,
+        "eez-l1": 193,
+        "eez-node": 90
+      },
+      "ignored_reason": "existing manual profiling test",
+      "log": "unit-with-loopback.log",
+      "source_note": "Only subsequent Rust edit changed one test empty-string construction to String::new(); runtime code unchanged."
+    },
+    {
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+      "result": "pass",
+      "log": "clippy.log"
+    },
+    {
+      "command": "cargo +1.95.0 fmt --all --check",
+      "result": "pass",
+      "log": "fmt.log"
+    },
+    {
+      "command": "node sdk/l2-fees.test.mjs",
+      "result": "pass",
+      "passed": 6,
+      "evidence": "command output in task transcript; no separate raw log retained"
+    },
+    {
+      "command": "python3 -m unittest discover -s scripts/ci/tests -p 'test_chiado_config.py' -v",
+      "result": "pass",
+      "passed": 18,
+      "log": "chiado-config.log"
+    },
+    {
+      "command": "python3 -m unittest discover -s scripts/ci/tests -p 'test_kurtosis_ci.py' -v",
+      "result": "pass with exclusions",
+      "passed": 18,
+      "skipped": 2,
+      "log": "kurtosis-config.log"
+    },
+    {
+      "command": "python3 scripts/check-settlement-policy-config.py",
+      "result": "pass; Chiado, Ethereum and Kurtosis profiles",
+      "log": "compose-profiles.log"
+    },
+    {
+      "command": "python3 -m unittest discover -s scripts/ci/tests -v",
+      "result": "pass with exclusions",
+      "selected": 374,
+      "passed": 366,
+      "skipped": 8,
+      "log": "tooling.log"
+    },
+    {
+      "command": "PATH=<pinned-gitleaks-directory>:$PATH python3 -m unittest discover -s scripts/ci/tests -p 'test_secret_scan.py' -v",
+      "result": "pass; two earlier missing-tool skips exercised",
+      "passed": 2,
+      "log": "secret-scan-tests.log"
+    },
+    {
+      "command": "gitleaks git . --config .gitleaks.toml --log-opts=\"--all -m\" --redact=100 --ignore-gitleaks-allow --gitleaks-ignore-path /dev/null",
+      "result": "pass through implementation commit",
+      "commits": 769,
+      "log": "gitleaks.log"
+    },
+    {
+      "command": "forge build --root contracts",
+      "result": "pass; pre-existing lint warnings",
+      "log": "contracts.log"
+    },
+    {
+      "command": "cargo +1.95.0 build --locked -p eez-node -p eez-follower -p eez-proof-signer --bins",
+      "result": "pass",
+      "log": "runtime-build.log"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e --no-run",
+      "result": "pass with one Cargo job",
+      "first_attempt": "OOM before process tests; kernel confirmed rustc anonymous RSS 11551768 KiB",
+      "first_log": "process-build-oom.log",
+      "log": "process-build.log",
+      "elapsed_seconds": 1075
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- fee_quotes:: --test-threads=1",
+      "result": "pass",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_out": 141,
+      "elapsed_seconds_including_signer_build": 1133.48,
+      "log": "native-fees.log",
+      "tests": [
+        "fee_quotes::compact_nested_eip1559_estimates_both_types_settles_and_replays",
+        "fee_quotes::compact_nested_legacy_estimates_both_types_settles_and_replays",
+        "fee_quotes::compact_ordinary_calls_boundaries_and_fee_sensitive_rejection",
+        "fee_quotes::enforced_nested_quote_rejects_underpayment_and_replays",
+        "fee_quotes::exact_quote_with_caught_nested_revert_is_admitted_and_replayed",
+        "fee_quotes::external_posting_price_shift_rejects_old_quote_with_measured_shortfall",
+        "fee_quotes::l1_refund_quote_eip1559_continues_after_missing_payment",
+        "fee_quotes::l1_refund_quote_legacy_continues_after_missing_payment",
+        "fee_quotes::legacy_rpc_quote_rejects_underpayment_settles_and_replays",
+        "fee_quotes::omitted_l1_nonces_replay_nested_predecessors_without_reserving",
+        "fee_quotes::queued_l1_nonces_replay_nested_predecessors_and_reject_underpayment",
+        "fee_quotes::simplified_five_percent_legacy_payment_settles_below_twenty_percent_quote",
+        "fee_quotes::simplified_one_percent_eip1559_payment_settles_below_twenty_percent_quote",
+        "fee_quotes::unsigned_nested_quote_matches_receipt_and_replays",
+        "safe_fee_quotes::entirely_l2_safe_keeps_ordinary_gas_rules",
+        "safe_fee_quotes::gnosis_safe_factory_nested_initialization_is_funded_and_replays",
+        "safe_fee_quotes::safe_factory_nested_initialization_is_funded_and_replays"
+      ]
+    },
+    {
+      "command": "$CARGO_TARGET_DIR/debug/deps/node_e2e-1e3ad82bc8bdefb9 cross_chain::outbound_nested_contract_to_contract_to_proxy_preserves_source_attribution --exact --test-threads=1",
+      "result": "pass with SHA256-verified source-built harness and explicit Rust 1.95.0 compiler pin",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_out": 157,
+      "elapsed_seconds_including_signer_build": 207.6,
+      "log": "native-attribution.log"
+    },
+    {
+      "command": "git diff --check; relative Markdown path resolution; bash -n on Bash/sh fenced examples",
+      "result": "pass with final evidence links",
+      "relative_paths": 143,
+      "shell_fences": 18
+    }
+  ],
+  "tooling_aggregate": {
+    "passed": 368,
+    "remaining_opt_in_skips": 6,
+    "exclusions": [
+      "scratch Docker payload copy-out",
+      "two live Kurtosis resource/readiness probes",
+      "tiny-workspace native artifact relocation",
+      "two real Docker runtime fixture probes"
+    ]
+  },
+  "first_failures": [
+    {
+      "log": "chiado-config-first.log",
+      "cause": "example edit removed a required fee recipient line",
+      "resolution": "restored the line; same 18 tests passed"
+    },
+    {
+      "log": "composer-first.log",
+      "cause": "new unit fixture moved config before later borrow",
+      "resolution": "clone fixture config; affected unit suite passed"
+    },
+    {
+      "log": "unit.log",
+      "cause": "sandbox denied TCP loopback servers in 22 L1 tests",
+      "resolution": "reran the same suite with loopback permission; all 661 passed"
+    },
+    {
+      "log": "clippy-first.log",
+      "cause": "new test used empty-string conversion",
+      "resolution": "use String::new(); workspace Clippy passed"
+    },
+    {
+      "log": "process-build-oom.log",
+      "cause": "host OOM killed rustc with two Cargo jobs",
+      "resolution": "one-job harness retry passed; all 18 selected process tests subsequently passed"
+    }
+  ],
+  "live_changes": {
+    "deployed": false,
+    "operator_configuration_changed": false,
+    "services_restarted": false,
+    "after_oom_services_running": true,
+    "requested_refund_percent": 90,
+    "profit_bps": 2000,
+    "risk_bps": 0
+  },
+  "artifact_availability": "Raw logs and datadirs are local only; digests do not make them retrievable from another checkout.",
+  "native_artifact_path": "artifacts/fee-config-native-20261017.2atap0a2 in the operator checkout",
+  "limits": [
+    "No current CI release-artifact or live Kurtosis qualification claimed",
+    "No new Chiado/Falcon/stress or builder payout qualification",
+    "No performance claim",
+    "In-memory accepted work still needs drain/resubmission across restart",
+    "Old binaries ignore new fee settings; binary and config rollback must be paired"
+  ],
+  "logs": [
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/attribution-cargo-rebuild-interrupted.log",
+      "sha256": "c1034f458b9e97d9b472678cf7b378244094e99c077d27bae7d475890cedad90",
+      "bytes": 1841
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/attribution-toolchain-setup-interrupted.log",
+      "sha256": "9ed39034e67cf67ff62a2928f7f7e39e17ac5c96472d46ab31a54e2d0d68a482",
+      "bytes": 1233
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/chiado-config-first.log",
+      "sha256": "8ada5e29f2973aa87656bf6f7aee649bd5e3ced895564fd047138c8baf41dc97",
+      "bytes": 206813
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/chiado-config.log",
+      "sha256": "eb6cc6858ca0b6ea389db41d3ff788604cd29ced493be3516ec344736d59de0d",
+      "bytes": 2845
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/clippy-first.log",
+      "sha256": "d81bf51a2aea84de02eedfe8e089afa93fb33e31f2b3a3bacacb4738b2c71395",
+      "bytes": 2523
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/clippy.log",
+      "sha256": "155cf823b010e96b07f5a3aa89741ad4a1cfc6e362479c836f9d0c95fc0afaa9",
+      "bytes": 678
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/compose-profiles.log",
+      "sha256": "222753303f6808349cdaced42dea80b19b22024b81d353a5634662b3653e430a",
+      "bytes": 136
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/composer-first.log",
+      "sha256": "51024f16e7151bc850fdc24043465775075da8f296b956b88bf68e8415a4dc22",
+      "bytes": 5812
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/contracts.log",
+      "sha256": "ac7b1f9ad75d7755daf1a3091c50dd3479edb27464a771e65c283619c9d1b55f",
+      "bytes": 4138
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/diff-check.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/gitleaks.log",
+      "sha256": "8668e8f08047edce4d86260081055b7a8f99df8830190fb13da0032245f2d710",
+      "bytes": 181
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/kurtosis-config.log",
+      "sha256": "8c73c10555fac3ce6a42933ffdd8273bc0e09b156dd593c7f9802c7c0da48ce7",
+      "bytes": 3545
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/native-attribution.log",
+      "sha256": "8bac9046112f7a87c492172b1356767107447314b190d860a824a77a1b13493f",
+      "bytes": 4859
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/native-fees.log",
+      "sha256": "fc1e86e7a7f5beeef1e9b3e40c0cdb3ab2617ba714a7468dc07675c2b058866b",
+      "bytes": 8504
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/process-build-oom.log",
+      "sha256": "4e6d8b0244ce1356dbbcac4eab26281004c27f148c139901a3de4e1a3d11e169",
+      "bytes": 12179
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/process-build.log",
+      "sha256": "c5e653399e0ba9e1158f803c62c19c3c32d5537c6d8ea216024d922a0b1f6f92",
+      "bytes": 433
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/runtime-build.log",
+      "sha256": "cb212fe2c93e27ed58134e1dbadf8d8319af921c616b549fbe27d79257c9807a",
+      "bytes": 4643
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/secret-scan-tests.log",
+      "sha256": "c5d299a054b30e4f3bf8cb34a89e9f11ea31f3386096ce5651c4380a40226cdf",
+      "bytes": 480
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/tooling.log",
+      "sha256": "06b32795a80e336f1ed6f2ca4cc673009ad6e0fbf116fe0b3e895f823d572c73",
+      "bytes": 63782
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/unit-with-loopback.log",
+      "sha256": "c59d43c1579f366cf8f00914384edb4f842a899549c16f7e8500ad88bd53a742",
+      "bytes": 63190
+    },
+    {
+      "path": "artifacts/fee-config-cleanup-20261017/unit.log",
+      "sha256": "a432f6c04996bd4d3dc7d47c4a02f600c1e4048ec5dff4a0dd87d231e1dd0b47",
+      "bytes": 67067
+    }
+  ],
+  "setup_interruptions": [
+    {
+      "log": "attribution-cargo-rebuild-interrupted.log",
+      "reason": "Stopped redundant dependency rebuild after fee/Safe suite; reused its unchanged SHA256-verified source-built harness directly."
+    },
+    {
+      "log": "attribution-toolchain-setup-interrupted.log",
+      "reason": "Direct invocation pinned Cargo but omitted the rustup/compiler pin; host default was Rust 1.96.1. Stopped during signer setup and reran with Cargo, rustc and RUSTUP_TOOLCHAIN explicitly pinned to 1.95.0. No completed transaction-test result from the interrupted setup."
+    }
+  ],
+  "initial_runtime_build_binaries": [
+    {
+      "name": "eez-composer",
+      "sha256": "6d6276132cab71db5ea32925c88a89628f72bfbbe24657d31f1223c38c74cdfe",
+      "bytes": 852492264
+    },
+    {
+      "name": "eez-follower",
+      "sha256": "c3aa1203529c69722fa2b81b7125f0204281add6d0df30adc7128aec6debef6e",
+      "bytes": 711880912
+    },
+    {
+      "name": "eez-proof-signer",
+      "sha256": "1adf763b4e49552b1c4f8e515c80db00bf533f5165ab4590cd35a839a44d102c",
+      "bytes": 480786160
+    }
+  ],
+  "process_start_binaries": [
+    {
+      "name": "eez-composer",
+      "sha256": "957e24cd00fc5150b3c91349da00fbc79c18b8aa4316c89050bd1389e217ae76",
+      "bytes": 852469968
+    },
+    {
+      "name": "eez-follower",
+      "sha256": "9fc1a18fc505f1cc54568b35db5d2c55010b5165eb6ecc18e03ba9bf04af13ae",
+      "bytes": 711864624
+    },
+    {
+      "name": "eez-proof-signer",
+      "sha256": "1adf763b4e49552b1c4f8e515c80db00bf533f5165ab4590cd35a839a44d102c",
+      "bytes": 480786160
+    },
+    {
+      "name": "node_e2e-1e3ad82bc8bdefb9",
+      "sha256": "d523ade4a30d48fce18d04c5a44f2a147882ccd7083278623fb8e38afe2e2232",
+      "bytes": 606104744
+    }
+  ],
+  "fee_suite_binaries": [
+    {
+      "name": "eez-composer",
+      "sha256": "957e24cd00fc5150b3c91349da00fbc79c18b8aa4316c89050bd1389e217ae76",
+      "bytes": 852469968,
+      "modified_utc": "2026-10-17T11:18:08.304203+00:00"
+    },
+    {
+      "name": "eez-follower",
+      "sha256": "9fc1a18fc505f1cc54568b35db5d2c55010b5165eb6ecc18e03ba9bf04af13ae",
+      "bytes": 711864624,
+      "modified_utc": "2026-10-17T11:18:10.373199+00:00"
+    },
+    {
+      "name": "eez-proof-signer",
+      "sha256": "ebf28164c5bebf24058a6f69cd710d6709bc013cc6062392d77882dacc7d23e6",
+      "bytes": 480735024,
+      "modified_utc": "2026-10-17T11:23:10.751607+00:00"
+    },
+    {
+      "name": "node_e2e-1e3ad82bc8bdefb9",
+      "sha256": "d523ade4a30d48fce18d04c5a44f2a147882ccd7083278623fb8e38afe2e2232",
+      "bytes": 606104744,
+      "modified_utc": "2026-10-17T11:18:06.043207+00:00"
+    }
+  ],
+  "final_attribution_binaries": [
+    {
+      "name": "eez-composer",
+      "sha256": "957e24cd00fc5150b3c91349da00fbc79c18b8aa4316c89050bd1389e217ae76",
+      "bytes": 852469968,
+      "modified_utc": "2026-10-17T11:18:08.304203+00:00"
+    },
+    {
+      "name": "eez-follower",
+      "sha256": "9fc1a18fc505f1cc54568b35db5d2c55010b5165eb6ecc18e03ba9bf04af13ae",
+      "bytes": 711864624,
+      "modified_utc": "2026-10-17T11:18:10.373199+00:00"
+    },
+    {
+      "name": "eez-proof-signer",
+      "sha256": "ebf28164c5bebf24058a6f69cd710d6709bc013cc6062392d77882dacc7d23e6",
+      "bytes": 480735024,
+      "modified_utc": "2026-10-17T11:42:42.464265+00:00"
+    },
+    {
+      "name": "node_e2e-1e3ad82bc8bdefb9",
+      "sha256": "d523ade4a30d48fce18d04c5a44f2a147882ccd7083278623fb8e38afe2e2232",
+      "bytes": 606104744,
+      "modified_utc": "2026-10-17T11:18:06.043207+00:00"
+    }
+  ],
+  "runtime_settings_observed": [
+    {
+      "l1_to_l2_enabled": false,
+      "l2_to_l1_enabled": false,
+      "pricing_configured": true,
+      "refund_percent": "None"
+    },
+    {
+      "l1_to_l2_enabled": false,
+      "l2_to_l1_enabled": true,
+      "pricing_configured": true,
+      "refund_percent": "None"
+    },
+    {
+      "l1_to_l2_enabled": true,
+      "l2_to_l1_enabled": true,
+      "pricing_configured": true,
+      "refund_percent": "Some(90)"
+    },
+    {
+      "l1_to_l2_enabled": true,
+      "l2_to_l1_enabled": false,
+      "pricing_configured": true,
+      "refund_percent": "Some(90)"
+    }
+  ]
+}

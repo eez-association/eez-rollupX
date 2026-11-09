@@ -12,16 +12,19 @@ const TEST_ATTESTER_KEY: &str = "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8
 const PREFIXED_TEST_ATTESTER_KEY: &str =
     "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 const TEST_ATTESTER_ADDRESS: &str = "70997970c51812dc3A010C7d01b50e0d17dc79C8";
-// Deterministic deployment identity used only by configuration tests.
-const TEST_SYSTEM_KEY: &str = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+// Public Anvil account #0 exercises a second ordinary attester identity.
+const OTHER_ATTESTER_KEY: &str = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const TEST_PROOF_SYSTEM: &str = "00000000000000000000000000000000000000aa";
 
 /// Parse a normal valid baseline while keeping each test focused on the option
 /// it varies. Tests for mandatory options use `parse_exact_args` directly.
 fn parse_args<const N: usize>(args: [&str; N]) -> Result<Args, clap::Error> {
     let mut args = args.to_vec();
-    if !args.contains(&"--l1-rpc-url") {
-        args.extend(["--l1-rpc-url", "http://127.0.0.1:8545"]);
+    if !args.contains(&"--manager-address") {
+        args.extend([
+            "--manager-address",
+            "0x3333333333333333333333333333333333333333",
+        ]);
     }
     if !args.contains(&"--registry-address") {
         args.extend([
@@ -247,8 +250,8 @@ fn rollup_id_uses_environment_fallback_with_cli_precedence() {
                 "eez-proof-signer",
                 "--l1-chain-config",
                 "mainnet",
-                "--l1-rpc-url",
-                "https://example.invalid/rpc",
+                "--manager-address",
+                "0x4444444444444444444444444444444444444444",
                 "--registry-address",
                 "0x2222222222222222222222222222222222222222",
                 "--chain-config",
@@ -276,20 +279,14 @@ fn rollup_id_uses_environment_fallback_with_cli_precedence() {
                 let args = parsed.unwrap();
                 assert_eq!(args.expected_rollup_id.get(), 7);
                 assert_eq!(args.l1_chain_document_path, PathBuf::from("chiado"));
-                assert_eq!(
-                    args.l1_rpc_url.0.unwrap().as_str(),
-                    "http://127.0.0.1:8545/"
-                );
+                assert_eq!(args.manager_address, Address::repeat_byte(0x33));
                 assert_eq!(args.registry_address, Address::repeat_byte(0x11));
             }
             "cli-precedence" => {
                 let args = parsed.unwrap();
                 assert_eq!(args.expected_rollup_id.get(), 9);
                 assert_eq!(args.l1_chain_document_path, PathBuf::from("mainnet"));
-                assert_eq!(
-                    args.l1_rpc_url.0.unwrap().as_str(),
-                    "https://example.invalid/rpc"
-                );
+                assert_eq!(args.manager_address, Address::repeat_byte(0x44));
                 assert_eq!(args.registry_address, Address::repeat_byte(0x22));
             }
             "empty" => assert!(parsed.is_err(), "an empty EEZ_ROLLUP_ID was accepted"),
@@ -316,7 +313,10 @@ fn rollup_id_uses_environment_fallback_with_cli_precedence() {
             }
         }
         child
-            .env("EEZ_L1_RPC_URL", "http://127.0.0.1:8545")
+            .env(
+                "EEZ_ROLLUP_MANAGER_ADDRESS",
+                "0x3333333333333333333333333333333333333333",
+            )
             .env(
                 "EEZ_REGISTRY_ADDRESS",
                 "0x1111111111111111111111111111111111111111",
@@ -565,7 +565,7 @@ fn malformed_and_invalid_attestation_keys_are_rejected_without_echoing_them() {
 }
 
 #[test]
-fn legacy_system_key_has_no_native_privilege() {
+fn ordinary_account_key_is_usable_for_attestation() {
     let args = parse_args([
         "eez-proof-signer",
         "--chain-config",
@@ -573,7 +573,7 @@ fn legacy_system_key_has_no_native_privilege() {
         "--rollup-id",
         "1",
         "--signer-key",
-        TEST_SYSTEM_KEY,
+        OTHER_ATTESTER_KEY,
         "--attester-address",
         "f39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
     ])
@@ -648,22 +648,6 @@ fn native_system_identity_needs_no_key_and_is_not_configurable() {
     .unwrap();
     let error = Config::from_args(args).unwrap_err().to_string();
     assert!(error.contains("native protocol address"), "{error}");
-}
-
-#[test]
-fn removed_system_key_option_is_rejected() {
-    assert!(
-        parse_args([
-            "eez-proof-signer",
-            "--chain-config",
-            "chain-config.json",
-            "--rollup-id",
-            "1",
-            "--l2-system-key",
-            TEST_SYSTEM_KEY,
-        ])
-        .is_err()
-    );
 }
 
 #[test]
@@ -789,29 +773,13 @@ fn zero_resource_limits_are_rejected() {
 }
 
 #[test]
-fn the_removed_concurrency_option_is_rejected() {
-    assert!(
-        parse_args([
-            "eez-proof-signer",
-            "--chain-config",
-            "chain-config.json",
-            "--rollup-id",
-            "1",
-            "--max-concurrent-requests",
-            "1",
-        ])
-        .is_err()
-    );
-}
-
-#[test]
 fn l1_profile_is_mandatory() {
     let args = [
         "eez-proof-signer",
         "--chain-config",
         "l2.json",
-        "--l1-rpc-url",
-        "http://127.0.0.1:8545",
+        "--manager-address",
+        "0x3333333333333333333333333333333333333333",
         "--registry-address",
         "0x1111111111111111111111111111111111111111",
         "--rollup-id",
@@ -839,48 +807,38 @@ fn l1_profile_is_mandatory() {
 }
 
 #[test]
-fn canonical_l1_endpoint_and_registry_are_required_and_redacted() {
-    for endpoint in ["", "ws://localhost:8546", "not-a-url", "http://"] {
+fn deployment_addresses_are_nonzero_and_malformed_values_are_rejected() {
+    for (flag, message) in [
+        ("--registry-address", "L1 registry address must be nonzero"),
+        (
+            "--manager-address",
+            "offline manager address must be nonzero",
+        ),
+    ] {
         let args = parse_args([
             "eez-proof-signer",
             "--chain-config",
             "genesis.json",
             "--rollup-id",
             "1",
-            "--l1-rpc-url",
-            endpoint,
+            flag,
+            "0x0000000000000000000000000000000000000000",
         ])
         .unwrap();
-        let error = Config::from_args(args).unwrap_err().to_string();
-        assert_eq!(error, "L1 RPC URL must be an absolute HTTP(S) endpoint");
+        assert_eq!(Config::from_args(args).unwrap_err().to_string(), message);
+        for invalid in ["", "not-an-address", "0x11"] {
+            assert!(
+                parse_args([
+                    "eez-proof-signer",
+                    "--chain-config",
+                    "genesis.json",
+                    "--rollup-id",
+                    "1",
+                    flag,
+                    invalid,
+                ])
+                .is_err()
+            );
+        }
     }
-    let endpoint = "https://fixture-user:fixture-password@example.invalid/rpc?fixture-token=secret";
-    let args = parse_args([
-        "eez-proof-signer",
-        "--chain-config",
-        "genesis.json",
-        "--rollup-id",
-        "1",
-        "--l1-rpc-url",
-        endpoint,
-    ])
-    .unwrap();
-    assert!(!format!("{args:?}").contains("fixture-password"));
-    let config = Config::from_args(args).unwrap();
-    assert_eq!(config.l1_rpc_url.as_str(), endpoint);
-    assert!(!format!("{config:?}").contains("fixture-password"));
-    let args = parse_args([
-        "eez-proof-signer",
-        "--chain-config",
-        "genesis.json",
-        "--rollup-id",
-        "1",
-        "--registry-address",
-        "0x0000000000000000000000000000000000000000",
-    ])
-    .unwrap();
-    assert_eq!(
-        Config::from_args(args).unwrap_err().to_string(),
-        "L1 registry address must be nonzero"
-    );
 }

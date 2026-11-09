@@ -1,0 +1,273 @@
+{
+  "runtime_source": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+  "scope": "Final-runtime bounded controls. No new wall-clock SLA. Exact sampled timestamps show header lead and head age separately; no attribution of gaps to host scheduling without causal evidence. Bulk samples, headers and receipts are local-only and hashed.",
+  "controls": {
+    "signer": {
+      "maximum_observed_commit_gap_seconds": 5.020923614501953,
+      "maximum_header_lead_seconds": 3.655186176300049,
+      "maximum_head_age_seconds": 1.5330071449279785,
+      "largest_gap_samples": [
+        {
+          "observed_at": 1792874994.48814,
+          "number": 1157,
+          "hash": "0x6f6bbc5277a359c1e9d1a18ace01dea04224f87b3092f9bc632aa9c7001bd773",
+          "header_timestamp": 1792874998,
+          "header_lead_seconds": 3.511859893798828,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x6f6bbc5277a359c1e9d1a18ace01dea04224f87b3092f9bc632aa9c7001bd773",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792874995.4917593,
+          "number": 1157,
+          "hash": "0x6f6bbc5277a359c1e9d1a18ace01dea04224f87b3092f9bc632aa9c7001bd773",
+          "header_timestamp": 1792874998,
+          "header_lead_seconds": 2.5082406997680664,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x6f6bbc5277a359c1e9d1a18ace01dea04224f87b3092f9bc632aa9c7001bd773",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792874996.496093,
+          "number": 1157,
+          "hash": "0x6f6bbc5277a359c1e9d1a18ace01dea04224f87b3092f9bc632aa9c7001bd773",
+          "header_timestamp": 1792874998,
+          "header_lead_seconds": 1.5039069652557373,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x6f6bbc5277a359c1e9d1a18ace01dea04224f87b3092f9bc632aa9c7001bd773",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792874997.501068,
+          "number": 1157,
+          "hash": "0x6f6bbc5277a359c1e9d1a18ace01dea04224f87b3092f9bc632aa9c7001bd773",
+          "header_timestamp": 1792874998,
+          "header_lead_seconds": 0.498931884765625,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x6f6bbc5277a359c1e9d1a18ace01dea04224f87b3092f9bc632aa9c7001bd773",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792874998.505231,
+          "number": 1157,
+          "hash": "0x6f6bbc5277a359c1e9d1a18ace01dea04224f87b3092f9bc632aa9c7001bd773",
+          "header_timestamp": 1792874998,
+          "header_lead_seconds": -0.5052309036254883,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x6f6bbc5277a359c1e9d1a18ace01dea04224f87b3092f9bc632aa9c7001bd773",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792874999.5090637,
+          "number": 1158,
+          "hash": "0x3ff092cee28bdf5cd1eb0cdfc8235870d249ace5887c6ca19d3ea6d4207131f5",
+          "header_timestamp": 1792875000,
+          "header_lead_seconds": 0.490936279296875,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x3ff092cee28bdf5cd1eb0cdfc8235870d249ace5887c6ca19d3ea6d4207131f5",
+          "unchanged_after_recovery": true
+        }
+      ],
+      "all_selected_gap_hashes_unchanged": true,
+      "source_result_sha256": "3aa8377c0976f154c73d505d389424165332103bc557ab40079ae37dbe26c5d8"
+    },
+    "delayed_l1": {
+      "maximum_observed_commit_gap_seconds": 8.050417423248291,
+      "maximum_header_lead_seconds": 5.397843599319458,
+      "maximum_head_age_seconds": 1.8999981880187988,
+      "largest_gap_samples": [
+        {
+          "observed_at": 1792875102.7493606,
+          "number": 1212,
+          "hash": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "header_timestamp": 1792875108,
+          "header_lead_seconds": 5.25063943862915,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875103.7552476,
+          "number": 1212,
+          "hash": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "header_timestamp": 1792875108,
+          "header_lead_seconds": 4.244752407073975,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875104.7619467,
+          "number": 1212,
+          "hash": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "header_timestamp": 1792875108,
+          "header_lead_seconds": 3.238053321838379,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875105.7679088,
+          "number": 1212,
+          "hash": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "header_timestamp": 1792875108,
+          "header_lead_seconds": 2.232091188430786,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875106.7744088,
+          "number": 1212,
+          "hash": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "header_timestamp": 1792875108,
+          "header_lead_seconds": 1.2255911827087402,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875107.7812605,
+          "number": 1212,
+          "hash": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "header_timestamp": 1792875108,
+          "header_lead_seconds": 0.21873950958251953,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875108.7883775,
+          "number": 1212,
+          "hash": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "header_timestamp": 1792875108,
+          "header_lead_seconds": -0.7883775234222412,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875109.793914,
+          "number": 1212,
+          "hash": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "header_timestamp": 1792875108,
+          "header_lead_seconds": -1.7939140796661377,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0xc73bff2e76cc78243ab8bab666e65d1d609b4f1f2711d62ad5ac7cf35243a22f",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875110.799778,
+          "number": 1213,
+          "hash": "0x9234e140f8cf969d352f151ee180df973f252e55be6cd26291415a0cb04526d1",
+          "header_timestamp": 1792875110,
+          "header_lead_seconds": -0.7997779846191406,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x9234e140f8cf969d352f151ee180df973f252e55be6cd26291415a0cb04526d1",
+          "unchanged_after_recovery": true
+        }
+      ],
+      "all_selected_gap_hashes_unchanged": true,
+      "source_result_sha256": "e1a13a191c3795ac4ef1b87d55aa4aa2b463ed695f0890a6eb305d9090566801"
+    },
+    "missed_l1": {
+      "maximum_observed_commit_gap_seconds": 8.049530267715454,
+      "maximum_header_lead_seconds": 5.637567043304443,
+      "maximum_head_age_seconds": 1.7689740657806396,
+      "largest_gap_samples": [
+        {
+          "observed_at": 1792875246.4333644,
+          "number": 1284,
+          "hash": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "header_timestamp": 1792875252,
+          "header_lead_seconds": 5.566635608673096,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875247.439373,
+          "number": 1284,
+          "hash": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "header_timestamp": 1792875252,
+          "header_lead_seconds": 4.560626983642578,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875248.4460144,
+          "number": 1284,
+          "hash": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "header_timestamp": 1792875252,
+          "header_lead_seconds": 3.553985595703125,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875249.452452,
+          "number": 1284,
+          "hash": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "header_timestamp": 1792875252,
+          "header_lead_seconds": 2.5475480556488037,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875250.4603775,
+          "number": 1284,
+          "hash": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "header_timestamp": 1792875252,
+          "header_lead_seconds": 1.5396225452423096,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875251.466075,
+          "number": 1284,
+          "hash": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "header_timestamp": 1792875252,
+          "header_lead_seconds": 0.5339250564575195,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875252.4712827,
+          "number": 1284,
+          "hash": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "header_timestamp": 1792875252,
+          "header_lead_seconds": -0.4712827205657959,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875253.4774215,
+          "number": 1284,
+          "hash": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "header_timestamp": 1792875252,
+          "header_lead_seconds": -1.477421522140503,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0x0baf82bb1fe17342d5d24a1a572f9926b712807a54adb332b0b57792884a55e8",
+          "unchanged_after_recovery": true
+        },
+        {
+          "observed_at": 1792875254.4828947,
+          "number": 1285,
+          "hash": "0xf9035e35d2aa763b04c9b2e0d295cb611370f427669c21e9badc26da2a01b75a",
+          "header_timestamp": 1792875254,
+          "header_lead_seconds": -0.4828946590423584,
+          "sample_hash_stable": true,
+          "canonical_hash_after_recovery": "0xf9035e35d2aa763b04c9b2e0d295cb611370f427669c21e9badc26da2a01b75a",
+          "unchanged_after_recovery": true
+        }
+      ],
+      "all_selected_gap_hashes_unchanged": true,
+      "source_result_sha256": "1688c9cff3f3552d143bb59f6ccd8277325d683b68d77c88d2d44d992ba7ef6a"
+    }
+  }
+}

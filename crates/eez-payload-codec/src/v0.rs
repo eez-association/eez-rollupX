@@ -6,7 +6,7 @@
 //! interval rules and operational replay budgets, executing every admitted block.
 //! Actions and authorization belong to the enclosing native EEZ stream.
 
-use alloy_consensus::{Transaction, TxEnvelope};
+use alloy_consensus::Transaction;
 use alloy_eips::{Decodable2718, Encodable2718};
 use alloy_primitives::{Address, Bytes};
 use std::iter::FusedIterator;
@@ -42,7 +42,7 @@ pub enum Error {
     TransactionLength,
     #[error("invalid or noncanonical pure L2 transaction")]
     TransactionEncoding,
-    #[error("native and blob transactions cannot appear in the pure L2 column")]
+    #[error("cross-chain native and blob transactions cannot appear in the ordinary column")]
     UnsupportedTransaction,
     #[error("operations have trailing bytes")]
     Trailing,
@@ -431,14 +431,9 @@ fn encode_metadata(runs: &[BlockRun<'_>], variable: bool, out: &mut Vec<u8>) {
 }
 
 fn validate_transaction(bytes: &[u8]) -> Result<(), Error> {
-    if bytes
-        .first()
-        .is_some_and(|ty| *ty == eez_primitives::SYSTEM_TX_TYPE || *ty == 3)
-    {
-        return Err(Error::UnsupportedTransaction);
-    }
-    let tx = TxEnvelope::decode_2718_exact(bytes).map_err(|_| Error::TransactionEncoding)?;
-    if tx.blob_versioned_hashes().is_some() {
+    let tx = eez_primitives::EezTxEnvelope::decode_2718_exact(bytes)
+        .map_err(|_| Error::TransactionEncoding)?;
+    if tx.is_cross_chain_system() || tx.blob_versioned_hashes().is_some() {
         return Err(Error::UnsupportedTransaction);
     }
     if tx.encoded_2718() != bytes {

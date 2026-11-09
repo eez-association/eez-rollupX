@@ -11,24 +11,27 @@ profile. Entry points: [deploy](../../scripts/deploy.sh),
 
 | Verification record | Value |
 | --- | --- |
-| Runtime source reviewed | 2026-09-16; fork `ddf40bc2eb5fac8f7973b112eb383256cd8aac74`; protocol `3c0cdf4955941a5c23639346932b55b33babebbd` |
-| Checked | Source/configuration consistency, Compose rendering, Bash syntax, and offline regressions; see [validation record](../proposals/chiado-published-images.md#compatibility-and-validation) |
-| Pending | Full fresh-host deployment and restart rehearsal; record execution in a dated [audit](../audits/TEMPLATE.md) |
+| Source and protocol revisions | [Offline-history implementation record](../audits/2026-10-22-l1-history-offline-proving/README.md) |
+| Local checks | Source/configuration consistency, genesis/profile checks, isolated process tests and offline proving; exact results and outstanding checks are in that record |
+| Compatible runtime replacement | [Network 916969 update](../audits/2026-10-26-network-916969-runtime-update/README.md): published CI artifacts, preserved state, fee-enabled cross-chain smoke and independent replay validated |
+| Pending | Public fresh-host deployment and live backup-restore/rollback rehearsal; record execution in a dated [audit](../audits/TEMPLATE.md) |
 
 The [2026-09-23 network replacement](../audits/2026-09-23-events-network/README.md)
 records the live deployment of protocol `820e50f` to a new registry and L2 chain
 6291, including backup boundaries, active configuration locations and semantic
-checks. It used locally validated release images; it does not validate an
-in-place upgrade of the previous registry or a full archive restoration.
+checks. That dated record predates the offline-history profile and does not
+validate deploying or restoring this revision. This revision creates new networks;
+read the [compatibility boundary](#offline-v2-proving-and-fresh-network-boundary)
+before choosing images or starting services.
 
 ## Select the procedure
 
 | Operation | Procedure | Required starting state |
 | --- | --- | --- |
 | Create a new registry and rollup | [First deployment](#first-deployment), then [start and verify](#start-and-verify) | Unused deployment paths; no existing stack on these names/ports |
-| Add or replace a Composer on an existing L2 | [Existing-rollup Composer](chiado-existing-rollup.md) | Original deployment files/keys, compatible runtime, and L2 backup or complete replay history |
+| Add or replace a Composer on an offline-profile L2 | [Existing-rollup Composer](chiado-existing-rollup.md) | Original deployment files/keys, matching profile/runtime, and L2 backup or complete replay history |
 | Start/restart the same rollup | [Restart and stop](#restart-and-stop), then [start and verify](#start-and-verify) | Original bindings, genesis, keys, JWT, images, and datadirs |
-| Move hosts, upgrade, or recover missing state | [Recovery and upgrades](#recovery-and-upgrades) | Deployment inventory, preserved state, and an identified recovery source |
+| Move hosts, replace a compatible runtime, or recover state | [Recovery and upgrades](#recovery-and-upgrades) | Same offline profile, deployment inventory, preserved state, and an identified recovery source |
 
 ## Shell, host, and network prerequisites
 
@@ -93,7 +96,7 @@ proxies, as in the pinned protocol's
 [deployment procedure](../../eez-core-protocol/deployment/README.md). Their
 ProxyAdmin owners, `EEZ_UPGRADE_OWNER` and `EEZ_ROLLUP_UPGRADE_OWNER`, default to
 the deployer and can replace the implementations; set them to dedicated
-accounts, such as multisigs, when the deployer should not hold that authority. Native L2 system transactions use the reserved `0x76` sender;
+accounts, such as multisigs, when the deployer should not hold that authority. Native L2 cross-chain (`0x45`) and history (`0x46`) transactions use the reserved system address;
 they have no signing key or genesis funding.
 A separate deploy key avoids nonce competition with an active poster. Do not
 share a posting wallet with concurrent workloads. Fund deployer and poster before
@@ -104,7 +107,9 @@ Chiado faucet. Funding must cover deployment and ongoing settlement gas.
 | --- | --- |
 | `.env` | Private RPC/keys, node/signer/deploy images, and Compose settings; copied from `.env.chiado.example`, used by deployment and startup; preserve |
 | `deployments.env` | Generated public contract/rollup bindings and genesis/profile paths; preserve |
-| `EEZ_L2_FEE_RECIPIENT` | Required in `.env`: coinbase of every Live and Sync L2 block, which receives priority fees. Compose refuses to start while it is unset or empty; set the zero address to choose the historical zero coinbase deliberately. Not a consensus value: it can change at any restart, and followers take each block's published beneficiary. |
+| `EEZ_L2_TREASURY_RECIPIENT` | Required initial L2 recipient of FeeVault withdrawals. Must be nonzero and differ from FeeVault, SYSTEM and EEZL2. Deployment writes it into genesis storage. The vault owner may later propose a recipient on L2, which must accept; editing `.env` does not change deployed state. |
+| `EEZ_L2_TREASURY_OWNER` | Initial FeeVault and dedicated ProxyAdmin owner; defaults to `OWNER` only when absent. Use an L2 governance/multisig address in production. FeeVault ownership transfers require `transferOwnership(address)` followed by `acceptOwnership()` from the proposed owner. ProxyAdmin ownership uses its separate `transferOwnership(address)` call; see [treasury operations](fee-vault.md). Deployment input only, with the same address restrictions as the recipient. |
+| `EEZ_L2_FEE_RECIPIENT` | Required in `.env`: beneficiary for new Live/Sync blocks, including empty settlement-recovery replacements, receiving priority fees. Compose refuses to start while it is unset or empty; zero is an explicit supported choice. This is an operator setting, not a chain-wide constant: changes at restart affect future production, and followers replay each block's published beneficiary. |
 | `FRESH_GENESIS` | `./datadir/genesis.json`; generated at deployment, mounted into node and signer |
 | Genesis profile | `./datadir/genesis.profile.json`; generated code/state commitments; preserve |
 | `L1_SNAPSHOT_DIR` | `./data/chiado-l1`; writable embedded L1 database |
@@ -112,6 +117,17 @@ Chiado faucet. Funding must cover deployment and ongoing settlement gas.
 | `LIGHTHOUSE_DATA` | `./data/chiado-lighthouse`; writable consensus/PeerDAS data |
 | `JWT_FILE` | `./data/jwt.hex`; private, shared by node and Lighthouse; create once |
 | `CHIADO_CONFIG_DIR` | `./configs/chiado`; versioned network config, including `bootstrap_nodes.yaml` alias |
+
+Before the recovery-beneficiary correction, the Composer's deadline-replacement
+and canonical-reconciliation paths built empty replacement Syncs with zero
+beneficiary. The
+[live validation follow-up](../audits/2026-10-26-network-916969-mixed-validation/README.md#empty-sync-beneficiary-follow-up--2026-10-26)
+traces nine such replacements; all had no transactions, zero gas and exact
+follower agreement. The correction applies the configured beneficiary to newly
+built replacements. Existing empty checkpoints and historical headers keep their
+recorded beneficiary and hash. No genesis, contract, signer/follower or database
+migration is required; upgrade the Composer through the normal tested-artifact
+procedure. This does not make pending requests durable across the restart.
 
 The bare-binary `EEZ_L2_DATADIR` example does not replace Docker's `L2_DATA_DIR`.
 Do not set `EEZ_ENV_FILE`, `EEZ_DEPLOYMENTS_FILE`, `EEZ_GENESIS_OUT`,
@@ -154,13 +170,14 @@ values; update them deliberately rather than replacing keys, bindings, or paths.
 | Signer request capacity | 2048 blocks |
 | L2 HTTP APIs | `eth,net,web3,debug,trace` |
 
-The non-scheduling operational values were compared with the running Chiado containers on
-2026-09-16. The position/delay migration is a draft and requires the validation
-below; it is not evidence of a live upgrade. Runtime images remain the published references described below;
-the live host's binary mounts, private paths, keys, and deployment identity are
-not copied into the template. Restrict the HTTP RPC, including debug/trace,
-to intended clients. For legacy policy-disabled mode, follow the
-[migration instructions](../configurable-settlement-policy.md#migration).
+The history update delay is fixed in genesis by
+`EEZ_L2_HISTORY_UPDATE_OFFSET` (q=2 by default, 0..4 for this timing).
+It is separate from the Composer's preparation delay and provides delivery
+headroom, not finality. Preserve the original genesis schedule on restart.
+Runtime images must implement this exact offline profile; an older published
+image does not become compatible by accepting these environment names.
+Restrict the HTTP RPC, including debug/trace, to intended clients. For
+policy-disabled operation, use the current [settlement contract](../configurable-settlement-policy.md).
 Enabled policy requires `EEZ_MAX_BLOCKS_PER_BATCH` to remain absent.
 
 Expanded Compose configuration and environment dumps contain keys; keep them private.
@@ -190,7 +207,8 @@ supplies matching contracts and tools; host builds and submodules are unnecessar
 The deploy image bundles two base genesis files:
 
 - `/repo/genesis.json`, the default production base. It contains only the EEZL2
-  (proxy, implementation and ProxyAdmin) and EIP-2935 predeploys and allocates no
+  (proxy, implementation and ProxyAdmin), EIP-2935, L1 history and FeeVault
+  predeploys and allocates no
   ETH: all L2 ETH is minted against value locked on L1. Its default L1 reference
   is Ethereum mainnet's genesis block and its L2 chain ID is 696990; deployment
   replaces the reference with the live finalized L1 block.
@@ -223,8 +241,31 @@ and signer UID 65532 must be able to read the public genesis. Changing genesis
 after registration changes the rollup identity.
 The host's tracked genesis files are not used unless selected explicitly.
 
-Every L2 block burns the balances of EEZL2 and the native system address before
-its first transaction, so neither account holds ETH at a block start; see the
+Each complete cross-chain group clears residual EEZL2/system balances before its
+checkpoint, under [the native profile](../proposals/native-system-transactions.md#complete-group-balance-cleanup).
+This is a fresh-network execution boundary: deploy matching Composer, followers
+and validation-contract-7 signers together; there is no existing-database upgrade.
+The initially empty history proxy returns zero for absent records, including
+permanently skipped numbers. Its dedicated ProxyAdmin initially shares
+`EEZ_L2_UPGRADE_OWNER` with EEZL2's separate admin. Genesis, registered verification key and
+validation identity bind the new layout and paired native encoding. See the
+[history compatibility rules](../../contracts/L1_HISTORY_SPEC.md#compatibility).
+History updates use the optional `0x46` envelope with explicit number/hash pairs;
+the schedule is fixed by genesis configuration. Previous hash-only bodies and
+genesis/runtime state are rejected. Cross-chain `0x45` uses six fields without a
+version. Its source identity binds the L2 EVM chain ID, intended L1 parent and
+zero-based complete-group ordinal in the full Live Sync block under the
+[current source rule](../proposals/native-system-transactions.md#source-identity-simplification);
+older identity formulas produce incompatible transaction/block commitments.
+Rollback to earlier binaries requires a
+separate fresh network; reusing this network's database is unsupported.
+The prover remains v2 and requires no chain RPCs.
+
+Every completed L2 block burns the residual balances of EEZL2 and the native
+system address. Ordinary donations remain visible inside the block until it
+closes or a complete cross-chain group clears them. Historical state queries
+observe the closed block, while proven FIFO lookups observe the selected in-block
+transaction boundary; see the
 [signer specification](../../crates/eez-proof-signer/SPEC.md). This changes
 execution: nodes, followers and signers from before this rule cannot replay a
 network created with it, and it is not a binary-only upgrade for an existing
@@ -243,13 +284,18 @@ openssl rand -hex 32 > data/jwt.hex
 ### 3. Deploy — broadcasts transactions
 
 This spends gas and creates a fresh registry, proof system, manager and rollup
-**1**, even if `deployments.env` already exists. The registry and manager are
+**1**. Existing bindings or genesis/profile output files cause rejection before
+broadcast. The registry and manager are
 proxies; `deployments.env` also records their implementations and ProxyAdmins.
 Use only the proxy addresses in configuration and integrations. It is not a restart
 command. Before broadcasting, the deploy image reads a finalized L1 reference,
-copies its timestamp and RANDAO into genesis, and records its exact chain/block
-identity under `config.rollupX`. Chiado requires 1-second L2 blocks and five
-positions per Sync interval. Missing finalized data or conflicting timing aborts
+sets the initial execution origin and RANDAO from it, and records its exact chain/block
+identity under `config.rollupX`. The public history store starts empty until its
+first system import. L2 genesis starts one Sync interval after that
+reference. Chiado requires 1-second L2 blocks and five positions per Sync interval.
+`EEZ_L2_HISTORY_UPDATE_OFFSET` fixes the delay at genesis (default 2, allowed 0–4);
+it is read from the mounted `.env` by the deployment script. Missing finalized
+data or conflicting timing aborts
 before a broadcast. The image checks genesis rendering and tools, then registers
 that same genesis **block hash** without a deployment-time timestamp change.
 It uses bundled sources under `/repo`; do not mount your checkout over `/repo`.
@@ -408,13 +454,16 @@ persistence/shutdown failure still requires recovery assessment. The existing
 CLI shutdown budget is unchanged, and this does not make unsettled requests
 durable.
 
-When adopting or rolling back this backport or a dependency lockfile update,
-select matching Composer and signer revisions and restart them together. The
-validation identity fingerprints the entire lockfile, including optional
-dependencies: the `quinn-proto 0.11.18` security update therefore changes it even
-when QUIC is not enabled. Mixed identities fail the startup capability check.
-The Quinn patch itself requires no contract, genesis, wire or database migration;
-rollback still requires a matching pair and restores the affected dependency.
+The fresh-network offline profile uses the
+[portable validation identity](../../crates/eez-control-rpc/VALIDATION_IDENTITY.md).
+Schema 6 replaces the earlier lockfile fingerprint. Deploy Composer and signer
+with matching protocol versions and local network/deployment configuration;
+schema 5/6 pairs fail the startup capability check. Clear retained prover sessions
+when the identity changes. Lockfile-only changes no longer automatically change
+the identity, but still require dependency/semantic review. This handshake update
+requires no contract, genesis, wire-field or database migration. It does not make
+the broader fresh-network profile an upgrade for existing Chiado contracts.
+Rollback requires compatible endpoints and does not restore volatile queue state.
 
 **Stop changes running services; preserves bind-mounted data:**
 
@@ -449,11 +498,34 @@ Use these diagnostics when startup fails or a running service stalls. Begin with
 | Signer unhealthy/rejecting | `docker compose logs --tail=100 eez-proof-signer`; check [keys/genesis](#deployment-identity), genesis mode (`stat -c '%a %n' datadir/genesis.json`, expected 644), UID 65532 readability, and L1 chain config `chiado`. |
 | Port in use/database locked | `ss -lntup`; `docker ps -a --format '{{.Names}}'`; `docker compose ps`. Identify the owning process/deployment; a worktree/project name cannot isolate this profile. Never share a writable datadir. |
 | L1/Beacon cannot catch up | Check [sync/peers and L1 agreement](#health-checks), shared JWT, checkpoint source (`LH_CHECKPOINT_URL`), snapshot backfill, and checked-in Fulu config. `configs/chiado/bootstrap_nodes.yaml` must be nonempty and match `bootnodes.yaml`. |
+| Fee quote reports `L1 fee sample is too old` | Check the embedded head timestamp against the external RPC and Beacon sync status. The quote may correctly reject a stalled upstream; do not relax its freshness check to hide that condition. See [stalled consensus client](#stalled-consensus-client). |
 | Beacon has no peers | `curl -fsS http://127.0.0.1:6152/eth/v1/node/identity \| jq '.data'`; inspect advertised `ip`/`udp`, firewall, NAT, and UDP 9205 reachability. See [discovery change](#discovery-change--recreates-lighthouse-only). |
 | Blob retrieval fails | Use the [blob diagnostic](#blob-diagnostic--read-only) with the settlement's slot and versioned hash. Check retention, sync, Fulu config, and semi-supernode mode. |
 | Builder probe fails | Check reachability and `eth_sendBundle` support of each `EEZ_L1_BUILDER_RPC_URL` entry. Startup sends an empty bundle to every listed relay and names them `builder[<index>] (<host>)`; JSON-RPC error `-32601` means the method is unavailable. Startup fails only when no relay passes; failing additional relays print a warning. Probe success does not prove inclusion. |
 | L2 advances without settlement | Check [L1 agreement](#health-checks), then [poster funding and settlement](#settlement-diagnostic). Inspect node/signer logs for builder inclusion, proof failure, policy due-work, fee ceilings, and gas/blob/timing deferrals. |
 | Simulation cannot fetch a block | Verify deployment RPC freshness. Skip-simulation bypasses that phase only; inspect prior broadcasts before retrying. |
+
+### Stalled consensus client
+
+An observed Chiado incident left Lighthouse reporting empty slots with peers
+while its execution hash stayed fixed and the public chain advanced. It later
+reported a growing sync distance. Restarting the existing Lighthouse container
+restored catch-up; no configuration, image or database replacement was needed.
+The [deployment record](../audits/2026-10-15-simplified-fees/README.md) retains
+the before/after evidence. This is a verified recovery for that incident, not a
+diagnosis of every stale-head error.
+
+After recording logs, checking L1 agreement and confirming this stalled state,
+an authorized service recovery can restart only the existing client:
+
+```bash
+docker compose restart lighthouse
+```
+
+Repeat the health checks below. Require a fresh embedded head,
+`is_syncing=false`, `is_optimistic=false` and `el_offline=false` before treating
+quotes or settlement as recovered. A running container or `eth_syncing=false`
+alone is insufficient. Preserve existing data and JWT throughout.
 
 ### Health checks
 
@@ -495,7 +567,7 @@ docker run --rm --platform linux/amd64 --entrypoint eez-genesis-state-root \
   -v "$PWD/datadir/genesis.json:/genesis.json:ro" "$EEZ_DEPLOY_IMAGE" /genesis.json
 cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY"
 cast call "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" 'signer()(address)' --rpc-url "$EEZ_L1_RPC_URL"
-test "${EEZ_L2_SYSTEM_ADDRESS,,}" = 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076
+test "${EEZ_L2_SYSTEM_ADDRESS,,}" = 0xfffffffffffffffffffffffffffffffffffffffe
 ```
 
 The two hashes must equal `EEZ_INITIAL_BLOCK_HASH` and `EEZ_L2_GENESIS_STATE_ROOT`.
@@ -583,98 +655,55 @@ blob; this diagnostic checks one retrieval, not KZG proofs or replay.
 
 ## Recovery and upgrades
 
-The [conditional slot scheduler](../configurable-settlement-policy.md#conditional-slot-production)
-is an implementation draft; do not upgrade a live deployment until its release
-gates pass or it is explicitly selected for a controlled canary. The new binary
-has one scheduler and requires `EEZ_SETTLEMENT_START_AFTER_BLOCK`; it cannot be
-disabled by omitting the setting. Preserve the previous binary, configuration and
-consistent state. Remove `EEZ_PREPARATION_TIME_MS` entirely, explicitly select P,
-and initially leave `EEZ_SETTLEMENT_START_DELAY_MS` absent (zero). Test nonzero
-delay separately under the same workload and linked headroom limits. This is a
-Composer/configuration change, not new contracts or a genesis/database migration.
-When upgrading standalone followers, migrate their timing environment too: the
-shared parser requires P even though followers do not run the scheduler.
-Rollback needs a compatible prior binary and its matching configuration, not a
-mode toggle. Verify which recovery repair a prior binary contains: the initial
-dual-scheduler candidate still lost displaced transactions above the per-sender
-external pool cap and is not a known-good fallback for that workload. See the
-[failure and repair evidence](../audits/2026-10-09-conditional-slot-production/bug-fix.md).
-Pre-fix binaries restore that transaction-loss risk. Normal restart/resubmission
-and storage-compatibility limits still apply; no live upgrade is validated here.
+This procedure applies only to networks created with the current
+[offline-history profile](#offline-v2-proving-and-fresh-network-boundary).
+It supports replacing a compatible runtime, moving hosts and restoring the same
+network. It provides no conversion of an earlier Chiado deployment. Existing
+networks keep their own matching release, contracts, genesis and data.
 
-The [wallet discovery / Composer-only namespace change](../proposals/composer-wallet-discovery.md)
-needs a Composer restart and client URL updates, not contract deployment or a
-genesis/database migration. Point all `eez_*` clients at port 18998 (L2 front)
-or 18999 (L1 front); regular node and follower RPCs no longer serve them.
-Keep standard `debug_*` clients on the node RPC. If HTTP debug is enabled,
-the augmented witness method is available on both fronts: restrict those ports
-as well. Rollback restores the previous method placement and requires reverting
-client URLs. Preserve bindings, datadirs and operator configuration, and account
-for the existing loss of in-memory unsettled work on restart.
-
-The [native system transaction change](../proposals/native-system-transactions.md)
-requires a fresh L2 genesis and database, matching composer/follower/signer
-binaries, and matching deployment artifacts. It changes the EEZL2 immutable
-system address to `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076`. It is not a
-binary upgrade for an existing signed-system network. Keep that deployment's
-original binaries, genesis, databases, and secrets; the new branch provides no
-in-place migration. Deploy a new network with matching artifacts before starting
-its nodes. `EEZ_L2_SYSTEM_KEY` is removed; L1 posting and proof attestation retain
-their separate keys. Native history cannot be replayed by the old binaries.
-
-The [remaining-gas native budget](../proposals/system-tx-remaining-gas-cap.md)
-replaces the fixed 2,000,000 native gas budget and applies from genesis of a new
-network. A network whose history used the fixed budget is not supported by this
-revision; deploy a fresh network with matching Composer, signer and followers.
-
-
-The deadline-based skipped-slot retry changes only Composer scheduling and
-in-memory ownership. Its rollout needs no contract deployment, genesis change,
-database migration or signer upgrade. Preserve the configured proof budget (750 ms in the current preset) and
-existing timing overrides. Validate next-slot dispatch and late-original
-recovery with the source-based process tests before upgrading the existing node.
-At runtime, `eez.composer.settlement.replacement` records speculation; it is not
-proof of a skipped slot or successful settlement. Canonical settlement and
-source outcomes remain the verification criteria. Downgrading restores waiting
-for canonical exclusion and has the normal restart limit: pending users may
-need resubmission. See the
-[replacement design](../proposals/skipped-slot-speculative-retry.md).
-
-For the mixed outbound signer extension, update Composer and every follower's
-replay implementation before enabling the updated signer, or deploy the matched
-runtime set together. Old derivers reject mixed groups after L1 settlement.
-Once such groups are canonical, downgrading a replaying node to the old binaries
-cannot replay that history. The protocol pin, contracts and stored encoding are
-unchanged; see [signer profile compatibility](../../crates/eez-proof-signer/SPEC.md#mixed-outbound-profile-compatibility).
-This is an upgrade requirement, not evidence that a live deployment has run.
-
-For the ordered restore/replay setup, use the
+For ordered restore/replay setup, use the
 [existing-rollup Composer procedure](chiado-existing-rollup.md).
 
-1. Preserve the [inventory](#handoff-record), previous images/configuration, and
-   a consistent backup. Stop database writers for a filesystem copy, or use a
-   documented database-consistent snapshot method; copying live files is insufficient.
-2. Establish history availability before rebuilding L2 state. The semi-supernode
-   serves live blobs within its retention window. Older recovery requires a durable
-   archival Beacon source or a validated protocol snapshot/bootstrap procedure.
-   An execution snapshot does not provide missing blob history. Do not delete the
-   current L2 database until the recovery path has been tested.
-3. For upgrades, check node/signer/protocol compatibility, stored-state formats,
-   configuration changes, and rollout order. Select the intended node/signer
-   references in `.env` and matching configuration checkout. Verify source labels
-   and retain the previous `.env`, image digests, checkout, and backups.
-   A binary downgrade works only if old code can read the resulting data and speak
-   the deployed protocol. Repeat startup, semantic, and replay checks required by
-   the change; record which actually ran.
-4. For host/checkout moves, restore the exact keys, JWT, genesis/profile, bindings,
-   compatible images and consistent data. Reconcile absolute paths in
+1. Pause external ingress and account for accepted work before stopping writers.
+   An empty cross-chain queue does not establish that ordinary speculative L2
+   transactions have settled. Preserve the [inventory](#handoff-record), previous
+   images/configuration and a consistent backup. Stop database writers for a
+   filesystem copy, or use a documented database-consistent snapshot method.
+2. Establish history availability before rebuilding L2 state. Replay needs every
+   produced L1 header between each authenticated history endpoint and anchor,
+   plus the canonical transactions/logs and complete blobs in its scan range.
+   The semi-supernode's live retention and an execution snapshot do not guarantee
+   those historical blobs. Obtain archival coverage or a complete same-profile
+   L2 backup; retain the original database until recovery has been validated.
+3. Check the proposed node/signer/protocol identity, local L1 rules, genesis
+   profile, configuration and stored-state formats. The v2 capability preflight
+   rejects incompatible validation identities. Select matching image references
+   and checkout; preserve the previous `.env`, image digests and backups. This
+   feature has no alternate proving profile or database migration.
+4. For host/checkout moves, restore the exact keys, JWT, genesis/profile, bindings
+   and consistent data into separately owned paths. Reconcile absolute paths in
    `deployments.env` with `FRESH_GENESIS` and the restored files, preserving all
-   addresses/commitments. Check [deployment identity](#deployment-identity) before starting.
+   addresses and commitments. Check [deployment identity](#deployment-identity)
+   before starting. The signer needs the local profiles and signing key, with
+   no L1 or L2 RPC configuration.
+5. Repeat startup, canonical settlement and independent replay checks against
+   the new executable identities. If fees are enabled, verify current nonce
+   quotes, signed admission and the configured cost floor on each enabled
+   direction. Follow the owning [fee/settlement contract](../configurable-settlement-policy.md)
+   for parameter changes and [L1 refund qualification](#enabling-l1-fee-recovery)
+   for builder changes. Keep ingress closed until the required checks pass.
 
-New contracts or a changed genesis create a different deployment; neither migrates
-user state automatically. Missing bindings after a partial deploy require receipt
-reconciliation, not the ordinary restart path. Do not claim recovery beyond retained
-history until the complete recovery procedure has been exercised.
+Rollback is possible only to a binary that understands this deployed profile and
+its resulting state. Restoring a database cannot reverse L1 settlements: reconcile
+canonical progress after the backup before admitting new work. Pending requests,
+retry counters and signer sessions remain volatile; clients may need to resubmit
+unsettled work. Database persistence does not make these queues durable.
+
+New contracts or a changed genesis create a different network; neither migrates
+user state. Missing bindings after a partial deployment require receipt
+reconciliation, not the ordinary restart path. Dated deployment audits describe
+their recorded revisions and do not validate this profile's public deployment or
+backup restoration. Record the exact checks exercised and any missing history.
 
 ## Local source development
 
@@ -738,42 +767,167 @@ artifact location and digest; an ignored local path is not available to another
 operator. Update this procedure with verified corrections and preserve the dated
 audit as the record of the particular execution.
 
-## feature/events protocol compatibility
+## Fee configuration
 
-The source pin `820e50f749f63165be6a5797d4c5fe52cbbbbe34` changes L2 system
-selectors, static sidecars, proxy construction, EEZL2 genesis runtime and L1
-monitoring events. It cannot replace the binaries on an existing old-protocol
-network. Keep that network's matching runtime and configuration checkout.
-A new deployment must use matching contract/deploy artifacts, rendered genesis,
-Composer, Signer, followers and settlement indexer. An in-place migration and
-historical old-protocol replay are not implemented. See the
-[port compatibility contract](../proposals/l2-static-execution-position.md#compatibility-and-recovery).
+Keep fees on the Composer and its clients; the signer does not consume fee-policy
+settings. Use the current [configuration contract](../configurable-settlement-policy.md)
+for units, defaults, precedence and removed inputs. Apply changes to every
+effective source, including Compose overrides, without printing rendered secrets.
+Obsolete settings cause rejection and must not be retained as empty placeholders.
 
-The later `feature/events` pin `9d13218a355e7d543ca8a9927eea2962600b716d`
-also changes EEZ's L1 queue storage from arrays to mappings with active bounds
-and lets static lookup continue past a candidate whose callback rolling hash
-does not match. EEZL2 runtime bytecode and the genesis state root change as
-well. It needs a fresh, matching contract/genesis deployment and a matching
-Composer, Signer and follower revision; replacing binaries on the existing
-`820e50f` network is unsupported. Keep the earlier network and its records on
-its original pin. The new Composer reads retained L1 queue mapping slots
-before granting bounded deferred-entry gas discounts; final ordered execution
-still validates gas.
+Before changing an operating same-profile network, drain or explicitly account
+for accepted work, preserve stopped state and the prior configuration, and use the
+[recovery procedure](#recovery-and-upgrades). Verify compact/debug quotes, signed
+fee rejection, canonical settlement and refund observations for each enabled
+direction. A configuration change does not qualify a new builder route or make
+an earlier protocol deployment compatible.
 
-### Native signer canonical L1 source
+Fee-enabled inbound and outbound groups may share one post. For a mixed post,
+inspect `detail.l2_tariff` on `eez.composer.admission.v1` preflight events: its
+`standalone_outbound` cost is the independently measured outbound publication
+reference, and `minimum_l2_payment` excludes L1 refunds. The full-post fee and
+refund observations remain gross measurements; their shortfall is not a net
+per-direction loss. Qualify a mixed canary with both destination effects,
+canonical post/source receipts and independent replay. This scheduling change
+adds no environment variables or protocol migration; after draining accepted
+work, rolling back the Composer restores separate-direction batching.
 
-The fresh-network signer requires `EEZ_L1_RPC_URL` and the deployed
-`EEZ_REGISTRY_ADDRESS`, alongside its L1 profile and full L2 genesis. Packaged
-Compose supplies the local embedded L1 RPC and loads the registry from
-`deployments.env`; Kurtosis supplies its canonical L1 execution RPC. The source
-must serve the finalized genesis reference, canonical headers, the settlement
-logs/transactions needed for parent and live-slot authentication, and registry
-state at the named parent hash. The signer performs no lifetime registration/reset
-log scan or post-replay freshness query.
-The signer may start before that source is ready, but cannot sign until it can
-authenticate these facts. This does not add recovery from manual registry root
-resets. Composer and signer must use matching validation identity schema 4;
-upgrade or roll back both binaries together. No new genesis or database change
-is introduced by this signer simplification. See the
-[signer contract](../../crates/eez-proof-signer/SPEC.md#51-header) for request and
-reorg behavior. This wiring has no legacy-source or offline-signing fallback.
+### Enabling L1 fee recovery
+
+Leave `EEZ_FEES_L1_TO_L2_ENABLED` unset or `false` for public traffic until each configured builder has passed the
+[L1 refund profile](../configurable-settlement-policy.md#l1-builder-refund-profile)
+on this network with a real native-blob post, signed source and canonical payout.
+The startup bundle API probe does not test refund support. Public builder docs
+or a successful private Kurtosis test do not qualify the Chiado route.
+
+Qualification on an existing network uses a controlled canary: pause public
+transaction ingress, drain accepted work, preserve stopped state and configure
+the candidate with the refund policy before submitting operator test sources
+through the local front. Keep public ingress paused until canonical payments and
+replay are verified. This temporary test configuration does not qualify the route
+by itself; retain failed submissions and receipts before recovery or rollback.
+
+Use a dedicated plain EOA recipient, keep the existing cost policy and L2 fee
+settings, and drain accepted work before enabling the L1 policy. Both fronts
+use `eez_quoteFee` and `eez_debugQuoteFee`; only the source chain and recovery
+mechanism differ. The SDK needs the expected L1 chain ID and `/composer/l1`.
+The matching dashboard uses `EEZ_UI_L1_FEES_ENABLED=true` and its independent
+`EEZ_UI_L1_FEE_MAX_TOTAL_WEI` reservation cap; retain the existing L2 settings.
+Older clients that omit the L1 fee quote can be rejected as underfunded after
+enforcement is enabled. The compact response format is unchanged.
+Verify both transaction formats, source/target effects, native blob evidence,
+independent follower replay and the canonical `refund_status = qualified` event.
+
+The [October 15 qualification](../audits/2026-10-15-l1-fee-refunds/README.md)
+records an earlier deployment's checks. It does not qualify this offline-profile
+network, additional provider URLs or durable restart recovery.
+
+L1 posts may contain several complete source groups. Only the largest measured
+external priority payment is selected for a refund, even when it cannot cover
+the combined posting cost. A missing, ambiguous or insufficient refund does not
+pause quotes or settlement. Preserve posting logs and inspect source/post/payout
+receipts when the [refund dashboard](../../monitoring/README.md#l1-refund-observations)
+shows missing payments or shortfalls. A shortfall can be the accepted batching
+subsidy rather than a builder payment failure; compare the agreed refund terms.
+
+Per-post attribution and monitoring totals remain in memory and are not restored
+by node databases. Restart does not require clearing a refund pause flag, but may
+lose pending requests and observations. Drain or account for work before
+restarting. Disabling the policy also disables L1 quote/admission checks and
+refund requests.
+
+## Offline v2 proving and fresh-network boundary
+
+The signer consumes local L1/L2 profiles and complete witness evidence, with no
+L1 or L2 RPC. Configure `EEZ_ROLLUP_MANAGER_ADDRESS` for the deployed offline
+manager; keep node, follower and sender RPC settings on their own services.
+Follow the
+[signer operations guide](../../crates/eez-proof-signer/docs/operations.md#offline-configuration-and-recovery)
+for limits, configuration and loss of volatile sessions.
+
+This profile requires freshly deployed contracts, an authenticated genesis L1 reference,
+a newly rendered genesis and fresh datadirs. Existing Chiado deployments are
+outside its compatibility boundary. There is no upgrade, database migration or
+legacy execution mode in these binaries. Do not rerun deployment or delete
+operator state to convert an existing network. Source and private fixture tests
+do not establish a public deployment or restart rehearsal.
+
+### Rollup manager and coordinated upgrades
+
+Fresh deployments use the unchanged pinned Core `Rollup.sol`, its original
+initializer and a network-bound registered vkey. The
+[accepted simplification](../proposals/rollupx-manager-simplification.md) replaces
+the old custom manager. This is not a drop-in proxy upgrade from that manager;
+this release has no old context/key/manager compatibility path. Use matching
+node, follower, signer and deploy artifacts. L2 formats and database layout are
+unchanged, but historical inclusion policy and signed public inputs changed.
+
+Deployment derives the profile from the actual rendered genesis and canonical
+L1 configuration, then derives the key from the profile, registry, proof system
+and attester. `EEZ_VKEY` must equal this value; a padded signer address is invalid.
+The signer verifies this before serving. No L1 or L2 RPC is needed by the signer.
+
+For a future incompatible validation change, first identify pending proofs and
+canonical settlement progress. Revoke/replace the old registered vkey or proof
+system on L1 before incompatible rules activate, coordinate all runtime roles,
+and discard old sessions. Merely restarting old signers leaves their signatures
+valid. A compatible known L1 transition requires no automatic period-key change.
+
+Rollback cannot restore revoked-proof compatibility blindly: restore a matching
+contract/key/runtime set only if canonical history remains valid under it.
+These are deployment boundaries, not evidence that a live upgrade was performed.
+
+### L1 history implementation upgrades
+
+Fresh genesis contains the history proxy at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077`,
+its initial implementation at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee007a`, and
+ProxyAdmin `0x58aD165846a897f4aba3EC8f07a4a7dB434324Bf`. The ProxyAdmin owner is
+initially `EEZ_L2_UPGRADE_OWNER`; transferring EEZL2's separate admin does not
+transfer this one. The owner needs L2 gas for an upgrade transaction.
+
+Before an authorized upgrade, verify the current proxy implementation and admin
+slots and `ProxyAdmin.owner()` on the intended L2. Review storage compatibility
+and all [history execution requirements](../../contracts/L1_HISTORY_SPEC.md#proxy-and-authority).
+Deploy the reviewed implementation as an ordinary L2 contract, verify its bytes,
+then have the admin owner call `upgradeAndCall(historyProxy, implementation, data)`
+on the dedicated ProxyAdmin. Use empty data unless a reviewed atomic migration
+is required. This implementation needs no initialization call.
+
+After inclusion, verify the implementation slot and Upgraded event, preserved
+historical hashes, a later successful native import and PREVRANDAO, canonical
+settlement, and follower replay. Preserve the transaction and artifact identity.
+Compatible upgrades need no change to genesis or signer configuration. Rolling
+back a code pointer does not undo writes; the restored implementation must accept
+the resulting storage. These steps describe operation, not authorization to
+upgrade an existing network or evidence of a public upgrade rehearsal.
+
+### L2 fee treasury
+
+New genesis files contain the atomically initialized FeeVault transparent proxy at
+`0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078`, the authenticated `feeCollector`.
+The EVM credits ordinary base fees directly to its balance. Anyone may call
+`withdraw()` on L2; the complete current balance goes only to `recipient()`.
+The caller cannot choose the destination. Empty or failed payments revert,
+and a successful payment can leave the withdrawal transaction's own base fee.
+A recipient change applies to accumulated funds and subsequent withdrawals
+only after the proposed recipient accepts. The owner may set a withdrawal
+minimum; `totalWithdrawn()` records successful gross payments. See
+[treasury operations and upgrades](fee-vault.md) for the separate ProxyAdmin
+authority, event accounting and the fresh-network deployment scope.
+
+Deployment follows `deploy.sh`'s existing precedence: explicit assignments in
+`.env` override inherited shell values. When the owner is absent from both, it
+defaults to the deployment `OWNER`; an empty value is invalid. These are initial
+genesis values, not startup overrides.
+
+The owner can change the recipient without a hard fork. Followers and the offline
+signer validate these ordinary transactions using their normal execution witness.
+This contract does not bridge funds to L1. A proposed recipient contract must accept ETH and be able to call `acceptRecipient()`;
+if it rejects payment, rotate to a usable recipient before withdrawing.
+Lost or renounced ownership prevents subsequent administrative changes.
+
+The vault is present only in newly rendered networks. Adding it changes genesis
+code/storage, the genesis state root and validation identity. There is no migration,
+activation switch, mixed-genesis mode or rollback to an older genesis on an existing
+datadir. Prepare all node/follower/signer/deploy artifacts from the same revision
+before starting a new network. Existing networks are outside this change's scope.

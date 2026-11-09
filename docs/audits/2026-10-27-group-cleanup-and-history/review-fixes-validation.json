@@ -1,0 +1,139 @@
+{
+  "status": "Scoped review fixes validated locally and reviewed; final-head CI and dependency advisory resolution pending",
+  "baseline_head": "a76cf5792a7eb7217d3f2ac086e39ce029d74b98",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "protocol_worktree_clean": true,
+  "source_diff": {
+    "path": "artifacts/group-cleanup-20261027/review-fixes.patch",
+    "sha256": "dd33faa8b88458913a4063de154e05c4a5cf57e8a9fc2e659b93c4b8af01ee6e"
+  },
+  "source_files": {
+    "crates/eez-composer/src/composer.rs": "6f5d458e8f80914fae580b6efc78a78e5245c2e90cb7b38bf98e581aea4ea6f5",
+    "crates/eez-composer/src/local/build.rs": "22443c0e6f53d06e02dbd621fa68a55b0933e3725f646333e19ddfaae837e939",
+    "crates/eez-composer/src/local/build/prefix.rs": "14187296f98435ec035ff6cbfc516ba156292a2759a27156407f7682638b0ad4"
+  },
+  "baseline_reproduction": {
+    "log": "artifacts/group-cleanup-20261027/review-builder-regressions-baseline.log",
+    "sha256": "e7f35d2591435a6cea7b40323230d33a2a2f59e989bc0fc33b066e276b068b67",
+    "status": "FAILED",
+    "passed": 22,
+    "failed": 2,
+    "ignored": 0,
+    "measured": 0,
+    "filtered": 395,
+    "duration": "0.45s"
+  },
+  "baseline_test_patch": {
+    "path": "artifacts/group-cleanup-20261027/review-regressions-before-fix.patch",
+    "sha256": "105ac28f6b97296d4f96b6aba55fb1d6712da895d9f9fcab05978026fd22cb94"
+  },
+  "baseline_unit_binary_sha256": "ff935181545d838e196c50fc21cb84119c714c5f525d534527f6fa3bbcf36c22",
+  "focused_fixed": {
+    "log": "artifacts/group-cleanup-20261027/review-builder-regressions-fixed.log",
+    "sha256": "8199220533f01aa551260f010dce6fdf689bb78393b667951a34d178f5de4b96",
+    "status": "ok",
+    "passed": 24,
+    "failed": 0,
+    "ignored": 0,
+    "measured": 0,
+    "filtered": 395,
+    "duration": "0.39s"
+  },
+  "composer_unit": {
+    "log": "artifacts/group-cleanup-20261027/review-composer-unit.log",
+    "sha256": "537d7261c8fb98174d6b4d74dfa9dca030e5f0812496a0262ff4204eec8ee18c",
+    "status": "ok",
+    "passed": 418,
+    "failed": 0,
+    "ignored": 1,
+    "measured": 0,
+    "filtered": 0,
+    "duration": "1.06s"
+  },
+  "composer_ignored_reason": "Existing explicit profiling utility",
+  "clippy": {
+    "command": "cargo +1.95.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
+    "exit_code": 0,
+    "log": "artifacts/group-cleanup-20261027/review-workspace-clippy.log",
+    "sha256": "04f7dc37d189664a87983ca5b1c82de01188551d7df9c5575049bc65f03c3a17"
+  },
+  "format": {
+    "command": "cargo +1.95.0 fmt --all --check",
+    "exit_code": 0,
+    "log": "artifacts/group-cleanup-20261027/review-format.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "process_build": {
+    "command": "cargo +1.95.0 test --locked --offline -p eez-node-e2e -p eez-proof-signer --no-run --config 'profile.dev.package.eez-node.opt-level=0' --config 'profile.dev.package.eez-node.debug=0'",
+    "cargo_jobs": 1,
+    "log": "artifacts/group-cleanup-20261027/review-process-build.log",
+    "sha256": "32211aca8f295f251369832e8381f41ca5ff74114ef9d896a58007cddda08e2a"
+  },
+  "runtimes": {
+    "artifacts/group-cleanup-20261027/review-runtime/eez-composer": "178106c9a8aef76de585cd9cae80e7693711e3615e5898e3bcf8f10f243966a8",
+    "artifacts/group-cleanup-20261027/review-runtime/eez-follower": "dcc0e620d519bcc07a3f114ff20eb7577a1ccf17f0f8da69c5b7d0b78572b346",
+    "artifacts/group-cleanup-20261027/review-runtime/eez-proof-signer": "942cba77315d768a67c52b5cb96b48ef1ca3dfe0b647e18c687f24e0c80b91d0",
+    "target/debug/deps/node_e2e-131e4390fdbe836d": "7c84c4d4a38fab2699a77f4f428adecac179328040c886448c6503dde9e18e3d"
+  },
+  "signer_provenance": "Reused source-index-runtime signer, verified against source-index-runtime-third.sha256; signer production sources/dependencies unchanged by these Composer-only fixes.",
+  "process_environment": {
+    "private_tmp": "artifacts/group-cleanup-20261027/review-process-tmp",
+    "logs": "artifacts/group-cleanup-20261027/review-process-logs",
+    "datadirs": "artifacts/group-cleanup-20261027/review-process-datadirs",
+    "outbound_signer_socket_creation": "denied by EEZ_TEST_PROOF_SIGNER_NO_NETWORK=1"
+  },
+  "process_checks": {
+    "settlement_policy::retained_backlog_replays_old_witnesses_when_the_capture_store_is_empty": {
+      "log": "artifacts/group-cleanup-20261027/review-process-retained-backlog.log",
+      "sha256": "3cd7b8f7c688dd6d7adb74fc87b25456306aec006ceccc57170063bb1242df9e",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 186,
+      "duration": "54.75s"
+    },
+    "partial_consumption::valid_blob_batch_resumes_at_middle_group_in_same_l1_block": {
+      "log": "artifacts/group-cleanup-20261027/review-process-partial-same-block.log",
+      "sha256": "5c1ee0dd0635fe4b9e15b73e6febeac772b8989db56abd66274a6be8c84577d2",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 186,
+      "duration": "51.46s"
+    },
+    "chained_interstate::three_order_dependent_inbound_calls_in_one_bundle": {
+      "log": "artifacts/group-cleanup-20261027/review-process-three-inbound.log",
+      "sha256": "cbe7884cb2f121b025c938cf319399cb7e7bb6e5792ab9da62b67536858668ed",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 186,
+      "duration": "47.82s"
+    },
+    "cross_chain::combined_history::scheduled_history_static_and_lookup_settle": {
+      "log": "artifacts/group-cleanup-20261027/review-process-sync-history.log",
+      "sha256": "b09cc25d6df4430e33ce47a062f5517627de796f2f5a0c45f24b1c3d5c887748",
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 186,
+      "duration": "47.25s"
+    }
+  },
+  "limits": [
+    "Late L1 evidence is injected deterministically in a builder unit fixture; the retained process scenario covers the actual exact-replay caller and witness fallback, without injecting that outage.",
+    "Four affected process scenarios rerun; full shipping and Kurtosis lanes require final-head CI after commit.",
+    "Only owned ephemeral local test deployments; no shared/live deployment, remote publication, operator checkout or shared network lifecycle changes."
+  ],
+  "source_review": "Independent source reviewer rechecked the implemented prefix cache and regression read-only and reported no new findings; original P2 closed.",
+  "evidence_availability": "Logs, patch files and binaries under artifacts/ and target/ are local-only retained evidence, unavailable in another checkout; their digests and results are preserved here.",
+  "integrating_review": "Complete three-file diff reviewed; source hashes, focused/unit/Clippy log hashes and all four process log hashes verified against retained evidence. Protocol checkout is clean at the recorded pin."
+}

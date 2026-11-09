@@ -7,6 +7,11 @@ an L2 whose L1 is a public Ethereum network, using
 selects the same network for all three services, so a Hoodi or Sepolia rehearsal
 uses the mainnet definition unchanged.
 
+The registered contracts and L2 genesis must use the
+[fresh-network offline-history profile](../proposals/l1-origin-and-offline-proving.md).
+Existing older-profile networks need their matching release; this revision
+does not provide an in-place migration.
+
 **Not covered.** Deploying or registering contracts and rendering the L2 genesis
 (`deployments.env` and `datadir/genesis.json` must already exist), explorers and
 monitoring. Registration is irreversible: rehearse it on Hoodi first.
@@ -25,11 +30,33 @@ against a synced Ethereum node; no settlement on Ethereum has been observed.
 - `lighthouse` drives that reth through the engine API on `L1_AUTH_PORT` (shared
   `JWT_FILE`) and runs as a **semi-supernode**, so the deriver can read full
   PeerDAS blobs from `127.0.0.1:6152`.
-- `eez-proof-signer` trusts the same network (`EEZ_L1_CHAIN_CONFIG=<network>`).
+- `eez-proof-signer` loads that network's local rules (`EEZ_L1_CHAIN_CONFIG=<network>`)
+  and validates complete v2 witness evidence without an L1 or L2 RPC connection.
 - The schedule is fixed by the genesis profile: 12-second L1 slots, 2-second L2
   blocks (six per slot).
 - Host networking with the Chiado profile's ports: run one packaged network per
   host.
+
+## Composer deposit limit
+
+On Ethereum mainnet (L1 chain ID 1), the Composer rejects an inbound source
+transaction whose total committed ETH deliveries to L2 exceed **0.1 ETH**
+(100000000000000000 wei). Exactly 0.1 ETH is allowed. The check uses simulated
+cross-chain deliveries, including wrapper-funded and nested calls, and sums
+all deposits in the transaction without subtracting withdrawals. Reverted
+transfers do not count. Other L1 networks and outbound transactions are unchanged.
+
+This check runs during composition, before accepting the transaction's state
+changes. Submission may initially return a hash; an oversized deposit is then
+evicted with its reason available through the existing Composer transaction
+status diagnostics. Dependent nonces follow the existing eviction behavior.
+
+This is a fixed local Composer policy, not a contract or signer rule, a per-wallet
+quota, or a total escrow cap. Multiple transactions can each deposit 0.1 ETH.
+Every active Composer must run the updated binary for consistent enforcement;
+older binaries still accept larger deposits. No contract, genesis or follower
+migration is required, and rolling back the binary removes this protection.
+Already accepted deposits are unaffected.
 
 ## Prerequisites
 
@@ -58,6 +85,12 @@ against a synced Ethereum node; no settlement on Ethereum has been observed.
 
    Confirm proof time for a full window and the timing budgets in the rehearsal. The
    poster balance is the only total spending limit.
+
+Cross-chain fee collection uses the shared [fee configuration](../configurable-settlement-policy.md#cross-chain-fee-configuration).
+Use matching Composer fronts and SDKs for the current 64 KiB calldata limit.
+Fee policies have no expiration; the obsolete
+`EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` setting, including an empty value, prevents
+startup. This runbook does not upgrade an older-profile deployment.
 
 ## First start
 
@@ -89,7 +122,7 @@ cast block-number --rpc-url http://127.0.0.1:18688                              
 
 **Stop conditions:**
 - **Unexpected L1 kind or chain ID:** if the embedded L1 reports a different chain ID or `kind`, stop. `EEZ_L1_CHAIN` must be exactly `mainnet`, `hoodi` or `sepolia`; any other value is a startup error.
-- **Signer refuses to start:** a `prover validation identity differs` error means the node and signer images come from different commits.
+- **Prover preflight rejects:** a `prover validation identity differs` error means the node and signer disagree on validation specification, genesis, profile or deployment identity. Match their artifacts and local configuration before retrying.
 - **Invalid builder signature:** `Invalid signature` replies from BuilderNet mean `EEZ_L1_BUNDLE_SIGNING_KEY` is missing.
 
 Bundle acceptance is not inclusion. Measure the share of settlement slots that
@@ -132,6 +165,20 @@ Unavailable history now fails during catch-up rather than the deployment-block
 preflight. Readiness stays closed while catch-up retries; persistent RPC errors
 (including the receipt-pruning error) exhaust the existing 32-failure budget and
 exit. Repeated restarts cannot restore missing history.
+
+On restart, retained L2 blocks can reference L1 origins newer than the embedded
+L1's currently recovered head. The node keeps the embedded L1 alive and reports
+`eez.node.deriver.boot_catch_up.source_incomplete`, including the retained L2
+block, required L1 origin and available evidence tip. Readiness remains closed
+while canonical catch-up retries with backoff. Let Lighthouse and the embedded
+L1 catch up; do not reset L2 or delete its correlation index. If the reported tip
+stops advancing, inspect Lighthouse/engine connectivity and L1 sync progress.
+Reaching the required height is not by itself validation: recovery still checks
+the canonical origin hash and randomness before retaining the suffix.
+
+This retry fix does not change contracts, genesis, proof validation identity or
+database formats. It needs no data migration. An older binary can encounter the
+same fatal startup error again if its L1 source trails retained L2 history.
 
 Check startup in order:
 

@@ -1,0 +1,74 @@
+{
+  "source": "be8477bc7ba48d3f287d33cd6c010089458885ec",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "jobs": 770,
+  "sources": 870,
+  "accepted": 870,
+  "admissionErrors": 0,
+  "canonical": 870,
+  "receiptWaitTimeouts": 0,
+  "sourceSendSeconds": 5.603,
+  "canonicalSettlementSeconds": 492.28399991989136,
+  "sourcesPerSecondDuringWave": 1.767272550279054,
+  "latencySeconds": {
+    "median": 87.88999998569489,
+    "p95": 456.84800004959106,
+    "max": 486.71399998664856
+  },
+  "quoteCalls": 870,
+  "quoteErrors": 0,
+  "quoteMs": {
+    "median": 10.718893500000036,
+    "p95": 20.856729000000087,
+    "max": 625.5334269999994
+  },
+  "feeMultiplier": "1",
+  "sourceReplacements": 0,
+  "quoteFormatSelection": "one format per request, alternating legacy and EIP-1559 by job",
+  "posts": 61,
+  "maxL1SourcesPerPost": 70,
+  "maxL2SourcesPerPost": 9,
+  "semanticVerification": {
+    "passed": 770,
+    "failed": 0,
+    "unverifiable": 0,
+    "skipped": 0,
+    "allJobDoneMarkers": 770,
+    "verifyWorkers": 16,
+    "pinnedAssertionsUnmodified": true,
+    "absenceCheckSeconds": 60,
+    "logSha256": "daeb4ba708ec9d6562eb86e9c3be87ffe97fbdf5c63d1003bf02fdaa06892231",
+    "completedAt": "2026-10-16T11:46:43.707999+00:00"
+  },
+  "nativePreflightBackoffs": [
+    {
+      "rejectedGroups": 38,
+      "nextMaximum": 19
+    },
+    {
+      "rejectedGroups": 19,
+      "nextMaximum": 9
+    }
+  ],
+  "limitations": [
+    "Burst workload; not a sustainable capacity ceiling.",
+    "Ordinary setup required same-byte public rebroadcast of 17 transactions before any measured source was sent.",
+    "Posting price increases deferred the quoted L2 cohort.",
+    "Conservative native-preflight selection cap persisted until the queue drained.",
+    "Earlier comparison wave overlapped builds; this is not a controlled performance comparison."
+  ],
+  "L1": {
+    "sources": 520,
+    "cost": "113855913542264141",
+    "collected": "12148280526229609",
+    "undercoveredPosts": 22,
+    "canonicalElapsedSeconds": 137.28399991989136
+  },
+  "L2": {
+    "sources": 350,
+    "cost": "127329527801260225",
+    "collected": "245805699751719531",
+    "undercoveredPosts": 0,
+    "canonicalElapsedSeconds": 492.28399991989136
+  }
+}

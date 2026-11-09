@@ -275,11 +275,29 @@ elif args[0] != "logout":
 
     def test_hosted_protocol_concurrency_is_bounded_in_both_publication_paths(self):
         workflow = yaml.safe_load((REPO / ".github/workflows/kurtosis-e2e.yml").read_text())
-        self.assertEqual(workflow["jobs"]["kurtosis-e2e"]["env"]["EEZ_PROTOCOL_MAX_PARALLEL"], "2")
+        self.assertEqual(workflow["jobs"]["kurtosis-e2e"]["env"]["EEZ_PROTOCOL_MAX_PARALLEL"], "4")
         producer = yaml.safe_load((REPO / ".github/workflows/build-runtime.yml").read_text())
         local = next(s for s in producer["jobs"]["build"]["steps"]
                      if s.get("run") == "bash testing/kurtosis/run-ci.sh")
-        self.assertEqual(local["env"]["EEZ_PROTOCOL_MAX_PARALLEL"], "2")
+        self.assertEqual(local["env"]["EEZ_PROTOCOL_MAX_PARALLEL"], "4")
+
+    def test_kurtosis_protocol_compiler_cache_is_exact_and_precedes_the_suite(self):
+        steps = yaml.safe_load((REPO / ".github/workflows/kurtosis-e2e.yml").read_text())["jobs"]["kurtosis-e2e"]["steps"]
+        caches = [s for s in steps if s.get("uses", "").startswith("actions/cache@")]
+        self.assertEqual(len(caches), 1)
+        cache = caches[0]
+        self.assertRegex(cache["uses"], r"^actions/cache@[0-9a-f]{40}( |$)")
+        self.assertEqual(set(cache["with"]), {"path", "key"})  # no restore-keys prefix fallback
+        self.assertEqual(cache["with"]["path"].split(), ["eez-core-protocol/out", "eez-core-protocol/cache"])
+        self.assertIn("foundry-v1.7.1", cache["with"]["key"])
+        self.assertIn("steps.protocol-cache-key.outputs.pin", cache["with"]["key"])
+        key = next(s for s in steps if s.get("id") == "protocol-cache-key")
+        self.assertIn("git rev-parse HEAD:eez-core-protocol", key["run"])
+        index = {s.get("name"): i for i, s in enumerate(steps)}
+        self.assertLess(index["Initialize submodules"], steps.index(cache))
+        self.assertLess(steps.index(cache), index["Run Enclave"])
+        foundry = next(s for s in steps if s.get("uses", "").startswith("foundry-rs/foundry-toolchain@"))
+        self.assertEqual(foundry["with"]["version"], "v1.7.1")
 
     def test_compile_cap_is_not_repository_configuration(self):
         # The producer sizes the cap from its Docker daemon. Overrides belong to

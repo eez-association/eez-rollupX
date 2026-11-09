@@ -12,7 +12,6 @@ derivation = [
     "dep:alloy-eips",
     "dep:eez-payload-codec",
     "dep:eyre",
-    "dep:eez-primitives",
     "dep:eez-evm",
     "dep:reth-evm",
     "dep:reth-evm-ethereum",
@@ -22,7 +21,6 @@ derivation = [
 ]
 observation = [
     "dep:eyre",
-    "dep:eez-primitives",
     "dep:eez-evm",
     "dep:reth-evm",
     "dep:reth-evm-ethereum",
@@ -33,7 +31,6 @@ witness = [
     "observation",
     "dep:eez-prover",
     "dep:eyre",
-    "dep:eez-primitives",
     "dep:eez-evm",
     "dep:reth-evm",
     "dep:reth-revm",
@@ -53,7 +50,7 @@ eez-payload-codec = { workspace = true, optional = true }
 reth-chainspec.workspace                  = true
 reth-engine-primitives.workspace          = true
 reth-ethereum-engine-primitives.workspace = true
-eez-primitives = { workspace = true, optional = true }
+eez-primitives.workspace = true
 eez-evm = { workspace = true, optional = true }
 reth-evm = { workspace = true, optional = true }
 reth-evm-ethereum = { workspace = true, optional = true }
@@ -81,6 +78,8 @@ tokio.workspace       = true
 tracing.workspace     = true
 
 [dev-dependencies]
+alloy-provider.workspace = true
+alloy-rpc-types-eth.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 serde_json.workspace = true
 reth-provider = { workspace = true, features = ["test-utils"] }

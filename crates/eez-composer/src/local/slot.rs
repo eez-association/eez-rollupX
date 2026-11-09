@@ -447,6 +447,12 @@ impl TargetExecutionSession for L1TargetSession {
         inspector.top_gas_price = self.posting_origin.map(|_| self.posting_gas_price);
         let (return_data, gas_used, success, mut changes, inspector_error) = {
             let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
+            let traced = crate::composer::quote_trace::inspect(
+                traced,
+                self.chain_id,
+                "composition",
+                &tx_env,
+            );
             let mut evm = self.evm_config.evm_with_env_and_inspector(
                 &mut self.state,
                 self.evm_env.clone(),
@@ -753,7 +759,7 @@ mod posting_frame_tests {
         let mut inspector = SkipTopFrame::new(NoOpInspector {});
         inspector.top_caller = Some(manager);
         inspector.top_gas_price = Some(37);
-        let mut result = EezEvmConfig::new(reth_chainspec::MAINNET.clone())
+        let mut result = EezEvmConfig::for_l1_simulation(reth_chainspec::MAINNET.clone())
             .evm_with_env_and_inspector(database, env, inspector)
             .transact(TxEnv {
                 caller: poster,

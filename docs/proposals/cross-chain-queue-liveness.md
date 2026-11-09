@@ -315,6 +315,13 @@ so a read never observes the gap. The entries share the same count bound and
 restart loss, and remain observations: they never authorize execution,
 admission or recovery.
 
+Per-source L1/L2 transaction references are specified in
+[cross-chain transaction references](cross-chain-transaction-references.md).
+They follow the retained attempt, including pre-dispatch poster repricing, and
+survive finality pruning with its terminal observation. A complete candidate
+group is not evidence that every listed transaction executed. The same bounded
+retention and restart limits apply; the extension adds no ownership authority.
+
 ### Simulation rejection diagnostics
 
 A source whose composition fails deterministically is evicted before any

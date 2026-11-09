@@ -1,0 +1,578 @@
+{
+  "kind": "independent read-only diagnosis of an authorized maintenance restart",
+  "source": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "classification": "Transient recovery of the builder CL-to-EL/PBS path after an operational EL stop; two canonical historical chunks subsequently observed. Complete backlog drain not demonstrated.",
+  "scope": "Existing retained logs, snapshot and source only; no RPC, build, replay, transaction, restart or service action performed by this reviewer.",
+  "evidence": [
+    {
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/node.log",
+      "sha256": "589c8056901a7b3b4952625d1b41c7ea089a7e84317efa530d1fd9422ec6ab96",
+      "bytes": 11972143,
+      "availability": "local-only retained artifact"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/builder.log",
+      "sha256": "a6db331a902df910f6620c1587bc0250dd207740e0e72e5b47f060aba8295219",
+      "bytes": 44789,
+      "availability": "local-only retained artifact"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/signer.log",
+      "sha256": "a7285edd44bca21e9eb199f4768610d38ef90606724713cec4ee9b32f2665123",
+      "bytes": 383835,
+      "availability": "local-only retained artifact"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/relay_api.log",
+      "sha256": "7dd148359a4b1e4e1167b25e865701f038f94b2ab6b46c381a442de5964f2002",
+      "bytes": 80891,
+      "availability": "local-only retained artifact"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/builder-cl.log",
+      "sha256": "51d3d934934199832cc05852427808447c5275e534e888aaaa0dbdaa4f8c4a49",
+      "bytes": 319406,
+      "availability": "local-only retained artifact"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/builder-cl-identity.json",
+      "sha256": "8a42d199337d2d697b72bb425339cd7e903dfc95be941a59996cfe6a1dccdfba",
+      "bytes": 2375,
+      "availability": "local-only retained artifact"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/diagnostic.json",
+      "sha256": "20dd26fb21e9e4fa3949695bfb6c360271e11b6bf071c290b0fc1d0f72f0b719",
+      "bytes": 46695,
+      "availability": "local-only retained artifact"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/preservation/node-complete.log",
+      "sha256": "a8b83ea499b63baf3e56e5cbe1a67c53ac4437dc7c1a51c3e7e422f140dbcc6d",
+      "bytes": 12295441,
+      "availability": "local-only retained artifact"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/preservation/builder-complete.log",
+      "sha256": "f1072ffb4719baf7993a5d7cd51900d31a5d60aebcf980de7794264872b2235c",
+      "bytes": 798539,
+      "availability": "local-only retained artifact"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/preservation/signer-complete.log",
+      "sha256": "1e44c6dfcaf489f227f7ba7887fdb2cbeb033d528916514f52e5f9a13222c202",
+      "bytes": 529351,
+      "availability": "local-only retained artifact"
+    },
+    {
+      "path": "artifacts/extended-validation/candidate/maintenance-before-fresh/preservation/snapshot.json",
+      "sha256": "ee0101b4e7efb30fe373b6934bd990f884ebd544b0905bb8b4b485d31cc68a01",
+      "bytes": 24603,
+      "availability": "local-only retained artifact"
+    }
+  ],
+  "timeline": [
+    {
+      "at": "2026-10-24T17:34:33.025339183Z",
+      "source": "builder-cl.log",
+      "line": 75,
+      "observation": "Builder CL Engine connection fails during the authorized EL stop."
+    },
+    {
+      "at": "2026-10-24T17:43:43.012476550Z",
+      "source": "builder-cl.log",
+      "line": 542,
+      "observation": "Builder CL transitions from Synced to Syncing Head Chain."
+    },
+    {
+      "at": "2026-10-24T19:57:21.702444298Z",
+      "source": "preservation/builder-complete.log",
+      "line": 2,
+      "observation": "Builder EL restarts."
+    },
+    {
+      "at": "2026-10-24T20:02:22.874744624Z",
+      "source": "preservation/builder-complete.log",
+      "line": 155,
+      "observation": "Restarted EL has not yet received the CL Engine connection."
+    },
+    {
+      "at": "2026-10-24T20:04:33.044847509Z",
+      "source": "preservation/builder-complete.log",
+      "line": 207,
+      "observation": "First recorded forkchoice update after EL restart."
+    },
+    {
+      "at": "2026-10-24T20:04:34.048783506Z",
+      "source": "builder-cl.log",
+      "line": 1447,
+      "observation": "CL reports its execution engine online."
+    },
+    {
+      "at": "2026-10-24T20:05:21.522247333Z",
+      "source": "preservation/builder-complete.log",
+      "line": 1716,
+      "observation": "First payload attributes after restart; this first item still names historical block 2777 for current slot 2833."
+    },
+    {
+      "at": "2026-10-24T20:05:26.181361866Z",
+      "source": "builder-cl.log",
+      "line": 1455,
+      "observation": "CL becomes Synced again."
+    },
+    {
+      "at": "2026-10-24T20:05:33.425000+00:00",
+      "source": "preservation/node-complete.log",
+      "line": 35795,
+      "observation": "Post targeting L1 2826 observed included; claimed L2 endpoint 12480. Inclusion is separate from canonical commitment application."
+    },
+    {
+      "at": "2026-10-24T20:05:39.016408Z",
+      "source": "preservation/node-complete.log",
+      "line": 35832,
+      "observation": "Canonical reconciliation advances L2 endpoint to 12480."
+    },
+    {
+      "at": "2026-10-24T20:05:45.573000+00:00",
+      "source": "preservation/node-complete.log",
+      "line": 35894,
+      "observation": "Post targeting L1 2827 observed included; claimed L2 endpoint 12504. Inclusion is separate from canonical commitment application."
+    },
+    {
+      "at": "2026-10-24T20:05:51.009585Z",
+      "source": "preservation/node-complete.log",
+      "line": 35931,
+      "observation": "Canonical reconciliation advances L2 endpoint to 12504."
+    },
+    {
+      "at": "2026-10-24T20:05:57.398000+00:00",
+      "source": "preservation/node-complete.log",
+      "line": 35993,
+      "observation": "Post targeting L1 2828 observed included; claimed L2 endpoint 12528. Inclusion is separate from canonical commitment application."
+    },
+    {
+      "at": "2026-10-24T20:05:58.417465960Z",
+      "source": "preservation/builder-complete.log",
+      "line": 1987,
+      "observation": "Authorized preservation stop; subsequent CL Engine connection errors do not show a spontaneous new failure."
+    }
+  ],
+  "timing_seconds": {
+    "el_start_to_first_forkchoice": 431.342,
+    "el_start_to_cl_engine_online": 432.346,
+    "el_start_to_cl_synced": 484.479,
+    "first_to_last_exclusion": 299.971,
+    "note": "Calculated from retained log times; no 18-minute recovery interval is supported. The reason for the delayed CL retry after EL was listening is not established by these logs."
+  },
+  "excluded_attempts": {
+    "count": 26,
+    "consecutive_l1_targets": [
+      2800,
+      2825
+    ],
+    "claimed_l2_range": [
+      12457,
+      12480
+    ],
+    "first": {
+      "line": 33411,
+      "timestamp_ms": 1792872021397,
+      "transaction_hash": "0x69381fd224a1b7d394674cbaf7523640032028aad391c73be421c09d91cd5426",
+      "target_block": 2800
+    },
+    "last": {
+      "line": 35705,
+      "timestamp_ms": 1792872321368,
+      "transaction_hash": "0xe7741b54e8fe3a222c5b47c95eeda027c2134e697c55b2d69c83cddc35e79f8a",
+      "target_block": 2825
+    },
+    "reason": "excluded",
+    "note": "All 26 retained failures remain failures of inclusion; later successful attempts do not relabel them."
+  },
+  "publication_path": {
+    "signed_windows": 29,
+    "native_preflights": 29,
+    "acknowledged_deliveries": 29,
+    "acknowledged_builders_per_attempt": 1,
+    "signed_range_counts": [
+      {
+        "from": 12457,
+        "to": 12480,
+        "count": 27
+      },
+      {
+        "from": 12481,
+        "to": 12504,
+        "count": 1
+      },
+      {
+        "from": 12505,
+        "to": 12528,
+        "count": 1
+      }
+    ],
+    "relay_initial_requests": 36,
+    "relay_initial_slots": [
+      2791,
+      2826
+    ],
+    "relay_initial_head_slot": 2077,
+    "relay_initial_result": "Every retained getHeader in this initial capture returned no bid / HTTP 204.",
+    "exact_parent_timestamp_correlations": [
+      {
+        "l1_block_target": 2800,
+        "relay_slot": 2807,
+        "target_timestamp": 1792872021,
+        "dispatch_line": 33394,
+        "relay_line": 85,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5646
+      },
+      {
+        "l1_block_target": 2801,
+        "relay_slot": 2808,
+        "target_timestamp": 1792872033,
+        "dispatch_line": 33487,
+        "relay_line": 90,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5597
+      },
+      {
+        "l1_block_target": 2802,
+        "relay_slot": 2809,
+        "target_timestamp": 1792872045,
+        "dispatch_line": 33578,
+        "relay_line": 96,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5670
+      },
+      {
+        "l1_block_target": 2803,
+        "relay_slot": 2810,
+        "target_timestamp": 1792872057,
+        "dispatch_line": 33669,
+        "relay_line": 101,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5637
+      },
+      {
+        "l1_block_target": 2804,
+        "relay_slot": 2811,
+        "target_timestamp": 1792872069,
+        "dispatch_line": 33760,
+        "relay_line": 106,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5661
+      },
+      {
+        "l1_block_target": 2805,
+        "relay_slot": 2812,
+        "target_timestamp": 1792872081,
+        "dispatch_line": 33852,
+        "relay_line": 112,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5607
+      },
+      {
+        "l1_block_target": 2806,
+        "relay_slot": 2813,
+        "target_timestamp": 1792872093,
+        "dispatch_line": 33942,
+        "relay_line": 117,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5610
+      },
+      {
+        "l1_block_target": 2807,
+        "relay_slot": 2814,
+        "target_timestamp": 1792872105,
+        "dispatch_line": 34038,
+        "relay_line": 123,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5346
+      },
+      {
+        "l1_block_target": 2808,
+        "relay_slot": 2815,
+        "target_timestamp": 1792872117,
+        "dispatch_line": 34130,
+        "relay_line": 128,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5472
+      },
+      {
+        "l1_block_target": 2809,
+        "relay_slot": 2816,
+        "target_timestamp": 1792872129,
+        "dispatch_line": 34221,
+        "relay_line": 133,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5580
+      },
+      {
+        "l1_block_target": 2810,
+        "relay_slot": 2817,
+        "target_timestamp": 1792872141,
+        "dispatch_line": 34313,
+        "relay_line": 143,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5686
+      },
+      {
+        "l1_block_target": 2811,
+        "relay_slot": 2818,
+        "target_timestamp": 1792872153,
+        "dispatch_line": 34406,
+        "relay_line": 148,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5373
+      },
+      {
+        "l1_block_target": 2812,
+        "relay_slot": 2819,
+        "target_timestamp": 1792872165,
+        "dispatch_line": 34497,
+        "relay_line": 154,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5689
+      },
+      {
+        "l1_block_target": 2813,
+        "relay_slot": 2820,
+        "target_timestamp": 1792872177,
+        "dispatch_line": 34590,
+        "relay_line": 159,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5618
+      },
+      {
+        "l1_block_target": 2814,
+        "relay_slot": 2821,
+        "target_timestamp": 1792872189,
+        "dispatch_line": 34682,
+        "relay_line": 164,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5636
+      },
+      {
+        "l1_block_target": 2815,
+        "relay_slot": 2822,
+        "target_timestamp": 1792872201,
+        "dispatch_line": 34773,
+        "relay_line": 170,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5637
+      },
+      {
+        "l1_block_target": 2816,
+        "relay_slot": 2823,
+        "target_timestamp": 1792872213,
+        "dispatch_line": 34864,
+        "relay_line": 175,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5615
+      },
+      {
+        "l1_block_target": 2817,
+        "relay_slot": 2824,
+        "target_timestamp": 1792872225,
+        "dispatch_line": 34955,
+        "relay_line": 181,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5664
+      },
+      {
+        "l1_block_target": 2818,
+        "relay_slot": 2825,
+        "target_timestamp": 1792872237,
+        "dispatch_line": 35046,
+        "relay_line": 186,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5626
+      },
+      {
+        "l1_block_target": 2819,
+        "relay_slot": 2826,
+        "target_timestamp": 1792872249,
+        "dispatch_line": 35141,
+        "relay_line": 191,
+        "relay_parent_equals_preflight_parent": true,
+        "dispatch_lead_ms": 5426
+      }
+    ],
+    "note": "Beacon slot and execution block number differ by seven here; joins use timestamp plus exact parent hash, not equal numbers. Initial relay capture ends before later inclusion."
+  },
+  "canonical_progress": [
+    {
+      "line": 35832,
+      "at": "2026-10-24T20:05:39.016408Z",
+      "at_l1": 2826,
+      "post_batch_hash": "0xe68a8eba38b00a2b091bb0e11ba90ac2b4d68c5e85ca0232ff5ffb82d80d9bec",
+      "canonical_l2_number": 12480,
+      "canonical_l2_hash": "0xa7b6cdc5289cac187614cd76961b1967534e942808eee0cade4c3cf5bdfb39c3"
+    },
+    {
+      "line": 35931,
+      "at": "2026-10-24T20:05:51.009585Z",
+      "at_l1": 2827,
+      "post_batch_hash": "0x9cdcb5126fdc0659e6a33dfc3c0d986f7fd4c8526233563d6a0b900d7b48e49f",
+      "canonical_l2_number": 12504,
+      "canonical_l2_hash": "0x5616ad89aaa5f2ea53cc2e6440b28cc3379c817016a5f6318088abe958db9e89"
+    }
+  ],
+  "last_included_only": {
+    "line": 35993,
+    "timestamp_ms": 1792872357398,
+    "target_block": 2828,
+    "sync_height": 12528,
+    "transaction_hash": "0x31bd6fb3bae23bc40d69ab59aaaa0e8b9c6bd3199ef9328ef5f5291335af5579",
+    "detail": {
+      "l1_block": 2828,
+      "l1_block_hash": "0x82a3f2d2638df988f5f5ca40d42d31089dd886a1c7ec35c538d4c2a3e09fccb0"
+    }
+  },
+  "last_included_only_limit": "L1 2828 receipt/inclusion observation claims endpoint 12528. No matching canonical reconciliation is present before shutdown; do not replace observed safe 12504 with claimed 12528.",
+  "snapshot": {
+    "source": "preservation/snapshot.json",
+    "l2_latest": {
+      "number": 17004,
+      "hash": "0x2a4633a52a299ddd19f26f85c9b6a53fdfbab87a760d2a5e5f708dbffa539687",
+      "timestamp": 1792872357
+    },
+    "l2_safe": {
+      "number": 12504,
+      "hash": "0x5616ad89aaa5f2ea53cc2e6440b28cc3379c817016a5f6318088abe958db9e89",
+      "timestamp": 1792863357
+    },
+    "l1_head": {
+      "number": 2827,
+      "hash": "0x42013eebe4ff5e071e4348d4488e0efdec956d3a72981dfdafa41b7ab73cb425",
+      "timestamp": 1792872345
+    },
+    "unsafe_safe_gap": 4500,
+    "note": "Snapshot RPC reads precede final process shutdown and are not an atomic multi-chain snapshot. Empty user queue does not mean ordinary history backlog is drained."
+  },
+  "prevalidation": {
+    "errors": [
+      {
+        "error": "prover backend: Prove 12464-12485: code: 'Some resource has been exhausted', message: \"session block quota exceeded\"",
+        "count": 1,
+        "first_line": 517,
+        "first_at": "2026-10-24T19:59:03.295303Z",
+        "last_line": 517,
+        "last_at": "2026-10-24T19:59:03.295303Z"
+      },
+      {
+        "error": "prover backend: Prove 12464-12487: code: 'Some resource has been exhausted', message: \"session block quota exceeded\"",
+        "count": 641,
+        "first_line": 518,
+        "first_at": "2026-10-24T19:59:03.296040Z",
+        "last_line": 33375,
+        "last_at": "2026-10-24T20:00:15.109124Z"
+      },
+      {
+        "error": "prover backend: Prove 12464-12487: code: 'Some resource has been exhausted', message: \"h2 protocol error: error reading a body from connection\", source: hyper::Error(Body, Error { kind: GoAway(b\"too_many_data_frames\", ENHANCE_YOUR_CALM, Library) })",
+        "count": 4,
+        "first_line": 3657,
+        "first_at": "2026-10-24T19:59:07.789944Z",
+        "last_line": 18545,
+        "last_at": "2026-10-24T19:59:30.336706Z"
+      },
+      {
+        "error": "retryable prover error (UNAVAILABLE): ProveStream request stream closed",
+        "count": 2,
+        "first_line": 13327,
+        "first_at": "2026-10-24T19:59:22.311910Z",
+        "last_line": 29590,
+        "last_at": "2026-10-24T19:59:46.172693Z"
+      },
+      {
+        "error": "prover backend: Prove 12488-12511: code: 'Some resource has been exhausted', message: \"session block quota exceeded\"",
+        "count": 134,
+        "first_line": 33390,
+        "first_at": "2026-10-24T20:00:15.315349Z",
+        "last_line": 35777,
+        "last_at": "2026-10-24T20:05:27.359926Z"
+      },
+      {
+        "error": "prover backend: Prove 12481-12504: code: 'Some resource has been exhausted', message: \"session block quota exceeded\"",
+        "count": 4,
+        "first_line": 35814,
+        "first_at": "2026-10-24T20:05:35.057889Z",
+        "last_line": 35861,
+        "last_at": "2026-10-24T20:05:39.132037Z"
+      },
+      {
+        "error": "prover backend: Prove 12505-12528: code: 'Some resource has been exhausted', message: \"session block quota exceeded\"",
+        "count": 5,
+        "first_line": 35876,
+        "first_at": "2026-10-24T20:05:39.487428Z",
+        "last_line": 35960,
+        "last_at": "2026-10-24T20:05:51.116588Z"
+      },
+      {
+        "error": "prover backend: Prove 12529-12552: code: 'Some resource has been exhausted', message: \"session block quota exceeded\"",
+        "count": 1,
+        "first_line": 35975,
+        "first_at": "2026-10-24T20:05:51.337579Z",
+        "last_line": 35975,
+        "last_at": "2026-10-24T20:05:51.337579Z"
+      }
+    ],
+    "interpretation": "Best-effort background session prevalidation repeatedly reaches the bounded aggregate block quota during historical catch-up. These are separate from final proof attempts: all 29 final signed windows/preflights/deliveries in this capture succeed. Four HTTP/2 GOAWAY errors and two closed streams are preserved, not classified as block-quota errors.",
+    "source_guards": [
+      {
+        "path": "crates/eez-node/src/lib.rs",
+        "line": 152,
+        "contract": "Failure retains durable witnesses and does not advance last_prepared."
+      },
+      {
+        "path": "crates/eez-prover-client/src/streaming.rs",
+        "line": 193,
+        "contract": "Prevalidation splits by maximum window; sessions still enforce aggregate retained quotas."
+      },
+      {
+        "path": "crates/eez-prover-client/src/streaming.rs",
+        "line": 374,
+        "contract": "Final proof can rebuild a full retained session once at the exact predecessor, preserving deadline and inputs."
+      },
+      {
+        "path": "crates/eez-proof-signer/src/service/sessions.rs",
+        "line": 829,
+        "contract": "Aggregate session block quota is checked before replay; no validation bypass."
+      }
+    ],
+    "limit": "The retry volume and transport resets are observed operational overhead. This analysis does not establish a latency SLA or classify them as a product regression."
+  },
+  "interpretation_boundaries": [
+    {
+      "path": "crates/eez-l1/src/submitter.rs",
+      "line": 1537,
+      "contract": "Canonical receipt/pinned slot observer reports inclusion or exclusion; relay acknowledgment alone is not settlement."
+    },
+    {
+      "path": "crates/eez-composer/src/composer.rs",
+      "line": 8335,
+      "contract": "Bundle observation retains canonical derivation/source receipt ownership authority."
+    },
+    {
+      "path": "crates/eez-l1/src/l1_canonical_head.rs",
+      "line": 165,
+      "contract": "Publish checked batch evidence before exposing the L2 cursor; all same-block batches and safe-head update precede scan completion."
+    }
+  ],
+  "conclusions": [
+    "A stale PBS path is directly demonstrated during the exclusions; CL reconnection and synchronization precede subsequent canonical progress without a source change.",
+    "No permanent node/signer recovery defect is demonstrated; this maintenance observation is not a failed controlled product recovery test.",
+    "The first 20 exclusions have exact relay/preflight parent and timestamp matches, successful acknowledgments, and 5.346–5.689 seconds of dispatch lead; they are not evidenced as wrong-parent or late-dispatch failures.",
+    "The two reconciled chunks provide observed partial canonical progress only; the remaining 4500-block snapshot gap was not drained.",
+    "A fresh enclave campaign cannot establish complete recovery of this preserved enclave."
+  ],
+  "remaining_checks": [
+    "If complete old-enclave recovery is required later, restore only its authorized preserved roles and first establish CL/EL synchronization, current relay duties and new payload attributes. Do not alter protocol rules or quota to mask this observation.",
+    "Then require canonical commitment/safe advancement through the chosen retained endpoint, exact receipts and state assertions; an independent cold follower replay is still needed for an end-to-end replay claim.",
+    "No replay is necessary merely to establish this recorded infrastructure chronology. The retained 2828 post must remain included-only unless later checked canonical evidence establishes its applied endpoint.",
+    "The delayed CL retry mechanism between 19:57:21 and 20:04:33 is not identified by the available messages; avoid attributing it to Tokio or the pending-RPC adapter."
+  ]
+}

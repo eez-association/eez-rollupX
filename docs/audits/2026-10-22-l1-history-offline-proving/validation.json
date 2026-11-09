@@ -1,0 +1,945 @@
+{
+  "status": "locally_validated",
+  "base_commit": "8621b0368f4f42dc871dd84c0aaf5b6c4599bfbd",
+  "protocol_commit": "b5d94eafab15eb3fdd08a73ad9a693f7a3fcb820",
+  "interpretation": "Separate source checkpoints and process runs; not one green final-revision workspace invocation. The user clarified that four days illustrated expiry of L1 BLOCKHASH access, rather than required stress duration. Focused expired-source multipart settlement and complete follower replay are the acceptance gate.",
+  "workspace_non_process": {
+    "command": "cargo +1.95.0 test --locked --workspace --exclude eez-node-e2e --no-fail-fast -- --test-threads=1",
+    "exit_code": 0,
+    "totals": {
+      "passed": 1560,
+      "failed": 0,
+      "ignored": 3,
+      "measured": 0,
+      "filtered": 0
+    },
+    "nonempty_targets": 22,
+    "empty_targets": 20,
+    "artifact": {
+      "path": "artifacts/validation/offline-workspace-non-process-complete.log",
+      "sha256": "91e14e38b412693e821ef90c2b750824bd28ed691c52ce7a0b6c8b68a88255b3",
+      "availability": "local-only; raw log is not committed"
+    },
+    "source_note": "Earlier integration checkpoint; subsequent changed paths have focused checks below and in README.md."
+  },
+  "native_inventory": {
+    "command": [
+      "cargo",
+      "+1.95.0",
+      "test",
+      "--locked",
+      "-p",
+      "eez-node-e2e",
+      "--test",
+      "node_e2e",
+      "--",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "exit_code": 101,
+    "outcome": {
+      "status": "FAILED",
+      "passed": 168,
+      "failed": 4,
+      "ignored": 5,
+      "measured": 0,
+      "filtered": 0,
+      "seconds": 9891.29
+    },
+    "failed_cases": [
+      "cross_chain::inbound_reverting_destination_preserves_caught_result_without_destination_writes",
+      "settlement_policy::ordinary_data_admission_tracks_operator_capacity_without_losing_valid_work",
+      "settlement_policy::restart_after_intermediate_prefix_discards_old_intent_and_uses_current_rules",
+      "settlement_policy::restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint"
+    ],
+    "ignored_cases": [
+      "derivable_operations::ethereum_native_large_history_cold_checkpoint",
+      "derivable_operations::gnosis_native_large_history_cold_checkpoint",
+      "derivable_operations::multipart::four_days_settle_in_parts_with_cold_offline_provers_and_independent_replay",
+      "derivable_operations::retained_native_history_cold_checkpoint",
+      "kurtosis_policy_replay::kurtosis_policy_batches_replay_independently_from_l1"
+    ],
+    "executables": {
+      "node_e2e-969bf1dbfc9e03d4": "8d45de85f7d457f10d4da5503da226c9fba0d7af5a36e9fd4181dc10973ffee1",
+      "eez-composer": "de887ac68330e24b800c582fc731abf5de0e83d526934356418840df023026e0",
+      "eez-follower": "f133c92243d8c2a3f6c14052d38505bd64b2d9382edc05dfdb5f472fe4a8eb6d",
+      "eez-proof-signer": "6aae8d9e32b037d5542d86b5657795a2d5e03eb61fa879ab306aa7465b369956"
+    },
+    "actual_test_sha256": "8d45de85f7d457f10d4da5503da226c9fba0d7af5a36e9fd4181dc10973ffee1",
+    "runtime_executables_unchanged": true,
+    "identity_note": "The test harness pathname was rebuilt for the separate long wait-budget adjustment; the full inventory continued on its retained original executable inode. Its three shipping runtime executable hashes stayed unchanged.",
+    "artifact": {
+      "path": "artifacts/validation/offline-native-final-rules.log",
+      "sha256": "b15dd59c9459d82e7dedc5e1abf7f853223e4d7b509421aa746009569f88a1ff",
+      "availability": "local-only; raw log is not committed"
+    },
+    "resolution": "All four unchanged failed cases occur in the two passing correction suites below. The original inventory still failed."
+  },
+  "correction_source_checks": [
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 1.43,
+      "artifact": {
+        "path": "artifacts/validation/offline-restart-history-format.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "availability": "local-only; raw log is not committed"
+      }
+    },
+    {
+      "name": "deriver_unit",
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "-p",
+        "eez-deriver",
+        "--lib"
+      ],
+      "exit_code": 0,
+      "seconds": 21.28,
+      "artifact": {
+        "path": "artifacts/validation/offline-restart-history-deriver_unit.log",
+        "sha256": "21e5b8decef74c1040ffbade876535deec208a447604258829467fbfa09eafde",
+        "availability": "local-only; raw log is not committed"
+      },
+      "outcome": {
+        "status": "ok",
+        "passed": 44,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0,
+        "seconds": 0.01
+      }
+    },
+    {
+      "name": "workspace_clippy",
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "clippy",
+        "--locked",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 19.66,
+      "artifact": {
+        "path": "artifacts/validation/offline-restart-history-workspace_clippy.log",
+        "sha256": "f3cfba67ace629045b499deb3af9b900bf01df732362ac29a462ec90f139e82a",
+        "availability": "local-only; raw log is not committed"
+      }
+    }
+  ],
+  "restart_correction": {
+    "command": [
+      "target/debug/deps/node_e2e-969bf1dbfc9e03d4",
+      "settlement_policy::ordinary_data_admission_tracks_operator_capacity_without_losing_valid_work",
+      "settlement_policy::restart_after_intermediate_prefix_discards_old_intent_and_uses_current_rules",
+      "settlement_policy::restart_reevaluates_current_interval_without_resetting_the_l1_timer",
+      "settlement_policy::restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint",
+      "settlement_policy::retained_backlog_replays_old_witnesses_when_the_capture_store_is_empty",
+      "partial_consumption::restart_after_partial_keeps_accounting_and_rebuilds_intent",
+      "queue_reorg::imported_history_reorg_recovers_twenty_ordinary_transactions_without_settlement",
+      "streaming::shared_stateless_signer_composers_recover_from_native_l1_reorg",
+      "--exact",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "started": "2026-10-23T07:39:24.256729+00:00",
+    "ended": "2026-10-23T07:47:33.696349+00:00",
+    "exit_code": 0,
+    "executables": {
+      "node_e2e-969bf1dbfc9e03d4": "25ebfcf6e841cc0a01ec6335aa38684b3bd8dcd930d4e1a4945845ff0c2823ae",
+      "eez-composer": "e826656e1f7c3a0da0b92e3faba82a84c0e650bded58cad64aee03d6482d5d3f",
+      "eez-follower": "a56c4ee416bbda42b3dc8a8fadc29791faedc0f50f995e27211f172f1489c2d7",
+      "eez-proof-signer": "6aae8d9e32b037d5542d86b5657795a2d5e03eb61fa879ab306aa7465b369956"
+    },
+    "executables_unchanged": true,
+    "selection": [
+      "settlement_policy::ordinary_data_admission_tracks_operator_capacity_without_losing_valid_work",
+      "settlement_policy::restart_after_intermediate_prefix_discards_old_intent_and_uses_current_rules",
+      "settlement_policy::restart_reevaluates_current_interval_without_resetting_the_l1_timer",
+      "settlement_policy::restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint",
+      "settlement_policy::retained_backlog_replays_old_witnesses_when_the_capture_store_is_empty",
+      "partial_consumption::restart_after_partial_keeps_accounting_and_rebuilds_intent",
+      "queue_reorg::imported_history_reorg_recovers_twenty_ordinary_transactions_without_settlement",
+      "streaming::shared_stateless_signer_composers_recover_from_native_l1_reorg"
+    ],
+    "outcome": {
+      "status": "ok",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 169,
+      "seconds": 476.52
+    },
+    "artifact": {
+      "path": "artifacts/validation/offline-restart-history-process.log",
+      "sha256": "82b51ef792f4814982109509e281f8cb94e93442295caa9364b1112e82d0dcca",
+      "availability": "local-only; raw log is not committed"
+    },
+    "network": "signer outbound socket connections denied by the kernel; Composer and follower retain their own chain sources"
+  },
+  "revert_observation_correction": {
+    "command": [
+      "target/debug/deps/node_e2e-969bf1dbfc9e03d4",
+      "cross_chain::direct_ccm_l2_outbound_call_is_rejected",
+      "cross_chain::inbound_reverting_destination_preserves_caught_result_without_destination_writes",
+      "cross_chain::outbound_reverting_destination_preserves_caught_result_without_destination_writes",
+      "--exact",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "started": "2026-10-23T07:48:10.736346+00:00",
+    "ended": "2026-10-23T07:50:51.644074+00:00",
+    "exit_code": 0,
+    "executables": {
+      "node_e2e-969bf1dbfc9e03d4": "25ebfcf6e841cc0a01ec6335aa38684b3bd8dcd930d4e1a4945845ff0c2823ae",
+      "eez-composer": "e826656e1f7c3a0da0b92e3faba82a84c0e650bded58cad64aee03d6482d5d3f",
+      "eez-follower": "a56c4ee416bbda42b3dc8a8fadc29791faedc0f50f995e27211f172f1489c2d7",
+      "eez-proof-signer": "6aae8d9e32b037d5542d86b5657795a2d5e03eb61fa879ab306aa7465b369956"
+    },
+    "executables_unchanged": true,
+    "selection": [
+      "cross_chain::direct_ccm_l2_outbound_call_is_rejected",
+      "cross_chain::inbound_reverting_destination_preserves_caught_result_without_destination_writes",
+      "cross_chain::outbound_reverting_destination_preserves_caught_result_without_destination_writes"
+    ],
+    "outcome": {
+      "status": "ok",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 174,
+      "seconds": 160.89
+    },
+    "artifact": {
+      "path": "artifacts/validation/offline-revert-helper-role-profile.log",
+      "sha256": "f67e2ba8c33cc8633aed9a39f2eb6545d1494440482cf7b03145ae063d4e5398",
+      "availability": "local-only; raw log is not committed"
+    },
+    "network": "signer outbound socket connections denied by the kernel; Composer and follower retain their own chain sources"
+  },
+  "four_day_exercise": {
+    "status": "intentionally_stopped_after_scope_clarification",
+    "accepted_requirement": "Authenticate sources outside the 256-produced-block L1 window, with bounded parts, cold offline signers and complete independent replay.",
+    "settled_parts": 16,
+    "settled_l2_blocks": 160000,
+    "final_independent_replay": false,
+    "optional_stress_only": true,
+    "part_records": [
+      {
+        "block_hash": "0x3198b3ace64bb7d1edb334598bff1650dd5ea6e7e392c5f73c546475e38e60ab",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 17250,
+        "part": 1,
+        "state_root": "0x54309d0ebc48148a4e76a0ca0ecb7cf7f89f2d697359bbfb22599a1435e23703",
+        "to": 10000
+      },
+      {
+        "block_hash": "0x2a3bb596d2c4c4cd45f8780b7029214af56bbbc6bd1d5103208aaf656613f7ec",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 13060,
+        "part": 2,
+        "state_root": "0xc142750ebeeca0d95142bdc4b917fe243b6dd4b6ba234b7096a3408a0ece4a90",
+        "to": 20000
+      },
+      {
+        "block_hash": "0xe057e80f8d3f43078f0cdc1e79e12e0390a79db9ed1210d9e6ab6ac8c04c8535",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 17302,
+        "part": 3,
+        "state_root": "0xf5af9220ad42f30fb30ccde14c801e036c408438a5ea155813aec87f776144d1",
+        "to": 30000
+      },
+      {
+        "block_hash": "0x56e7303f404116f1b5f36af34e371d802fa5c66fbb88f581c0351e9194cfb2a0",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 18153,
+        "part": 4,
+        "state_root": "0x6f2da52658cc299fcedc209cea5dacac4710adf4bd68b47de2a7fec0842b0eb1",
+        "to": 40000
+      },
+      {
+        "block_hash": "0x4543dccb4d08c63602e371c84006e643dae25e71676a5acfc7da9edb2cea6126",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 16499,
+        "part": 5,
+        "state_root": "0xccc1584dbebe62692fc8842c6a7c426d7fa3f0304a974c6f6d14ab0972b562ae",
+        "to": 50000
+      },
+      {
+        "block_hash": "0xe4a713eb542e901f538282ca5f190a37edbf7c26e90b204e5423c7d26e306b12",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 13142,
+        "part": 6,
+        "state_root": "0x74591a2dbcc8fed758add4a3c9343d33befeedeec90f85881ee3c04c2520e27b",
+        "to": 60000
+      },
+      {
+        "block_hash": "0xaa6b0471c05c15691f3f41d14f95966175e6bc38e6174705c35ea2c2545084a3",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 14453,
+        "part": 7,
+        "state_root": "0xce2b90db6b813258c69f1bd3301b326598451f294d0bd11176cfe23dd464e285",
+        "to": 70000
+      },
+      {
+        "block_hash": "0x179d7633cd1267b30f31b7b129140d37cd3b1d68feb84ed982292dacb1a494d9",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 16178,
+        "part": 8,
+        "state_root": "0xa57efad2a59430d5e6ac174fd2d5bd66a141a32318cbd8b159b2d120684842b8",
+        "to": 80000
+      },
+      {
+        "block_hash": "0xe8d1e656ac9c03b6c5db8d454153b43c2e422ec438ca92fd86612ce73e41966f",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 16803,
+        "part": 9,
+        "state_root": "0x5d71e39cdb316079ffe79794daa147ce6702ee27ce6dde0893c2452cce061c42",
+        "to": 90000
+      },
+      {
+        "block_hash": "0xabae9035047527770314a7fb096313df8a143fa3d45e88aa50084c70216d4595",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 15510,
+        "part": 10,
+        "state_root": "0x3b6104e7c56a39516a41574ce70ff74a11b849b4f36dad03970c06ea6a1c364d",
+        "to": 100000
+      },
+      {
+        "block_hash": "0xce17f4122c1d41403445e130539880d517a092026ac028e0ef03fdf18d56238d",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 16943,
+        "part": 11,
+        "state_root": "0xf3c4e867dad15c94e43c103d62406050622ab464dd37f4cead9afe34a20e1a4f",
+        "to": 110000
+      },
+      {
+        "block_hash": "0xa79e027bd3f7b1e30b7fda1f9edb8d60a3770e573c5179247472c8c62d690a18",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 16498,
+        "part": 12,
+        "state_root": "0x48ff39c3adfc5a012fd18a22e494cd3e659ed8d7d869e700f5a5a45f77f3a1cf",
+        "to": 120000
+      },
+      {
+        "block_hash": "0xda35c3da26c341137c7de9e9ed67248b3b817b93ba6dbfb9e4c79120c7fc0e86",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 13977,
+        "part": 13,
+        "state_root": "0xbd3755088f4ec6dbe09a765e69d7d39ed2a43991d9d0b28c755821b408c0c0a1",
+        "to": 130000
+      },
+      {
+        "block_hash": "0x130c31eb81b596921aecb1a6760b1eed565ca73e06111da97c62941abc7bb3d6",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 17453,
+        "part": 14,
+        "state_root": "0xb8398784f2df341964302c4ee37f75d78b00cc51696d1c41b41b6c0761895032",
+        "to": 140000
+      },
+      {
+        "block_hash": "0x0d4794cd257a3e33d7d33bc88285214fd1732a1762da2f97a814a922a8dc4658",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 12409,
+        "part": 15,
+        "state_root": "0xc32e26cebcd04239f09809e7b4918ea1f0e252e9a0321706542719ac7ac03fec",
+        "to": 150000
+      },
+      {
+        "block_hash": "0xff5aab923adfb7172c25becef60f5cbffaebc8aa15afd6e6d4e1464d35450c25",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 13854,
+        "part": 16,
+        "state_root": "0x83dc5f538107b3117a861927bd00ae074722459c1720cfc89d390c7bad0cd4ed",
+        "to": 160000
+      }
+    ],
+    "proof_records": [
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 1,
+        "k": 5,
+        "l1_anchor": 69192,
+        "l1_headers": 69193,
+        "l2_state_root": "0x54309d0ebc48148a4e76a0ca0ecb7cf7f89f2d697359bbfb22599a1435e23703",
+        "l2_terminal_hash": "0x3198b3ace64bb7d1edb334598bff1650dd5ea6e7e392c5f73c546475e38e60ab",
+        "mode": "historical",
+        "operations_bytes": 3806,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 11700,
+        "request_bytes": 156210093,
+        "requested_ceiling": 10000,
+        "to": 10000,
+        "witness_items": 632057
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 10001,
+        "k": 5,
+        "l1_anchor": 69320,
+        "l1_headers": 67321,
+        "l2_state_root": "0xc142750ebeeca0d95142bdc4b917fe243b6dd4b6ba234b7096a3408a0ece4a90",
+        "l2_terminal_hash": "0x2a3bb596d2c4c4cd45f8780b7029214af56bbbc6bd1d5103208aaf656613f7ec",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 10054,
+        "request_bytes": 176258582,
+        "requested_ceiling": 10000,
+        "to": 20000,
+        "witness_items": 695358
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 20001,
+        "k": 5,
+        "l1_anchor": 69473,
+        "l1_headers": 65474,
+        "l2_state_root": "0xf5af9220ad42f30fb30ccde14c801e036c408438a5ea155813aec87f776144d1",
+        "l2_terminal_hash": "0xe057e80f8d3f43078f0cdc1e79e12e0390a79db9ed1210d9e6ab6ac8c04c8535",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 10791,
+        "request_bytes": 183354988,
+        "requested_ceiling": 10000,
+        "to": 30000,
+        "witness_items": 708848
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 30001,
+        "k": 5,
+        "l1_anchor": 69647,
+        "l1_headers": 63648,
+        "l2_state_root": "0x6f2da52658cc299fcedc209cea5dacac4710adf4bd68b47de2a7fec0842b0eb1",
+        "l2_terminal_hash": "0x56e7303f404116f1b5f36af34e371d802fa5c66fbb88f581c0351e9194cfb2a0",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 13577,
+        "request_bytes": 187289668,
+        "requested_ceiling": 10000,
+        "to": 40000,
+        "witness_items": 708201
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 40001,
+        "k": 5,
+        "l1_anchor": 69838,
+        "l1_headers": 61839,
+        "l2_state_root": "0xccc1584dbebe62692fc8842c6a7c426d7fa3f0304a974c6f6d14ab0972b562ae",
+        "l2_terminal_hash": "0x4543dccb4d08c63602e371c84006e643dae25e71676a5acfc7da9edb2cea6126",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 10949,
+        "request_bytes": 189663621,
+        "requested_ceiling": 10000,
+        "to": 50000,
+        "witness_items": 703164
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 50001,
+        "k": 5,
+        "l1_anchor": 70039,
+        "l1_headers": 60040,
+        "l2_state_root": "0x74591a2dbcc8fed758add4a3c9343d33befeedeec90f85881ee3c04c2520e27b",
+        "l2_terminal_hash": "0xe4a713eb542e901f538282ca5f190a37edbf7c26e90b204e5423c7d26e306b12",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 10590,
+        "request_bytes": 189955959,
+        "requested_ceiling": 10000,
+        "to": 60000,
+        "witness_items": 700837
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 60001,
+        "k": 5,
+        "l1_anchor": 70256,
+        "l1_headers": 58257,
+        "l2_state_root": "0xce2b90db6b813258c69f1bd3301b326598451f294d0bd11176cfe23dd464e285",
+        "l2_terminal_hash": "0xaa6b0471c05c15691f3f41d14f95966175e6bc38e6174705c35ea2c2545084a3",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 10994,
+        "request_bytes": 190664955,
+        "requested_ceiling": 10000,
+        "to": 70000,
+        "witness_items": 700966
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 70001,
+        "k": 5,
+        "l1_anchor": 70484,
+        "l1_headers": 56485,
+        "l2_state_root": "0xa57efad2a59430d5e6ac174fd2d5bd66a141a32318cbd8b159b2d120684842b8",
+        "l2_terminal_hash": "0x179d7633cd1267b30f31b7b129140d37cd3b1d68feb84ed982292dacb1a494d9",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 10180,
+        "request_bytes": 193390776,
+        "requested_ceiling": 10000,
+        "to": 80000,
+        "witness_items": 726401
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 80001,
+        "k": 5,
+        "l1_anchor": 70723,
+        "l1_headers": 54724,
+        "l2_state_root": "0x5d71e39cdb316079ffe79794daa147ce6702ee27ce6dde0893c2452cce061c42",
+        "l2_terminal_hash": "0xe8d1e656ac9c03b6c5db8d454153b43c2e422ec438ca92fd86612ce73e41966f",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 10280,
+        "request_bytes": 194681415,
+        "requested_ceiling": 10000,
+        "to": 90000,
+        "witness_items": 735290
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 90001,
+        "k": 5,
+        "l1_anchor": 71202,
+        "l1_headers": 53203,
+        "l2_state_root": "0x3b6104e7c56a39516a41574ce70ff74a11b849b4f36dad03970c06ea6a1c364d",
+        "l2_terminal_hash": "0xabae9035047527770314a7fb096313df8a143fa3d45e88aa50084c70216d4595",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 11502,
+        "request_bytes": 193755019,
+        "requested_ceiling": 10000,
+        "to": 100000,
+        "witness_items": 725412
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 100001,
+        "k": 5,
+        "l1_anchor": 71392,
+        "l1_headers": 51393,
+        "l2_state_root": "0xf3c4e867dad15c94e43c103d62406050622ab464dd37f4cead9afe34a20e1a4f",
+        "l2_terminal_hash": "0xce17f4122c1d41403445e130539880d517a092026ac028e0ef03fdf18d56238d",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 10868,
+        "request_bytes": 194438509,
+        "requested_ceiling": 10000,
+        "to": 110000,
+        "witness_items": 724488
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 110001,
+        "k": 5,
+        "l1_anchor": 71689,
+        "l1_headers": 49690,
+        "l2_state_root": "0x48ff39c3adfc5a012fd18a22e494cd3e659ed8d7d869e700f5a5a45f77f3a1cf",
+        "l2_terminal_hash": "0xa79e027bd3f7b1e30b7fda1f9edb8d60a3770e573c5179247472c8c62d690a18",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 9973,
+        "request_bytes": 195220596,
+        "requested_ceiling": 10000,
+        "to": 120000,
+        "witness_items": 723396
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 120001,
+        "k": 5,
+        "l1_anchor": 71995,
+        "l1_headers": 47996,
+        "l2_state_root": "0xbd3755088f4ec6dbe09a765e69d7d39ed2a43991d9d0b28c755821b408c0c0a1",
+        "l2_terminal_hash": "0xda35c3da26c341137c7de9e9ed67248b3b817b93ba6dbfb9e4c79120c7fc0e86",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 9504,
+        "request_bytes": 195033729,
+        "requested_ceiling": 10000,
+        "to": 130000,
+        "witness_items": 728209
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 130001,
+        "k": 5,
+        "l1_anchor": 72314,
+        "l1_headers": 46315,
+        "l2_state_root": "0xb8398784f2df341964302c4ee37f75d78b00cc51696d1c41b41b6c0761895032",
+        "l2_terminal_hash": "0x130c31eb81b596921aecb1a6760b1eed565ca73e06111da97c62941abc7bb3d6",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 12865,
+        "request_bytes": 195153224,
+        "requested_ceiling": 10000,
+        "to": 140000,
+        "witness_items": 730214
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 140001,
+        "k": 5,
+        "l1_anchor": 72639,
+        "l1_headers": 44640,
+        "l2_state_root": "0xc32e26cebcd04239f09809e7b4918ea1f0e252e9a0321706542719ac7ac03fec",
+        "l2_terminal_hash": "0x0d4794cd257a3e33d7d33bc88285214fd1732a1762da2f97a814a922a8dc4658",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 9916,
+        "request_bytes": 194578776,
+        "requested_ceiling": 10000,
+        "to": 150000,
+        "witness_items": 729499
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 150001,
+        "k": 5,
+        "l1_anchor": 72985,
+        "l1_headers": 42986,
+        "l2_state_root": "0x83dc5f538107b3117a861927bd00ae074722459c1720cfc89d390c7bad0cd4ed",
+        "l2_terminal_hash": "0xff5aab923adfb7172c25becef60f5cbffaebc8aa15afd6e6d4e1464d35450c25",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 10783,
+        "request_bytes": 194197478,
+        "requested_ceiling": 10000,
+        "to": 160000,
+        "witness_items": 728135
+      }
+    ],
+    "log": {
+      "path": "artifacts/validation/offline-multipart-four-days-current.log",
+      "sha256": "d1009f10e13414136b4542bec5a143bac225e50ce6b78f52cb9ece700928f87d",
+      "availability": "local-only"
+    },
+    "resource_summary": {
+      "samples": 1327,
+      "max_sampled_owned_rss_kib": 6801452,
+      "limits": "RSS is sampled, may double-count shared pages, excludes unrelated host workloads and is not a throughput measurement. Completion means process exit only."
+    },
+    "owned_process_teardown_verified": true,
+    "source_note": "Producer de887ac... predates the narrow persisted-correlation boot fix. No final follower ran. Exact running materials and original failures are retained locally and described in README.md."
+  },
+  "expired_source_acceptance": {
+    "status": "passed",
+    "command": [
+      "target/debug/deps/node_e2e-969bf1dbfc9e03d4",
+      "derivable_operations::multipart::bounded_parts_use_cold_offline_signers_and_public_replay",
+      "derivable_operations::multipart::expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay",
+      "--exact",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "selection": [
+      "derivable_operations::multipart::bounded_parts_use_cold_offline_signers_and_public_replay",
+      "derivable_operations::multipart::expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay"
+    ],
+    "outcome": {
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 176,
+      "seconds": 213.61
+    },
+    "executables": {
+      "node_e2e-969bf1dbfc9e03d4": "fbb4bb5a71f121a6ed9993278ce3aba28077e97a55c543581ab0835509f1224a",
+      "eez-composer": "e55eb2076044ed3ad9430fa02836c10ce664ee83f148f55e813643890c8c9283",
+      "eez-follower": "08a25b7455951b4c9e1e60996ef5f20d41f6680c442d2b86cdf5524c4320efb4",
+      "eez-proof-signer": "6aae8d9e32b037d5542d86b5657795a2d5e03eb61fa879ab306aa7465b369956"
+    },
+    "executables_unchanged": true,
+    "network_denial": true,
+    "artifact": {
+      "path": "artifacts/validation/offline-expired-source-process.log",
+      "sha256": "1c3099da0fd21425134fc63516e48157c67f6dc8c0742308759cee02c5855cde",
+      "availability": "local-only; raw log is not committed"
+    },
+    "focused_records": [
+      {
+        "age": 304,
+        "checkpoint": "expired_l1_source",
+        "manager_rejected_old_anchor": true,
+        "observed_head_number": 404,
+        "source_hash": "0xa6ac6fa9a2b31bfe1b08912c957149bd1e925c7365fa19443c87b5878e4593b0",
+        "source_number": 100
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 1,
+        "k": 5,
+        "l1_anchor": 405,
+        "l1_headers": 406,
+        "l2_state_root": "0x3777698a9210caaa9a37930ef238097443568654b6e4fdbe91428c757324b9c0",
+        "l2_terminal_hash": "0xd3e7e616639716ba295aa64e0d86e9933f22edf0c1a0cd2c779f5a335438ea2c",
+        "mode": "historical",
+        "operations_bytes": 740,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 252,
+        "request_bytes": 3778540,
+        "requested_ceiling": 500,
+        "to": 500,
+        "witness_items": 23592
+      },
+      {
+        "block_hash": "0xd3e7e616639716ba295aa64e0d86e9933f22edf0c1a0cd2c779f5a335438ea2c",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 5287,
+        "part": 1,
+        "state_root": "0x3777698a9210caaa9a37930ef238097443568654b6e4fdbe91428c757324b9c0",
+        "to": 500
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 501,
+        "k": 5,
+        "l1_anchor": 407,
+        "l1_headers": 308,
+        "l2_state_root": "0xcc52256634076768a2a382c9298c7c798055cc67505e733d9fcc05adc121d231",
+        "l2_terminal_hash": "0x591151cfd5f236060407bff51e9714295ec03628ca53eec46e6eeac31faf01d5",
+        "mode": "historical",
+        "operations_bytes": 3098,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 315,
+        "request_bytes": 4468946,
+        "requested_ceiling": 500,
+        "to": 1000,
+        "witness_items": 24901
+      },
+      {
+        "block_hash": "0x591151cfd5f236060407bff51e9714295ec03628ca53eec46e6eeac31faf01d5",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 5194,
+        "part": 2,
+        "state_root": "0xcc52256634076768a2a382c9298c7c798055cc67505e733d9fcc05adc121d231",
+        "to": 1000
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 1001,
+        "k": 5,
+        "l1_anchor": 409,
+        "l1_headers": 210,
+        "l2_state_root": "0x8c0f153f2edb986ea1fdef1e352788a6ba5dc65352ff46bbdb2ba1d1157f2434",
+        "l2_terminal_hash": "0x38e89c950666fb525e3ece940886c3462193b6a315c86c59367a04fb3e32dd95",
+        "mode": "historical",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 275,
+        "request_bytes": 4902461,
+        "requested_ceiling": 500,
+        "to": 1500,
+        "witness_items": 27863
+      },
+      {
+        "block_hash": "0x38e89c950666fb525e3ece940886c3462193b6a315c86c59367a04fb3e32dd95",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 3659,
+        "part": 3,
+        "state_root": "0x8c0f153f2edb986ea1fdef1e352788a6ba5dc65352ff46bbdb2ba1d1157f2434",
+        "to": 1500
+      },
+      {
+        "checkpoint": "native_offline_v2",
+        "from": 1501,
+        "k": 5,
+        "l1_anchor": 411,
+        "l1_headers": 112,
+        "l2_state_root": "0x849bcaa617dee1f6556209a4db39f6f7e4fc6c9abff24c67c7e9e08107e25c01",
+        "l2_terminal_hash": "0x6c3f13201607b00e116690b15aeb308986e0acf16ab219592d9fd0eb621e20da",
+        "mode": "actual-parent",
+        "operations_bytes": 31,
+        "physical_blobs": 1,
+        "replay_and_proof_ms": 354,
+        "request_bytes": 5105415,
+        "requested_ceiling": 500,
+        "to": 2000,
+        "witness_items": 27660
+      },
+      {
+        "block_hash": "0x6c3f13201607b00e116690b15aeb308986e0acf16ab219592d9fd0eb621e20da",
+        "checkpoint": "offline_catchup_part",
+        "elapsed_ms": 52924,
+        "part": 4,
+        "state_root": "0x849bcaa617dee1f6556209a4db39f6f7e4fc6c9abff24c67c7e9e08107e25c01",
+        "to": 2000
+      },
+      {
+        "actual_parent_parts": 1,
+        "checkpoint": "offline_catchup_complete",
+        "elapsed_seconds": 2000,
+        "first_part_terminal_source_age": 304,
+        "historical_parts": 3,
+        "imported_l1_headers": 401,
+        "l1_rule_change_timestamp": 1792749487,
+        "l2_blocks": 2000,
+        "l2_hash": "0x6c3f13201607b00e116690b15aeb308986e0acf16ab219592d9fd0eb621e20da",
+        "l2_state_root": "0x849bcaa617dee1f6556209a4db39f6f7e4fc6c9abff24c67c7e9e08107e25c01",
+        "ordinary_transactions": 32,
+        "parts": 4,
+        "wall_ms": 129452
+      }
+    ],
+    "short_result": {
+      "actual_parent_parts": 1,
+      "checkpoint": "offline_catchup_complete",
+      "elapsed_seconds": 120,
+      "first_part_terminal_source_age": 17,
+      "historical_parts": 2,
+      "imported_l1_headers": 25,
+      "l1_rule_change_timestamp": 1792750343,
+      "l2_blocks": 120,
+      "l2_hash": "0x86d3b752166b3e67511bd427498cf536c8f701a0b668c8236996de09131ae499",
+      "l2_state_root": "0xd63a89c479e881f9c3eef841c7dd27a74c0e257c33f0cc3f5dc72c8e71a9aedc",
+      "ordinary_transactions": 0,
+      "parts": 3,
+      "wall_ms": 83971
+    },
+    "resource_summary": {
+      "started": "2026-10-23T10:15:59.329860+00:00",
+      "ended": "2026-10-23T10:16:57.797005+00:00",
+      "samples": 28,
+      "max_sampled_owned_rss_kib": 3751064,
+      "limits": "Sampler starts after the first short case started. Sampled RSS may count shared pages twice and miss peaks. This is resource evidence, not a throughput result.",
+      "coverage_note": "Sampling started midway through the process suite; this does not establish its full resource peak."
+    }
+  },
+  "completed_at": "2026-10-23T10:24:00.486490+00:00",
+  "final_test_source_checks": [
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "fmt",
+        "--all"
+      ],
+      "exit_code": 0,
+      "seconds": 1.29,
+      "artifact": {
+        "path": "artifacts/validation/offline-expired-source-format.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "availability": "local-only; raw log is not committed"
+      }
+    },
+    {
+      "name": "format_check",
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 1.17,
+      "artifact": {
+        "path": "artifacts/validation/offline-expired-source-format_check.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "availability": "local-only; raw log is not committed"
+      }
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "clippy",
+        "--locked",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 8.66,
+      "artifact": {
+        "path": "artifacts/validation/offline-expired-source-clippy.log",
+        "sha256": "993ccfd936d58b354f74015c700ba5b2694ebc7c29982c4d3f4e78d71d9de3dd",
+        "availability": "local-only; raw log is not committed"
+      }
+    },
+    {
+      "name": "build",
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "-p",
+        "eez-node-e2e",
+        "--test",
+        "node_e2e",
+        "--no-run"
+      ],
+      "exit_code": 0,
+      "seconds": 59.42,
+      "artifact": {
+        "path": "artifacts/validation/offline-expired-source-build.log",
+        "sha256": "0581fe7b874d72da700b9ae9ae49061ea70b4b2b366cd8f3e148d9f42b6894d6",
+        "availability": "local-only; raw log is not committed"
+      }
+    }
+  ],
+  "remaining_validation_limits": [
+    "No single all-green final-revision workspace invocation; original failures and separate corrected runs remain distinct.",
+    "Optional dense four-day stress was intentionally stopped after user scope clarification; no final replay from that stress run.",
+    "Public deployment, live Kurtosis/PBS, CI release artifact publication/promotion and native Gnosis four-day stress were not executed.",
+    "The protocol gitlink is unpublished; import the supplied bundle after initializing the base pin.",
+    "Resource sampling is incomplete and can miss peaks; no throughput claim.",
+    "The proof backend remains an authorized ECDSA signer, not a ZK proof or L1 consensus verifier."
+  ],
+  "final_documentation_check": {
+    "markdown_files": 33,
+    "checked_links": 441,
+    "shell_blocks": 49,
+    "issues": []
+  },
+  "protocol_bundle": {
+    "path": "docs/audits/2026-10-22-l1-history-offline-proving/protocol.bundle",
+    "sha256": "64e21287757b47154803a08d0728c63dc2bd4696a937615d905751608d7d8562",
+    "required_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "provided_commit": "b5d94eafab15eb3fdd08a73ad9a693f7a3fcb820",
+    "git_bundle_verify": "passed",
+    "published_to_remote": false
+  }
+}

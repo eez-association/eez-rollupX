@@ -1,0 +1,503 @@
+{
+  "status": "Final CI runtime RPC, ordinary settlement and cold replay passed. All 34 original protocol executions now have independent evidence: 33 initial passes plus one read-only continuation after correcting the standalone prefix helper. The initial campaign remains a preserved FAIL.",
+  "recorded_at": "2026-10-24T16:34:05.289388+00:00",
+  "source": {
+    "pr_head": "319ebc2dbfdace3d5e708a2c9881cc741529aec4",
+    "synthetic_ci_checkout": "08e163331c4935d3d4e8c1b657df87812ba50862",
+    "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "cargo_lock_sha256": "aa8b6ba7699104a5923775aa94cff71a71c7f9ecbfc11d874359704819f32058",
+    "run_id": 40104687331,
+    "profile": "release",
+    "platform": "linux/amd64",
+    "runtime_archive_sha256": "3059ec085803612437232c2129819d17b44253ee1d8d3d5feaf6452b1a754303",
+    "runtime_payload": "ghcr.io/eez-association/eez-rollupx-ci-runtime@sha256:3af5819a55084c33e46d19544851082186f50cd64aaf29037d4c0b757ddb721f",
+    "tests_payload": "ghcr.io/eez-association/eez-rollupx-ci-tests@sha256:d19add5e742328856db3c1f75da22fa02ce71a63b8eb170a053d1b1d682597e7",
+    "node_e2e_sha256": "15a4a7c95a97a42549fe29d4972d1ee93c9e66dcdafd6979698fe8c9cca90698"
+  },
+  "candidate_images": {
+    "node": "ghcr.io/eez-association/eez-rollupx-node@sha256:f171788378e8bd0d5b8958c17e800307496ce58b1f7ca4e60128375f9c8ab62d",
+    "signer": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:722dc264f979746d5819131fe8c68fdbb3d3db8fddc6bcd7d07abfde917e6078",
+    "deploy": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:2b76084910efb177fbc5a5086df30e70cb5c532a4e981de5a606fa70a8e3fa7f"
+  },
+  "binaries": {
+    "eez-composer": {
+      "sha256": "3e76308c0c9017b23c6dcb10ac29d0b78fdd2c5abe7a3a857778f2256df825fd",
+      "r03_sha256": "f7856516e8111fa20e1b8b036c2228d86515c4114501cf563684b5e04d725602",
+      "changed": true
+    },
+    "eez-follower": {
+      "sha256": "a3e01ef1f53aeea2d2084a7b2467496d2e071fc9db1820b1068ebeebadf6350f",
+      "r03_sha256": "365a51a80244c205e1e15925f4fb778695eea50153a58cf0c03ad5881ac802d5",
+      "changed": true
+    },
+    "eez-proof-signer": {
+      "sha256": "f00afb27148cc64711db5592aa7cbe2f67c884ae5f33abd70a9b95986ca357ff",
+      "r03_sha256": "49cb9f259ddde79427a4197eb91f4e1b70dc3b756f3a247fdf4adebccfccf50a",
+      "changed": true
+    },
+    "eez-genesis-state-root": {
+      "sha256": "971e5f617d860d3b50d04b9c821dea67b1f6830af7e9a3dacc3a130a44f53a6b",
+      "r03_sha256": "8ad1d585961a8fcaca77ceef579344802fc9cf56eb2815df0458f87f4acc4ba6",
+      "changed": true
+    },
+    "eez-genesis-block-hash": {
+      "sha256": "443681ad4c1726241c3510fec436104e110a047c8bf5755907de62c56cd99e98",
+      "r03_sha256": "2d2620663d1ff1d96347f6afc3c172e15a0f02e46061ec853b0c8a96101dd78f",
+      "changed": true
+    },
+    "e2e-causal-verify": {
+      "sha256": "fef7c1afb25b626cca3e44196e2db6d5934b984bc04325897c2596f4ff13da7b",
+      "r03_sha256": "7833f22492f6fb99487b6e7556307f471cb09363838cf940134bd7bc242e739a",
+      "changed": true
+    },
+    "verify_blob_evidence": {
+      "sha256": "e7e3ddab13bc6d1829ae39e9eb9d85a72a72f7fffc0a9966a04bfa6c4a910489",
+      "r03_sha256": "eab594596d172ea907d6fab71c921e7fbbe68bb1203613cc4274b287e15d396d",
+      "changed": true
+    }
+  },
+  "artifact_checks": {
+    "all_seven_archive_binaries_verified": true,
+    "seven_image_copies_of_five_unique_shipped_binaries_match_archive": true,
+    "two_verifiers_are_archive_only": true,
+    "deploy_history_runtime_and_two_genesis_files_match_source": true,
+    "nine_genesis_and_profile_outputs_unchanged": true,
+    "image_extraction_containers_never_started": true,
+    "candidate_comparison_sha256": "bb850ce276b6334d3021d0f10defe43a69dbbd3168797f2665c9bbd7f892e786",
+    "verified_handoff_sha256": "ee573aadf746291cfa9c0a4ac6909d8f586d15984edb4737b637398fd062e4ff"
+  },
+  "network": {
+    "enclave": "eez-native-v1-review-20261024",
+    "uuid": "78c4b5eee3a844b99f4864b33c0d0643",
+    "l1_chain_id": 7331,
+    "l2_chain_id": 696990,
+    "l1_genesis_hash": "0x087cc8bdd45d6502bc054cec60480797d5f998554e9504f76d75a3b83fe96dc8",
+    "l2_genesis_hash": "0xdd2a6c2ad7f382305c6a0e13e38e9dc4d952bd3a3bc78daa672859354a0ee41f",
+    "l2_genesis_file_sha256": "6640e38a41cd28be8723cd7e83321ccc971810a36c8c804de0975e3651b43109",
+    "local_endpoints": {
+      "l1_rpc": "http://127.0.0.1:32835",
+      "l2_rpc": "http://127.0.0.1:32879",
+      "l1_front": "http://127.0.0.1:32881",
+      "l2_front": "http://127.0.0.1:32880",
+      "signer_grpc": "127.0.0.1:32873"
+    }
+  },
+  "installation": {
+    "identity_note": "Original containers and image metadata are retained. These are verified CI executable bytes installed into those containers, not immutable final images deployed.",
+    "roles": {
+      "node": {
+        "container": "a56d567d59b186a48af93c471a1e357e3eb8fba24585a06ad160af52286546d1",
+        "original_image_metadata": "sha256:446ff3ba0fdd06a8bde319b8ff71ea9a02a3ad53727ab0ef4aaa2826b647300b",
+        "configuration_sha256": "41532f291acb5a77d0fbd231f4f4893b20826fe3a6ebfa181defea2bd41ab519",
+        "started_at": "2026-10-24T15:43:53.110445953Z",
+        "published_ports": {
+          "18551/tcp": [
+            {
+              "HostIp": "0.0.0.0",
+              "HostPort": "32878"
+            },
+            {
+              "HostIp": "::",
+              "HostPort": "32878"
+            }
+          ],
+          "18688/tcp": [
+            {
+              "HostIp": "0.0.0.0",
+              "HostPort": "32879"
+            },
+            {
+              "HostIp": "::",
+              "HostPort": "32879"
+            }
+          ],
+          "18998/tcp": [
+            {
+              "HostIp": "0.0.0.0",
+              "HostPort": "32880"
+            },
+            {
+              "HostIp": "::",
+              "HostPort": "32880"
+            }
+          ],
+          "18999/tcp": [
+            {
+              "HostIp": "0.0.0.0",
+              "HostPort": "32881"
+            },
+            {
+              "HostIp": "::",
+              "HostPort": "32881"
+            }
+          ]
+        },
+        "installed_binaries": {
+          "eez-composer": {
+            "before_sha256": "f7856516e8111fa20e1b8b036c2228d86515c4114501cf563684b5e04d725602",
+            "after_sha256": "3e76308c0c9017b23c6dcb10ac29d0b78fdd2c5abe7a3a857778f2256df825fd",
+            "mode": "0o755"
+          },
+          "eez-follower": {
+            "before_sha256": "365a51a80244c205e1e15925f4fb778695eea50153a58cf0c03ad5881ac802d5",
+            "after_sha256": "a3e01ef1f53aeea2d2084a7b2467496d2e071fc9db1820b1068ebeebadf6350f",
+            "mode": "0o755"
+          },
+          "eez-genesis-state-root": {
+            "before_sha256": "8ad1d585961a8fcaca77ceef579344802fc9cf56eb2815df0458f87f4acc4ba6",
+            "after_sha256": "971e5f617d860d3b50d04b9c821dea67b1f6830af7e9a3dacc3a130a44f53a6b",
+            "mode": "0o755"
+          },
+          "eez-genesis-block-hash": {
+            "before_sha256": "2d2620663d1ff1d96347f6afc3c172e15a0f02e46061ec853b0c8a96101dd78f",
+            "after_sha256": "443681ad4c1726241c3510fec436104e110a047c8bf5755907de62c56cd99e98",
+            "mode": "0o755"
+          }
+        }
+      },
+      "signer": {
+        "container": "60d7ec6cd15ae7551b1dc76cf903b69d5d4b820add4cef97098d94391ddc7849",
+        "original_image_metadata": "sha256:43991a5f289dbb55d774c843157656c0793a50194eeb9e88e62ab435236c5e2f",
+        "configuration_sha256": "a1e8aba4b43744a4c70fb3522eb1a7191a0c272e07a2d0ad0e77d48cf31400e1",
+        "started_at": "2026-10-24T15:39:57.476161342Z",
+        "published_ports": {
+          "50061/tcp": [
+            {
+              "HostIp": "0.0.0.0",
+              "HostPort": "32873"
+            },
+            {
+              "HostIp": "::",
+              "HostPort": "32873"
+            }
+          ]
+        },
+        "installed_binaries": {
+          "eez-proof-signer": {
+            "before_sha256": "49cb9f259ddde79427a4197eb91f4e1b70dc3b756f3a247fdf4adebccfccf50a",
+            "after_sha256": "f00afb27148cc64711db5592aa7cbe2f67c884ae5f33abd70a9b95986ca357ff",
+            "mode": "0o555"
+          }
+        }
+      }
+    },
+    "node_stop_requested_at": "2026-10-24T15:38:00.152475+00:00",
+    "first_start_failure": {
+      "classification": "operational startup order: node started before signer finished KZG and bound gRPC",
+      "node_state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 1,
+        "Error": "",
+        "StartedAt": "2026-10-24T15:39:57.663665668Z",
+        "FinishedAt": "2026-10-24T15:40:00.168051545Z"
+      },
+      "node_error": "retryable prover error (UNAVAILABLE): transport error",
+      "signer_kzg_ready_at": "2026-10-24T15:39:59.582223Z",
+      "node_attempted_transport_at": "2026-10-24T15:39:58.049613Z",
+      "installer_wait_terminated_explicitly": false,
+      "runtime_or_configuration_change": false,
+      "first_installer": "install.py",
+      "installer_result": "exit 1 after the original 180-second readiness timeout; no installer process remained when the diagnostic attempted termination"
+    },
+    "signer_capabilities_response_sha256": "6efef3de4c5acf22df11b65c5aa07d2ca38f98090e8a3eff98a0d79e29050e2d",
+    "capabilities_identity_and_all_limits_exactly_unchanged": true,
+    "max_request_blocks": 24,
+    "snapshot_complete": true,
+    "snapshot_manifest_sha256": "383ee8c1647d7a4017ffdb4cca3977f1cf5b204a2b512fb42b20320d1b8a346d",
+    "snapshot_archives": [
+      {
+        "source": "/data",
+        "compressed_bytes": 40391022,
+        "logical_file_bytes": 5441631077,
+        "sha256": "7d3706d79fa0521fabccce1121fb95b012c501baab8aa615f8afe68b3d1f56c0",
+        "members": 55,
+        "full_readback": true
+      },
+      {
+        "source": "/tmp/eez-l1-embedded",
+        "compressed_bytes": 20611498,
+        "logical_file_bytes": 4297996148,
+        "sha256": "c73499a7bfd39ad5df1ead9e9a634713b69c40322369fe053e84c1d45fe01f05",
+        "members": 48,
+        "full_readback": true
+      },
+      {
+        "source": "/tmp/eez-bundle-captures",
+        "compressed_bytes": 320137,
+        "logical_file_bytes": 8095831,
+        "sha256": "909baf180ed2c5450cfa8e194a06e4e494448dfa7a9abf3a377727cbbbbd20af",
+        "members": 88,
+        "full_readback": true
+      },
+      {
+        "source": "/genesis",
+        "compressed_bytes": 132081,
+        "logical_file_bytes": 8746768,
+        "sha256": "9d49a607a3f0890bdb0056dc25db13683e156a2ddae6441c8326dd9668bb9eed",
+        "members": 15,
+        "full_readback": true
+      },
+      {
+        "source": "/out",
+        "compressed_bytes": 81044,
+        "logical_file_bytes": 261320,
+        "sha256": "8586490286d2b5afaf2ce65b7e1834e1d6abb683931d950255214c3210f70dd1",
+        "members": 21,
+        "full_readback": true
+      }
+    ],
+    "previous_safe_height": 8946,
+    "previous_safe_hash": "0x17f870289b669f2dfe8615a6d9f08e0d47ee5fffb41104b44dc6333c84036614",
+    "previous_safe_state_root": "0xfe07bfd60dac24543ca5628ea4949bbf02d575357db794a0a83cea216f18c76a",
+    "previous_safe_preserved": true,
+    "captured_unsafe_blocks": 18,
+    "captured_unsafe_replacements": [],
+    "first_rpc_head": 8965,
+    "first_rpc_head_note": "8965 had been produced between the pre-stop capture and shutdown; first RPC readiness alone is not evidence of new production.",
+    "wall_clock_catchup_observation": {
+      "latest": {
+        "number": 9174,
+        "hash": "0xac3d307fe2cba227e1705076bfb1e18ea2ebb25d794dcc7246fda5ac41487de4",
+        "timestamp": 1792856697,
+        "state_root": "0x331a3d2d9bd1ef6c15fe8bb72676be4aa490aa1725c624f4fdda020aed8bb64b"
+      },
+      "safe": {
+        "number": 9018,
+        "hash": "0xe259d0f679ec7847e8436d37e7798f22fe8d5bb437de4987a3a4d58ad126f1b0",
+        "timestamp": 1792856385,
+        "state_root": "0x23c1d10f5566b1dc0136691286a61c0d2e32a0b48ae8504ac76233333e6de8e6"
+      },
+      "wall_time": 1792856692.0903344,
+      "head_lag_seconds": -4.909665584564209
+    },
+    "installation_sha256": "dd8329238500ceba9cf98d30cd2b44acdb1581006f03b92102c8c979291bb5fb",
+    "canonical_l1_and_other_enclaves_untouched": true,
+    "maintenance_is_not_l1_loss_liveness_evidence": true
+  },
+  "final_rpc": {
+    "verified": true,
+    "samples": 60,
+    "stable_cutoff_samples": 10,
+    "distinct_cutoff_parents": [
+      9194,
+      9200,
+      9206,
+      9212,
+      9218,
+      9224
+    ],
+    "methods": [
+      "eth_estimateGas default/latest/pending",
+      "eth_call pending",
+      "eth_createAccessList pending"
+    ],
+    "expected_counter_creation_gas": 106328,
+    "ordinary_transfer_estimate": 21000,
+    "exact_counter_runtime_returned": true,
+    "broadcasts": 0,
+    "evidence_sha256": "620d731b229b8534e2a2f5f6f448dada4dd0ecbe4557f87b8b0ff3c703b4c07a"
+  },
+  "ordinary_transaction": {
+    "verified": true,
+    "transaction": "0x3945e265c7cd664bb5439268aedb1a609639c05a98ca63ebf76236af084e8ef1",
+    "receipt_block": 9235,
+    "receipt_block_hash": "0x6486089dbf534965328c2db9d27768c7259c973c127e05b0195207cfa47d1556",
+    "status": "0x1",
+    "gas_used": 21000,
+    "effective_gas_price_wei": 50,
+    "cost_wei": "1050000",
+    "value_wei": 1,
+    "fee_vault_credit_wei": "1029000",
+    "accounting_scope": "Balances and nonce anchored to before/receipt blocks; FeeVault credit sums all ordinary transaction gas in the receipt block and compares its parent.",
+    "safe_block": 9258,
+    "safe_hash": "0xd72a45ec15c3a283c9c6eb3b1ebb85cffe55816e36dec5d048c67973b742fcd9",
+    "l1_post_transaction": "0xfdcb4f3ba69480c38fea0726e0e5adda60e4499fac342845907c44b599d6a64a",
+    "kzg_and_canonical_batch_verified": true,
+    "broadcasts": 1,
+    "evidence_sha256": "95599941a216d191bf2a17e28b2d3d2e43af7412fa15617958a2ff4e8a392507",
+    "replay_input_summary_sha256": "b5e4c94eb28bb0225b7ba94369bcb3d0f13a31689ee8a7eb0c269123e5f24068"
+  },
+  "phase_results": [
+    {
+      "phase": "pending-rpc-ci-final",
+      "exit_code": 0,
+      "start_epoch": 1792856737,
+      "seconds": 61,
+      "log": "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving/artifacts/pr-readiness/kurtosis/live/phases/pending-rpc-ci-final.log",
+      "log_sha256": "3f748c75bc4a051290d8bd394a656addcb511532a620f12094c96a16acbd4680"
+    },
+    {
+      "phase": "ordinary-ci-final",
+      "exit_code": 0,
+      "start_epoch": 1792856818,
+      "seconds": 51,
+      "log": "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving/artifacts/pr-readiness/kurtosis/live/phases/ordinary-ci-final.log",
+      "log_sha256": "9eb9f73f036839fb1e29d4b65dc0096b433fb90d277e7246f3c10e80e3849f69"
+    },
+    {
+      "phase": "protocol-ci-final",
+      "exit_code": 1,
+      "start_epoch": 1792856899,
+      "seconds": 731,
+      "log": "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving/artifacts/pr-readiness/kurtosis/live/phases/protocol-ci-final.log",
+      "log_sha256": "d0f6b922f093dbd9b1d6fd052493c1408ba61472736bad154df8a8c651df7f9c"
+    },
+    {
+      "phase": "revert-counter-final-batch-only",
+      "exit_code": 0,
+      "start_epoch": 1792857985,
+      "seconds": 2,
+      "log": "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving/artifacts/pr-readiness/kurtosis/live/phases/revert-counter-final-batch-only.log",
+      "log_sha256": "1a8cc42d9e640117b856349a33733d81e0eebc64feef8a7a465aaf78670eac35"
+    },
+    {
+      "phase": "replay-ci-final-endpoint",
+      "exit_code": 0,
+      "start_epoch": 1792858022,
+      "seconds": 2,
+      "log": "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving/artifacts/pr-readiness/kurtosis/live/phases/replay-ci-final-endpoint.log",
+      "log_sha256": "7d5c604768233c873dba77e6f28ff9eb198fb237b14ebd831cf2821da913e6a1"
+    },
+    {
+      "phase": "replay-ci-final-input",
+      "exit_code": 0,
+      "start_epoch": 1792858096,
+      "seconds": 1,
+      "log": "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving/artifacts/pr-readiness/kurtosis/live/phases/replay-ci-final-input.log",
+      "log_sha256": "2f8be7a5623212b4a25d971370d8da223f7e4308303ad4c8e9bbfdd6a9af6370"
+    },
+    {
+      "phase": "replay-ci-final",
+      "exit_code": 0,
+      "start_epoch": 1792858223,
+      "seconds": 33,
+      "log": "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving/artifacts/pr-readiness/kurtosis/live/phases/replay-ci-final.log",
+      "log_sha256": "f769379087b5a44a5b0a4c4d7d2e3e73a86257ff64ebe33c4926a6acc0a03b1c"
+    },
+    {
+      "phase": "protocol-ci-final-prefix-continuation",
+      "exit_code": 0,
+      "start_epoch": 1792859481,
+      "seconds": 4,
+      "log": "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving/artifacts/pr-readiness/kurtosis/live/phases/protocol-ci-final-prefix-continuation.log",
+      "log_sha256": "3d6cd23b643d376b475a5135278964b2b4594d416173d4773e0964228f1209d0"
+    }
+  ],
+  "pending_checks": [],
+  "limits": [
+    "This installs exact bytes in preserved containers; their original image metadata is not an immutable final-image deployment.",
+    "Final clean shipping execution is distinguished from the earlier R03 campaigns.",
+    "Live signer evidence proves configuration lacks L1/L2 RPC dependencies; outgoing-connect seccomp isolation is separate source-process evidence.",
+    "Snapshots, bulk logs and executable files are local-only ignored artifacts."
+  ],
+  "protocol_final_first_attempt": {
+    "upstream_executed_passed": 34,
+    "independently_verified": 33,
+    "failed": [
+      "revertCounter"
+    ],
+    "skipped": [],
+    "full_suite_result": "FAIL",
+    "summary_sha256": "3de5e09e5d83fba8a8504a8028f4902cafa3303accb299b258cebdb7d2cca271",
+    "failure": "stateless block execution failed: mandatory L1 history evidence source is not configured",
+    "failure_scope": "The execution-prefix verification helper did not install the mandatory history configuration. Its canonical-boundary fast path had avoided the missing wiring in the previous 34-case run. Node/signer behavior is unchanged by the proposed helper correction.",
+    "same_input_diagnostic": {
+      "input": "artifacts/pr-readiness/kurtosis/live/protocol-ci-final/protocol-e2e/evidence/revertCounter.lookup-root.input.json",
+      "input_sha256": "df23a707a15b02f76a873e016f24479cdba391cbf51e812bcac18961fbd8bfbe",
+      "block_number": 9468,
+      "block_hash": "0xde7123f6602d51f3e59d24de49d3129848eb1f580cd310315e4eb3b4b08f981f",
+      "transaction_types": [
+        "0x45",
+        "0x45",
+        "0x45"
+      ],
+      "same_failure_on_both_variants": true,
+      "results": [
+        {
+          "variant": "r03",
+          "binary_sha256": "eab594596d172ea907d6fab71c921e7fbbe68bb1203613cc4274b287e15d396d",
+          "exit_code": 1,
+          "elapsed_seconds": 0.027373552322387695,
+          "stderr": "blob evidence verification failed: stateless block execution failed: mandatory L1 history evidence source is not configured\n"
+        },
+        {
+          "variant": "ci-final",
+          "binary_sha256": "e7e3ddab13bc6d1829ae39e9eb9d85a72a72f7fffc0a9966a04bfa6c4a910489",
+          "exit_code": 1,
+          "elapsed_seconds": 0.023114919662475586,
+          "stderr": "blob evidence verification failed: stateless block execution failed: mandatory L1 history evidence source is not configured\n"
+        }
+      ],
+      "broadcasts": 0,
+      "scope": "Diagnostic only; the earlier pass did not exercise this execution-prefix replay path."
+    },
+    "canonical_batch_only": {
+      "summary_sha256": "abeaad6b8f6dcc2def977c6eca4b9a97dfcb8cf15a5e37f2d7754bd6a01f04d1",
+      "block": 9468,
+      "scope": "KZG and full canonical post verified only; intermediate lookup root remains pending."
+    },
+    "read_only_verified_subset": {
+      "count": 33,
+      "excluded_unverified": [
+        "revertCounter"
+      ],
+      "sha256": "e82a7dc80f6def4d9c3015c3b04a1c9ee537944768ed16e25f39d8c7edee1036"
+    }
+  },
+  "cold_replay": {
+    "record": "cold-replay-final.json",
+    "sha256": "27a07df7ea99f486b7b54fee9fca2c93fa221eb8e9c18f5ca006ddb5ee3f0997",
+    "result": {
+      "checked_blocks": 3558,
+      "checked_derived_blocks": 3558,
+      "checked_receipts": 814,
+      "safe_l2_block": 9816,
+      "safe_l2_block_hash": "0xc162b8b5bcb0b124d038e82d8c5d7b77fc532aecf1ce7ce919645b6490d75bc1",
+      "source": "canonical_l1_only",
+      "verified": true
+    },
+    "unique_complete_batches": 206,
+    "maintenance_parts": 112,
+    "ordinary_final_receipt_included": true,
+    "ordinary_7702_receipts_included": 3
+  },
+  "closing_health": {
+    "path": "artifacts/pr-readiness/kurtosis/final-runtime-maintenance/closing-health.json",
+    "sha256": "cceb22cda64f7073ac5bcd87b20b60713e795d4055296face514a0a1a4d60a96",
+    "recorded_at": "2026-10-24T16:21:36.620392+00:00",
+    "roles_running_with_same_verified_bytes": true,
+    "safe": {
+      "number": "0x2820",
+      "hash": "0x2f9179339280424dbbf6da10428b921aad313b3371da9a6d334dd17d46ff07c0",
+      "parentHash": "0x8d13c3926b663a99c2afb47f7d97bcd876e7fe51f5279e93a87b53126692b62e",
+      "stateRoot": "0x72cf8e1e47049df5bc2e6406395c52097dcd5c56e9be952de44682761d4c6783",
+      "timestamp": "0x6adcdb0d"
+    },
+    "latest": {
+      "number": "0x2821",
+      "hash": "0xc0caadf78aa81fabe57477250077f29afd863c190406ff97e2e0c1452b5f05ee",
+      "parentHash": "0x2f9179339280424dbbf6da10428b921aad313b3371da9a6d334dd17d46ff07c0",
+      "stateRoot": "0xc92097a4bd0e5522938cf9dd8d9392eaee91ddeaa63b9658012ce8ee93d4d68e",
+      "timestamp": "0x6adcdb0f"
+    },
+    "replay_endpoint_still_canonical": true,
+    "enclave_left_active": true,
+    "mutating_operations": 0
+  },
+  "protocol_read_only_continuation": {
+    "record": "protocol-prefix-continuation.json",
+    "sha256": "82867014d8aad6cfcd76c5ed49a6f76df839dd79710ba553dab8d8e1311d0b39",
+    "independent_total": 34,
+    "original_passes": 33,
+    "corrected_read_only_passes": 1,
+    "new_broadcasts": 0,
+    "helper_sha256": "2afb9adcaa1a08a2196d88e7fde1b0c6980710fe84f648da0d48ea4777511622",
+    "local_helper_not_new_ci_payload": true
+  }
+}

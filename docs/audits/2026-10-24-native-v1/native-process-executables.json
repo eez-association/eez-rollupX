@@ -1,0 +1,23 @@
+{
+  "scope": "First 15-case native process matrix, before the process-driven fee-quote and synthetic-credit corrections. Hashes identify the capture point before the final shipping build; later cold signer processes can rebuild. No prebuilt override was selected.",
+  "base_commit": "3e23955dc477c9e675364776f118b1cecda75774",
+  "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "executables": {
+    "target/debug/eez-composer": {
+      "sha256": "aa56f5feab5770ca65c100dc39bab9f229624a0fa01d24c546c5c0bdd741827a",
+      "bytes": 854384032
+    },
+    "target/debug/eez-follower": {
+      "sha256": "ff56241c586f90c5f38c318722167c37adff3a2b6ccc561acae01bbc3da09a79",
+      "bytes": 712618456
+    },
+    "target/debug/eez-proof-signer": {
+      "sha256": "5672f6ea2ecc3ee830c4315e4a4d652d13156b4e51ebf7d5e9ff35d1f8747d78",
+      "bytes": 470924104
+    },
+    "target/debug/deps/node_e2e-969bf1dbfc9e03d4": {
+      "sha256": "e85df28790b6130b0ff212c5685ef76a82bc69077d6d2310c672db4b337c02a7",
+      "bytes": 609358672
+    }
+  }
+}

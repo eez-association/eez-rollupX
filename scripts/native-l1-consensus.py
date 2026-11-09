@@ -24,7 +24,12 @@ def main():
     parser.add_argument('--control', type=Path, required=True)
     parser.add_argument('--genesis-time', type=int, required=True)
     parser.add_argument('--block-seconds', type=int, required=True)
+    parser.add_argument('--replay-history-until', type=int)
     args = parser.parse_args()
+    if args.replay_history_until is not None:
+        elapsed = args.replay_history_until - args.genesis_time
+        if not 0 < elapsed <= 4 * 86400 or elapsed % args.block_seconds:
+            raise ValueError('history replay must be an aligned interval of at most four days')
     for endpoint in (args.rpc, args.engine):
         if urllib.parse.urlparse(endpoint).hostname != '127.0.0.1':
             raise ValueError('native fixture only accepts loopback endpoints')
@@ -68,8 +73,12 @@ def main():
         temporary.replace(args.control / name)
 
     def build(parent, timestamp, competing=False):
+        # A changing value makes delayed header/opcode checks meaningful even
+        # when most historical blocks contain no transactions.
+        randao = hashlib.sha256(f'{timestamp}:{competing}'.encode()).hexdigest()
         attributes = {'timestamp': hex(timestamp),
-            'prevRandao': '0x' + '01' * 32 if competing else zero,
+            'prevRandao': ('0x' + randao if args.replay_history_until is not None
+                           else '0x' + '01' * 32 if competing else zero),
             'suggestedFeeRecipient': '0x0000000000000000000000000000000000000000',
             'withdrawals': [], 'parentBeaconBlockRoot': zero}
         payload_id = fcu(parent['hash'], attributes)['payloadId']
@@ -89,11 +98,18 @@ def main():
 
     fcu(head['hash'])
     write('ready.json', {'head': head['hash'], 'number': head['number']})
+    history_ready = args.replay_history_until is None
     alternatives = {}
     skipped_timestamps = set()
     delayed_timestamp = None
     delayed_payload = None
     while True:
+        if not history_ready and int(head['timestamp'], 16) >= args.replay_history_until:
+            # Deployment begins only after the real historical payloads have
+            # been adopted; process readiness alone does not establish this.
+            write('history-ready.json', {'head': head['hash'],
+                'number': head['number'], 'timestamp': head['timestamp']})
+            history_ready = True
         delay_path = args.control / 'delay-slot.json'
         if delay_path.exists():
             pending = json.loads(delay_path.read_text())
@@ -145,6 +161,13 @@ def main():
                 'replacement': {'number': head['number'], 'hash': head['hash']}})
         now = int(time.time())
         timestamp = args.genesis_time + ((now - args.genesis_time) // args.block_seconds) * args.block_seconds
+        replaying = (args.replay_history_until is not None
+                     and int(head['timestamp'], 16) < args.replay_history_until)
+        if replaying:
+            # Produce every intervening block through the real payload builder.
+            # An old genesis alone would jump to now and exercise only a short
+            # ancestry bridge, regardless of the apparent timestamp duration.
+            timestamp = int(head['timestamp'], 16) + args.block_seconds
         if timestamp <= int(head['timestamp'], 16) or timestamp in skipped_timestamps:
             time.sleep(0.05)
             continue
@@ -158,8 +181,10 @@ def main():
         # Build a competing successor immediately, before the next submission
         # window. Its execution and roots come from the real payload builder;
         # no account/state/receipt override or hand-built block is involved.
-        alternatives[head['hash']] = build(head, timestamp + args.block_seconds, competing=True)
-        print(json.dumps({'number': head['number'], 'hash': head['hash']}), flush=True)
+        if not replaying:
+            alternatives[head['hash']] = build(head, timestamp + args.block_seconds, competing=True)
+        if not replaying or int(head['number'], 16) % 1024 == 0:
+            print(json.dumps({'number': head['number'], 'hash': head['hash']}), flush=True)
 
 
 if __name__ == '__main__':

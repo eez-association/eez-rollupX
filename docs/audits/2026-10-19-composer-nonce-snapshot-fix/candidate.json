@@ -1,0 +1,423 @@
+{
+  "source": "de4209a5e956b432db7a7d37517d9d44d68dfaa4",
+  "protocol": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+  "enclave": "eez-nonce-candidate-20261019",
+  "passed": true,
+  "fee_collection_both_directions": true,
+  "rounds": [
+    {
+      "round": 0,
+      "canonical_nonce": "0x2",
+      "ordinary_l1_block": "0x25",
+      "ordinary_l1_transaction": "0xfdf9468d0efe8eefa781c02f70186e025426c2b8432e59427e1fafd2625778a3",
+      "observations": [
+        {
+          "method": "eez_quoteFee",
+          "explicit_nonce": true,
+          "milliseconds": 1783.102,
+          "nonce": "0x2",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_quoteFee",
+          "explicit_nonce": false,
+          "milliseconds": 1778.931,
+          "nonce": "0x2",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_debugQuoteFee",
+          "explicit_nonce": true,
+          "milliseconds": 1777.911,
+          "nonce": "0x2",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_debugQuoteFee",
+          "explicit_nonce": false,
+          "milliseconds": 1778.359,
+          "nonce": "0x2",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        }
+      ],
+      "real_future_nonce_rejection": {
+        "code": -32602,
+        "data": {
+          "code": "invalid_transaction",
+          "message": "invalid transaction: queued nonce prefix has a gap"
+        },
+        "message": "invalid transaction: queued nonce prefix has a gap"
+      },
+      "source_nonce_after": "0x2",
+      "target_value": "0x0000000000000000000000000000000000000000000000000000000000000054",
+      "companion_same_l1_block": true,
+      "companion_l1_transaction": "0xc636af7eaa282680b2cac4080ecd1286879fdb521171ff14c128be7f4d204489"
+    },
+    {
+      "round": 1,
+      "canonical_nonce": "0x3",
+      "ordinary_l1_block": "0x27",
+      "ordinary_l1_transaction": "0x82f04b16efc472f732506aa1464e1eb08a7aba58bbc31db92b64f2036fb87287",
+      "observations": [
+        {
+          "method": "eez_quoteFee",
+          "explicit_nonce": true,
+          "milliseconds": 1778.049,
+          "nonce": "0x3",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_quoteFee",
+          "explicit_nonce": false,
+          "milliseconds": 1783.169,
+          "nonce": "0x3",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_debugQuoteFee",
+          "explicit_nonce": true,
+          "milliseconds": 1777.595,
+          "nonce": "0x3",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_debugQuoteFee",
+          "explicit_nonce": false,
+          "milliseconds": 1781.486,
+          "nonce": "0x3",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        }
+      ],
+      "real_future_nonce_rejection": {
+        "code": -32602,
+        "data": {
+          "code": "invalid_transaction",
+          "message": "invalid transaction: queued nonce prefix has a gap"
+        },
+        "message": "invalid transaction: queued nonce prefix has a gap"
+      },
+      "source_nonce_after": "0x3",
+      "target_value": "0x0000000000000000000000000000000000000000000000000000000000000055",
+      "companion_same_l1_block": true,
+      "companion_l1_transaction": "0xf5733e46d8b76edb5815ffa17838919a61a4d9ebafd85335fd63f9e082c1542c"
+    },
+    {
+      "round": 2,
+      "canonical_nonce": "0x4",
+      "ordinary_l1_block": "0x29",
+      "ordinary_l1_transaction": "0x81190d44085fa6e9b15678b8a391310babbe6b6523d7e8a85592a18f5b169b04",
+      "observations": [
+        {
+          "method": "eez_quoteFee",
+          "explicit_nonce": true,
+          "milliseconds": 1778.732,
+          "nonce": "0x4",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_quoteFee",
+          "explicit_nonce": false,
+          "milliseconds": 1778.359,
+          "nonce": "0x4",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_debugQuoteFee",
+          "explicit_nonce": true,
+          "milliseconds": 1778.468,
+          "nonce": "0x4",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_debugQuoteFee",
+          "explicit_nonce": false,
+          "milliseconds": 1782.821,
+          "nonce": "0x4",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        }
+      ],
+      "real_future_nonce_rejection": {
+        "code": -32602,
+        "data": {
+          "code": "invalid_transaction",
+          "message": "invalid transaction: queued nonce prefix has a gap"
+        },
+        "message": "invalid transaction: queued nonce prefix has a gap"
+      },
+      "source_nonce_after": "0x4",
+      "target_value": "0x0000000000000000000000000000000000000000000000000000000000000056",
+      "companion_same_l1_block": true,
+      "companion_l1_transaction": "0x75e2d0509c932c40b99a227f20a03624cd87dbd8125d1ba2c2c98f3e490e035b"
+    },
+    {
+      "round": 3,
+      "canonical_nonce": "0x5",
+      "ordinary_l1_block": "0x2b",
+      "ordinary_l1_transaction": "0x747729c72c43eaf937ced9a65bf621b60cf49025807ed007a823480dbdd16907",
+      "observations": [
+        {
+          "method": "eez_quoteFee",
+          "explicit_nonce": true,
+          "milliseconds": 1786.801,
+          "nonce": "0x5",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_quoteFee",
+          "explicit_nonce": false,
+          "milliseconds": 1782.276,
+          "nonce": "0x5",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_debugQuoteFee",
+          "explicit_nonce": true,
+          "milliseconds": 1781.652,
+          "nonce": "0x5",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_debugQuoteFee",
+          "explicit_nonce": false,
+          "milliseconds": 1782.18,
+          "nonce": "0x5",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        }
+      ],
+      "real_future_nonce_rejection": {
+        "code": -32602,
+        "data": {
+          "code": "invalid_transaction",
+          "message": "invalid transaction: queued nonce prefix has a gap"
+        },
+        "message": "invalid transaction: queued nonce prefix has a gap"
+      },
+      "source_nonce_after": "0x5",
+      "target_value": "0x0000000000000000000000000000000000000000000000000000000000000057",
+      "companion_same_l1_block": true,
+      "companion_l1_transaction": "0x90d8c643168c13e79a2b132f351d383401c3bcf9344ed4b983097918a1f59cab"
+    },
+    {
+      "round": 4,
+      "canonical_nonce": "0x6",
+      "ordinary_l1_block": "0x2d",
+      "ordinary_l1_transaction": "0xbd62c501bc9ec6daa032b137de3fd63034ed6852b9b8fe720117775c307bfce7",
+      "observations": [
+        {
+          "method": "eez_quoteFee",
+          "explicit_nonce": true,
+          "milliseconds": 1778.571,
+          "nonce": "0x6",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_quoteFee",
+          "explicit_nonce": false,
+          "milliseconds": 1777.981,
+          "nonce": "0x6",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_debugQuoteFee",
+          "explicit_nonce": true,
+          "milliseconds": 1785.796,
+          "nonce": "0x6",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_debugQuoteFee",
+          "explicit_nonce": false,
+          "milliseconds": 1785.85,
+          "nonce": "0x6",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        }
+      ],
+      "real_future_nonce_rejection": {
+        "code": -32602,
+        "data": {
+          "code": "invalid_transaction",
+          "message": "invalid transaction: queued nonce prefix has a gap"
+        },
+        "message": "invalid transaction: queued nonce prefix has a gap"
+      },
+      "source_nonce_after": "0x6",
+      "target_value": "0x0000000000000000000000000000000000000000000000000000000000000058",
+      "companion_same_l1_block": true,
+      "companion_l1_transaction": "0xadac68c76a1df9fe4c20d0d198ea1b52c02e4232d60f0570f02e1a50fbf739ae"
+    },
+    {
+      "round": 5,
+      "canonical_nonce": "0x7",
+      "ordinary_l1_block": "0x2f",
+      "ordinary_l1_transaction": "0xd032d7a40dd0472824d92b57627075b8f2cacbeba2a5081c15e1d6d05b636fbd",
+      "observations": [
+        {
+          "method": "eez_quoteFee",
+          "explicit_nonce": true,
+          "milliseconds": 1526.453,
+          "nonce": "0x7",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_quoteFee",
+          "explicit_nonce": false,
+          "milliseconds": 1535.392,
+          "nonce": "0x7",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_debugQuoteFee",
+          "explicit_nonce": true,
+          "milliseconds": 1526.451,
+          "nonce": "0x7",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        },
+        {
+          "method": "eez_debugQuoteFee",
+          "explicit_nonce": false,
+          "milliseconds": 1528.127,
+          "nonce": "0x7",
+          "types": [
+            "0x0",
+            "0x2"
+          ],
+          "error": null
+        }
+      ],
+      "real_future_nonce_rejection": {
+        "code": -32602,
+        "data": {
+          "code": "invalid_transaction",
+          "message": "invalid transaction: queued nonce prefix has a gap"
+        },
+        "message": "invalid transaction: queued nonce prefix has a gap"
+      },
+      "source_nonce_after": "0x7",
+      "target_value": "0x0000000000000000000000000000000000000000000000000000000000000059",
+      "companion_same_l1_block": true,
+      "companion_l1_transaction": "0xe780213e26bf750f379c6ac504ba480c85f8bf8da47d32625aeafbe9a97fe30b"
+    }
+  ],
+  "observed_refresh_log_count": 164,
+  "evidence_sha256": "1a3b967440a47945d1e45c5309c23661b0f25d1e1a1e80ebd10d169d74f433ec",
+  "raw_artifact": "local only: artifacts/nonce-snapshot-fix/candidate-result.json",
+  "canonical_control": {
+    "target": "0x2e983a1ba5e8b38aaaec4b440b9ddcfbf72e15d1",
+    "safe_value": 89,
+    "safe_block": {
+      "number": "0x13e",
+      "hash": "0x55b06b06ebad1da752fbb39b81e41bb95d06ad9330346462c7420bba8ff48d67",
+      "stateRoot": "0x9bc53c135443ef0ed0890667dfe7e8e739f37e408e5ceefa96e6f8e9a44c4525"
+    },
+    "passed": true
+  },
+  "runtime_identity": {
+    "source": "de4209a5e956b432db7a7d37517d9d44d68dfaa4",
+    "protocol": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+    "roles": {
+      "node": {
+        "container": "/eez-node--330ae1edfd084617a211bbc90ca5a10c",
+        "image_id": "sha256:76f072e0af67cebcb5e3b031d9128ecfd2ae657ab2dbff6bb23f854c79ce29a7",
+        "source": "de4209a5e956b432db7a7d37517d9d44d68dfaa4"
+      },
+      "signer": {
+        "container": "/eez-proof-signer--308453a8dcc04f14958a920d368b1349",
+        "image_id": "sha256:012f151a6d1bdbdd5cc20cb4f1677fcc0b0dbb63b9a1b0189791eef9a97d16be",
+        "source": "de4209a5e956b432db7a7d37517d9d44d68dfaa4"
+      }
+    }
+  },
+  "composer_log_sha256": "a30297f27ee2baf35258c4e62ef72a3e5444793f5b0718c0991484cdb5caa09b"
+}

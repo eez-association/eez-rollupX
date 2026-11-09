@@ -1,0 +1,120 @@
+{
+  "status": "prepared_not_executed",
+  "scope": "Prepared isolated Titan fixed operator-value payout trial; post is prefunded, dedicated payout sender is sponsored from three synthetic users' tips. Uses pinned EEZ with mock proof, not production E2E.",
+  "source_revision": "fa916b13254a36423cad130080dde367bb18a7d6",
+  "protocol_revision": "855fe0602484750861b4c31502a1a91355d33ed6",
+  "chain_id": 560048,
+  "chain_rpc": "https://ethereum-hoodi-rpc.publicnode.com",
+  "builder_rpc": "https://rpc-hoodi.titanbuilder.xyz",
+  "observed_fee_context": {
+    "observed_at_utc": "2026-10-10T12:01:10.789869+00:00",
+    "block_number": 3789137,
+    "block_hash": "0x74ce28ebfb98c499402765171e6e34dec5f1d466df021d5613eea6f330c6ebef",
+    "base_fee_per_gas_wei": 937876124,
+    "blob_base_fee_wei": 879392855,
+    "blob_quote_note": "Separate latest RPC call, not an atomic quote bound to this header; re-quote and validate the exact target before signing."
+  },
+  "transaction_caps": {
+    "deployment_gas_each": 8000000,
+    "registration_gas": 500000,
+    "post_gas": 500000,
+    "post_blob_count": 1,
+    "user_gas_each": 100000,
+    "setup_and_post_max_fee_per_gas_wei": 2000000000,
+    "post_max_priority_fee_per_gas_wei": 0,
+    "post_max_fee_per_blob_gas_wei": 2000000000,
+    "user_max_fee_per_gas_wei": 22000000000,
+    "user_max_priority_fee_per_gas_wei": 20000000000,
+    "operator_payout_gas": 21000,
+    "requested_operator_value_wei": 1500000000000000,
+    "operator_payout_max_fee_per_gas_wei": 2000000000,
+    "operator_payout_max_priority_fee_per_gas_wei": 0
+  },
+  "budget": {
+    "unit": "Hoodi test ETH; no mainnet funds",
+    "hard_total_outlay_cap_wei": 60000000000000000,
+    "conservative_allocations_wei": {
+      "two_contract_deployments": 32000000000000000,
+      "rollup_registration": 1000000000000000,
+      "three_users_three_calls_each": 19800000000000000,
+      "poster_prefunding_for_three_fee_cap_reserves": 3786432000000000,
+      "payout_sender_prefunded_control": 1542000000000000,
+      "five_setup_transfers": 210000000000000
+    },
+    "allocation_sum_wei": 58338432000000000,
+    "unallocated_buffer_wei": 1661568000000000,
+    "note": "Counts prefunding of users, poster and control payer as outlays that already cover their later gas and control value. Sponsored operator value is funded only by builder receipts, not an extra operator allocation. No double counting, cap increase, automatic refill or new wallet funding without an identified authorized setup."
+  },
+  "funding_prerequisites": [
+    "Disposable funded Hoodi wallet configuration reference and isolated fixture deployment, or authorized deployment within this cap.",
+    "Use newly generated non-public keys for disposable accounts; never reuse any public local fixture key.",
+    "Prefund the native poster, three users and deployer only; initially empty dedicated payout sender is separate from treasury. Prefund that sender only for the third control."
+  ],
+  "cases": [
+    {
+      "name": "empty_operator_payout_sender",
+      "submitted_order": [
+        "prefunded_native_blob_post",
+        "user_1",
+        "user_2",
+        "user_3",
+        "operator_value_to_treasury"
+      ],
+      "required_observation": "Builder-created funding for the separate payout sender, followed by exact-target post, users and successful 0.0015 test-ETH treasury receipt; consolidated operator balances must reconcile."
+    },
+    {
+      "name": "residual_operator_payout_balance",
+      "submitted_order": [
+        "prefunded_native_blob_post",
+        "user_1",
+        "user_2",
+        "user_3",
+        "operator_value_to_treasury"
+      ],
+      "required_observation": "Retain prior payout balance; observe the next actual shortfall funding and reconcile recurring external inflow, posting/payout fees and treasury receipt."
+    },
+    {
+      "name": "prefunded_operator_self_payment_control",
+      "submitted_order": [
+        "prefunded_native_blob_post",
+        "user_1",
+        "user_2",
+        "user_3",
+        "operator_value_to_treasury"
+      ],
+      "required_observation": "Prefund payout sender for full value plus fee cap. If no builder funding occurs, receipt is internal and combined operator balance falls by gas/blob expenses; do not count treasury value as external income."
+    }
+  ],
+  "submission_bounds": {
+    "included_batches_max": 3,
+    "target_attempts_per_case_max": 8,
+    "total_target_attempts_max": 24,
+    "source_transactions_per_batch": 3,
+    "native_blob_posts_per_batch": 1,
+    "refund_fields": "omitted to isolate sponsorship",
+    "reverting_tx_hashes": [],
+    "dropping_tx_hashes": [],
+    "rule": "Use one current nonce per sender per case. Retarget only after checking canonical nonce/receipt outcomes; stop on ambiguous ownership or any unexpected inclusion. Rebuild the post for the same new parent/timestamp validated by local preflight, target only its next block, and do not broaden the validity window.",
+    "operator_payouts_per_batch": 1
+  },
+  "required_evidence": [
+    "Actual builder-created funding for value plus gas; submit no sponsor transfer ourselves.",
+    "The operator transaction is type 2, value 0.0015 test ETH, zero tip, and from the dedicated payout sender. It must not attach value to nonpayable postAndVerifyBatch.",
+    "Canonical all-success ordered receipts for post, all three users and operator payout; matched target parent/timestamp and real blob charges.",
+    "Combined changes in poster, payout sender and treasury balances, reconciled to incoming builder funding less operator on-chain fees; preserve residuals across two batches.",
+    "User tips must cover full requested sponsorship plus funding overhead and a competitive builder remainder; quote exact target, stop if economics or gas caps fail.",
+    "No margin claim from self-funded receipts or an assumed non-gas expense input. Actual proving/operating costs and production proof behavior require separate qualification.",
+    "Finalized canonical block/receipt hashes; non-inclusion or ACK alone is inconclusive."
+  ],
+  "limits": [
+    "Not executed. No funded disposable Hoodi setup is available.",
+    "Local runner manually created the sponsor transfer; it passed arithmetic/execution checks but cannot validate Titan policy or live behavior.",
+    "Titan documentation includes native value funding, but arbitrary operator service payments, a later underfunded sender, value limits and recurring behavior remain unverified.",
+    "Quasar publicly describes gas sponsorship only; no value-payment support or broad builder majority is established.",
+    "Public eth_callBundle and mev_simBundle probes returned -32601. eth_sendBundle method controls reached parameter validation; no valid bundle was submitted.",
+    "Production Composer must explicitly model the funding prefix and operator payment in its validation/ownership paths. The first logical transaction must remain the native post.",
+    "User and post bytes, proof target and canonical ownership remain unchanged by fee-accounting claims. Private EOA payout bytes are not independently bound to a slot; production expiry/replay behavior needs validation.",
+    "Hoodi amount differs from the local 0.0024 ETH example because this manifest uses 20 gwei user tips versus the local 50 gwei fixture. Re-simulate the complete candidate at the real target before signing."
+  ],
+  "supersedes_for_value_question": "hoodi-trial.json tests gas-only sponsorship; that prior manifest remains a separate unexecuted experiment."
+}

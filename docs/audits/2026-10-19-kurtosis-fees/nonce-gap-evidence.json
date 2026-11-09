@@ -1,0 +1,58 @@
+{
+  "protocol": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+  "request": {
+    "from": "0x3e1adefeddeaf5245f458828d0c9c47bcc97d131",
+    "to": "0xc6a83c5cd471572ddccdf03b456e076f3368a083",
+    "data": "0x2bf21647",
+    "value": "0x0",
+    "nonce": "0x2"
+  },
+  "observed_failure": "-32602 invalid transaction: queued nonce prefix has a gap",
+  "logged_prepared_nonce": "2 (rpc=2 front=2)",
+  "later_latest_nonces": [
+    "0x2",
+    "0x2"
+  ],
+  "later_quote": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "chainId": "0x1ca3",
+      "expiresAt": "0x6ad5f95b",
+      "nonce": "0x2",
+      "options": [
+        {
+          "estimatedFee": "0x1514dbf18f8e6",
+          "gas": "0x2630e",
+          "gasPrice": "0xac9f0bcf",
+          "requestHash": "0x58261a68bb4e2c84c804023d1512090247778030e9adeced7c26415062909ba0",
+          "type": "0x0"
+        },
+        {
+          "estimatedFee": "0x1514dbf18f8e6",
+          "gas": "0x2630e",
+          "maxFeePerGas": "0xac9f0bcf",
+          "maxPriorityFeePerGas": "0xac9f0bc8",
+          "requestHash": "0xe874f9e27fbb26c7baec423b9decfebb6f20a26e061c5477c1732c35b6ca6fd1",
+          "type": "0x2"
+        }
+      ],
+      "version": 1
+    }
+  },
+  "setup_receipts_still_canonical": [
+    {
+      "transactionHash": "0x453659067d658137ef018d64d12a48de568352495f2f853d09414a297a3a7f59",
+      "blockNumber": "0x84",
+      "blockHash": "0xd34d83f4f15cba4b667126df7a8f6927e0ce20fc6ceaefe9dfec2a8bb8845308",
+      "status": "0x1"
+    },
+    {
+      "transactionHash": "0x9399f4df28370bd974c287a3c131fb882715b31141bf0288d8ef00839264282c",
+      "blockNumber": "0x85",
+      "blockHash": "0x3a0d4badb650e82073f322aeb3f94af22da0aa40553fa53bfa151d65904ce627",
+      "status": "0x1"
+    }
+  ],
+  "limit": "Later success alone does not identify the original quote snapshot or establish a Composer versus preparation race."
+}

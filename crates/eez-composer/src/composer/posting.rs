@@ -38,6 +38,8 @@ use super::CrossChainExecCtx;
 use super::gas_trace;
 use crate::local::provider::ChainProvider;
 
+mod priority;
+
 #[derive(Debug, thiserror::Error)]
 pub(super) enum PostingError {
     #[error("posting inputs unavailable: {0}")]
@@ -46,6 +48,8 @@ pub(super) enum PostingError {
     Capacity(String),
     #[error("ordered L1 bundle does not complete the intended effects: {0}")]
     Effects(String),
+    #[error("ordered L1 source {hash} does not complete its intended effects: {reason}")]
+    SourceEffects { hash: B256, reason: String },
     #[error("invalid ordered L1 transaction: {0}")]
     Transaction(String),
     #[error(transparent)]
@@ -54,6 +58,7 @@ pub(super) enum PostingError {
 
 pub(super) struct PostingRuntime {
     pub fees: PostingFeeConfig,
+    pub collection: super::fees::config::RuntimeFees,
     pub chain: ChainProvider,
     pub ctx: Arc<CrossChainExecCtx>,
     pub registry: Address,
@@ -65,6 +70,8 @@ pub(super) struct PostingRuntime {
     pub operator_blob_cap: Option<u64>,
     pub costs: std::sync::Mutex<super::costs::CostLedger>,
     pub gas_trace: Option<gas_trace::Config>,
+    /// Shared bounded canonical observations; never refund/queue ownership.
+    pub priority_history: tokio::sync::Mutex<priority::PriorityHistory>,
 }
 
 /// Price a bundle as cross-chain when any of its users executes a cross-chain
@@ -78,12 +85,35 @@ pub(super) fn priority_profile(semantics: &[SemanticTransaction]) -> PriorityPro
     }
 }
 
+#[derive(Debug)]
 pub(super) struct PostingQuote {
     pub quote: FeeQuote,
-    parent: Header,
-    attributes: NextBlockEnvAttributes,
+    pub parent: Header,
+    pub(super) attributes: NextBlockEnvAttributes,
     pub env: EvmEnv,
     pub gas_budget: u64,
+}
+
+impl PostingQuote {
+    pub fn probe_funding(
+        &self,
+        poster: Address,
+        balance: U256,
+        blobs: u64,
+    ) -> Result<crate::PosterBalanceError, PostingFeeError> {
+        Ok(crate::PosterBalanceError {
+            poster,
+            chain_id: self.quote.chain_id,
+            available: balance,
+            blob_reserve: self.quote.reserve(0, blobs)?.blobs,
+            affordable_gas: self
+                .quote
+                .affordable_gas(balance, self.gas_budget, blobs)?
+                .unwrap_or(0),
+            gas_budget: self.gas_budget,
+            sample: self.quote.sample,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -94,6 +124,8 @@ pub(super) struct BundleExecution {
     pub gas_required: Vec<u64>,
     pub gas_limits: Vec<u64>,
     pub transaction_hashes: Vec<B256>,
+    /// Physical blobs in each validated envelope, including user companions.
+    pub blob_counts: Vec<u64>,
 }
 
 impl PostingRuntime {
@@ -195,6 +227,36 @@ impl PostingRuntime {
         final_parent: bool,
         profile: PriorityProfile,
     ) -> Result<PostingQuote, PostingError> {
+        self.quote_sample(Some(target), final_parent, profile, None, 0)
+            .await
+    }
+
+    /// Price a hypothetical next block from a completed scan. Unlike submission
+    /// pricing, ordinary head advancement is allowed; the sampled block must
+    /// remain canonical. This result cannot select a real submission target.
+    pub(super) async fn advisory_quote(
+        &self,
+        sample: L1BlockRef,
+        slot_seconds: u64,
+    ) -> Result<PostingQuote, PostingError> {
+        self.quote_sample(
+            None,
+            false,
+            PriorityProfile::CrossChain,
+            Some(sample),
+            slot_seconds,
+        )
+        .await
+    }
+
+    async fn quote_sample(
+        &self,
+        target: Option<BundleTarget>,
+        final_parent: bool,
+        profile: PriorityProfile,
+        pinned: Option<L1BlockRef>,
+        slot_seconds: u64,
+    ) -> Result<PostingQuote, PostingError> {
         let percentile = self.fees.priority_percentile_for(profile);
         let provider = &self.ctx.l1_provider;
         let chain_id = provider
@@ -209,7 +271,7 @@ impl PostingRuntime {
             ));
         }
         let head = provider
-            .get_block_by_number(BlockNumberOrTag::Latest)
+            .get_block_by_number(pinned.map_or(BlockNumberOrTag::Latest, |b| b.number.into()))
             .await
             .map_err(|e| PostingError::Unavailable(e.to_string()))?
             .ok_or_else(|| PostingError::Unavailable("canonical fee sample is missing".into()))?;
@@ -217,18 +279,59 @@ impl PostingRuntime {
             number: head.header.number,
             hash: head.header.hash,
         };
-        let parent = head.header.inner;
+        if pinned.is_some_and(|expected| expected != sample) {
+            return Err(PostingError::Unavailable(
+                "advisory fee sample was reorged".into(),
+            ));
+        }
+        let parent = head.header.inner.clone();
+        let target =
+            match target {
+                Some(target) => target,
+                None => BundleTarget::Exact {
+                    block: parent.number.checked_add(1).ok_or_else(|| {
+                        PostingError::Unavailable("sample height overflow".into())
+                    })?,
+                    timestamp: parent.timestamp.checked_add(slot_seconds).ok_or_else(|| {
+                        PostingError::Unavailable("sample timestamp overflow".into())
+                    })?,
+                },
+            };
         let (env, attributes) = self.environment(&parent, target)?;
         if final_parent && sample.number.checked_add(1) != Some(env.block_env.number.to::<u64>()) {
             return Err(PostingError::Unavailable(
                 "target's canonical parent is not yet available".into(),
             ));
         }
-        let estimated_priority_fee = if self.fees.priority_override.is_none() {
+        let mut excluded_priority_transactions = 0;
+        let filtered_priority = self.collection.l1_refund.is_some();
+        let estimated_priority_fee = if self.fees.priority_override.is_none() && filtered_priority {
+            let (priority, excluded) =
+                tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                    let mut history = self.priority_history.lock().await;
+                    // Receipt/trace RPC state is large. Keep it out of every
+                    // enclosing scheduler/quote future while retaining the
+                    // guard and cancellation in this request.
+                    Box::pin(history.estimate(
+                        provider,
+                        head,
+                        self.ctx.l1_poster_signer.address(),
+                        self.registry,
+                        percentile,
+                    ))
+                    .await
+                })
+                .await
+                .map_err(|_| {
+                    PostingError::Unavailable("filtered fee history timed out".into())
+                })??;
+            excluded_priority_transactions = excluded;
+            Some(priority)
+        } else if self.fees.priority_override.is_none() {
             let history = provider
                 .get_fee_history(
                     PRIORITY_FEE_HISTORY_BLOCKS,
-                    BlockNumberOrTag::Latest,
+                    sample.number.into(),
                     &[f64::from(percentile)],
                 )
                 .await
@@ -256,7 +359,7 @@ impl PostingRuntime {
             estimated_priority_fee,
         })?;
         let check = provider
-            .get_block_by_number(BlockNumberOrTag::Latest)
+            .get_block_by_number(pinned.map_or(BlockNumberOrTag::Latest, |b| b.number.into()))
             .await
             .map_err(|e| PostingError::Unavailable(e.to_string()))?
             .ok_or_else(|| PostingError::Unavailable("fee sample disappeared".into()))?;
@@ -274,7 +377,8 @@ impl PostingRuntime {
             event_name = "eez.composer.postbatch.fee_quote", chain_id, sample_block = sample.number,
             sample_hash = %sample.hash, target = ?target, gas_budget,
             network_transaction_gas_max = env.cfg_env.tx_gas_limit_cap(), block_gas = parent.gas_limit,
-            operator_gas_cap = self.operator_gas_cap, priority_source = if self.fees.priority_override.is_some() { "override" } else { "fee_history" },
+            operator_gas_cap = self.operator_gas_cap, priority_source = if self.fees.priority_override.is_some() { "override" } else if filtered_priority { "filtered_receipts" } else { "fee_history" },
+            excluded_priority_transactions,
             priority_history_blocks = PRIORITY_FEE_HISTORY_BLOCKS,
             priority_profile = ?profile, priority_reward_percentile = percentile,
             execution_base_fee = env.block_env.basefee, blob_base_fee = quote.estimated_blob_gas_price,
@@ -468,24 +572,14 @@ impl PostingRuntime {
             .block_id(quote.quote.sample.hash.into())
             .await
             .map_err(|e| PostingError::Unavailable(e.to_string()))?;
-        let blob_reserve = quote.quote.reserve(0, blobs)?.blobs;
-        let affordable = balance
-            .checked_sub(blob_reserve)
-            .and_then(|funds| {
-                if quote.quote.max_fee_per_gas == 0 {
-                    Some(U256::MAX)
-                } else {
-                    funds.checked_div(U256::from(quote.quote.max_fee_per_gas))
-                }
-            })
+        let probe_gas = quote
+            .quote
+            .affordable_gas(balance, quote.gas_budget, blobs)?
             .ok_or_else(|| {
                 PostingError::Transaction(
                     "poster balance cannot reserve blob and execution fees".into(),
                 )
             })?;
-        let probe_gas = quote
-            .gas_budget
-            .min(affordable.try_into().unwrap_or(u64::MAX));
         let reprice = |bytes: &Bytes, gas: u64| {
             eez_blob_codec::reprice_blob_transaction(
                 bytes,
@@ -518,7 +612,9 @@ impl PostingRuntime {
             "preflight_final",
         ) {
             Ok(execution) => execution,
-            Err(PostingError::Effects(_)) if selected_gas < probe_gas => {
+            Err(PostingError::Effects(_) | PostingError::SourceEffects { .. })
+                if selected_gas < probe_gas =>
+            {
                 // EIP-150 may need more headroom than consumed gas plus margin.
                 // The larger value was validated, but changing gas invalidates
                 // the prior simulation, so execute the exact final bytes again.
@@ -618,7 +714,14 @@ where
     let mut gas_used = Vec::with_capacity(transactions.len());
     let mut gas_required = Vec::with_capacity(transactions.len());
     let gas_limits = transactions.iter().map(|tx| tx.gas_limit()).collect();
-    let transaction_hashes = transactions
+    let blob_counts = transactions
+        .iter()
+        .map(|tx| {
+            tx.blob_versioned_hashes()
+                .map_or(0, |hashes| hashes.len() as u64)
+        })
+        .collect();
+    let transaction_hashes: Vec<B256> = transactions
         .iter()
         .map(|tx| {
             use alloy_consensus::transaction::TxHashRef as _;
@@ -628,12 +731,31 @@ where
     let mut final_root = None;
     for (index, transaction) in transactions.into_iter().enumerate() {
         gas_trace::set_tx_index(index);
+        // The bundle starts with our poster. Only subsequent signed companions
+        // can identify a source-local execution failure; a posting/root failure
+        // alone must never authorize a user's retry penalty.
+        let effects = |reason| {
+            if index == 0 {
+                PostingError::Effects(reason)
+            } else {
+                PostingError::SourceEffects {
+                    hash: transaction_hashes[index],
+                    reason,
+                }
+            }
+        };
         let result = executor
             .execute_transaction_without_commit(transaction)
             .map_err(|e| PostingError::Transaction(format!("transaction {index}: {e}")))?;
         if !result.result.result.is_success() {
-            return Err(PostingError::Effects(format!(
-                "transaction {index} failed: {}",
+            let selector = result
+                .result
+                .result
+                .output()
+                .and_then(|bytes| bytes.get(..4))
+                .map(alloy_primitives::hex::encode);
+            return Err(effects(format!(
+                "transaction {index} failed: {}; revert selector: {selector:?}",
                 result.result.result
             )));
         }
@@ -645,7 +767,7 @@ where
             .filter(|log| log.address == registry)
         {
             if log.data.topics().first() == Some(&eez_protocol::abi::L2TxSkipped::SIGNATURE_HASH) {
-                return Err(PostingError::Effects(format!(
+                return Err(effects(format!(
                     "transaction {index} skipped an intended immediate entry"
                 )));
             }
@@ -683,6 +805,7 @@ where
         gas_required,
         gas_limits,
         transaction_hashes,
+        blob_counts,
     })
 }
 
@@ -704,6 +827,7 @@ struct ObservedCall {
 /// Observe the actual manager path without intercepting execution, warming
 /// accounts, or replacing proven lookups with simulation results. Root checks
 /// alone miss a caught static lookup failure with no state change.
+#[derive(Clone, PartialEq, Eq)]
 pub(super) struct EffectInspector {
     registry: Address,
     rollup_id: u64,
@@ -1023,6 +1147,24 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn native_companion_failure_identifies_exact_signed_source() {
+        let companion = tx(1, REGISTRY, 21_000, Bytes::new());
+        use alloy_consensus::transaction::TxHashRef as _;
+        let hash = *companion.tx_hash();
+        assert!(matches!(execute(emit_root(false), vec![
+            tx(0, REGISTRY, 90_000, Bytes::new()), companion,
+        ], 120_000), Err(PostingError::SourceEffects { hash: failed, .. }) if failed == hash));
+        assert!(matches!(
+            execute(
+                emit_root(false),
+                vec![tx(0, REGISTRY, 21_000, Bytes::new()),],
+                120_000
+            ),
+            Err(PostingError::Effects(_))
+        ));
     }
 
     #[test]

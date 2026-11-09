@@ -1,0 +1,213 @@
+{
+  "schema_version": 5,
+  "protocol_commit": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+  "targets": [
+    "bridge",
+    "bridgeL2",
+    "flash-loan",
+    "nestedCounter"
+  ],
+  "execution": {
+    "runner": "network-parallel",
+    "max_parallel": 2,
+    "suite_timeout_seconds": 2400,
+    "phases": [
+      {
+        "phase": "bridge-prerequisite",
+        "scenarios": [
+          "bridge"
+        ],
+        "exit_code": 0,
+        "seconds": 54.06,
+        "results": [
+          [
+            "bridge",
+            "PASS"
+          ]
+        ]
+      },
+      {
+        "phase": "parallel",
+        "scenarios": [
+          "bridgeL2",
+          "flash-loan",
+          "nestedCounter"
+        ],
+        "exit_code": 0,
+        "seconds": 83.26,
+        "results": [
+          [
+            "bridgeL2",
+            "PASS"
+          ],
+          [
+            "flash-loan",
+            "PASS"
+          ],
+          [
+            "nestedCounter",
+            "PASS"
+          ]
+        ]
+      }
+    ]
+  },
+  "suite": {
+    "discovered": 62,
+    "eligible": 34,
+    "selected": 4,
+    "excluded_from_all": [
+      "catchNestedRevertAfterCallback",
+      "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+      "catchRemoteRevertAfterCallback",
+      "catchNestedRevertAfterCallbackL2",
+      "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+      "catchRemoteRevertAfterCallbackL2",
+      "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+      "nestedRollbackRestoresInnerThenOuterStateL2",
+      "rollbackGroupWithStaticReadThenWriteL2",
+      "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+      "mutableCallMakesReadThatCallsBack",
+      "nestedStaticLocalWriteL2",
+      "staticLocalWrite",
+      "staticReadCallsBackAndReadsAgain",
+      "topLevelStaticReentrantMissingProxy",
+      "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+      "mutableCallMakesReadThatCallsBackL2",
+      "nestedStaticLocalWriteL1",
+      "staticLocalWriteL2",
+      "staticReadCallsBackAndReadsAgainL2",
+      "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+      "staticReadHandlesFailedCallbackL2",
+      "staticReadPropagatesFailedCallbackL2",
+      "staticReadThenCatchFailedWriteL2",
+      "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+      "staticReadThenRollbackWriteL2",
+      "staticReadThenWriteWithCallbackL2",
+      "topLevelStaticReentrantMissingProxyL2"
+    ],
+    "complete": false
+  },
+  "accounting": {
+    "valid": true,
+    "missing": [],
+    "duplicates": [],
+    "unexpected": []
+  },
+  "upstream_exit_status": 0,
+  "evidence_complete": true,
+  "causal_coverage": {
+    "complete": true,
+    "missing": [],
+    "paired": [
+      "bridge",
+      "bridgeL2",
+      "flash-loan",
+      "nestedCounter"
+    ],
+    "no_destination_required": []
+  },
+  "semantic_blob_coverage": {
+    "complete": true,
+    "missing": [],
+    "authenticated": [
+      "bridge",
+      "bridgeL2",
+      "flash-loan",
+      "nestedCounter"
+    ]
+  },
+  "passed": [
+    "bridge",
+    "bridgeL2",
+    "flash-loan",
+    "nestedCounter"
+  ],
+  "failed": [],
+  "skipped": [],
+  "scenarios": [
+    {
+      "scenario": "bridge",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "bridgeL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "flash-loan",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "nestedCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    }
+  ],
+  "full_summary_local_only": "artifacts/pr54-fees-corrections/kurtosis/protocol-e2e/summary.json",
+  "full_summary_sha256": "5f60e0d60a353fad1487684799b9e2a0a375b8decd70cac4677b5ca884279e92",
+  "comparison": "Corrected fixture funding (1 test ETH). nestedCounter is a retry-only pass: its earlier nonce-gap rejection has no demonstrated fix. This subset is not a complete suite pass."
+}

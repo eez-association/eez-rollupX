@@ -1,0 +1,21 @@
+{
+  "status": "static locked-package comparison passed; build/features checked separately",
+  "baseline": "3e23955dc477c9e675364776f118b1cecda75774:Cargo.lock",
+  "baseline_sha256": "53fa3e897a06b1ddbac3a742630befae3e2cff45b15b7cdb6ceb37c991d1f696",
+  "candidate_sha256": "aa8b6ba7699104a5923775aa94cff71a71c7f9ecbfc11d874359704819f32058",
+  "resolved_packages": 1092,
+  "changes": [
+    {
+      "package": "eez-node-common",
+      "added_dependencies": [
+        "reth-tasks"
+      ],
+      "removed_dependencies": []
+    }
+  ],
+  "invariants": [
+    "same resolved package names, versions, sources and checksums",
+    "same dependency lists for every other package"
+  ],
+  "limits": "A lockfile comparison does not establish unchanged feature activation, executable identity or advisory remediation. Both previously reported vulnerable versions remain present."
+}

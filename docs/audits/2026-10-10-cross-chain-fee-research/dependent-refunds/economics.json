@@ -1,0 +1,280 @@
+{
+  "evidence_type": "Integer arithmetic and exhaustive abstract inclusion/order model, not EVM or provider execution",
+  "assumptions": [
+    "All candidate operator cost is already incurred when the post lands.",
+    "Strict first bundle is included; nine independently eligible children may be omitted. Root-dependent prefixes are the ten prefix rows, not all 512 subsets.",
+    "Every counted selected refund is actually paid using floor(percent * selected priority reward / 100) minus one payout cost.",
+    "No sponsorship, direct coinbase transfers, post tip, rebates or extra operator transactions.",
+    "Overlapping bundles can discard only already consumed prefixes; the selected paying user remains mandatory.",
+    "No real builder selection frequency or ordering guarantee is inferred from permutations."
+  ],
+  "cost_wei": 5500000000000000,
+  "target_margin_wei": 500000000000000,
+  "required_net_payment_wei": 6000000000000000,
+  "percent": 90,
+  "payout_cost_per_bundle_wei": 100000000000000,
+  "users": 10,
+  "profiles": {
+    "equal_shares": {
+      "first_user_tip_wei": 777777777777778,
+      "other_user_tip_wei": 777777777777778,
+      "possible_subsets_with_first_bundle": 512,
+      "subsets_meeting_margin": 1,
+      "minimum_profit_wei": -4900000000000000,
+      "prefix_results": [
+        {
+          "included_users": 1,
+          "net_refund_wei": 600000000000000,
+          "profit_wei": -4900000000000000,
+          "meets_margin": false
+        },
+        {
+          "included_users": 2,
+          "net_refund_wei": 1200000000000000,
+          "profit_wei": -4300000000000000,
+          "meets_margin": false
+        },
+        {
+          "included_users": 3,
+          "net_refund_wei": 1800000000000000,
+          "profit_wei": -3700000000000000,
+          "meets_margin": false
+        },
+        {
+          "included_users": 4,
+          "net_refund_wei": 2400000000000000,
+          "profit_wei": -3100000000000000,
+          "meets_margin": false
+        },
+        {
+          "included_users": 5,
+          "net_refund_wei": 3000000000000000,
+          "profit_wei": -2500000000000000,
+          "meets_margin": false
+        },
+        {
+          "included_users": 6,
+          "net_refund_wei": 3600000000000000,
+          "profit_wei": -1900000000000000,
+          "meets_margin": false
+        },
+        {
+          "included_users": 7,
+          "net_refund_wei": 4200000000000000,
+          "profit_wei": -1300000000000000,
+          "meets_margin": false
+        },
+        {
+          "included_users": 8,
+          "net_refund_wei": 4800000000000000,
+          "profit_wei": -700000000000000,
+          "meets_margin": false
+        },
+        {
+          "included_users": 9,
+          "net_refund_wei": 5400000000000000,
+          "profit_wei": -100000000000000,
+          "meets_margin": false
+        },
+        {
+          "included_users": 10,
+          "net_refund_wei": 6000000000000000,
+          "profit_wei": 500000000000000,
+          "meets_margin": true
+        }
+      ]
+    },
+    "full_cost_first_refund": {
+      "first_user_tip_wei": 6777777777777778,
+      "other_user_tip_wei": 777777777777778,
+      "possible_subsets_with_first_bundle": 512,
+      "subsets_meeting_margin": 512,
+      "minimum_profit_wei": 500000000000000,
+      "prefix_results": [
+        {
+          "included_users": 1,
+          "net_refund_wei": 6000000000000000,
+          "profit_wei": 500000000000000,
+          "meets_margin": true
+        },
+        {
+          "included_users": 2,
+          "net_refund_wei": 6600000000000000,
+          "profit_wei": 1100000000000000,
+          "meets_margin": true
+        },
+        {
+          "included_users": 3,
+          "net_refund_wei": 7200000000000000,
+          "profit_wei": 1700000000000000,
+          "meets_margin": true
+        },
+        {
+          "included_users": 4,
+          "net_refund_wei": 7800000000000000,
+          "profit_wei": 2300000000000000,
+          "meets_margin": true
+        },
+        {
+          "included_users": 5,
+          "net_refund_wei": 8400000000000000,
+          "profit_wei": 2900000000000000,
+          "meets_margin": true
+        },
+        {
+          "included_users": 6,
+          "net_refund_wei": 9000000000000000,
+          "profit_wei": 3500000000000000,
+          "meets_margin": true
+        },
+        {
+          "included_users": 7,
+          "net_refund_wei": 9600000000000000,
+          "profit_wei": 4100000000000000,
+          "meets_margin": true
+        },
+        {
+          "included_users": 8,
+          "net_refund_wei": 10200000000000000,
+          "profit_wei": 4700000000000000,
+          "meets_margin": true
+        },
+        {
+          "included_users": 9,
+          "net_refund_wei": 10800000000000000,
+          "profit_wei": 5300000000000000,
+          "meets_margin": true
+        },
+        {
+          "included_users": 10,
+          "net_refund_wei": 11400000000000000,
+          "profit_wei": 5900000000000000,
+          "meets_margin": true
+        }
+      ]
+    }
+  },
+  "full_inclusion_minimum_total_user_tips_wei": {
+    "one_pooled_refund": 6777777777777778,
+    "ten_separate_equal_refunds": 7777777777777780
+  },
+  "overlapping_prefixes": {
+    "tip_per_user_wei": 3000000000000000,
+    "net_refund_per_selected_user_wei": 2600000000000000,
+    "cases": [
+      {
+        "bundle_visit_order": [
+          "A",
+          "B",
+          "C"
+        ],
+        "refunded_sources": [
+          "A",
+          "B",
+          "C"
+        ],
+        "consumed_sources": [
+          "A",
+          "B",
+          "C"
+        ],
+        "net_refund_wei": 7800000000000000,
+        "operator_profit_wei": 2300000000000000,
+        "builder_payment_before_bid_wei": 900000000000000
+      },
+      {
+        "bundle_visit_order": [
+          "A",
+          "C",
+          "B"
+        ],
+        "refunded_sources": [
+          "A",
+          "C"
+        ],
+        "consumed_sources": [
+          "A",
+          "B",
+          "C"
+        ],
+        "net_refund_wei": 5200000000000000,
+        "operator_profit_wei": -300000000000000,
+        "builder_payment_before_bid_wei": 3600000000000000
+      },
+      {
+        "bundle_visit_order": [
+          "B",
+          "A",
+          "C"
+        ],
+        "refunded_sources": [
+          "B",
+          "C"
+        ],
+        "consumed_sources": [
+          "A",
+          "B",
+          "C"
+        ],
+        "net_refund_wei": 5200000000000000,
+        "operator_profit_wei": -300000000000000,
+        "builder_payment_before_bid_wei": 3600000000000000
+      },
+      {
+        "bundle_visit_order": [
+          "B",
+          "C",
+          "A"
+        ],
+        "refunded_sources": [
+          "B",
+          "C"
+        ],
+        "consumed_sources": [
+          "A",
+          "B",
+          "C"
+        ],
+        "net_refund_wei": 5200000000000000,
+        "operator_profit_wei": -300000000000000,
+        "builder_payment_before_bid_wei": 3600000000000000
+      },
+      {
+        "bundle_visit_order": [
+          "C",
+          "A",
+          "B"
+        ],
+        "refunded_sources": [
+          "C"
+        ],
+        "consumed_sources": [
+          "A",
+          "B",
+          "C"
+        ],
+        "net_refund_wei": 2600000000000000,
+        "operator_profit_wei": -2900000000000000,
+        "builder_payment_before_bid_wei": 6300000000000000
+      },
+      {
+        "bundle_visit_order": [
+          "C",
+          "B",
+          "A"
+        ],
+        "refunded_sources": [
+          "C"
+        ],
+        "consumed_sources": [
+          "A",
+          "B",
+          "C"
+        ],
+        "net_refund_wei": 2600000000000000,
+        "operator_profit_wei": -2900000000000000,
+        "builder_payment_before_bid_wei": 6300000000000000
+      }
+    ]
+  }
+}

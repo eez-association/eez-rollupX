@@ -545,17 +545,80 @@ async fn restart_after_partial_keeps_accounting_and_rebuilds_intent() {
     partial_after_proving(1, true).await;
 }
 
-/// Both posts carry the identical proof, calldata and valid blob sidecar. A
-/// normal L1 setter changes the middle destination's return value after proving,
-/// making the first post skip it. Restoring that value lets the second post
-/// resume at the middle group, at the same L2 height and in the same L1 block.
+/// A normal L1 setter makes the first post skip the middle destination.
+/// Restoring it lets subsequent posts consume the remaining complete groups
+/// using the original proof and DA, with only unsigned root assertions changed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn valid_blob_batch_resumes_at_middle_group_in_same_l1_block() {
-    valid_same_block_resume().await;
+    Box::pin(valid_same_block_resume()).await;
+}
+
+fn captured_terminal(
+    directory: &std::path::Path,
+    original: &eez_protocol::EvmBatch,
+) -> eez_primitives::Block {
+    use eez_control_rpc::v2::{ClientFrame, client_frame};
+    use prost::Message as _;
+    let mut unsigned = original.clone();
+    unsigned.proofs.clear();
+    let expected = eez_protocol::entries::encode_postbatch(&unsigned);
+    let mut selected = None;
+    for entry in std::fs::read_dir(directory).unwrap() {
+        let path = entry.unwrap().path();
+        if path
+            .extension()
+            .is_none_or(|extension| extension != "protobuf")
+        {
+            continue;
+        }
+        let bytes = std::fs::read(path).unwrap();
+        let mut input = bytes.as_slice();
+        let mut terminal = None;
+        while !input.is_empty() {
+            match ClientFrame::decode_length_delimited(&mut input)
+                .unwrap()
+                .kind
+                .unwrap()
+            {
+                client_frame::Kind::Block(block) => terminal = block.data,
+                client_frame::Kind::Finalize(finalize) => {
+                    let settlement = finalize.settlement.unwrap();
+                    let mut batch =
+                        eez_protocol::entries::decode_postbatch(&settlement.abi_calldata).unwrap();
+                    batch.proofs.clear();
+                    if eez_protocol::entries::encode_postbatch(&batch) == expected {
+                        let block =
+                            alloy_rlp::decode_exact(&terminal.as_ref().unwrap().rlp).unwrap();
+                        assert!(
+                            selected.replace(block).is_none(),
+                            "unique proved batch capture"
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    selected.expect("held bundle has captured execution evidence")
 }
 
 async fn valid_same_block_resume() {
-    let env = policy_env();
+    let mut env = policy_env();
+    // Retain the original proved execution for independent follower comparison,
+    // without changing process-global environment while other tests may run.
+    let captures = tempfile::Builder::new()
+        .prefix("eez-partial-v2-")
+        .tempdir()
+        .unwrap()
+        .keep();
+    println!(
+        "same-block checkpoint proof evidence: {}",
+        captures.display()
+    );
+    env.push((
+        "EEZ_TEST_PROVE_FIXTURE_DIR",
+        captures.to_string_lossy().into_owned(),
+    ));
     let world = setup_cross_chain_with_env(&env).await.unwrap();
     let middle = deploy_value(
         &world.l1_rpc(),
@@ -629,22 +692,47 @@ async fn valid_same_block_resume() {
         U256::from(4),
         "must prove all three users together"
     );
-    assert!(
-        call.batch.expectedRootPerRollup.is_empty(),
-        "resume cannot reuse a pre-state assertion"
+    assert_eq!(call.batch.expectedRootPerRollup.len(), 1);
+    assert_eq!(
+        call.batch.expectedRootPerRollup[0].rollupId,
+        world.cfg.rollup_id
     );
+    let proposed_roots = call
+        .batch
+        .entries
+        .iter()
+        .flat_map(|entry| &entry.rootUpdates)
+        .filter(|update| update.rollupId == world.cfg.rollup_id)
+        .map(|update| update.newRoot)
+        .collect::<Vec<_>>();
+    assert_eq!(proposed_roots.len(), 4, "anchor and all three user groups");
+    let checkpoint = proposed_roots[1];
+    assert_ne!(checkpoint, call.batch.expectedRootPerRollup[0].root);
+    let unknown_root = B256::repeat_byte(0xab);
+    assert!(!proposed_roots.contains(&unknown_root));
+    assert_ne!(unknown_root, call.batch.expectedRootPerRollup[0].root);
+    let original_terminal = captured_terminal(&captures, &call.batch);
+    let mut intervening_batch = call.batch.clone();
+    intervening_batch.expectedRootPerRollup[0].root = checkpoint;
+    let next_checkpoint = proposed_roots[2];
+    let mut resumed_batch = call.batch.clone();
+    resumed_batch.expectedRootPerRollup[0].root = next_checkpoint;
+    let mut stale_batch = resumed_batch.clone();
+    stale_batch.expectedRootPerRollup[0].root = unknown_root;
+    assert_eq!(intervening_batch.proofs, call.batch.proofs);
+    assert_eq!(resumed_batch.proofs, call.batch.proofs);
     assert!(!call.batch.blobIndices.is_empty());
     let priority = original.max_priority_fee_per_gas().unwrap();
-    assert!(priority > 2);
+    assert!(priority > 7);
     let setter: alloy_signer_local::PrivateKeySigner = TARGET_DEPLOYER.parse().unwrap();
-    let change = |nonce, value, priority| {
+    let change = |nonce, target: alloy_primitives::Address, value, priority| {
         let mut tx = TxEip1559 {
             chain_id: DEV_CHAIN_ID,
             nonce,
             gas_limit: 100_000,
             max_fee_per_gas: 100_000_000_000,
             max_priority_fee_per_gas: priority,
-            to: middle.into(),
+            to: target.into(),
             value: U256::ZERO,
             access_list: Default::default(),
             input: IValue::setValueCall {
@@ -656,19 +744,24 @@ async fn valid_same_block_resume() {
         let sig = setter.sign_transaction_sync(&mut tx).unwrap();
         alloy_consensus::TxEnvelope::from(tx.into_signed(sig))
     };
-    let before = change(setter_nonce, 12u64, priority + 1);
-    let restore = change(setter_nonce + 1, 5u64, priority - 1);
+    let before = change(setter_nonce, middle, 12u64, priority + 1);
+    let restore_middle = change(setter_nonce + 1, middle, 5u64, priority - 1);
+    let block_last = change(setter_nonce + 2, world.outbound_value, 13u64, priority - 2);
+    let restore_last = change(setter_nonce + 3, world.outbound_value, 11u64, priority - 4);
     let poster: alloy_signer_local::PrivateKeySigner = world.cfg.poster_key.parse().unwrap();
-    let mut resumed_tx = original.as_eip4844().unwrap().tx().clone();
-    resumed_tx.tx.nonce += 1;
-    resumed_tx.tx.max_priority_fee_per_gas = priority - 2;
-    let sig = poster.sign_transaction_sync(&mut resumed_tx).unwrap();
-    let resumed = EthereumTxEnvelope::Eip4844(resumed_tx.into_signed(sig));
-    assert_eq!(
-        resumed.input(),
-        original.input(),
-        "proof and complete ABI remain identical"
-    );
+    let post = |offset, batch: &eez_protocol::EvmBatch| {
+        let mut tx = original.as_eip4844().unwrap().tx().clone();
+        tx.tx.nonce += offset;
+        tx.tx.max_priority_fee_per_gas = priority - u128::from(offset) * 2 - 1;
+        tx.tx.input = eez_protocol::entries::encode_postbatch(batch).into();
+        let sig = poster.sign_transaction_sync(&mut tx).unwrap();
+        EthereumTxEnvelope::Eip4844(tx.into_signed(sig))
+    };
+    // Each successful posting advances exactly one original group. A posting
+    // with no applicable immediate entry would instead revert under core rules.
+    let intervening = post(1, &intervening_batch);
+    let stale = post(2, &stale_batch);
+    let resumed = post(3, &resumed_batch);
     assert_eq!(
         resumed.blob_versioned_hashes(),
         original.blob_versioned_hashes()
@@ -676,7 +769,11 @@ async fn valid_same_block_resume() {
     request["params"][0]["txs"] = serde_json::json!([
         Bytes::from(before.encoded_2718()),
         raw,
-        Bytes::from(restore.encoded_2718()),
+        Bytes::from(restore_middle.encoded_2718()),
+        Bytes::from(block_last.encoded_2718()),
+        Bytes::from(intervening.encoded_2718()),
+        Bytes::from(restore_last.encoded_2718()),
+        Bytes::from(stale.encoded_2718()),
         Bytes::from(resumed.encoded_2718()),
     ]);
     world.release_bundle(&request).unwrap();
@@ -685,7 +782,11 @@ async fn valid_same_block_resume() {
     for hash in [
         before.tx_hash(),
         original.tx_hash(),
-        restore.tx_hash(),
+        restore_middle.tx_hash(),
+        block_last.tx_hash(),
+        intervening.tx_hash(),
+        restore_last.tx_hash(),
+        stale.tx_hash(),
         resumed.tx_hash(),
     ] {
         let receipt = wait_for(TIMEOUT, || async {
@@ -698,7 +799,19 @@ async fn valid_same_block_resume() {
                 world.settlement_diagnostics()
             )
         });
-        assert!(receipt.status(), "fixture transaction {hash} must succeed");
+        if receipt.status() != (hash != stale.tx_hash()) {
+            let trace: serde_json::Value = l1
+                .raw_request(
+                    "debug_traceTransaction".into(),
+                    (
+                        hash,
+                        serde_json::json!({"tracer":"callTracer", "tracerConfig":{"onlyTopCall":true}}),
+                    ),
+                )
+                .await
+                .unwrap();
+            panic!("only the incorrect root assertion must revert: {hash}; trace={trace}");
+        }
         receipts.push(receipt);
     }
     for pair in receipts.windows(2) {
@@ -720,14 +833,78 @@ async fn valid_same_block_resume() {
             .collect::<Vec<_>>()
     };
     let first_roots = roots(&receipts[1]);
-    let resumed_roots = roots(&receipts[3]);
+    let trace: serde_json::Value = l1
+        .raw_request(
+            "debug_traceTransaction".into(),
+            (
+                stale.tx_hash(),
+                serde_json::json!({"tracer":"callTracer", "tracerConfig":{"onlyTopCall":true}}),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(trace["error"], "execution reverted");
+    let output: Bytes = trace["output"].as_str().unwrap().parse().unwrap();
+    assert_eq!(
+        &output[..4],
+        &alloy_primitives::keccak256("ExpectedRootMismatch(uint64)")[..4],
+        "Core independently checks the unsigned root assertion"
+    );
+    assert!(
+        roots(&receipts[6]).is_empty(),
+        "rejected root assertion cannot advance a root"
+    );
+    assert_eq!(
+        roots(&receipts[4]),
+        [next_checkpoint],
+        "the intervening posting must consume only the original middle group"
+    );
+    let resumed_roots = roots(&receipts[7]);
     assert_eq!(first_roots.len(), 2, "anchor and first user only");
     assert_eq!(
+        first_roots[1], checkpoint,
+        "the next post asserts the consumed prefix"
+    );
+    assert_eq!(
         resumed_roots.len(),
-        2,
-        "only the new middle and last groups"
+        1,
+        "only the original last group remains after the intervening posting"
     );
     let full_hash = *resumed_roots.last().unwrap();
+    let included = l1
+        .get_block_by_hash(receipts[1].block_hash.unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let native = original_terminal
+        .body
+        .transactions
+        .iter()
+        .filter_map(|tx| match tx {
+            eez_primitives::EezTxEnvelope::System(native) => Some(native),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(native.len(), 3);
+    for (index, native) in native.into_iter().enumerate() {
+        // Independent ABI oracle: the original full-block group ordinal is
+        // retained through all three postings in this same L1 block.
+        let mut encoded = vec![0u8; 192];
+        encoded[31] = 128;
+        encoded[56..64].copy_from_slice(&world.l2_chain_id.to_be_bytes());
+        encoded[64..96].copy_from_slice(included.header.parent_hash.as_slice());
+        encoded[120..128].copy_from_slice(&(index as u64).to_be_bytes());
+        encoded[159] = 15;
+        encoded[160..175].copy_from_slice(b"SOURCE_ENTRY_V1");
+        assert_eq!(native.source_hash, alloy_primitives::keccak256(encoded));
+    }
+    let original_transaction_hashes = original_terminal
+        .body
+        .transactions
+        .iter()
+        .map(|transaction| alloy_primitives::keccak256(transaction.encoded_2718()))
+        .collect::<Vec<_>>();
+
     let dispatched = wait_for(TIMEOUT, || async {
         Ok(world.node.signals_since(0)?.into_iter().find(|event| {
             event.name == signals::COMPOSER_BUNDLE_DISPATCHED
@@ -791,6 +968,10 @@ async fn valid_same_block_resume() {
             .txns()
             .map(alloy_network::TransactionResponse::tx_hash)
             .collect();
+        assert_eq!(
+            hashes, original_transaction_hashes,
+            "partial proof reuse and cold replay preserve every original native and signed transaction byte commitment"
+        );
         for hash in &users {
             assert_eq!(
                 hashes.iter().filter(|candidate| *candidate == hash).count(),
@@ -808,4 +989,7 @@ async fn valid_same_block_resume() {
         receipts[1].block_hash,
         first_roots[1]
     );
+    drop(follower);
+    drop(world);
+    std::fs::remove_dir_all(captures).unwrap();
 }

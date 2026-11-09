@@ -1,0 +1,156 @@
+{
+  "runtimeSource": "14d9eac364d92d316da4f00a4cb44154d9c28661",
+  "testSource": "f12a227567cd01eb1380a18a044e0a81ab1b54c6",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "images": {
+    "node": {
+      "tag": "eez-node:l2-fee-gas-cap-20261015",
+      "id": "sha256:230c4cb2226582da99aeb3f426969aa230d7d3a7b66b60871e7a2ea6cceb1fac",
+      "source": "14d9eac364d92d316da4f00a4cb44154d9c28661",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+      "executables": {
+        "eez-composer": "7a84fbdc8182b7afa7e2cf935340ab03237e94b32017664caf00b87a51fca52b",
+        "eez-follower": "0ab2cc04629b35307180bafba84c34091228f6181aec67174ee6320a8691ba1b",
+        "eez-genesis-state-root": "67354b6171a7eef8d75669cbe9da77e461d56044e020195061f1d0510f8f39d6",
+        "eez-genesis-block-hash": "009b36e55f920fd47700cb627704fd93fe780b1563bca35c488bfe52eb83738d"
+      }
+    },
+    "signer": {
+      "tag": "eez-proof-signer:l2-fee-gas-cap-20261015",
+      "id": "sha256:0851a89ca7abf96d1bac2f6acc0fae0449121d9f4a34cb39f8b6988a4887d677",
+      "source": "14d9eac364d92d316da4f00a4cb44154d9c28661",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+      "executables": {
+        "eez-proof-signer": "06a6b51cf90fc7fb36550249fd125171bcf60517577cb77476987f9a36aab9a2"
+      }
+    },
+    "ui": {
+      "tag": "eez-rollup-ui:l2-fee-gas-cap-20261015",
+      "id": "sha256:f28626e221a6f57640b9f7cb5a305c62574a0f80edf4f1c7c9c27aa1d6a2914e",
+      "source": "d2e85905864ec88de493829d763a8cfeb9a45b99",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f"
+    }
+  },
+  "baselineError": {
+    "code": -32602,
+    "data": {
+      "code": "invalid_intent",
+      "message": "invalid intent: gas must be 21000..5000000"
+    },
+    "message": "invalid intent: gas must be 21000..5000000"
+  },
+  "liveReadOnlyQuotes": [
+    {
+      "type": "0x0",
+      "gasLimit": 200000,
+      "sourceGasUsed": 99149,
+      "requiredL2Tip": "365720401459038",
+      "quotedGas": "0x30d40"
+    },
+    {
+      "type": "0x0",
+      "gasLimit": 6050247,
+      "sourceGasUsed": 99149,
+      "requiredL2Tip": "365720401459038",
+      "quotedGas": "0x5c51c7"
+    },
+    {
+      "type": "0x0",
+      "gasLimit": 6037754,
+      "sourceGasUsed": 99149,
+      "requiredL2Tip": "365720401459038",
+      "quotedGas": "0x5c20fa"
+    },
+    {
+      "type": "0x0",
+      "gasLimit": 16777216,
+      "sourceGasUsed": 99149,
+      "requiredL2Tip": "365720401459038",
+      "quotedGas": "0x1000000"
+    },
+    {
+      "type": "0x0",
+      "gasLimit": 16777217,
+      "error": {
+        "code": -32602,
+        "data": {
+          "code": "invalid_intent",
+          "message": "invalid intent: gas must be 21000..16777216"
+        },
+        "message": "invalid intent: gas must be 21000..16777216"
+      }
+    },
+    {
+      "type": "0x2",
+      "gasLimit": 200000,
+      "sourceGasUsed": 99149,
+      "requiredL2Tip": "365720401459038",
+      "quotedGas": "0x30d40"
+    },
+    {
+      "type": "0x2",
+      "gasLimit": 6050247,
+      "sourceGasUsed": 99149,
+      "requiredL2Tip": "365720401459038",
+      "quotedGas": "0x5c51c7"
+    },
+    {
+      "type": "0x2",
+      "gasLimit": 6037754,
+      "sourceGasUsed": 99149,
+      "requiredL2Tip": "365720401459038",
+      "quotedGas": "0x5c20fa"
+    },
+    {
+      "type": "0x2",
+      "gasLimit": 16777216,
+      "sourceGasUsed": 99149,
+      "requiredL2Tip": "365720401459038",
+      "quotedGas": "0x1000000"
+    },
+    {
+      "type": "0x2",
+      "gasLimit": 16777217,
+      "error": {
+        "code": -32602,
+        "data": {
+          "code": "invalid_intent",
+          "message": "invalid intent: gas must be 21000..16777216"
+        },
+        "message": "invalid intent: gas must be 21000..16777216"
+      }
+    }
+  ],
+  "evidenceAvailability": "Raw logs and databases are local-only, ignored artifacts; hashes identify retained files, not externally retrievable artifacts.",
+  "artifactSha256": {
+    "docker-node-build.log": "a8809ec03002c0469629dc5f70c0ae82153ca9d2c33bbd7f9dd999fa487f91e4",
+    "docker-signer-build.log": "102a7cc19cfd1180a295e58402c5712b84fc52fe51b9fcb2f179bf8d2ce6f336",
+    "docker-ui-build.log": "ac7cc6be956d6d11caaa3d32746ef9f5372f857ace0cef2b87dcecf36eed5547",
+    "sdk-tests.log": "2783b426f928a1ed1b543bb62b08e54f46a694fe8be5159660856110a0387447",
+    "composer-tests.log": "b7e439d797fc1b7a77fcd3fe449f5574e1a36eb0dcc81e5900ed984effd800a4",
+    "node-tests.log": "b0fa7874e31d397b487b1054a50603246e9f5577adea0308d6ab21e77350edc9",
+    "clippy.log": "2695e8d445537dd8b2913e13751159cbd24de7665bcd5ec7b1a207539e309d37",
+    "forge-build.log": "b7795fbc0138d9de09d03a468cf47fb66929b1d284f75e807bee84f629a65160",
+    "e2e-selection.txt": "4b8e3d286f570bfe76c49594d2add51ff182ccbaf819f549c286ab7843b7d10d",
+    "public-cap-check.json": "5c7ed198915d8b2f51ae5fd83225d859d73eb0f7ee9ae126cbdd4a88e062ae83",
+    "live-before.json": "19f0b855e1d5cd96fea37752ff428e26acbbb064be063910d3aca33f4a4593f7",
+    "live-after.json": "ac7abf32b74f508f7d8bca73cb03becad29cb442c41405858d7950b7dbf0c888",
+    "node_e2e": "95b79688809bf2a223f4b7af56b77fcbb8164b12605c0720e79dcb72f7c9037e",
+    "fee-quotes-e2e.log": "4ec290dde91fdbe6367b9dc1fae6d660813dfc4a10026af73701afdef4d31ae2"
+  },
+  "checks": {
+    "sdkPassed": 13,
+    "composerPassed": 346,
+    "composerManualTimingProfileIgnored": 1,
+    "nodePassed": 85,
+    "processPassed": 6,
+    "processFailed": 0,
+    "processIgnored": 0,
+    "processFilteredOut": 138,
+    "clippy": "passed",
+    "formatting": "passed",
+    "liveQuoteSnapshotsValidatedBySdk": 8,
+    "newKurtosisRun": false,
+    "newFalconSafeRun": false
+  }
+}

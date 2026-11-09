@@ -1,0 +1,287 @@
+{
+  "date": "2026-10-16",
+  "source": {
+    "repository": "eez-association/eez-rollupX",
+    "pr": 91,
+    "pr_base": "2c19e36bed2720c00f89841ccfca47ec7c921e06",
+    "pr_head_before": "d69cccf299275276c1873d100c0928228e32a7ec",
+    "local_baseline": "264bfad81d52789b68dc842c40178f2426c33c4a",
+    "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+    "ci_fix_commit": "ebfbde8fb4cc52b602cbe32f927fb7a446d4b48e",
+    "candidate_files": [
+      {
+        "path": ".gitleaks.toml",
+        "sha256": "5e04a7fd9f9c302fd19827e45235f1477a4f7024e0aa50c6f0e63b2ad44de118"
+      },
+      {
+        "path": "scripts/ci/tests/test_secret_scan.py",
+        "sha256": "d4ee804f141403e1fb4a6e8be0571b5f6b7b4d067e23c698f6c348459d9224a1"
+      },
+      {
+        "path": "crates/eez-node-e2e/tests/fee_quotes.rs",
+        "sha256": "8cf4db75394a29224b35e17a28a7a1dcf12857114edd6f4bc9297d8b2128f37d"
+      },
+      {
+        "path": "Cargo.lock",
+        "sha256": "d9267d9747e252b41514b3805932ff1101ca0d1855197b97e0a193b929c3fa39"
+      }
+    ],
+    "dependency_patch_commit": "1afd9659984ae182a8ac657c127bd692718a1320"
+  },
+  "ci_baseline": {
+    "url": "https://github.com/eez-association/eez-rollupX/actions/runs/38913810526",
+    "lint": "failed: six secret-scanner false positives",
+    "cross_chain_slice_2": "27 passed, 1 fixture path failure",
+    "other_seven_native_shards": "passed",
+    "debug_unit_tests": "passed",
+    "runtime_artifacts": "passed",
+    "kurtosis": "passed on the pinned protocol revision, without PR 56",
+    "kurtosis_protocol_scenarios_passed": 34
+  },
+  "checks": [
+    {
+      "name": "Gitleaks 8.30.1 archive verification",
+      "result": "pass",
+      "sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+    },
+    {
+      "name": "Gitleaks full fetched Git history including merge diffs",
+      "command": "gitleaks git . --config .gitleaks.toml --log-opts=\"--all -m\" --redact=100 --ignore-gitleaks-allow --gitleaks-ignore-path /dev/null",
+      "before_findings": 6,
+      "after_findings": 0,
+      "local_commits": 761,
+      "ci_baseline_commits": 873,
+      "limit": "Ref inventories differ; all three reported occurrences and their merge-diff copies were reproduced.",
+      "committed_fix_findings": 0,
+      "committed_fix_commits": 762
+    },
+    {
+      "name": "Secret scanner regression",
+      "command": "python3 -m unittest discover -s scripts/ci/tests -p 'test_secret_scan.py' -v",
+      "result": "2 tests passed; corrected new regression fails for both fixtures against baseline config"
+    },
+    {
+      "name": "CI tooling",
+      "command": "python3 -m unittest discover -s scripts/ci/tests -v",
+      "result": "pass",
+      "selected": 375,
+      "passed": 369,
+      "skipped": 6,
+      "skips": "Opt-in Docker payload (1), real relay resources (2), real native archive relocation (1), Docker runtime (2)"
+    },
+    {
+      "name": "Settlement configuration",
+      "command": "python3 scripts/check-settlement-policy-config.py",
+      "result": "pass: chiado, kurtosis, ethereum"
+    },
+    {
+      "name": "SDK",
+      "command": "node sdk/l2-fees.test.mjs",
+      "result": "pass",
+      "passed": 6,
+      "skipped": 0
+    },
+    {
+      "name": "Integration contract build",
+      "command": "forge build --root contracts",
+      "result": "pass",
+      "foundry": "1.7.1"
+    },
+    {
+      "name": "Rust formatting",
+      "command": "cargo +1.95.0 fmt --all --check",
+      "result": "pass"
+    },
+    {
+      "name": "Whitespace",
+      "command": "git diff --check",
+      "result": "pass at recorded working tree"
+    },
+    {
+      "name": "Dependency audit baseline",
+      "command": "cargo deny check advisories bans sources; cargo audit",
+      "result": "both fail: rustls 0.23.45, RUSTSEC-2026-0346 through RUSTSEC-2026-0349"
+    },
+    {
+      "name": "Relocated fee process regression",
+      "result": "pass",
+      "selected": 1,
+      "ignored": 0,
+      "filtered_out": 156,
+      "seconds": 31.09,
+      "command": "CARGO_MANIFEST_DIR=<relocated>/crates/eez-node-e2e EEZ_TEST_PREBUILT=1 EEZ_TEST_RUNTIME_BIN_DIR=<verified-release-runtime> EEZ_TEST_PROOF_SIGNER_BIN=<verified-release-runtime>/eez-proof-signer <new-harness> --exact fee_quotes::compact_ordinary_calls_boundaries_and_fee_sensitive_rejection --test-threads=1",
+      "fixture_evidence": "strace openat confirms the relocated FeeQuoteProbe artifact was read",
+      "limit": "Source-built changed harness with previously qualified release runtime; this does not qualify the subsequent TLS update"
+    },
+    {
+      "name": "Candidate dependency checks",
+      "result": "cargo deny and cargo audit both pass; 9 pre-existing allowed cargo-audit warnings remain visible; no added exceptions"
+    },
+    {
+      "name": "Candidate Clippy",
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+      "result": "pass",
+      "seconds": 123
+    },
+    {
+      "name": "Candidate full CI",
+      "result": "Not yet run at audit recording; required before merge. Follow PR 91 checks for the candidate result."
+    }
+  ],
+  "review": {
+    "runtime_defects_identified": 0,
+    "scope": "Focused source trace of fee enforcement and accepted-request ownership; not an independent security audit",
+    "accepted_limits": [
+      "Largest-payer L1 batches may lose money",
+      "Accepted requests and refund plans remain in memory",
+      "Builder qualification and conversion/service-cost calibration remain operational requirements"
+    ]
+  },
+  "operations": {
+    "deployment": false,
+    "live_network_mutation": false,
+    "protocol_pin_changed": false
+  },
+  "evidence": {
+    "availability": "Raw ignored artifacts are local-only, not included in the repository and without guaranteed retention. Original failed CI run is linked above.",
+    "files": [
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/scan-before.redacted.json",
+        "sha256": "74049853f4e0cbca01445bd7e1b1261ef89305ceb66556c7fb272a455b125c87"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/scan-before.log",
+        "sha256": "d9f7daf392254ae8814ea95ca98923f7bde256bdf8e8f8669092283100e27e51"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/scan-after.redacted.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/scan-after.log",
+        "sha256": "9b07978ac79ee551211667a1d9550b29bc432af58669e98d48feb28cd7a64177"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/secret-regression-git.log",
+        "sha256": "47565a0a8d2f1b4afcee2ad9640d58064b1d5f4a9bbf3bc9c0e83a11f74dd30e"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/secret-regression-baseline-confirmed.log",
+        "sha256": "bb5630b7f80c3c85343fe7496d9a8b3e186e97b02f4a9b6fec53cfded04d19f5"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/ci-tooling-final.log",
+        "sha256": "b7da26374c02bd194e4c84f92e4358891e142fa280a89c61d78d5f0c2d642169"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/policy-config.log",
+        "sha256": "222753303f6808349cdaced42dea80b19b22024b81d353a5634662b3653e430a"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/sdk-tests.log",
+        "sha256": "cbcf81e4ed1ff028fe2aac8f229f61df4e354e5b9eb0a76c66df54afd6972182"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/contracts-build.log",
+        "sha256": "ac7b1f9ad75d7755daf1a3091c50dd3479edb27464a771e65c283619c9d1b55f"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/cross-chain-2.log",
+        "sha256": "d3ab3128585ae0be7a6aa7edd3bc8df6bbf9430a8e47f30a798c865ba0abdf7f"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/failed-shard.zip",
+        "sha256": "236c013e60e72c0cbd6ccacc4a2a1d29dff3cbc72a7afb98f93a4e8bb77dd955"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/cargo-deny.log",
+        "sha256": "29865738511a8ee0f9458fb1d3eeb70c6ce66ecc6ea3e8afb36a0c018280a7e1"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/cargo-audit.log",
+        "sha256": "56c43f18194732b43f324dc3a05c5574ff3ff615ae053a4f7bde087f45e9c7eb"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/scan-committed.log",
+        "sha256": "b03024cc49ffbae8add2572ae932dcee6e4d1f268eb99441bedd864c627dea5e"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/scan-committed.redacted.json",
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/test-build.log",
+        "sha256": "08966ac60b22e691ea4b45fdcd0b960c4521c15a554bec433b045366804db00a"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/relocated-regression.log",
+        "sha256": "16f819001a7e8f50a13d6e7f6329fc6ce77f3e6fa0126ab65c0710934be44b62"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/relocated-fixture-open.log",
+        "sha256": "b4a1c41c3b314dc79d12c78b8986fd6d92896f546bb439273dc01423bca14518"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/rustls-update.log",
+        "sha256": "03c4ece0cb027a80d519026c58f51657c2654f2c0e8dce08de36584ca1a94b56"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/cargo-deny-after.log",
+        "sha256": "9c72503c254c697283b50469a997668c4e0cfddd4454d706aa64087bcf8e109f"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/cargo-audit-after.log",
+        "sha256": "b73fc5189dca00d8606b44f55663428f5ace759dba6cd8602a6570b9311efbbe"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/clippy.log",
+        "sha256": "dd4a684a1258168a9309ba01e45fd1819b9a625cf63a6f77204a7ba0718d4ec5"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/fmt-final.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "artifacts/pr91-merge-readiness-20261016/kurtosis-baseline.log",
+        "sha256": "cd628086acdeb07091e7e2ec77fa692cdba06f560eae884c2a12fd647da23917"
+      }
+    ]
+  },
+  "relocation_harness": {
+    "sha256": "3eee9461462061237d707f39e13ddd81c18e1ca6d53e1d68371aa9893ea70773",
+    "profile": "dev; eez-node opt-level=0; incremental=false",
+    "cargo_lock_sha256": "66bd0cdc1005f28790ca09a564edd4b4111a74d627139e14f50ac42600f1871c",
+    "source": "Working tree matching ebfbde8fb4cc52b602cbe32f927fb7a446d4b48e for Rust and Cargo inputs; built before the TLS update"
+  },
+  "relocation_runtime": {
+    "source": "aa8d8a5894c69502c67dcae35d5184bc9a79b036",
+    "profile": "shipping release",
+    "files": [
+      {
+        "name": "eez-composer",
+        "sha256": "d8cddd2897e675e713e5a259a60f68657cf278d6c50a2f21cd4a9d826546ac30"
+      },
+      {
+        "name": "eez-follower",
+        "sha256": "f8e16eded15ceb7c64d3e83fd5d084cf5084945e53b48c91594a870e74c7910f"
+      },
+      {
+        "name": "eez-proof-signer",
+        "sha256": "412bb907a79ca17b06497933973840701d96942fe7b1606d4aba838e21a9cc93"
+      }
+    ]
+  },
+  "dependency_patch": {
+    "package": "rustls",
+    "before": "0.23.45",
+    "after": "0.23.46",
+    "unrelated_packages_or_edges_changed": false,
+    "advisories": [
+      "RUSTSEC-2026-0346",
+      "RUSTSEC-2026-0347",
+      "RUSTSEC-2026-0348",
+      "RUSTSEC-2026-0349"
+    ],
+    "release": "https://github.com/rustls/rustls/releases/tag/v%2F0.23.46"
+  }
+}

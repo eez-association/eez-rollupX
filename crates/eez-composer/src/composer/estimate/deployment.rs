@@ -1,9 +1,9 @@
 //! The assumed proof result is supported only for this fork's pinned code.
 //! Fingerprints exclude Solidity metadata and zero constructor immutables.
 //! Native execution always uses the original deployed bytes, including metadata.
-//! Source: protocol v0.1.0-rc.2 (9a1f8153), contracts/foundry.toml (0.8.34, via IR, runs=1).
-//! A manager still on an older implementation is not recognized, so estimation
-//! is unavailable on a network until its contracts are upgraded.
+//! Sources: the pinned core protocol and integration proof system, built
+//! with contracts/foundry.toml (0.8.34, via IR, runs=1). Only the supported
+//! Core manager can authorize an assumed proof; unknown code cannot.
 use super::{
     Address, B256, EstimateError, GasEstimator, Snapshot, StateProvider, unavailable, unsupported,
 };
@@ -116,17 +116,17 @@ fn check_any(
 fn proxy(
     state: &dyn StateProvider,
     address: Address,
-    expected: &Code,
+    accepted: &[&Code],
 ) -> Result<(), EstimateError> {
     check(state, address, &PROXY)?;
     let implementation = state
         .storage(address, IMPLEMENTATION_SLOT)
         .map_err(unavailable)?
         .unwrap_or_default();
-    check(
+    check_any(
         state,
         Address::from_word(B256::from(implementation.to_be_bytes::<32>())),
-        expected,
+        accepted,
     )
 }
 
@@ -140,16 +140,34 @@ pub(super) fn validate(
             .provider
             .state_by_block_hash(s.l1.anchor.hash())
             .map_err(unavailable)?;
-    proxy(state.as_ref(), e.l1.manager_address(), &REGISTRY)?;
-    proxy(state.as_ref(), rollup, &ROLLUP)?;
-    if e.post_batch_target != e.l1.manager_address() {
-        check(state.as_ref(), e.post_batch_target, &POST_BATCHER)?;
+    validate_at(
+        state.as_ref(),
+        e.l1.manager_address(),
+        rollup,
+        e.verifier,
+        e.post_batch_target,
+    )
+}
+
+/// Recognize the supported contracts before a conditional proof result is used
+/// in disposable wallet or fee estimation state.
+pub(in crate::composer) fn validate_at(
+    state: &dyn StateProvider,
+    registry: Address,
+    rollup: Address,
+    verifier: Address,
+    post_batch_target: Address,
+) -> Result<(), EstimateError> {
+    proxy(state, registry, &[&REGISTRY])?;
+    proxy(state, rollup, &[&ROLLUP])?;
+    if post_batch_target != registry {
+        check(state, post_batch_target, &POST_BATCHER)?;
         let code = state
-            .account_code(&e.post_batch_target)
+            .account_code(&post_batch_target)
             .map_err(unavailable)?
             .ok_or_else(|| unsupported("posting wrapper code missing"))?;
         let bytes = code.original_bytes();
-        let registry = e.l1.manager_address().into_word();
+        let registry = registry.into_word();
         // The wrapper's constructor embeds its registry in each immutable
         // reference. Check the binding at the same parent as setup execution.
         if POST_BATCHER
@@ -160,12 +178,29 @@ pub(super) fn validate(
             return Err(unsupported("posting wrapper registry differs"));
         }
     }
-    check_any(state.as_ref(), e.verifier, &[&VERIFIER, &PROTOCOL_VERIFIER])
+    check_any(state, verifier, &[&VERIFIER, &PROTOCOL_VERIFIER])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fingerprint_recognizes_core_rollup_and_rejects_changed_execution() {
+        let mut code =
+            alloy_primitives::hex::decode(include_str!("testdata/rollup.hex").trim()).unwrap();
+        assert!(matches(&code, &ROLLUP));
+        for start in ROLLUP.immutables {
+            code[*start..*start + 32].fill(0xa5);
+        }
+        assert!(matches(&code, &ROLLUP));
+        for offset in [0, ROLLUP.immutables[0] - 1, ROLLUP.immutables[0] + 32] {
+            let mut changed = code.clone();
+            changed[offset] ^= 1;
+            assert!(!matches(&changed, &ROLLUP));
+        }
+    }
+
     #[test]
     fn fingerprint_metadata_mask_does_not_hide_adjacent_code_changes() {
         let mut canonical = vec![0x5b; 40];

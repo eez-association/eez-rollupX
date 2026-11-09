@@ -1,5 +1,14 @@
 # Derivable ChainOperation: implementation contract
 
+Current-profile notice (2026-10-22): the [L1 history and offline proving design](l1-origin-and-offline-proving.md)
+supersedes this document's preparation/cache/lease APIs, settlement-driven seed
+selection and provider-backed signer authentication. The current implementation
+uses offline v2 profile 2 from a fresh genesis. This document retains the earlier
+operations-format investigation; it is not a second execution or proving profile.
+The owning [RPC specification](../../crates/eez-control-rpc/SPEC.md) and
+[signer specification](../../crates/eez-proof-signer/SPEC.md) describe the current
+service. Historical validation below does not validate this new profile.
+
 Current-network contract (2026-09-28): [native transactions and direct V0](native-system-transactions.md)
 supersedes the historical wire/environment/system-transaction descriptions below.
 The old envelope is not a runtime option. Earlier validation remains evidence for
@@ -9,8 +18,8 @@ Wire revision (2026-09-22): [two-byte RollupX V0](two-byte-da-v0.md) supersedes
 this document's tag-3 wire shape, sparse-record framing, terminal/entry
 integer-list wrappers and u16 transaction ceiling. The active format is tag
 0/profile 1, with byte-string terminal/entries and a 16,383 transaction ceiling.
-The execution, reconstruction, richer-action, caching and authentication
-requirements below remain in force. Historical tag-3 evidence does not validate
+Execution, reconstruction and whole-action requirements remain relevant;
+proving and authentication requirements are superseded as stated above. Historical tag-3 evidence does not validate
 the new encoding; its validation is recorded separately. The old wire description
 below is retained as design history, not an alternative runtime mode.
 

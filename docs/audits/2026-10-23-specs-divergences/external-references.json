@@ -1,0 +1,102 @@
+{
+  "https://ethresear.ch/t/based-rollups-superpowers-from-l1-sequencing/15016": [
+    "companion-docs/related-work.md:76"
+  ],
+  "https://ethresear.ch/t/based-preconfirmations/17353/16": [
+    "companion-docs/related-work.md:87"
+  ],
+  "https://taiko.xyz/guides/what-is-taiko-blockchain": [
+    "companion-docs/related-work.md:108",
+    "companion-docs/related-work.md:120"
+  ],
+  "https://taiko.mirror.xyz/ejciROGOGM9L_DuuqM3KloZan0EQR73fJt8qzTZmVzg": [
+    "companion-docs/related-work.md:112",
+    "companion-docs/related-work.md:131"
+  ],
+  "https://l2beat.com/scaling/projects/gwyneth": [
+    "companion-docs/related-work.md:132"
+  ],
+  "https://docs.optimism.io/stack/interop/explainer": [
+    "companion-docs/related-work.md:158",
+    "companion-docs/related-work.md:173"
+  ],
+  "https://specs.optimism.io/interop/overview.html": [
+    "companion-docs/related-work.md:159",
+    "companion-docs/related-work.md:169"
+  ],
+  "https://specs.optimism.io/protocol/deposits.html": [
+    "companion-docs/related-work.md:208",
+    "docs/rollup0-spec/F-system-transaction-design.md:314"
+  ],
+  "https://specs.optimism.io/protocol/exec-engine.html": [
+    "companion-docs/related-work.md:209"
+  ],
+  "https://specs.optimism.io/protocol/predeploys.html": [
+    "companion-docs/related-work.md:210"
+  ],
+  "https://specs.optimism.io/protocol/holocene/exec-engine.html": [
+    "companion-docs/related-work.md:211"
+  ],
+  "https://docs.arbitrum.io/how-arbitrum-works/inside-arbitrum-nitro": [
+    "companion-docs/related-work.md:226",
+    "companion-docs/related-work.md:237"
+  ],
+  "https://docs.arbitrum.io/nitro-whitepaper.pdf": [
+    "companion-docs/related-work.md:227"
+  ],
+  "https://research.arbitrum.io/t/compression-in-nitro/20": [
+    "companion-docs/related-work.md:238"
+  ],
+  "https://docs.arbitrum.io/how-arbitrum-works/bold/gentle-introduction": [
+    "companion-docs/related-work.md:248"
+  ],
+  "https://blog.arbitrum.io/bold-permissionless-validation-for-arbitrum-chains/": [
+    "companion-docs/related-work.md:254"
+  ],
+  "https://www.agglayer.dev/blogs/aggregated-blockchains-a-new-thesis": [
+    "companion-docs/related-work.md:270"
+  ],
+  "https://docs.polygon.technology/interoperability/agglayer": [
+    "companion-docs/related-work.md:271"
+  ],
+  "https://polygon.technology/blog/the-agglayer-will-be-a-particle-accelerator-for-blockchain-use-cases": [
+    "companion-docs/related-work.md:276"
+  ],
+  "https://docs.agglayer.dev/agglayer/core-concepts/unified-bridge/bridge-and-call/": [
+    "companion-docs/related-work.md:277"
+  ],
+  "https://hackmd.io/@EspressoSystems/EspressoSequencer": [
+    "companion-docs/related-work.md:305"
+  ],
+  "https://www.astria.org/blog/astria-the-shared-sequencer-network": [
+    "companion-docs/related-work.md:311"
+  ],
+  "https://arxiv.org/html/2502.04659v1": [
+    "companion-docs/related-work.md:317"
+  ],
+  "https://docs.gnosischain.com/node/": [
+    "companion-docs/related-work.md:341"
+  ],
+  "https://eips.ethereum.org/EIPS/eip-2935": [
+    "docs/rollup0-spec/03-evm-proxy-systemtx.md:28"
+  ],
+  "https://eips.ethereum.org/EIPS/eip-7594": [
+    "docs/rollup0-spec/11-gas-economics.md:127"
+  ],
+  "https://eips.ethereum.org/EIPS/eip-2718": [
+    "docs/rollup0-spec/F-system-transaction-design.md:24",
+    "docs/rollup0-spec/F-system-transaction-design.md:193"
+  ],
+  "https://eips.ethereum.org/EIPS/eip-4788": [
+    "docs/rollup0-spec/F-system-transaction-design.md:68"
+  ],
+  "https://eips.ethereum.org/EIPS/eip-7808": [
+    "docs/rollup0-spec/F-system-transaction-design.md:194"
+  ],
+  "https://github.com/ethereum/execution-apis/blob/main/src/engine/osaka.md": [
+    "docs/rollup0-spec/02-architecture.md:96"
+  ],
+  "https://specs.optimism.io/protocol/delta/span-batches.html#span-batch-format": [
+    "docs/rollup0-spec/G-blob-payload-design.md:482"
+  ]
+}

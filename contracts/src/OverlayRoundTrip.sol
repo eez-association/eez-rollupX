@@ -3,7 +3,12 @@ pragma solidity ^0.8.28;
 
 /// Calls `target` and bubbles its revert data unchanged.
 function callOrBubble(address target, bytes memory data) {
-    (bool ok, bytes memory ret) = target.call(data);
+    callOrBubble(target, 0, data);
+}
+
+/// Calls `target` with `value` and bubbles its revert data unchanged.
+function callOrBubble(address target, uint256 value, bytes memory data) {
+    (bool ok, bytes memory ret) = target.call{value: value}(data);
     if (!ok) {
         assembly {
             revert(add(ret, 32), mload(ret))
@@ -20,8 +25,25 @@ function callOrBubble(address target, bytes memory data) {
 contract OverlayProbeL2 {
     uint256 public value;
     uint256 public completed;
+    /// Native ETH received through `receiveRefund` callbacks.
+    uint256 public refunded;
 
     error ValueNotCleared(uint256 value);
+    error RefundNotReceived(uint256 expected, uint256 received);
+
+    /// Callback: receive native ETH returned from L1.
+    function receiveRefund() external payable {
+        refunded += msg.value;
+    }
+
+    /// Send the attached ETH to L1, which returns it in a callback. The
+    /// value-bearing callback must be funded by this call's L2 table load.
+    function startRefundRoundTrip(address driver, address probe) external payable {
+        uint256 before = refunded;
+        callOrBubble(driver, msg.value, abi.encodeCall(OverlayDriverL1.refund, (probe)));
+        if (refunded != before + msg.value) revert RefundNotReceived(msg.value, refunded - before);
+        completed++;
+    }
 
     /// Callback: credit `amount`.
     function deliver(uint256 amount) external {
@@ -81,6 +103,11 @@ contract OverlayDriverL1 {
 
     function ping() external {
         pings++;
+    }
+
+    /// Return the attached ETH to L2 in a value-bearing callback.
+    function refund(address probe) external payable {
+        callOrBubble(probe, msg.value, abi.encodeCall(OverlayProbeL2.receiveRefund, ()));
     }
 
     /// Deliver on L2, then burn there and call back into L1 without re-entering L2.

@@ -1,4 +1,5 @@
 use super::*;
+use crate::balances::PROTOCOL_BALANCE_ACCOUNTS;
 use alloy_eips::{
     eip2935::{HISTORY_STORAGE_ADDRESS, HISTORY_STORAGE_CODE},
     eip4788::BEACON_ROOTS_ADDRESS,
@@ -7,7 +8,9 @@ use alloy_eips::{
     eip7685::EMPTY_REQUESTS_HASH,
 };
 use alloy_evm::EvmEnv;
+use alloy_primitives::{Address, U256};
 use alloy_primitives::{B256, bytes};
+use eez_primitives::{EEZL2_ADDRESS, SYSTEM_ADDRESS};
 use reth_chainspec::ChainSpecBuilder;
 use revm::{
     Database,
@@ -21,8 +24,12 @@ fn execute_empty_blocks(
     accounts: &[(Address, AccountInfo)],
 ) -> State<InMemoryDB> {
     let spec = Arc::new(ChainSpecBuilder::mainnet().osaka_activated().build());
-    let factory = EezBlockExecutorFactory::new(spec, layer);
-    let mut db = InMemoryDB::default();
+    let mut factory = EezBlockExecutorFactory::new(spec, layer);
+    let (history, mut db) = crate::history::tests::fixture();
+    factory.history = Some(history);
+    if layer == ExecutionLayer::Rollup {
+        factory.evm = crate::tests::factory();
+    }
     for (address, raw) in [
         (HISTORY_STORAGE_ADDRESS, HISTORY_STORAGE_CODE.clone()),
         // These adversarial predeploys make unwanted calls observable even
@@ -60,7 +67,7 @@ fn execute_empty_blocks(
                 cfg_env: CfgEnv::new_with_spec(SpecId::OSAKA).with_chain_id(1),
                 block_env: BlockEnv {
                     number: U256::from(number),
-                    timestamp: U256::from(number),
+                    timestamp: U256::from(number + 4),
                     gas_limit: 30_000_000,
                     basefee: 1,
                     ..Default::default()
@@ -80,6 +87,21 @@ fn execute_empty_blocks(
             },
         );
         executor.apply_pre_execution_changes().unwrap();
+        if number == 1 {
+            for (address, original) in accounts {
+                assert_eq!(
+                    executor
+                        .evm_mut()
+                        .db_mut()
+                        .basic(*address)
+                        .unwrap()
+                        .unwrap()
+                        .balance,
+                    original.balance,
+                    "pre-execution must not burn {address}"
+                );
+            }
+        }
         let (_, output) = executor.finish().unwrap();
         assert!(output.receipts.is_empty());
         assert_eq!(output.gas_used, 0);
@@ -121,7 +143,7 @@ fn issue35_empty_l2_blocks_write_history_without_beacon_or_request_side_effects(
 }
 
 #[test]
-fn rollup_blocks_burn_protocol_balances_before_execution_and_l1_simulation_keeps_them() {
+fn rollup_blocks_burn_protocol_balances_at_finalization_and_l1_simulation_keeps_them() {
     let code = Bytecode::new_raw(bytes!("00"));
     let accounts = [
         (
@@ -173,7 +195,7 @@ fn rollup_blocks_do_not_touch_zero_or_absent_protocol_accounts() {
     )];
     let mut state = execute_empty_blocks(ExecutionLayer::Rollup, &accounts);
     state.merge_transitions(BundleRetention::Reverts);
-    for address in BURNED_AT_BLOCK_START {
+    for address in PROTOCOL_BALANCE_ACCOUNTS {
         assert!(
             !state.bundle_state.state.contains_key(&address),
             "{address} must not receive a transition"
@@ -181,3 +203,5 @@ fn rollup_blocks_do_not_touch_zero_or_absent_protocol_accounts() {
     }
     assert!(state.basic(SYSTEM_ADDRESS).unwrap().is_none());
 }
+
+mod groups;

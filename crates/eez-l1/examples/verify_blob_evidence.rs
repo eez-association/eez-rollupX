@@ -291,6 +291,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             "l1_block_number": transaction_block,
             "l1_block_hash": transaction_block_hash,
             "l1_chain_id": chain_id,
+            "proof_system": posted.batch.proofSystems.first(),
             "beacon_slot": expected_slot,
             "rollup_id": rollup_id,
             "blob_count": selected_blobs.len(),

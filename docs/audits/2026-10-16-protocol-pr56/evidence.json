@@ -1,0 +1,100 @@
+{
+  "protocolPullRequest": "https://github.com/eez-association/eez-core-protocol/pull/56",
+  "prBase": "58a83b724308c1abb8672949fb877684a473aea0",
+  "prHead": "bcd77d8b0d23ed9086f12ac8a0c2e65c6a2c2688",
+  "localFix": "86b4989ce6cbe2133f8f8a8dbd670d7c657ebf93",
+  "forkHead": "d69cccf299275276c1873d100c0928228e32a7ec",
+  "deployedSource": "aa8d8a5894c69502c67dcae35d5184bc9a79b036",
+  "deployedProtocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "images": [
+    {
+      "name": "eez-node-chiado",
+      "id": "52cb44a3b1ca6ae8589cd5bb3187b4f897c87e0f4e4601fc2a16378afd7e92e2",
+      "image": "sha256:a549891637d15e6693c77d64bd1a741a5d53434dc7fbbf759922ebe05b48fdc6",
+      "startedAt": "2026-10-16T13:55:28.536910772Z"
+    },
+    {
+      "name": "eez-proof-signer-chiado",
+      "id": "587540b94aafaee68685c6b2d61626220212df1bc9056e13eaaea77f941f134c",
+      "image": "sha256:e3a2454ba7f464fc3a97685856ba7e85e0ba8db8888c26e8e4f481c4307e62b5",
+      "startedAt": "2026-10-16T13:55:22.920796805Z"
+    }
+  ],
+  "baseline": {
+    "pythonPassed": 166,
+    "solidityPassed": 778,
+    "soliditySkipped": 3,
+    "liveScenariosPassed": 33,
+    "liveScenariosIncomplete": 1,
+    "sourcesSubmitted": 34
+  },
+  "fixed": {
+    "feeTestsPassed": 44,
+    "recoveryTestsPassed": 34,
+    "liveScenariosPassed": 34,
+    "sources": 36,
+    "l1Sources": 20,
+    "l2Sources": 16,
+    "quoteSource": "composer",
+    "transactionType": "0x2",
+    "tariffRejections": 0,
+    "nodeFeeFallbacks": 0,
+    "resumedSources": [
+      {
+        "sourceHash": "0xe0e4ed985bd1cfce345a40505881787ea5bf79c6a348b9cce598ab94c4642c22",
+        "blockNumber": "0x16754cc",
+        "blockHash": "0xb9404128a10eb2cb4ffe3d8dc07cc04500d6f4b86b864b36c774c8a2344f879d",
+        "postBatch": {
+          "chainId": "0x27d8",
+          "hash": "0x7d17beda2f023f3a00f0853fb855c9b7941c51902b1683ad3385f317b45c750e"
+        },
+        "l2": [
+          {
+            "chainId": "0xdd6d9",
+            "hash": "0x5064dcbb591416e60611a63940caac3ca05948aa88d6b1e6a3fa818b99df62cb"
+          }
+        ]
+      },
+      {
+        "sourceHash": "0xc8e844395926a85b01cc98e946a0d279ef8b6c64ad0339e9e40e4ea7aca76f82",
+        "blockNumber": "0x16754cc",
+        "blockHash": "0xb9404128a10eb2cb4ffe3d8dc07cc04500d6f4b86b864b36c774c8a2344f879d",
+        "postBatch": {
+          "chainId": "0x27d8",
+          "hash": "0x7d17beda2f023f3a00f0853fb855c9b7941c51902b1683ad3385f317b45c750e"
+        },
+        "l2": [
+          {
+            "chainId": "0xdd6d9",
+            "hash": "0x8d644a23bd989e209672a8640e1ef1d755ec8638111528b5e6b9d5e0d485c41c"
+          }
+        ]
+      }
+    ],
+    "queueEmpty": true,
+    "runtimeUnchanged": true
+  },
+  "excludedScenarios": 28,
+  "independentReplay": false,
+  "largeStressMatrixRerun": false,
+  "falconSafeRerun": false,
+  "artifacts": {
+    "location": "/home/edu/Development/rollupX/artifacts/protocol-pr56-20261016.yavu66yg",
+    "availability": "local only; ignored, no retention guarantee",
+    "sha256": {
+      "python-other-tests.log": "e7876e81e002f52c08ea7c76397c7530401e60f587cfa2d3795b303e4ce587b4",
+      "python-evidence-tests.log": "5963aadb938a3775d58e150f50a958a55fdab946fcc0bd0d50ef1368d74d80c5",
+      "forge-tests.log": "47d29ac93a7ae73ba40cf4a61e45607c97f82b6b57e427dfed66d7eb3a300b3d",
+      "live-all.log": "9da8bba5722601c951c4b715be4df9b50d945cbcc1521aea8a0f98f79bb5acc1",
+      "live-resume-nonce-fix.log": "ca0de37410f52191a91338f90c9dc3774aad88f11aef750911199b3907d4602d",
+      "nonce-quote-comparison.json": "ac98e4d5a1dbd1e06d0849d4adb6eb706c003770f6e10fbbac05866b8f2bfacb",
+      "nonce-regression-before.log": "5b566832ec44765191aa24c1320c3f86f9c879d90645a568b94537016cce71a2",
+      "nonce-regression-after.log": "447169858759560314636312d63fe7d4b324007a4717e86e615bbf10bc77cf5f",
+      "nonce-recovery-tests.log": "6eecc2f2d7ac7b0eecbc53d3d0e87a803d75b0ec5da49251a74bfc57f47f6e33",
+      "final-health.json": "700acdb38447955f1ddb3a6b01dad4a307667f9960bf16e7fc9dbacef8e8b5aa",
+      "resume-evidence.json": "c6beaebdac2aa7b47fa8bd75e394c2c76ff636ea8de2479020b70acdaefc8bcd",
+      "pr56-explicit-nonce.patch": "4486f5cc97c43a523d5a418243e623e0335dc7d6335d736fc965ef0712cc603b",
+      "foundry-sha256.txt": "3ec51f98ae722a9c73a1f3f5f05497265626dde4a1bb02c3255b2cd5020489ca"
+    }
+  }
+}
