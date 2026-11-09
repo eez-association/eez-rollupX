@@ -738,7 +738,11 @@ successful. A lookup MAY report failure with nested callbacks, provided the
 complete table is bound to native semantics and independently replayed as
 specified in section 11. A successful lookup MUST have empty callback and
 reentrant tables: its predicted source-frame rollback is not enforced by L1
-and cannot authorize persistent callbacks without a canonical L2 transition. Failed mutable nested rows retain their complete
+and cannot authorize persistent callbacks without a canonical L2 transition.
+A callback-free, zero-value lookup authenticates the observed target outcome;
+it does not establish that an L2 transaction committed or that the enclosing L1
+caller will revert at inclusion. Applications MUST NOT treat such a return value
+as evidence of canonical L2 effects. Failed mutable nested rows retain their complete
 reverted execution traces.
 A mutable failure MUST bind the independently recomputed reverted execution
 hash; a terminal static failure MUST carry the empty callback hash (zero).
@@ -859,9 +863,8 @@ rows. Both final rolling hashes and every nested outcome MUST match.
 Static lookups MUST scan from the unchanged mutable cursor, recompute each
 candidate's callback-result commitment, and select the first matching candidate.
 A later read MAY reuse an earlier candidate, including one skipped by an
-intervening read after local writes. Construction deduplicates only completed
-candidates with identical position key, complete callback array, callback-result
-commitment, success and return bytes. During one pending read, both host hashes
+intervening read after local writes. Construction retains one row per observation, including identical completed
+candidates. Coverage may match one byte-identical row per validated read. During one pending read, both host hashes
 and cursors are fixed; verification MAY memoize recursively checked `(chain,
 position key)` resolutions within that read. It MUST discard that memoization
 before a subsequent direct call changes the host position. Cyclic resolution
@@ -932,9 +935,8 @@ and checks that fold, so the values L1 returns are the values L2 computes.
 Repeated callback candidates with the same position key and callback hash MUST
 carry identical success and output. Candidates with different callback hashes
 may represent different local states. The check spans the complete host,
-including different pending read frames. In a
-group containing static sources, host rows are allowed only for these
-callbacks. Each `expectedEntryIndex` MUST equal the mutable
+including different pending read frames. Mixed groups may also contain mutable
+callback rows, verified under the same recursive cursor and rollback rules. Each `expectedEntryIndex` MUST equal the mutable
 cursor independently reconstructed at that root in the host's call order. The
 complete `(expectedEntryIndex, proxyEntryHash, rollingHash)` lookup key MUST have identical
 success and return bytes wherever repeated. Different positions MAY carry
@@ -964,8 +966,8 @@ reusing it or leaving trailing observations unclaimed.
 The event's `callGas` MUST be zero. The batch entry MUST:
 
 - target the expected rollup;
-- contain one or more root `l2ToL1Calls`; mutable-only hosts MAY contain valid
-  nested rows for multiple roots, subject to the supported recursive profile;
+- contain one or more root `l2ToL1Calls`; hosts MAY contain valid mutable or
+  static nested rows for multiple roots, subject to the supported recursive profile;
 - use `proxyEntryHash == 0`;
 - have `success == true`; and
 - carry only calls and rows in the supported mutable shape from section 8.3.

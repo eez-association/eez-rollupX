@@ -156,3 +156,66 @@ fn retry_cannot_change_or_add_callbacks_to_a_cached_program() {
     let error = materialize_actions(l2, vec![root.clone(), root, changed]).unwrap_err();
     assert!(error.to_string().contains("different callback program"));
 }
+
+fn failed(mut call: ExecutedAction) -> ExecutedAction {
+    call.outcome = ExecutionOutcome::Resolved {
+        success: false,
+        return_data: vec![0xde, 0xad],
+        gas_used: 21_000,
+    };
+    call
+}
+
+fn verify_actions(calls: Vec<ExecutedAction>) {
+    let l2 = RollupId(1);
+    let mut c = materialize_actions(l2, calls).expect("representable retry sequence");
+    let host = &mut c.targets[0];
+    host.batch.entries[0].rootUpdates.push(RootUpdateSol {
+        rollupId: 1,
+        currentRoot: B256::with_last_byte(1),
+        newRoot: B256::with_last_byte(2),
+        etherDelta: EtherDeltaSol::ZERO,
+    });
+    finalize_l1_entry_traces(&mut host.batch, &host.entry_traces).unwrap();
+    let sources = c
+        .source
+        .batch
+        .entries
+        .into_iter()
+        .map(OutboundSourceEntry::Mutable)
+        .collect::<Vec<_>>();
+    verify_outbound_source_group(&host.batch.entries[0], &sources, l2)
+        .expect("materialized retry sequence must verify");
+}
+
+#[test]
+fn terminal_failure_between_reused_callback_programs() {
+    let l2 = RollupId(1);
+    for natural_failure in [false, true] {
+        let mut root = action(None, l2, RollupId::MAINNET, 0);
+        let retry = if natural_failure {
+            root = failed(root);
+            root.clone()
+        } else {
+            let retry = root.clone();
+            root.revert_spans = vec![2];
+            retry
+        };
+        verify_actions(vec![
+            root,
+            action(Some(0), RollupId::MAINNET, l2, 1),
+            failed(action(None, l2, RollupId::MAINNET, 2)),
+            retry,
+            action(Some(3), RollupId::MAINNET, l2, 1),
+        ]);
+    }
+}
+
+#[test]
+fn terminal_retry_does_not_overwrite_later_same_hash_program() {
+    let l2 = RollupId(1);
+    let a = action(None, l2, RollupId::MAINNET, 0);
+    let mut b = action(None, l2, RollupId::MAINNET, 1);
+    b.revert_spans = vec![2];
+    verify_actions(vec![failed(a.clone()), b, a.clone(), failed(a)]);
+}

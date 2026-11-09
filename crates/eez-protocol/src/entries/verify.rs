@@ -44,8 +44,11 @@ pub struct NestedPairVerification {
     pub ether_delta: I256,
     /// Surviving directional transfers, after all enclosing rollback scopes.
     pub l1_to_l2_value: U256,
-    /// Surviving L2→L1 transfers; used for escrow admission before submission.
+    /// Surviving L2→L1 transfers, used to debit reserved escrow.
     pub l2_to_l1_value: U256,
+    /// Gross executed L2→L1 value, including reverted frames. A conservative
+    /// funding bound: execution must afford a call before its outcome is known.
+    pub l2_to_l1_executed_value: U256,
 }
 
 /// Verify one settlement entry against the complete ordered L2 execution
@@ -261,6 +264,7 @@ fn finish_facts(facts: AccumulatedFacts) -> ProtocolResult<NestedPairVerificatio
         ether_delta,
         l1_to_l2_value: facts.l1_to_l2_value,
         l2_to_l1_value: facts.l2_to_l1_value,
+        l2_to_l1_executed_value: facts.l2_to_l1_executed_value,
     })
 }
 
@@ -479,12 +483,13 @@ fn verify_outbound_tables(
             {
                 source_cursor
             } else {
+                let encoded = source_entry.abi_encode();
                 l2_entries
                     .iter()
                     .enumerate()
                     .map(|(index, candidate)| (index, candidate.borrow()))
                     .find(|(index, candidate)| {
-                        !seen_sources[*index] && candidate.abi_encode() == source_entry.abi_encode()
+                        !seen_sources[*index] && candidate.abi_encode() == encoded
                     })
                     .map_or(source_cursor, |(index, _)| index)
             };
@@ -1168,6 +1173,8 @@ impl<'a> ChainState<'a> {
 
 #[derive(Default)]
 struct AccumulatedFacts {
+    // Execution funding is not restored with committed effects.
+    l2_to_l1_executed_value: U256,
     l2_outbound_hashes: Vec<B256>,
     l1_to_l2_value: U256,
     l2_to_l1_value: U256,
@@ -1197,6 +1204,16 @@ impl AccumulatedFacts {
     }
 
     fn record_value(&mut self, source: RollupId, value: U256) -> ProtocolResult<()> {
+        if !source.is_mainnet() {
+            self.l2_to_l1_executed_value = self
+                .l2_to_l1_executed_value
+                .checked_add(value)
+                .ok_or_else(|| {
+                    crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
+                        "nested pair executed value sum overflow".into(),
+                    ))
+                })?;
+        }
         let total = if source.is_mainnet() {
             &mut self.l1_to_l2_value
         } else {

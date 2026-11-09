@@ -203,15 +203,14 @@ pub(crate) fn materialize_batches(
                             .find(|(_, entry)| entry.proxyEntryHash == hash)
                     });
                 let selected = existing.map(|(slot, entry)| (slot, entry.clone()));
-                if let Some((_, previous)) = &selected {
-                    if previous.success != call.outcome.is_success()
-                        || Some(previous.returnData.as_ref()) != call.outcome.return_data()
-                    {
-                        return Err(ProtocolErrorKind::InvalidEncoding(
-                            "L2 source cursor is reused with a different outcome".into(),
-                        )
-                        .into());
-                    }
+                if let Some((_, previous)) = &selected
+                    && (previous.success != call.outcome.is_success()
+                        || Some(previous.returnData.as_ref()) != call.outcome.return_data())
+                {
+                    return Err(ProtocolErrorKind::InvalidEncoding(
+                        "L2 source cursor is reused with a different outcome".into(),
+                    )
+                    .into());
                 }
                 let prior = selected.as_ref().map(|(slot, entry)| {
                     (
@@ -219,16 +218,23 @@ pub(crate) fn materialize_batches(
                         materializer.outputs[&entry_rollup_id].traces[*slot].clone(),
                     )
                 });
-                let slot = materializer
-                    .outputs
-                    .get(&entry_rollup_id)
-                    .and_then(|output| {
-                        output
+                // Only terminal failures need historical per-attempt slots.
+                // Callback programs and successful roots always rebuild the
+                // actual runtime-selected slot, even after another failed root.
+                let terminal_failure =
+                    !call.outcome.is_success() && materializer.children[root].is_empty();
+                let slot = selected
+                    .as_ref()
+                    .and_then(|(selected_slot, previous)| {
+                        if !terminal_failure {
+                            return Some(*selected_slot);
+                        }
+                        materializer.outputs[&entry_rollup_id]
                             .entries
                             .iter()
                             .enumerate()
                             .skip(materializer.next_source_slot)
-                            .find(|(_, entry)| entry.proxyEntryHash == hash)
+                            .find(|(_, entry)| entry.abi_encode() == previous.abi_encode())
                             .map(|(slot, _)| slot)
                     })
                     .unwrap_or_else(|| {
@@ -3059,7 +3065,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_outbound_groups_accept_nested_calls_but_reject_failed_and_rollback_sources() {
+    fn mixed_outbound_groups_accept_nested_calls_including_failed_and_rollback_sources() {
         use crate::system_tx::OutboundSourceEntry;
         let l2 = RollupId(1);
         let mut read = action(0, None, l2, RollupId::MAINNET);

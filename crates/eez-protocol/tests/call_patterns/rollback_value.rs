@@ -71,6 +71,14 @@ fn assert_inbound_projection_matches_verified_effect(depth: usize) {
     assert_eq!(projected.ether_delta, verified.ether_delta);
     assert_eq!(projected.l1_to_l2_value, U256::ZERO);
     assert_eq!(projected.l2_to_l1_value, U256::ZERO);
+    assert_eq!(
+        projected.l2_to_l1_executed_value,
+        if depth == 4 {
+            U256::from(7)
+        } else {
+            U256::ZERO
+        }
+    );
 }
 
 #[test]
@@ -81,4 +89,44 @@ fn naturally_failed_ancestor_discards_successful_descendant_withdrawal() {
 #[test]
 fn naturally_failed_ancestor_discards_successful_descendant_deposit() {
     assert_inbound_projection_matches_verified_effect(5);
+}
+
+#[test]
+fn failed_value_root_still_requires_execution_funding() {
+    use eez_protocol::entries::project_outbound_value;
+    use eez_protocol::system_tx::OutboundSourceEntry;
+    let l2 = RollupId(1);
+    let c = materialize_actions(
+        l2,
+        vec![ExecutedAction {
+            parent_index: None,
+            call_mode: CallMode::Mutable,
+            source_rollup_id: l2,
+            target_rollup_id: RollupId::MAINNET,
+            source_address: Address::with_last_byte(1),
+            target_address: Address::with_last_byte(2),
+            data: Bytes::new(),
+            value: U256::from(7),
+            outcome: ExecutionOutcome::Resolved {
+                success: false,
+                return_data: vec![0xde, 0xad],
+                gas_used: 21_000,
+            },
+            revert_spans: vec![],
+        }],
+    )
+    .unwrap();
+    let sources = c
+        .source
+        .batch
+        .entries
+        .into_iter()
+        .map(OutboundSourceEntry::Mutable)
+        .collect::<Vec<_>>();
+    let host = &c.targets[0];
+    let facts = project_outbound_value(&host.batch.entries[0], &host.entry_traces[0], &sources, l2)
+        .unwrap();
+    assert_eq!(facts.ether_delta, I256::ZERO);
+    assert_eq!(facts.l2_to_l1_value, U256::ZERO);
+    assert_eq!(facts.l2_to_l1_executed_value, U256::from(7));
 }

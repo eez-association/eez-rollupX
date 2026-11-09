@@ -80,15 +80,12 @@ pub use config::ComposerSettings;
 /// Composer policy per inbound source transaction, not a protocol/escrow limit.
 const MAINNET_DEPOSIT_LIMIT_WEI: u64 = 100_000_000_000_000_000;
 
-fn check_inbound_deposit_limit(
+fn check_inbound_admission(
     l1_chain_id: u64,
     composition: &eez_protocol::Composition,
     rollup: eez_protocol::RollupId,
 ) -> Result<(), &'static str> {
-    if l1_chain_id != 1 {
-        return Ok(());
-    }
-    const INVALID: &str = "cannot determine Ethereum mainnet deposit value";
+    const INVALID: &str = "cannot validate inbound settlement value";
     let actions =
         eez_protocol::settlement::composition_fifo_actions(composition).map_err(|_| INVALID)?;
     let mut sources = composition
@@ -123,7 +120,7 @@ fn check_inbound_deposit_limit(
     if sources.next().is_some() || deliveries.next().is_some() {
         return Err(INVALID);
     }
-    if total > U256::from(MAINNET_DEPOSIT_LIMIT_WEI) {
+    if l1_chain_id == 1 && total > U256::from(MAINNET_DEPOSIT_LIMIT_WEI) {
         Err("Ethereum mainnet deposit exceeds 0.1 ETH per transaction")
     } else {
         Ok(())
@@ -3604,29 +3601,34 @@ where
                         effects,
                         user_tx: held.raw_tx.clone(),
                     };
-                    // Gate a withdrawal that exceeds the rollup's L1 escrow —
-                    // it would revert on-chain and drop the whole bundle.
-                    // "ether out" is the amount of Ether being withdrawn in this outbound settlement entry.
-                    // If missing, the entry is malformed and must be evicted.
-                    // Review once reentrancy is available
+                    // Synthetic L1 frames bypass transaction funding checks.
+                    // Reserve enough escrow for all executed calls, including
+                    // failures, but debit only transfers surviving rollback.
                     let sources = outbound_group
                         .effects
                         .iter()
                         .map(|effect| &effect.source_entry)
                         .collect::<Vec<_>>();
-                    let Some(need) = l1_entries.iter().zip(&l1_target.entry_traces).try_fold(
-                        U256::ZERO,
-                        |total, (entry, trace)| {
-                            eez_protocol::entries::project_outbound_value(
-                                entry,
-                                trace,
-                                &sources,
-                                eez_protocol::RollupId(rollup_id),
-                            )
-                            .ok()
-                            .and_then(|value| total.checked_add(value.l2_to_l1_value))
-                        },
-                    ) else {
+                    let Some((need, debit)) =
+                        l1_entries.iter().zip(&l1_target.entry_traces).try_fold(
+                            (U256::ZERO, U256::ZERO),
+                            |(required, debit), (entry, trace)| {
+                                eez_protocol::entries::project_outbound_value(
+                                    entry,
+                                    trace,
+                                    &sources,
+                                    eez_protocol::RollupId(rollup_id),
+                                )
+                                .ok()
+                                .and_then(|value| {
+                                    Some((
+                                        required.checked_add(value.l2_to_l1_executed_value)?,
+                                        debit.checked_add(value.l2_to_l1_value)?,
+                                    ))
+                                })
+                            },
+                        )
+                    else {
                         event!(name: "eez.composer.cc_compose.outbound_ether_out_missing", Level::WARN, rollup_id, tx_idx = idx, tx_hash = %held.hash, "outbound tx is missing ether out entry, likely malformed; evicting");
                         selection.block(idx);
 
@@ -4216,7 +4218,7 @@ where
                     // between never draws the escrow down on L1, and a budget
                     // reduced for it would evict later legitimate withdrawals.
                     if let Some(avail) = escrow_remaining {
-                        escrow_remaining = Some(avail.saturating_sub(need));
+                        escrow_remaining = Some(avail.saturating_sub(debit));
                     }
 
                     // The state advances only now, behind the accepted block.
@@ -4452,14 +4454,14 @@ where
                         .filter(|target| target.rollup_id == eez_protocol::RollupId(rollup_id))
                         .flat_map(|target| target.batch.entries.iter().cloned())
                         .collect();
-                    if let Err(reason) = check_inbound_deposit_limit(
+                    if let Err(reason) = check_inbound_admission(
                         ctx.l1_chain_id,
                         &composition,
                         eez_protocol::RollupId(rollup_id),
                     ) {
                         event!(name: "eez.composer.cc_compose.deposit_limit", Level::WARN,
                             rollup_id, tx_hash = %held.hash, reason,
-                            "inbound deposit rejected by Composer policy");
+                            "inbound settlement rejected by Composer admission");
                         selection.block(idx);
                         rejections.insert(
                             held.hash,
@@ -8471,20 +8473,17 @@ mod tests {
         let rollup = eez_protocol::RollupId(1);
         for value in [U256::ZERO, limit - U256::from(1), limit] {
             assert_eq!(
-                check_inbound_deposit_limit(1, &deposits(&[value]), rollup),
+                check_inbound_admission(1, &deposits(&[value]), rollup),
                 Ok(())
             );
         }
         let excessive = deposits(&[limit + U256::from(1)]);
         assert_eq!(
-            check_inbound_deposit_limit(1, &excessive, rollup),
+            check_inbound_admission(1, &excessive, rollup),
             Err("Ethereum mainnet deposit exceeds 0.1 ETH per transaction")
         );
         for chain in [100, 10200, 560048, 11155111] {
-            assert_eq!(
-                check_inbound_deposit_limit(chain, &excessive, rollup),
-                Ok(())
-            );
+            assert_eq!(check_inbound_admission(chain, &excessive, rollup), Ok(()));
         }
     }
 
@@ -8493,23 +8492,25 @@ mod tests {
         let half = U256::from(MAINNET_DEPOSIT_LIMIT_WEI / 2);
         let rollup = eez_protocol::RollupId(1);
         assert_eq!(
-            check_inbound_deposit_limit(1, &deposits(&[half, half]), rollup),
+            check_inbound_admission(1, &deposits(&[half, half]), rollup),
             Ok(())
         );
         assert_eq!(
-            check_inbound_deposit_limit(1, &deposits(&[half, half, U256::from(1)]), rollup),
+            check_inbound_admission(1, &deposits(&[half, half, U256::from(1)]), rollup),
             Err("Ethereum mainnet deposit exceeds 0.1 ETH per transaction")
         );
         assert_eq!(
-            check_inbound_deposit_limit(1, &deposits(&[U256::MAX]), rollup),
-            Err("cannot determine Ethereum mainnet deposit value")
+            check_inbound_admission(1, &deposits(&[U256::MAX]), rollup),
+            Err("cannot validate inbound settlement value")
         );
         let mut malformed = deposits(&[half]);
         malformed.targets[0].batch.entries[0].l2ToL1Calls[0].revertNextNCalls = 2;
-        assert_eq!(
-            check_inbound_deposit_limit(1, &malformed, rollup),
-            Err("cannot determine Ethereum mainnet deposit value")
-        );
+        for chain in [1, 100, 10200] {
+            assert_eq!(
+                check_inbound_admission(chain, &malformed, rollup),
+                Err("cannot validate inbound settlement value")
+            );
+        }
     }
 
     #[test]
@@ -8533,7 +8534,7 @@ mod tests {
                 .collect();
             let c =
                 eez_protocol::materialize_actions(eez_protocol::RollupId::MAINNET, calls).unwrap();
-            let result = check_inbound_deposit_limit(1, &c, rollup);
+            let result = check_inbound_admission(1, &c, rollup);
             if failed_ancestor {
                 assert_eq!(result, Ok(()));
             } else {
@@ -8549,7 +8550,7 @@ mod tests {
         ];
         let c = eez_protocol::materialize_actions(eez_protocol::RollupId::MAINNET, calls).unwrap();
         assert_eq!(
-            check_inbound_deposit_limit(1, &c, rollup),
+            check_inbound_admission(1, &c, rollup),
             Err("Ethereum mainnet deposit exceeds 0.1 ETH per transaction")
         );
     }
@@ -8564,7 +8565,7 @@ mod tests {
             let c = eez_protocol::materialize_actions(eez_protocol::RollupId::MAINNET, vec![root])
                 .unwrap();
             assert_eq!(
-                check_inbound_deposit_limit(1, &c, eez_protocol::RollupId(1)),
+                check_inbound_admission(1, &c, eez_protocol::RollupId(1)),
                 Ok(())
             );
         }
