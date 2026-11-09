@@ -32,7 +32,9 @@ pub fn is_root_only_entry(entry: &ExecutionEntrySol, settled_rollup: u64) -> boo
 
 /// Whether a deferred entry has the shape of a non-applying L1-origin lookup.
 ///
-/// Callback tables may remain present even when the source frame rolls back.
+/// Failed entries enforce rollback on L1 and may retain callback tables.
+/// Successful non-applying entries must be callback-free: a predicted later
+/// source-frame rollback cannot authorize persistent L1 effects.
 /// This classification establishes no execution authority: native semantic
 /// binding must reproduce the complete source table and destination observation
 /// replay must validate the claimed outcome. Empty tables additionally require
@@ -48,6 +50,7 @@ pub fn is_lookup_only_inbound_entry(entry: &ExecutionEntrySol, settled_rollup: u
         && update.rollupId == settled_rollup
         && update.currentRoot == update.newRoot
         && update.etherDelta == EtherDeltaSol::ZERO
+        && (!entry.success || empty_trace)
         && crate::system_tx::check_entry_shape(entry, "lookup").is_ok()
         && (!empty_trace
             || entry.rollingHash

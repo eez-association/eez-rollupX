@@ -1,0 +1,106 @@
+use alloy_consensus::{SignableTransaction, TxEnvelope, TxLegacy};
+use alloy_eips::Encodable2718;
+use alloy_primitives::{Address, B256, Bytes, Signature, TxKind, U256};
+use alloy_sol_types::SolValue;
+use eez_protocol::abi::{EtherDeltaSol, ExecutionEntrySol, RootUpdateSol};
+use eez_protocol::blob_semantics::{ReconstructionActions, SemanticTransaction};
+use eez_protocol::entries::{finalize_l1_entry_traces, verify_outbound_source_group};
+use eez_protocol::system_tx::OutboundSourceEntry;
+use eez_protocol::{
+    CallMode, EntryRollingHash, EvmBatch, ExecutedAction, ExecutionOutcome, RollupId,
+};
+fn call(parent: Option<usize>, source: u64, target: u64, mode: CallMode) -> ExecutedAction {
+    ExecutedAction {
+        parent_index: parent,
+        call_mode: mode,
+        source_rollup_id: RollupId(source),
+        target_rollup_id: RollupId(target),
+        source_address: Address::with_last_byte(0x10 + source as u8),
+        target_address: Address::with_last_byte(0x20 + target as u8),
+        data: Bytes::from_static(&[0x42]),
+        value: U256::ZERO,
+        outcome: ExecutionOutcome::Resolved {
+            success: true,
+            return_data: vec![0x77],
+            gas_used: 21000,
+        },
+        revert_spans: vec![],
+    }
+}
+fn update(marker: u8) -> RootUpdateSol {
+    RootUpdateSol {
+        rollupId: 1,
+        currentRoot: B256::with_last_byte(marker),
+        newRoot: B256::with_last_byte(marker + 1),
+        etherDelta: EtherDeltaSol::ZERO,
+    }
+}
+#[test]
+fn repeated_static_replay_compatibility() {
+    let tx = SemanticTransaction {
+        origin_chain: RollupId(1),
+        tx_data: TxEnvelope::from(
+            TxLegacy {
+                chain_id: Some(1),
+                gas_limit: 100000,
+                gas_price: 1,
+                to: TxKind::Call(Address::with_last_byte(1)),
+                ..Default::default()
+            }
+            .into_signed(Signature::new(U256::from(1), U256::from(1), false)),
+        )
+        .encoded_2718()
+        .into(),
+        actions: vec![
+            call(None, 1, 0, CallMode::Mutable),
+            call(Some(0), 0, 1, CallMode::Static),
+            call(Some(0), 0, 1, CallMode::Static),
+        ],
+    };
+    let mut c = tx.materialize().unwrap();
+    let host = &mut c.targets[0];
+    host.batch.entries[0].rootUpdates = vec![update(2)];
+    finalize_l1_entry_traces(&mut host.batch, &host.entry_traces).unwrap();
+    let sources = c
+        .source
+        .batch
+        .entries
+        .iter()
+        .cloned()
+        .map(OutboundSourceEntry::Mutable)
+        .collect::<Vec<_>>();
+    let verified = verify_outbound_source_group(&host.batch.entries[0], &sources, RollupId(1));
+    eprintln!(
+        "rows={} verification={verified:?}",
+        host.batch.entries[0].expectedL1ToL2Calls.len()
+    );
+    assert!(verified.is_ok());
+    let root = update(1);
+    let batch = EvmBatch {
+        entries: vec![
+            ExecutionEntrySol {
+                destinationRollupId: 1,
+                rollingHash: EntryRollingHash::seed_for_l1([(1, root.currentRoot)], B256::ZERO)
+                    .current(),
+                rootUpdates: vec![root],
+                success: true,
+                ..Default::default()
+            },
+            host.batch.entries[0].clone(),
+        ],
+        immediateEntryCount: U256::from(2),
+        ..Default::default()
+    };
+    let reconstruction = ReconstructionActions::from_semantics(&[tx], RollupId(1), 1).unwrap();
+    reconstruction.bind_settlement(&batch).unwrap();
+    // Frozen from c702f90da19cc149890d0a17a4ef6c200dcb6a21, protocol
+    // 84a5b5207880f192a6a5896cbfe0bac5249db47f. Baseline verification and
+    // native settlement binding both accepted these exact bytes.
+    let bytes =
+        alloy_primitives::hex::decode(include_str!("fixtures/baseline_static_batch.hex").trim())
+            .unwrap();
+    let frozen = EvmBatch::abi_decode(&bytes).unwrap();
+    reconstruction
+        .bind_settlement(&frozen)
+        .expect("replay baseline-supported static rows");
+}

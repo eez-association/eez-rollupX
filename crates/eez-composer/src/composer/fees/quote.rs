@@ -1026,11 +1026,28 @@ where
                 .map_err(|e| unavailable("unsupported composition", e))?;
             let raw_size = request.sizing_bytes(tip, cap)?;
             let (group, l1_entries) = outbound_group(&composition, rollup_id, raw_size.clone())?;
+            let l1_target = composition
+                .targets
+                .iter()
+                .find(|target| target.rollup_id.is_mainnet())
+                .ok_or(FeeQuoteError::Unsupported("missing L1 target"))?;
+            let sources = group
+                .effects
+                .iter()
+                .map(|effect| &effect.source_entry)
+                .collect::<Vec<_>>();
             let withdrawal = l1_entries
                 .iter()
-                .try_fold(U256::ZERO, |total, entry| {
-                    eez_protocol::entries::outbound_ether_out(entry)
-                        .and_then(|value| total.checked_add(value))
+                .zip(&l1_target.entry_traces)
+                .try_fold(U256::ZERO, |total, (entry, trace)| {
+                    eez_protocol::entries::project_outbound_value(
+                        entry,
+                        trace,
+                        &sources,
+                        eez_protocol::RollupId(rollup_id),
+                    )
+                    .ok()
+                    .and_then(|value| total.checked_add(value.l2_to_l1_value))
                 })
                 .ok_or(FeeQuoteError::Unsupported("withdrawal shape"))?;
             if withdrawal > escrow {

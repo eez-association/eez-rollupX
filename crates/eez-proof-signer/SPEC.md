@@ -736,7 +736,9 @@ Every item in `entries` MUST be an anchor, a mutable effect, or an exact
 lookup-only inbound entry. An outbound or applying inbound effect MUST be
 successful. A lookup MAY report failure with nested callbacks, provided the
 complete table is bound to native semantics and independently replayed as
-specified in section 11. Failed mutable nested rows retain their complete
+specified in section 11. A successful lookup MUST have empty callback and
+reentrant tables: its predicted source-frame rollback is not enforced by L1
+and cannot authorize persistent callbacks without a canonical L2 transition. Failed mutable nested rows retain their complete
 reverted execution traces.
 A mutable failure MUST bind the independently recomputed reverted execution
 hash; a terminal static failure MUST carry the empty callback hash (zero).
@@ -901,10 +903,12 @@ callbacks in reentrant rows; static sources commit no value. An outbound load is
 therefore not necessarily zero-value
 ([native funding](../../docs/proposals/native-system-transactions.md)).
 A group MAY contain only mutable sources,
-or static sources interleaved with successful mutable roots in
-one outbound host. A multi-root host containing static sources MUST cover the
-complete load and user transaction; it MUST NOT carry separate callbacks,
-reverted mutable roots or root revert spans.
+or static sources interleaved with mutable roots in one outbound host.
+A multi-root host containing static sources MUST cover the complete load and
+user transaction, including nested callbacks. Failed mutable roots and complete
+root revert spans are permitted only with the same independent cursor, hash and
+effect rollback checks as mutable-only groups. A restored cursor MUST resolve
+the same complete source program; static reads never advance that cursor.
 
 The load serializes mutable sources first, then static sources. Verification
 MUST traverse the host's original call order, advancing the mutable cursor only
@@ -984,7 +988,11 @@ its signing domain 7 and registered verification key; it requires no contract,
 genesis or datadir replacement. RPC validation version 8 and capability profile 2
 identify the extended runtime contract before proving. Upgrade Composer, signer
 and followers together and discard old sessions; older lookup requests may need
-additional manager witnesses. Old followers cannot replay newly admitted shapes.
+additional manager witnesses. Preserve the original per-observation static row
+layout so baseline-supported historical tables still bind exactly. Coverage of
+a repeated static row requires an actual read of a byte-identical validated
+program; extra, unselected or differing rows remain invalid. Old followers cannot
+replay newly admitted shapes.
 No live migration of a pre-baseline network is established by these tests.
 Configuration and wire inputs must match the runtime identity. Restart may require client
 resubmission because queue ownership remains in memory; this feature does not

@@ -31,12 +31,12 @@ use super::l1_call_from_action;
 /// L2 entries are finalized immediately from their state-independent seed.
 /// L1 entries retain this trace until settlement attaches the ordered
 /// `RootUpdate`s whose current roots form the entry seed.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EntryTrace {
     events: Vec<TraceEvent>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum TraceEvent {
     CallBegin(B256),
     CallEnd { success: bool, return_data: Bytes },
@@ -201,6 +201,7 @@ pub(crate) fn materialize_batches(
                             .skip(materializer.origin_cursor)
                             .find(|(_, entry)| entry.proxyEntryHash == hash)
                     });
+                let reused = existing.is_some();
                 let slot = if let Some((slot, previous)) = existing {
                     if previous.success != call.outcome.is_success()
                         || Some(previous.returnData.as_ref()) != call.outcome.return_data()
@@ -214,9 +215,35 @@ pub(crate) fn materialize_batches(
                 } else {
                     materializer.push_entry(entry_rollup_id, hash, call.target_rollup_id, call)
                 };
+                // A restored cursor selects one reusable program. Rebuild this
+                // invocation, then compare it with the first rather than append
+                // its callbacks to the cached program.
+                let output = materializer
+                    .outputs
+                    .get_mut(&entry_rollup_id)
+                    .expect("source output");
+                let previous = reused.then(|| {
+                    let entry = output.entries[slot].clone();
+                    let trace = std::mem::take(&mut output.traces[slot]);
+                    output.entries[slot].l2ToL1Calls.clear();
+                    output.entries[slot].expectedL1ToL2Calls.clear();
+                    output.positions[slot] = ConstructionPosition::new(hash);
+                    (entry, trace)
+                });
                 materializer.install_context(entry_rollup_id, slot);
                 materializer.execute_call(root)?;
                 materializer.close_entry(entry_rollup_id, slot);
+                if let Some((entry, trace)) = previous {
+                    let output = &materializer.outputs[&entry_rollup_id];
+                    if entry.abi_encode() != output.entries[slot].abi_encode()
+                        || trace != output.traces[slot]
+                    {
+                        return Err(ProtocolErrorKind::InvalidEncoding(format!(
+                            "reused L2 source slot {slot} has a different callback program"
+                        ))
+                        .into());
+                    }
+                }
                 if call.outcome.is_success() {
                     materializer.origin_cursor = slot + 1;
                 }
@@ -721,11 +748,7 @@ struct Materializer<'a> {
 enum StaticFrame {
     L1Pool(usize),
     L2Pool(usize),
-    Row {
-        entry: usize,
-        row: usize,
-        reused: bool,
-    },
+    Row { entry: usize, row: usize },
 }
 
 impl<'a> Materializer<'a> {
@@ -953,10 +976,10 @@ impl<'a> Materializer<'a> {
         let output = Bytes::copy_from_slice(call.outcome.return_data().expect("resolved outcome"));
         let location = if let Some(context) = self.active.get(&source) {
             let entry = context.entry_index;
-            let (row, reused) = match self.reusable_static_row(node) {
-                Some(row) => (row, true),
-                None => self.push_row(source, call)?,
-            };
+            // Retain one row per observation: native historical binding compares
+            // these bytes exactly. Static lookup may select an earlier identical
+            // row at execution time, but deduplicating changes recorded tables.
+            let (row, _) = self.push_row(source, call)?;
             self.push_event(
                 source,
                 TraceEvent::StaticLookup {
@@ -964,7 +987,7 @@ impl<'a> Materializer<'a> {
                     call_hash: source_call_hash(call),
                 },
             );
-            Some(StaticFrame::Row { entry, row, reused })
+            Some(StaticFrame::Row { entry, row })
         } else if source == origin {
             let table = self.outputs.entry(source).or_default();
             if source.is_mainnet() {
@@ -1014,12 +1037,10 @@ impl<'a> Materializer<'a> {
                 StaticFrame::L2Pool(index) => table.l2_static_entries[index]
                     .incomingCalls
                     .push(lower_call_to_l2(&encoded)),
-                StaticFrame::Row { entry, row, reused } => {
-                    if !reused {
-                        table.entries[entry].expectedL1ToL2Calls[row]
-                            .l2ToL1Calls
-                            .push(encoded);
-                    }
+                StaticFrame::Row { entry, row } => {
+                    table.entries[entry].expectedL1ToL2Calls[row]
+                        .l2ToL1Calls
+                        .push(encoded);
                 }
             }
             hash.append(call.outcome.is_success(), &output);
@@ -1068,60 +1089,6 @@ impl<'a> Materializer<'a> {
         Ok(())
     }
 
-    /// Static reads retain the mutable cursor. Reuse a completed candidate
-    /// only when its complete callback array, callback commitment and cached
-    /// outcome match this observation. Equal position keys alone are not
-    /// enough: local writes can change the callback results between reads.
-    fn reusable_static_row(&self, node: usize) -> Option<usize> {
-        let call = &self.recorded[node];
-        let chain = call.source_rollup_id;
-        let context = &self.active[&chain];
-        let output = &self.outputs[&chain];
-        let key = nested_position_key(
-            source_call_hash(call),
-            output.positions[context.entry_index].rolling.current(),
-        );
-        let callbacks: Vec<_> = self.children[node]
-            .iter()
-            .map(|&child| l1_call_from_action(&self.recorded[child]))
-            .collect();
-        let mut hash = StaticCallRollingHash::new();
-        for &child in &self.children[node] {
-            let outcome = &self.recorded[child].outcome;
-            hash.append(
-                outcome.is_success(),
-                outcome.return_data().expect("resolved outcome"),
-            );
-        }
-        output.entries[context.entry_index]
-            .expectedL1ToL2Calls
-            .iter()
-            .enumerate()
-            .skip(context.next_row)
-            .find(|(index, row)| {
-                let pending = self.static_frames.get(&chain).is_some_and(|frames| {
-                    frames.iter().any(|(frame, _)| {
-                        matches!(frame,
-                        StaticFrame::Row { entry, row, .. }
-                            if *entry == context.entry_index && row == index)
-                    })
-                });
-                !pending
-                    && row.expectedL1toL2Hash == key
-                    && row.revertedOrStaticRollingHash == hash.current()
-                    && row.success == call.outcome.is_success()
-                    && row.returnData.as_ref()
-                        == call.outcome.return_data().expect("resolved outcome")
-                    && row.l2ToL1Calls.len() == callbacks.len()
-                    && row
-                        .l2ToL1Calls
-                        .iter()
-                        .zip(&callbacks)
-                        .all(|(actual, expected)| actual.abi_encode() == expected.abi_encode())
-            })
-            .map(|(index, _)| index)
-    }
-
     fn install_context(&mut self, chain: RollupId, entry_index: usize) {
         let previous = self.active.insert(
             chain,
@@ -1147,6 +1114,15 @@ impl<'a> Materializer<'a> {
     fn execute_lookup_call(&mut self, node_index: usize) -> ProtocolResult<()> {
         debug_assert_eq!(self.active.len(), 1, "lookup begins at an L1 root boundary");
         debug_assert!(self.active.contains_key(&RollupId::MAINNET));
+        // A successful lookup does not apply L2 state. Its caller's predicted
+        // rollback cannot authorize callbacks that might persist on L1 under
+        // a different inclusion context. Failed roots enforce rollback on L1.
+        if self.recorded[node_index].outcome.is_success() && !self.children[node_index].is_empty() {
+            return Err(ProtocolErrorKind::Unsupported(
+                "successful non-applying L1 roots with callbacks are unsupported",
+            )
+            .into());
+        }
         let canonical: HashMap<_, _> = self
             .outputs
             .extract_if(|chain, _| !chain.is_mainnet())
@@ -1564,7 +1540,7 @@ mod tests {
     }
 
     #[test]
-    fn static_local_write_reuses_an_earlier_candidate_in_both_directions() {
+    fn static_local_write_preserves_rows_and_resolves_earlier_candidates() {
         let l2 = RollupId(1);
         for (origin, reader, values) in [(RollupId::MAINNET, l2), (l2, RollupId::MAINNET)]
             .into_iter()
@@ -1597,14 +1573,18 @@ mod tests {
             let rows = &batches[&reader].batch.entries[0].expectedL1ToL2Calls;
             assert_eq!(
                 rows.len(),
-                2,
-                "reader {reader:?}: reuse first candidate on third read"
+                values.len(),
+                "reader {reader:?}: preserve historical observation rows"
             );
             assert_eq!(rows[0].returnData.as_ref(), [1]);
-            assert_eq!(rows[1].returnData.as_ref(), [2]);
+            assert_eq!(rows[1].returnData.as_ref(), [values[1]]);
+            let different = rows
+                .iter()
+                .find(|row| row.returnData.as_ref() == [2])
+                .unwrap();
             assert_ne!(
                 rows[0].revertedOrStaticRollingHash,
-                rows[1].revertedOrStaticRollingHash
+                different.revertedOrStaticRollingHash
             );
             assert_eq!(rows[0].expectedL1toL2Hash, rows[1].expectedL1toL2Hash);
             assert_eq!(
@@ -1666,7 +1646,8 @@ mod tests {
                     crate::entries::verify_nested_group(&forged_l1, &forged_l2, direction, l2)
                         .expect_err("forged static candidate must be rejected");
                 assert!(
-                    error.to_string().contains(expected),
+                    (error.to_string().contains(expected)
+                        || error.to_string().contains("did not consume the complete")),
                     "mutation {mutation}: {error}"
                 );
             }
@@ -1706,33 +1687,18 @@ mod tests {
     }
 
     #[test]
-    fn source_revert_span_makes_the_complete_call_tree_lookup_only() {
+    fn successful_source_reverted_root_cannot_authorize_callbacks() {
         let l2 = RollupId(1);
         let mut calls = vec![
             action(0, None, RollupId::MAINNET, l2),
             action(1, Some(0), l2, RollupId::MAINNET),
-            action(2, None, RollupId::MAINNET, l2),
         ];
         calls[0].revert_spans = vec![2];
-
-        let mut batches = materialize_batches(&calls, RollupId::MAINNET)
-            .expect("materialize source-reverted roots");
-        let l1 = batches.remove(&RollupId::MAINNET).expect("L1 source");
-        let l2_output = batches.remove(&l2).expect("surviving L2 delivery");
-        assert!(batches.is_empty());
-
-        assert_eq!(l1.batch.entries.len(), 2);
-        assert_eq!(l1.batch.entries[0].l2ToL1Calls.len(), 1);
-        assert_eq!(l1.batch.entries[0].l2ToL1Calls[0].data, calls[1].data);
-        assert_eq!(
-            l1.batch.entries[0].l2ToL1Calls[0].targetAddress,
-            calls[1].target_address
-        );
-        assert!(l1.batch.entries[0].expectedL1ToL2Calls.is_empty());
-        assert_eq!(l2_output.batch.entries.len(), 1);
-        assert_eq!(
-            l2_output.batch.entries[0].proxyEntryHash,
-            destination_call_hash(&calls[2]),
+        let error = materialize_batches(&calls, RollupId::MAINNET).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("successful non-applying L1 roots with callbacks")
         );
     }
 
@@ -1955,6 +1921,13 @@ mod tests {
             let (source, target) = if parent.is_some() { (l2, l1) } else { (l1, l2) };
             let mut calls = vec![action(0, None, l1, l2), action(1, parent, source, target)];
             calls[0].revert_spans = vec![2];
+            if parent.is_some() {
+                calls[0].outcome = crate::ExecutionOutcome::Resolved {
+                    success: false,
+                    return_data: vec![],
+                    gas_used: 21_000,
+                };
+            }
             materialize_batches(&calls, l1).expect("one complete source rollback region");
 
             calls[1].revert_spans = vec![1];
@@ -2553,8 +2526,21 @@ mod tests {
         assert_eq!(l1.batch.entries[0].expectedL1ToL2Calls.len(), 1);
         assert!(!l1.batch.entries[0].expectedL1ToL2Calls[0].success);
         assert_eq!(
-            crate::entries::outbound_ether_out(&l1.batch.entries[0]),
-            Some(U256::ZERO),
+            crate::entries::project_outbound_value(
+                &l1.batch.entries[0],
+                &l1.entry_traces[0],
+                &l2_output
+                    .batch
+                    .entries
+                    .iter()
+                    .cloned()
+                    .map(crate::system_tx::OutboundSourceEntry::Mutable)
+                    .collect::<Vec<_>>(),
+                l2,
+            )
+            .unwrap()
+            .l2_to_l1_value,
+            U256::ZERO,
             "escrow projection must accept an unfinalized failed callback row"
         );
 
@@ -2869,7 +2855,7 @@ mod tests {
             finalize_l1_entry_traces(&mut host.batch, &host.entry_traces).expect("finalize host");
             let rows = &host.batch.entries[0].expectedL1ToL2Calls;
             if accepted {
-                assert_eq!(rows.len(), 1, "identical callbacks reuse their candidate");
+                assert_eq!(rows.len(), 2, "preserve one historical row per observation");
             } else {
                 assert_eq!(rows.len(), 2);
                 assert_eq!(rows[0].expectedL1toL2Hash, rows[1].expectedL1toL2Hash);

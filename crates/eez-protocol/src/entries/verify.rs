@@ -12,6 +12,8 @@
 
 use std::borrow::Borrow;
 
+use alloy_sol_types::SolValue as _;
+
 use alloy_primitives::{B256, Bytes, I256, U256, keccak256};
 
 use crate::abi::{ExecutionEntrySol, L2StaticExecutionEntrySol, L2ToL1CallSol};
@@ -40,6 +42,10 @@ pub struct NestedPairVerification {
     pub l2_outbound_hashes: Vec<B256>,
     /// Net L1→L2 value minus L2→L1 value for this rollup.
     pub ether_delta: I256,
+    /// Surviving directional transfers, after all enclosing rollback scopes.
+    pub l1_to_l2_value: U256,
+    /// Surviving L2→L1 transfers; used for escrow admission before submission.
+    pub l2_to_l1_value: U256,
 }
 
 /// Verify one settlement entry against the complete ordered L2 execution
@@ -253,6 +259,8 @@ fn finish_facts(facts: AccumulatedFacts) -> ProtocolResult<NestedPairVerificatio
     Ok(NestedPairVerification {
         l2_outbound_hashes: facts.l2_outbound_hashes,
         ether_delta,
+        l1_to_l2_value: facts.l1_to_l2_value,
+        l2_to_l1_value: facts.l2_to_l1_value,
     })
 }
 
@@ -263,8 +271,8 @@ fn finish_facts(facts: AccumulatedFacts) -> ProtocolResult<NestedPairVerificatio
 /// because EEZL2 resolves that key using its first matching cached entry.
 ///
 /// Mutable-only sources retain nested/revert verification. Groups containing
-/// static sources support nested reads and successful mutable roots, with no
-/// root revert spans. The caller must bind the
+/// static sources use the same failed-frame and root-span rollback rules.
+/// The caller must bind the
 /// complete load and receipt evidence before treating the returned facts as
 /// authorization.
 ///
@@ -274,14 +282,14 @@ fn finish_facts(facts: AccumulatedFacts) -> ProtocolResult<NestedPairVerificatio
 /// coverage, conflicting static results, and mismatched identities or hashes.
 pub fn verify_outbound_source_group(
     l1_entry: &ExecutionEntrySol,
-    sources: &[crate::system_tx::OutboundSourceEntry],
+    sources: &[impl Borrow<crate::system_tx::OutboundSourceEntry>],
     l2_rollup_id: RollupId,
 ) -> ProtocolResult<NestedPairVerification> {
     use crate::system_tx::OutboundSourceEntry;
     let mut mutable = Vec::new();
     let mut statics = Vec::new();
     for source in sources {
-        match source {
+        match source.borrow() {
             OutboundSourceEntry::Mutable(entry) if statics.is_empty() => mutable.push(entry),
             OutboundSourceEntry::Static(entry) => statics.push(entry),
             OutboundSourceEntry::Mutable(_) => {
@@ -569,6 +577,7 @@ fn resolve_static_callbacks(
             .into());
         }
         l1.mark_static_row(row_index)?;
+        l1.call_cursors[row_index + 1] = 0;
         let mut callback_results = StaticCallRollingHash::new();
         for nested in &row.l2ToL1Calls {
             let lookup = static_entries
@@ -920,18 +929,18 @@ fn resolve_static_row_pair(
     // coverage. Candidate probing cannot mark an unchecked row as validated.
     // Shared subgraphs need one coverage update, not exponential traversal.
     let mut pending = vec![(0, selected)];
-    let mut covered = std::collections::HashSet::new();
+    let mut visited = std::collections::HashSet::new();
     while let Some((side, row)) = pending.pop() {
-        if !covered.insert((side, row)) {
-            continue;
-        }
-        if side == 0 {
-            lookup.mark_static_row(row)?;
-            lookup.call_cursors[row + 1] = lookup.entry.expectedL1ToL2Calls[row].l2ToL1Calls.len();
+        let newly_covered = if side == 0 {
+            lookup.mark_static_row(row)?
         } else {
-            executing.mark_static_row(row)?;
-            executing.call_cursors[row + 1] =
-                executing.entry.expectedL1ToL2Calls[row].l2ToL1Calls.len();
+            executing.mark_static_row(row)?
+        };
+        // A reused candidate can resolve children at a new host position.
+        // Visit it once per pending read, then only for newly covered duplicate
+        // observations. Both bounds are proportional to table size.
+        if !visited.insert((side, row)) && !newly_covered {
+            continue;
         }
         pending.extend(
             resolver.children[&(side, row)]
@@ -1020,7 +1029,7 @@ impl<'a> ChainState<'a> {
         row_index
     }
 
-    fn mark_static_row(&mut self, row_index: usize) -> ProtocolResult<()> {
+    fn mark_static_row(&mut self, row_index: usize) -> ProtocolResult<bool> {
         let row = &self.entry.expectedL1ToL2Calls[row_index];
         // Static resolution can revisit the same key across different pending
         // reads. Compare the complete lookup commitment over the whole host,
@@ -1038,9 +1047,25 @@ impl<'a> ChainState<'a> {
             )
             .into());
         }
-        self.seen_rows[row_index] = true;
-        self.call_cursors[row_index + 1] = 0;
-        Ok(())
+        let encoded = row.abi_encode();
+        let unseen =
+            self.entry
+                .expectedL1ToL2Calls
+                .iter()
+                .enumerate()
+                .find(|(index, candidate)| {
+                    !self.seen_rows[*index] && candidate.abi_encode() == encoded
+                });
+        if let Some((index, candidate)) = unseen {
+            // One historical row per observed static read. Only a byte-identical
+            // copy of the selected, validated read-only program can share its
+            // coverage; extra or differing candidates remain unverified.
+            self.seen_rows[index] = true;
+            self.call_cursors[index + 1] = candidate.l2ToL1Calls.len();
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     fn close_row(&mut self, row_index: usize, success: bool) -> ProtocolResult<()> {

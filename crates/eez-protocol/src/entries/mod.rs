@@ -214,52 +214,52 @@ pub fn finalize_l1_rolling_hashes(batch: &mut EvmBatch) -> ProtocolResult<()> {
     Ok(())
 }
 
-/// Sum the value of every committed flat call in an entry, including each
-/// successful reentrant row's own sub-array.
+/// Compute surviving outbound transfers before settlement roots are available.
 ///
-/// A failed nested row rolls its complete frame back, so none of its recorded
-/// sub-calls contribute value even when the reverted-frame witness contains
-/// them. Row commitments are deliberately not validated here: successful
-/// static rows bind a nonzero callback hash, and L1 mutable rows use this
-/// projection before their root-dependent traces are finalized. Contextual
-/// pair verification checks each row's kind and completed commitment later.
-/// A failed top-level entry rolls every callback back and releases no value.
-/// All arrays are still validated before returning zero for that entry.
-/// Returns `None` on arithmetic overflow or a malformed/unsupported call array.
-#[must_use]
-pub fn entry_flat_value_sum(entry: &ExecutionEntrySol) -> Option<U256> {
-    let mut sum = committed_call_array_value(&entry.l2ToL1Calls)?;
-    for row in &entry.expectedL1ToL2Calls {
-        let value = committed_call_array_value(&row.l2ToL1Calls)?;
-        if row.success {
-            sum = sum.checked_add(value)?;
-        }
-    }
-    Some(if entry.success { sum } else { U256::ZERO })
+/// Finalize a copy with a placeholder root and run the normal table traversal.
+/// Rollback ownership requires both chains' tables; summing isolated rows loses
+/// failed-ancestor effects. These planning facts do not authorize settlement:
+/// the signer verifies the final root-bound entries and execution independently.
+pub fn project_outbound_value(
+    entry: &ExecutionEntrySol,
+    trace: &EntryTrace,
+    sources: &[impl std::borrow::Borrow<crate::system_tx::OutboundSourceEntry>],
+    rollup: RollupId,
+) -> ProtocolResult<NestedPairVerification> {
+    let entry = value_projection_entry(entry, trace, rollup)?;
+    verify_outbound_source_group(&entry, sources, rollup)
 }
 
-fn committed_call_array_value(calls: &[L2ToL1CallSol]) -> Option<U256> {
-    // Validate every interior marker before skipping the outer reverted window.
-    crate::system_tx::check_call_array_shape(calls, "value projection").ok()?;
-    let mut sum = U256::ZERO;
-    let mut index = 0usize;
-    while index < calls.len() {
-        let span = usize::from(calls[index].revertNextNCalls);
-        if span == 0 {
-            sum = sum.checked_add(calls[index].value)?;
-            index += 1;
-        } else {
-            let end = index.checked_add(span)?;
-            index = end;
-        }
-    }
-    Some(sum)
+/// Compute surviving inbound transfers using the paired delivery and L1 trace.
+/// See [`project_outbound_value`] for the planning/authorization boundary.
+pub fn project_inbound_value(
+    entry: &ExecutionEntrySol,
+    trace: &EntryTrace,
+    delivery: &ExecutionEntrySol,
+    rollup: RollupId,
+) -> ProtocolResult<NestedPairVerification> {
+    let entry = value_projection_entry(entry, trace, rollup)?;
+    verify_nested_pair(&entry, delivery, NestedPairDirection::Inbound, rollup)
 }
 
-/// Return the total ETH released by a successful L1 host entry.
-#[must_use]
-pub fn outbound_ether_out(entry: &ExecutionEntrySol) -> Option<U256> {
-    entry_flat_value_sum(entry)
+fn value_projection_entry(
+    entry: &ExecutionEntrySol,
+    trace: &EntryTrace,
+    rollup: RollupId,
+) -> ProtocolResult<ExecutionEntrySol> {
+    let mut entry = entry.clone();
+    entry.rootUpdates = vec![crate::abi::RootUpdateSol {
+        rollupId: rollup.0,
+        currentRoot: B256::ZERO,
+        newRoot: B256::ZERO,
+        etherDelta: crate::abi::EtherDeltaSol::ZERO,
+    }];
+    let mut batch = EvmBatch {
+        entries: vec![entry],
+        ..Default::default()
+    };
+    finalize_l1_entry_traces(&mut batch, std::slice::from_ref(trace))?;
+    Ok(batch.entries.remove(0))
 }
 
 /// Inputs for one incoming L2 execution entry.
@@ -801,119 +801,6 @@ mod tests {
         let extra_call = multi_call.entries[0].l2ToL1Calls[0].clone();
         multi_call.entries[0].l2ToL1Calls.push(extra_call);
         assert!(finalize_l1_rolling_hashes(&mut multi_call).is_err());
-    }
-
-    #[test]
-    fn outbound_ether_sums_all_successful_flat_arrays() {
-        let call = L2ToL1CallSol {
-            revertNextNCalls: 0,
-            isStatic: false,
-            gas: 0,
-            sourceAddress: Address::ZERO,
-            sourceRollupId: 7,
-            targetAddress: Address::ZERO,
-            value: U256::from(9),
-            data: Bytes::new(),
-        };
-        let mut entry = ExecutionEntrySol {
-            l2ToL1Calls: vec![call.clone()],
-            success: true,
-            ..Default::default()
-        };
-        assert_eq!(outbound_ether_out(&entry), Some(U256::from(9)));
-
-        entry.success = false;
-        assert_eq!(outbound_ether_out(&entry), Some(U256::ZERO));
-
-        entry.l2ToL1Calls.push(call);
-        assert_eq!(outbound_ether_out(&entry), Some(U256::ZERO));
-        entry.l2ToL1Calls[1].gas = 1;
-        assert_eq!(outbound_ether_out(&entry), None);
-        entry.l2ToL1Calls[1].gas = 0;
-
-        entry.success = true;
-        assert_eq!(outbound_ether_out(&entry), Some(U256::from(18)));
-
-        entry.expectedL1ToL2Calls = vec![ExpectedL1ToL2CallSol {
-            expectedL1toL2Hash: B256::with_last_byte(1),
-            l2ToL1Calls: Vec::new(),
-            revertedOrStaticRollingHash: B256::with_last_byte(2),
-            success: false,
-            returnData: Bytes::from_static(&[0xde, 0xad]),
-        }];
-        assert_eq!(
-            outbound_ether_out(&entry),
-            Some(U256::from(18)),
-            "an empty failed frame is rolled back and contributes no value"
-        );
-
-        entry.expectedL1ToL2Calls[0].revertedOrStaticRollingHash = B256::ZERO;
-        assert_eq!(
-            outbound_ether_out(&entry),
-            Some(U256::from(18)),
-            "value projection works before the root-dependent failed-frame hash is finalized"
-        );
-
-        entry.expectedL1ToL2Calls[0].l2ToL1Calls = vec![entry.l2ToL1Calls[0].clone()];
-        assert_eq!(
-            outbound_ether_out(&entry),
-            Some(U256::from(18)),
-            "a failed frame rolls back every value-bearing sub-call"
-        );
-    }
-
-    #[test]
-    fn value_projection_accepts_static_callback_commitments() {
-        let callback = L2ToL1CallSol {
-            revertNextNCalls: 0,
-            isStatic: true,
-            gas: 0,
-            sourceAddress: Address::ZERO,
-            sourceRollupId: 7,
-            targetAddress: Address::ZERO,
-            value: U256::ZERO,
-            data: Bytes::new(),
-        };
-        let entry = ExecutionEntrySol {
-            success: true,
-            expectedL1ToL2Calls: vec![ExpectedL1ToL2CallSol {
-                expectedL1toL2Hash: B256::with_last_byte(1),
-                l2ToL1Calls: vec![callback],
-                revertedOrStaticRollingHash: B256::with_last_byte(2),
-                success: true,
-                returnData: Bytes::new(),
-            }],
-            ..Default::default()
-        };
-        assert_eq!(outbound_ether_out(&entry), Some(U256::ZERO));
-    }
-
-    #[test]
-    fn value_projection_excludes_complete_nested_rollback_windows() {
-        let call = L2ToL1CallSol {
-            revertNextNCalls: 0,
-            isStatic: false,
-            gas: 0,
-            sourceAddress: Address::ZERO,
-            sourceRollupId: 7,
-            targetAddress: Address::ZERO,
-            value: U256::from(9),
-            data: Bytes::new(),
-        };
-        let mut entry = ExecutionEntrySol {
-            success: true,
-            l2ToL1Calls: vec![call; 4],
-            ..Default::default()
-        };
-        entry.l2ToL1Calls[0].revertNextNCalls = 3;
-        entry.l2ToL1Calls[1].revertNextNCalls = 1;
-        assert_eq!(outbound_ether_out(&entry), Some(U256::from(9)));
-        entry.l2ToL1Calls[1].revertNextNCalls = 3;
-        assert_eq!(
-            outbound_ether_out(&entry),
-            None,
-            "crossing rollback windows are malformed"
-        );
     }
 
     #[test]

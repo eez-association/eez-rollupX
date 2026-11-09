@@ -3556,10 +3556,24 @@ where
                     // "ether out" is the amount of Ether being withdrawn in this outbound settlement entry.
                     // If missing, the entry is malformed and must be evicted.
                     // Review once reentrancy is available
-                    let Some(need) = l1_entries.iter().try_fold(U256::ZERO, |total, entry| {
-                        eez_protocol::entries::outbound_ether_out(entry)
-                            .and_then(|value| total.checked_add(value))
-                    }) else {
+                    let sources = outbound_group
+                        .effects
+                        .iter()
+                        .map(|effect| &effect.source_entry)
+                        .collect::<Vec<_>>();
+                    let Some(need) = l1_entries.iter().zip(&l1_target.entry_traces).try_fold(
+                        U256::ZERO,
+                        |total, (entry, trace)| {
+                            eez_protocol::entries::project_outbound_value(
+                                entry,
+                                trace,
+                                &sources,
+                                eez_protocol::RollupId(rollup_id),
+                            )
+                            .ok()
+                            .and_then(|value| total.checked_add(value.l2_to_l1_value))
+                        },
+                    ) else {
                         event!(name: "eez.composer.cc_compose.outbound_ether_out_missing", Level::WARN, rollup_id, tx_idx = idx, tx_hash = %held.hash, "outbound tx is missing ether out entry, likely malformed; evicting");
                         selection.block(idx);
 
@@ -6624,27 +6638,24 @@ where
         let mut effect_block_hashes = Vec::with_capacity(outbound_entries.len());
         let mut effect_successes = Vec::with_capacity(outbound_entries.len());
         let mut outbound_effect_cursor = 0usize;
-        for (settlement, root_count) in outbound_entries.iter().zip(outbound_settlement_root_counts)
+        for ((settlement, trace), root_count) in outbound_entries
+            .iter()
+            .zip(outbound_entry_traces)
+            .zip(outbound_settlement_root_counts)
         {
-            let outflow = eez_protocol::entries::entry_flat_value_sum(settlement)
-                .ok_or_else(|| "invalid outbound settlement value shape".to_string())?;
             let effect_end = outbound_effect_cursor + root_count;
-            let inflow = outbound_effects[outbound_effect_cursor..effect_end]
+            let sources = outbound_effects[outbound_effect_cursor..effect_end]
                 .iter()
-                .try_fold(U256::ZERO, |total, effect| {
-                    let source_value = match &effect.source_entry {
-                        eez_protocol::system_tx::OutboundSourceEntry::Mutable(sidecar) => {
-                            eez_protocol::entries::entry_flat_value_sum(sidecar).ok_or_else(
-                                || "invalid outbound L2 sidecar value shape".to_string(),
-                            )?
-                        }
-                        eez_protocol::system_tx::OutboundSourceEntry::Static(_) => U256::ZERO,
-                    };
-                    total
-                        .checked_add(source_value)
-                        .ok_or_else(|| "outbound L2 sidecar value sum overflow".to_string())
-                })?;
-            effect_ether_deltas.push(net_ether_delta(inflow, outflow)?);
+                .map(|effect| &effect.source_entry)
+                .collect::<Vec<_>>();
+            let value = eez_protocol::entries::project_outbound_value(
+                settlement,
+                trace,
+                &sources,
+                eez_protocol::RollupId(rollup_id),
+            )
+            .map_err(|error| error.to_string())?;
+            effect_ether_deltas.push(net_ether_delta(value.l1_to_l2_value, value.l2_to_l1_value)?);
             effect_block_hashes.push(pair_hashes[effect_end - 1]);
             effect_successes.push(settlement.success);
             outbound_effect_cursor = effect_end;
@@ -6710,11 +6721,15 @@ where
                     )
                     .into());
                 }
-                let outflow = eez_protocol::entries::entry_flat_value_sum(source_entry)
-                    .ok_or_else(|| "invalid inbound L1 entry value shape".to_string())?;
-                let inflow = eez_protocol::entries::entry_flat_value_sum(sidecar)
-                    .ok_or_else(|| "invalid inbound L2 sidecar value shape".to_string())?;
-                effect_ether_deltas.push(net_ether_delta(inflow, outflow)?);
+                let value = eez_protocol::entries::project_inbound_value(
+                    source_entry,
+                    &composition.source.entry_traces[source_cursor - 1],
+                    sidecar,
+                    eez_protocol::RollupId(rollup_id),
+                )
+                .map_err(|error| error.to_string())?;
+                effect_ether_deltas
+                    .push(net_ether_delta(value.l1_to_l2_value, value.l2_to_l1_value)?);
             }
             if source_cursor != composition.source.batch.entries.len()
                 || sidecar_cursor != sidecars.len()

@@ -1,6 +1,7 @@
 # Complete pinned protocol E2E support
 
-Status: owner-authorized scope, implemented and qualified. Related issues: #85,
+Status: owner-authorized scope; review corrections in progress. Prior qualification
+applies only to the revisions identified in the audit. Related issues: #85,
 #81, #13. Fork baseline: `c702f90da19cc149890d0a17a4ef6c200dcb6a21`;
 unchanged protocol: `84a5b5207880f192a6a5896cbfe0bac5249db47f`.
 See the [audit](../audits/2026-10-30-full-protocol-e2e/README.md) for source identities,
@@ -58,12 +59,38 @@ implementation or let a Composer-supplied replay program authorize signing.
   see transient writes. Derive spans from bound actions, restore nested snapshots
   in reverse order, and never commit scratch writes to canonical state.
 
+### Review corrections (2026-11-09)
+
+The owner authorized fixes for the deep review of head `8b5cafd3`. Keep the
+implementation in the existing materializer and verifier, without new runtime
+modes or a parallel historical decoder:
+
+- Reject successful non-applying L1 roots with callbacks at construction and
+  signer classification. Failed-root callbacks remain supported because L1
+  enforces their rollback. Simulation of an enclosing source revert is not
+  execution authority on L1.
+- Rebuild a reused root program and compare its complete table and trace; never
+  concatenate callbacks from successive attempts.
+- Compute settlement and escrow transfers using the existing paired traversal,
+  which restores complete ancestor effects. Planning uses a root-finalized copy;
+  signing still verifies actual roots and independently executed evidence.
+- Preserve baseline static table bytes and frozen historical replay fixtures.
+  Do not relax exact native binding or accept unobserved duplicate rows.
+- Align mixed-static acceptance with the same bounded failed-frame and rollback
+  semantics already checked by the verifier.
+
+Acceptance requires the original failing cases to pass, adversarial retry/table
+and lookup cases to reject, package and source process regressions, and integrated
+CI qualification. Prior full-network results do not qualify these corrections.
+
 ### Static reads and partitioning
 
 Static reads leave mutable cursors unchanged. A failed mutable candidate can be
-selected again after a read. Reuse static rows only when their full callback array,
-callback commitment and cached outcome match; position keys alone cannot distinguish
-local-write sequences such as 1 → 2 → 1. Resolve against fixed host contexts,
+selected again after a read. Preserve one static row per observation for exact
+historical reconstruction; runtime lookup can still select an earlier identical
+candidate. Each observed read can cover one byte-identical row, never an unchecked
+extra row. Position keys alone cannot distinguish local-write sequences such as
+1 → 2 → 1. Resolve against fixed host contexts,
 memoize only within one pending read, reject cycles and enforce nesting limits even
 for cached suffixes. Only selected, validated callback graphs establish coverage.
 

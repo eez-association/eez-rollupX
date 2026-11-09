@@ -421,7 +421,7 @@ fn native_lookup_semantics_bind_results_without_an_l2_effect() {
 }
 
 #[test]
-fn source_reverted_lookup_binds_complete_callback_table_before_replay() {
+fn failed_lookup_binds_complete_callback_table_before_replay() {
     let root = B256::ZERO;
     let mut outer = semantic_action(
         RollupId::MAINNET,
@@ -433,6 +433,11 @@ fn source_reverted_lookup_binds_complete_callback_table_before_replay() {
         Bytes::from_static(b"outer result"),
     );
     outer.revert_spans = vec![2];
+    outer.outcome = ExecutionOutcome::Resolved {
+        success: false,
+        return_data: b"outer result".to_vec(),
+        gas_used: 21_000,
+    };
     let mut nested = semantic_action(
         RollupId(1),
         RollupId::MAINNET,
@@ -505,6 +510,25 @@ fn source_reverted_lookup_binds_complete_callback_table_before_replay() {
     assert_eq!(
         claims[0].expected_output,
         Bytes::from_static(b"outer result")
+    );
+
+    let mut unsafe_semantics = decoded.clone();
+    if let ExecutionOutcome::Resolved { success, .. } = &mut unsafe_semantics[0].actions[0].outcome
+    {
+        *success = true;
+    }
+    let error = verify_native_semantics(
+        &unsafe_semantics,
+        &window,
+        &AuthorizedOutboundEffects::default(),
+        &AuthorizedInboundEffects::default(),
+        &batch,
+        expected_rollup_id(),
+    )
+    .expect_err("a predicted source rollback cannot authorize successful lookup callbacks");
+    assert!(
+        matches!(error, SemanticBindingError::Materialization { reason, .. }
+        if reason.contains("successful non-applying L1 roots with callbacks"))
     );
 
     let mut forged = decoded;

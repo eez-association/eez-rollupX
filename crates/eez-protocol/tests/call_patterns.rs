@@ -124,7 +124,7 @@ fn static_pool_callbacks_reuse_within_a_read_and_separate_local_write_contexts()
     });
     finalize_l1_entry_traces(&mut target.batch, &target.entry_traces).unwrap();
     let host = &target.batch.entries[0];
-    assert_eq!(host.expectedL1ToL2Calls.len(), 3);
+    assert_eq!(host.expectedL1ToL2Calls.len(), 6);
     let keys = host
         .expectedL1ToL2Calls
         .iter()
@@ -149,12 +149,12 @@ fn static_pool_callbacks_reuse_within_a_read_and_separate_local_write_contexts()
     verify_outbound_source_group(host, &sources, l2).unwrap();
 
     let mut forged = host.clone();
-    forged.expectedL1ToL2Calls[1].expectedL1toL2Hash =
+    forged.expectedL1ToL2Calls[2].expectedL1toL2Hash =
         forged.expectedL1ToL2Calls[0].expectedL1toL2Hash;
     let error = verify_outbound_source_group(&forged, &sources, l2)
         .expect_err("a previous read's row cannot answer the next read");
     assert!(
-        error.to_string().contains("does not match its L1 host row"),
+        error.to_string().contains("did not consume the complete"),
         "{error}"
     );
 }
@@ -392,10 +392,7 @@ fn failed_inbound_root_retains_source_callbacks_without_canonical_delivery() {
     assert!(eez_protocol::settlement::is_lookup_only_inbound_entry(
         entry, l2.0
     ));
-    assert_eq!(
-        eez_protocol::entries::entry_flat_value_sum(entry),
-        Some(U256::ZERO)
-    );
+    assert!(!entry.success, "the L1 entry itself enforces rollback");
 }
 
 #[test]

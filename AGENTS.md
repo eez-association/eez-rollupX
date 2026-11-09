@@ -109,7 +109,8 @@ its Solidity implementation/tests and the applicable fork contract:
   finalize a copy; continuing execution and FIFO observations use the unfinalized
   prefix. Never let checkpoint projection conceal an invalid terminal state root. Never clean between a load and its signed user
   or inside callbacks. Keep speculative group cursors with rollback state and
-  validation-contract-7 semantics consistent across all execution paths.
+  RPC validation-contract-8 semantics consistent across all execution paths;
+  the deployed signing domain remains 7.
   Preserve history, execution and ownership invariants and keep owning runtime
   specifications, identities and fixtures consistent.
   Source identities bind the L2 EVM chain ID, intended L1 parent and zero-based
@@ -181,7 +182,9 @@ its Solidity implementation/tests and the applicable fork contract:
   regenerate affected expectations independently and retain execution evidence provenance.
   Keep the [validation identity](crates/eez-control-rpc/VALIDATION_IDENTITY.md)
   language-neutral. One `VALIDATION_VERSION` covers identity encoding, canonical
-  JSON and validation semantics; there are no separately selectable versions.
+  JSON and validation semantics; there are no separately selectable runtime versions.
+  RPC validation version 8 is distinct from the unchanged on-chain signing domain 7;
+  follow the validation identity specification for coordinated upgrades.
   Use the pinned Core `Rollup` unchanged. Its registered vkey binds the single
   `NetworkProfile` under `EEZ_ROLLUPX_NETWORK_PROFILE_V1`; see the identity
   specification for the exact tuple. Keep the single `prove.v2.Prover` service.
