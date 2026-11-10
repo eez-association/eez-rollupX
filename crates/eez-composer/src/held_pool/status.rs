@@ -266,7 +266,9 @@ impl QueueTelemetry {
                 queued.contains(&blocked.hash) || in_flight.contains_key(&blocked.hash)
             });
             self.completed.retain(|(hash, generation), _| {
-                data.users.get(hash).is_some_and(|u| u.owner == *generation)
+                data.users
+                    .get(hash)
+                    .is_some_and(|u| u.first_attempt == *generation)
             });
         });
     }
@@ -278,7 +280,10 @@ impl QueueTelemetry {
                     reason: TerminalReason::Committed,
                     canonical: Some(block),
                 } = user.location
-                    && self.completed.insert((*hash, user.owner), block).is_none()
+                    && self
+                        .completed
+                        .insert((*hash, user.first_attempt), block)
+                        .is_none()
                 {
                     let index = usize::from(user.tx.direction == Direction::Outbound);
                     self.completion_observations[index] =
@@ -856,6 +861,7 @@ mod tests {
                     crate::optimistic::OwnedUser {
                         tx: tx.clone(),
                         owner: 7,
+                        first_attempt: 7,
                         fifo_position: 0,
                         location: UserLocation::Terminal {
                             reason: TerminalReason::Committed,
@@ -958,6 +964,7 @@ mod tests {
                     crate::optimistic::OwnedUser {
                         tx: root.clone(),
                         owner: 3,
+                        first_attempt: 3,
                         fifo_position: 0,
                         location: UserLocation::Composing,
                     },
@@ -989,6 +996,7 @@ mod tests {
                     crate::optimistic::OwnedUser {
                         tx: other.clone(),
                         owner: 4,
+                        first_attempt: 4,
                         fifo_position: 1,
                         location: UserLocation::Composing,
                     },

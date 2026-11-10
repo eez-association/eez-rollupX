@@ -611,8 +611,12 @@ Admission preparation, acknowledgement and progress elsewhere are not source
 completion. See the [admission policy](../../docs/configurable-settlement-policy.md).
 Infrastructure-only failures do not charge that policy. Only an exhausted,
 still-unspent source nonce creates a dependent nonce gap. The pool transfers
-ownership and reservations under one lock. Historical attempts cannot
-release or recover users owned by a newer attempt.
+ownership and reservations under one lock. Historical failure or retry outcomes cannot
+release or recover users owned by a newer attempt. Validated complete effects
+from a retained attempt in the same retained admission (including automatic retries) MUST instead
+complete that source and retain the successful attempt’s transaction references.
+This requires the existing exact batch, source-consumption and whole-effect
+checks; a receipt or nonce advance alone does not qualify.
 
 The reference node tracks submitted attempts in memory. It retains signed source
 bytes, the exact pooled postBatch envelope, target, manifest, retry counters and
@@ -626,8 +630,28 @@ completed canonical derivation through the unchanged parent. This deadline is
 not a failure verdict: retain the original envelope, manifest, target, observer
 and signed users until canonical reconciliation. Returning those users to the
 held pool for recomposition MUST preserve reservations and retry counters. Old
-results MUST NOT release users owned by a newer attempt. Canonical source
-evidence can still complete users whose replacement preparation did not finish.
+failure observations MUST NOT release users owned by a newer attempt. Complete
+canonical effect evidence from the same retained admission takes precedence
+over the replacement’s missing-effect disposition, regardless of reconciliation
+order, including after local eviction. Explicit readmission starts a separate
+admission and severs the previous ownership lineage. Reorgs invalidate all
+retained audits above the common ancestor, including ownerless history; either
+an original or a newer replacement may become the canonical winner. Historical
+failures still cannot reclaim ownership or charge a different owner. Finality
+MUST retain a terminal owner while another attempt from its admission has
+unresolved evidence for that source. Once all such evidence is conclusive,
+finality retains the winning references in bounded status history. Canonical
+source evidence can also complete users whose replacement preparation did not
+finish or whose automatic retry has already begun.
+
+Readmission limitation: a locally terminal source can be explicitly readmitted
+while a prior dispatched attempt still has unresolved evidence. That starts a
+new admission; a later `Applied` from the previous admission cannot transfer
+ownership to it. The new admission can therefore retain missing-effect/candidate
+references despite canonical execution by the old attempt. This correction does
+not change the existing readmission policy or make status an execution archive;
+clients must verify canonical receipts. Gating readmission on unresolved prior
+evidence is a separate admission-policy change.
 
 Each replacement advances exactly one slot from the current attempt, with at
 most five scheduled opportunities on one parent including the original. The

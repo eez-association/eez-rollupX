@@ -47,11 +47,9 @@ impl L1ReorgControl {
         );
         let control = tempfile::tempdir().context("L1 reorg control directory")?;
         std::fs::write(control.path().join("jwt.hex"), "11".repeat(32))?;
-        // Only outbound, single-post bundles are supported by this controller.
+        // The controlled EL has a standard transaction pool, not a bundle endpoint.
         std::fs::write(
-            builder
-                .capture_dir()
-                .join("control/single-transaction.json"),
+            builder.capture_dir().join("control/raw-transactions.json"),
             b"{}",
         )?;
         let (log_path, log_dir) = test_log_destination("l1-consensus")?;

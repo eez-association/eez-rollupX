@@ -1556,6 +1556,201 @@ async fn late_original_after_multiple_replacements_retains_users_and_follower_pa
     next_slot_replacement(true, 4).await;
 }
 
+/// Hold a real L1 payload until a replacement owns the inbound source, then
+/// import the original and verify exact receipts, effects and follower replay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn delayed_inbound_original_reports_the_batch_that_actually_settled() {
+    let mut config = env();
+    config.extend([
+        ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "2".into()),
+        ("EEZ_PROOF_TIME_MS", "1000".into()),
+        ("EEZ_SUBMISSION_SLACK_MS", "1500".into()),
+    ]);
+    let mut world = setup_cross_chain_with_l1_reorg(&config).await.unwrap();
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let composer = ProviderBuilder::new().connect_http(world.l1_xchain().parse().unwrap());
+    let follower = NodeHandle::start(
+        "inbound-late-original-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    let idle = world.node.signal_cursor().unwrap();
+    wait_for(TIMEOUT, || async {
+        Ok(world
+            .node
+            .signals_since(idle)?
+            .iter()
+            .any(|e| e.name == "eez.composer.slot.plan" && e.fields["prepare"] == false)
+            .then_some(()))
+    })
+    .await
+    .unwrap();
+    world.hold_next_bundle().unwrap();
+    let cursor = world.node.signal_cursor().unwrap();
+    let source = sign_and_send(
+        &world.l1_xchain(),
+        ANVIL_KEY_2,
+        l1.get_chain_id().await.unwrap(),
+        onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap(),
+        Some(world.setter_proxy),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(731) }.abi_encode(),
+        400_000,
+    )
+    .await
+    .unwrap();
+    let held = wait_for(TIMEOUT, || async { world.held_bundle() })
+        .await
+        .unwrap();
+    assert_eq!(held["params"][0]["txs"].as_array().unwrap().len(), 2);
+    let target_timestamp = held["params"][0]["minTimestamp"].as_u64().unwrap();
+    world
+        .l1_reorg_control
+        .as_mut()
+        .unwrap()
+        .delay_slot(target_timestamp)
+        .await
+        .unwrap();
+    let original: serde_json::Value = composer
+        .client()
+        .request("eez_getCrossChainTransaction", (source,))
+        .await
+        .unwrap();
+    let original_post = original["transactions"]["postBatch"]["hash"]
+        .as_str()
+        .unwrap()
+        .parse::<alloy_primitives::B256>()
+        .unwrap();
+    world.release_bundle(&held).unwrap();
+    let replacement_post = wait_for(Duration::from_secs(30), || async {
+        let events = world.node.signals_since(cursor)?;
+        let released_original = events.iter().any(|event| {
+            event.name == "eez.composer.settlement.replacement"
+                && event.fields["original_post_batch"] == serde_json::json!(original_post)
+        });
+        let Some(dispatched) = events.iter().find(|event| {
+            event.name == "eez.submitter.bundle.dispatch"
+                && event.fields["target_timestamp"] == target_timestamp + 5
+        }) else {
+            return Ok(None);
+        };
+        let status: serde_json::Value = composer
+            .client()
+            .request("eez_getCrossChainTransaction", (source,))
+            .await?;
+        Ok((released_original
+            && status["transactions"]["attemptGeneration"].is_string()
+            && status["transactions"]["attemptGeneration"]
+                != original["transactions"]["attemptGeneration"]
+            && status["transactions"]["postBatch"]["hash"] == dispatched.fields["tx_hash"])
+            .then(|| dispatched.fields["tx_hash"].as_str().unwrap().to_owned()))
+    })
+    .await
+    .unwrap_or_else(|e| {
+        panic!(
+            "no inbound replacement: {e:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
+    world
+        .l1_reorg_control
+        .as_mut()
+        .unwrap()
+        .release_delayed_slot()
+        .await
+        .unwrap();
+    let source_receipt = wait_for(TIMEOUT, || async {
+        Ok(l1.get_transaction_receipt(source).await?)
+    })
+    .await
+    .unwrap();
+    assert!(source_receipt.status());
+
+    // Either attempt may reconcile first. Wait for the replacement's disposition;
+    // Committed then requires the original's too. Both orders must preserve the
+    // winning references, rather than stopping at a transient Committed response.
+    wait_for(TIMEOUT, || async {
+        Ok(world
+            .node
+            .signals_since(cursor)?
+            .iter()
+            .any(|event| {
+                event.name == "eez.composer.settlement.reconciled"
+                    && event.fields["post_batch_hash"] == replacement_post
+            })
+            .then_some(()))
+    })
+    .await
+    .unwrap();
+    let settled = wait_for(TIMEOUT, || async {
+        let status: serde_json::Value = composer
+            .client()
+            .request("eez_getCrossChainTransaction", (source,))
+            .await?;
+        Ok((status["ownership"]["reason"] == "Committed").then_some(status))
+    })
+    .await
+    .unwrap_or_else(|e| {
+        panic!(
+            "inbound original not reconciled: {e:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
+    assert_eq!(
+        settled["transactions"]["postBatch"]["hash"],
+        serde_json::json!(original_post)
+    );
+    assert_eq!(settled["transactions"], original["transactions"]);
+    let post_receipt = l1
+        .get_transaction_receipt(original_post)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(post_receipt.status());
+    assert_eq!(post_receipt.block_hash, source_receipt.block_hash);
+    assert!(post_receipt.transaction_index < source_receipt.transaction_index);
+    let delivery = settled["transactions"]["l2"][0]["hash"]
+        .as_str()
+        .unwrap()
+        .parse::<alloy_primitives::B256>()
+        .unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    // Inbound delivery is an EEZ native transaction (0x45), outside Alloy's
+    // Ethereum-only receipt envelope. Check its RPC fields without decoding it
+    // as a signed Ethereum transaction.
+    let delivery_receipt: serde_json::Value = l2
+        .client()
+        .request("eth_getTransactionReceipt", (delivery,))
+        .await
+        .unwrap();
+    assert_eq!(delivery_receipt["status"], "0x1");
+    assert_eq!(
+        delivery_receipt["transactionHash"],
+        serde_json::json!(delivery)
+    );
+    assert_eq!(delivery_receipt["type"], "0x45");
+    let delivery_height = u64::from_str_radix(
+        delivery_receipt["blockNumber"]
+            .as_str()
+            .unwrap()
+            .trim_start_matches("0x"),
+        16,
+    )
+    .unwrap();
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], delivery_height, TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(
+        l2_value(&world.l2_rpc(), world.value_l2).await.unwrap(),
+        U256::from(731)
+    );
+}
+
 async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
     // Leave time for the relay-capture poll and Engine API control handshake
     // before the targeted slot. The controller rejects requests for past slots.
@@ -1830,6 +2025,23 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
             .await
             .unwrap();
         assert_eq!(settlement["canonicalL2"], true);
+        assert_eq!(
+            owner["transactions"]["postBatch"]["hash"], settlement["l1TransactionHash"],
+            "terminal references must identify the settled batch, including late originals"
+        );
+        assert_eq!(
+            owner["transactions"]["l1"]["hash"],
+            settlement["l1TransactionHash"]
+        );
+        let post_hash: alloy_primitives::B256 =
+            serde_json::from_value(owner["transactions"]["postBatch"]["hash"].clone()).unwrap();
+        let post_receipt = l1
+            .get_transaction_receipt(post_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(post_receipt.status());
+        assert_eq!(post_receipt.block_hash, Some(landed.header.hash));
         assert_eq!(settlement["l1BlockNumber"], format!("{target_height:#x}"));
         assert_eq!(
             settlement["l1BlockHash"],

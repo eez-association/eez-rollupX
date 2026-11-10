@@ -306,7 +306,7 @@ persistent event audit trail. Reorgs do not erase historical submission observat
 | `submission_target_l1_block`, `submission_target_timestamp_seconds`, `submission_included_l1_block` | Latest actual dispatch target and latest observed receipt block. These may refer to different attempts; they are not paired records. |
 | `submission_sync_l2_block`, `submission_sync_requests{direction}` | Endpoint height and inbound/outbound user counts of the latest prepared Sync submission attempt. |
 | `submission_sync_requests_per_attempt` | Per-direction distribution and cumulative sum/count of user requests selected per prepared submission attempt, including zero-user anchor-only attempts. |
-| `queue_completion_observations_total{direction}` | Canonical user-effect completion observations, deduplicated within retained attempt history. Invalidated completions observed again after a reorg count again; repeated sampling does not. |
+| `queue_completion_observations_total{direction}` | Canonical user-effect completion observations, deduplicated across attempts within each retained admission, including changes of canonical owner. Invalidated completions observed again after a reorg count again; repeated sampling does not. |
 
 All series have `rollup_id`. Block heights and transaction hashes are never metric
 labels. The existing metrics flag/recorder controls export; no new service, timer,

@@ -221,7 +221,7 @@ class BuilderControlTest(unittest.TestCase):
         self.assertEqual(self.forwarded[-1], request)
 
     def test_controlled_consensus_forwards_one_post_after_capturing_its_blob(self):
-        (self.directory / "single-transaction.json").write_text("{}")
+        (self.directory / "raw-transactions.json").write_text("{}")
         captures = self.directory / "captures"
         captures.mkdir()
         request = bundle("0x030102")
@@ -247,14 +247,31 @@ class BuilderControlTest(unittest.TestCase):
         self.send(request)
         self.assertEqual(self.forwarded, [request])
 
-    def test_controlled_consensus_never_splits_a_multi_transaction_bundle(self):
-        (self.directory / "single-transaction.json").write_text("{}")
-        reply = self.send(bundle("0x030102", "0x0203"))
-        self.assertEqual(reply["error"]["code"], -32602)
+    def test_controlled_consensus_forwards_companions_in_order(self):
+        (self.directory / "raw-transactions.json").write_text("{}")
+        self.send(bundle("0x030102", "0x0203"))
+        self.assertEqual([r["params"] for r in self.forwarded],
+                         [["0x030102"], ["0x0203"]])
+        self.assertTrue(all(r["method"] == "eth_sendRawTransaction" for r in self.forwarded))
+
+    def test_controlled_consensus_stops_after_a_companion_error(self):
+        (self.directory / "raw-transactions.json").write_text("{}")
+        def forward(raw, **kwargs):
+            reply = self.forward(raw, **kwargs)
+            if len(self.forwarded) == 2:
+                return io.BytesIO(json.dumps({"error": {"code": -32003}}).encode())
+            return reply
+        reply = self.send(bundle("0x030102", "0x0203", "0x0204"), upstream=forward)
+        self.assertEqual(reply["error"]["code"], -32003)
+        self.assertEqual(len(self.forwarded), 2)
+
+    def test_controlled_consensus_rejects_an_empty_bundle(self):
+        (self.directory / "raw-transactions.json").write_text("{}")
+        self.assertEqual(self.send(bundle())["error"]["code"], -32602)
         self.assertEqual(self.forwarded, [])
 
     def test_controlled_consensus_preserves_hold_and_drop_barriers(self):
-        (self.directory / "single-transaction.json").write_text("{}")
+        (self.directory / "raw-transactions.json").write_text("{}")
         (self.directory / "drop-next.json").write_text("{}")
         request = bundle("0x030102")
         self.send(request)

@@ -218,6 +218,10 @@ its Solidity implementation/tests and the applicable fork contract:
   current owner; the timeout authorizes recomposition, never canonical completion
   or eviction. Keep the scheduler and submission gates on the shared bound;
   validate consecutive skipped slots, exhaustion and late-original inclusion.
+  Validated complete effects from the same retained admission (including automatic
+  retries) must retain the successful attempt’s terminal status and references.
+  Old failures
+  cannot overwrite that result or affect an explicitly readmitted request.
 - Pending requests and retry counters are **in memory**. Restart reconciles
   canonical state and may discard speculative blocks; clients may need to
   resubmit unsettled work. Database persistence does not provide durable queue recovery.
