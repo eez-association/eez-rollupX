@@ -14,7 +14,9 @@ mod verify;
 pub use inbound::InboundSidecar;
 
 pub use materialize::{EntryTrace, finalize_l1_entry_traces};
-pub(crate) use materialize::{materialize_batches, materialize_lookup_execution};
+pub(crate) use materialize::{
+    materialize_batches, materialize_batches_with_version, materialize_lookup_execution,
+};
 pub use verify::{
     NestedPairDirection, NestedPairVerification, verify_nested_group, verify_nested_pair,
     verify_outbound_source_group, verify_static_outbound_pair,

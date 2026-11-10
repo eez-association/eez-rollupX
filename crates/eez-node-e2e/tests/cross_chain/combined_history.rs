@@ -205,9 +205,7 @@ fn replace_observation(frames: &mut [v2::ClientFrame], mode: CallMode, old: &[u8
         .map(|(i, blob)| eez_blob_codec::Blob::try_from_slice(i, blob).unwrap())
         .collect::<Vec<_>>();
     let native = eez_blob_codec::decode_native_payload(&blobs, 1).unwrap();
-    let mut semantics =
-        eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)
-            .unwrap();
+    let mut semantics = eez_protocol::blob_semantics::decode_native_semantics(&native).unwrap();
     let mut changed = 0;
     for action in semantics.iter_mut().flat_map(|tx| &mut tx.actions) {
         if action.call_mode == mode
@@ -403,9 +401,7 @@ async fn kurtosis_combined_history_observations_replay_offline() {
             .map(|(i, blob)| eez_blob_codec::Blob::try_from_slice(i, blob).unwrap())
             .collect::<Vec<_>>();
         let native = eez_blob_codec::decode_native_payload(&blobs, 1).unwrap();
-        let semantics =
-            eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)
-                .unwrap();
+        let semantics = eez_protocol::blob_semantics::decode_native_semantics(&native).unwrap();
         let observations = semantics
             .iter()
             .flat_map(|tx| &tx.actions)

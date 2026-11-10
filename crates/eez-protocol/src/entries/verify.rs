@@ -1080,9 +1080,9 @@ impl<'a> ChainState<'a> {
                     !self.seen_rows[*index] && candidate.abi_encode() == encoded
                 });
         if let Some((index, candidate)) = unseen {
-            // One historical row per observed static read. Only a byte-identical
-            // copy of the selected, validated read-only program can share its
-            // coverage; extra or differing candidates remain unverified.
+            // V0 may retain a row per observed read; V1 reuses candidates.
+            // Only a byte-identical copy of the selected, validated read-only
+            // program can share coverage; differing candidates stay unverified.
             self.seen_rows[index] = true;
             self.call_cursors[index + 1] = candidate.l2ToL1Calls.len();
             Ok(true)

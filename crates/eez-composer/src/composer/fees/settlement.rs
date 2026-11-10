@@ -853,6 +853,7 @@ mod tests {
             Address::repeat_byte(1),
             1,
             &[SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(0),
                 tx_data: Bytes::new(),
                 actions: vec![ExecutedAction {

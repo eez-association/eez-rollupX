@@ -50,6 +50,7 @@ fn observation_request_actions(
     let operations = payload(&fixture.blocks);
     let mut chunks = request(state, fixture.blocks.clone(), operations.clone());
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions,

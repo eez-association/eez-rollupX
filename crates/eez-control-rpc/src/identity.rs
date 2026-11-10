@@ -13,7 +13,7 @@ use alloy_rlp::RlpEncodable;
 /// accepted execution/settlement evidence. Independent of the stable on-chain
 /// signing domain: compatible support extensions do not revoke old signatures.
 /// See VALIDATION_IDENTITY.md; implementation/build metadata never participates.
-pub const VALIDATION_VERSION: u64 = 8;
+pub const VALIDATION_VERSION: u64 = 9;
 
 /// Trusted local inputs, obtained from the same chain document as execution.
 #[derive(Debug, Clone, Copy)]

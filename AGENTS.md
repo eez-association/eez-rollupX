@@ -136,6 +136,10 @@ its Solidity implementation/tests and the applicable fork contract:
   in `eez-node-common`, request scheduling/ownership in `eez-composer`, runtime
   wiring in `eez-node`/`eez-follower`, the RPC contract in `eez-control-rpc`, and
   independent proof validation in `eez-proof-signer`.
+- Native operations V1 reuses completed static candidates; V0 historical replay
+  retains per-observation rows. Bind the policy to the authenticated operations
+  version, never to guessed table shape or a failed comparison. Upgrade readers
+  and signers before V1 producers; keep V1-capable readers after V1 inclusion.
 - Preserve **block-hash commitments**, native blob DA, whole grouped/nested calls,
   and each mode's exact L1 binding. Actual-parent live proofs bind the inclusion
   parent and timestamp; historical ordinary catch-up proofs bind an explicit

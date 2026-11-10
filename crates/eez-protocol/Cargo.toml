@@ -28,11 +28,11 @@ reth-ethereum-primitives.workspace = true
 # outbound gate: recover the signer of the paired user tx (SignedTransaction)
 reth-primitives-traits.workspace = true
 eez-blob-codec.workspace = true
+eez-payload-codec.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
 hex.workspace = true
-eez-payload-codec.workspace = true
 
 [lints]
 workspace = true

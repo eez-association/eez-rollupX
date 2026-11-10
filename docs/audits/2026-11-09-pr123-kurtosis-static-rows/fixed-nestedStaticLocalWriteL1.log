@@ -1,0 +1,88 @@
+====== Deploy ======
+--- DeployL2 (L2) ---
+QUOTE=0x3c0693caADad8CD0A4E4D671521956F358478d1f
+--- DeployReader (L1) ---
+READER=0x03B459f8fEaf1286069E2344dfd255E2dEd3bE22
+--- DeployCallbacksL2 (L2) ---
+READER_PROXY=0xEDc0B367B30F376D2e1778ba54f9B8087922797D
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+
+====== Create Signed Transaction ======
+target: 0xEDc0B367B30F376D2e1778ba54f9B8087922797D
+calldata: 0xc0406226
+value: 0
+gas limit: 1000000
+nonce: 2 (rpc=2 front=2)
+
+====== Compute Expected Entries ======
+L1 expected calls:
+L1 expected entries: [0x94cee0cf1ea59fa97fb66c7081b6a6749c35ef70af5396a8ebd1a31ef6eb76c8]
+L2 table expected: [0x76fe07aa4ff18c7339def8b8282069cfb200f996444fab530a2cd89acc5e97b6]
+L2 calls expected: [0x786e7221534980728db1783439fc10b65734e3e99bd09e8b6d61a970f7762ae6]
+L1 expected table: 2880 bytes (field-level checks ON)
+L2 expected table: 2304 bytes (field-level checks ON)
+
+====== Execute L2 (user tx) ======
+submitted tx: 0x9e76a7964a4254c7f573251f13292140ed3d8b911f9551ef80bd114f77ee2f24
+Waiting for receipt: 0x9e76a7964a4254c7f573251f13292140ed3d8b911f9551ef80bd114f77ee2f24 (420s remaining)
+tx: 0x9e76a7964a4254c7f573251f13292140ed3d8b911f9551ef80bd114f77ee2f24
+block: 0x108 (status: 0x1)
+trigger blocks: 264
+Waiting for fresh network evidence: settlement pending, index catching up, or inclusion changed
+trigger blocks: 264
+
+====== Verify L1 Posted Batch Calldata (1 candidate tx, address prefilter on) ======
+Matched settlement tx 0x99f1d3bda352334b6e3e8e9befa0a1781b8c0db7b356478ebbacfd2fec7ff75d
+  Posted batch decoded from calldata: 3 entries, 0 static entries
+  PASS: L1 field checks on 1 entries (EntryExecuted, rollupId, rollupUpdates)
+  NOTE: rollup 1 live root diverges from our entries' cursor (batch carries foreign entries)
+  PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)
+  PASS: posted rolling hashes reproduced from posted roots (1 entries)
+L2 blocks to verify: [264]
+
+====== Verify L2 Table ======
+  PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)
+  PASS: all 1 expected entries and static rows checked across 1 L2 block(s)
+
+====== Verify L2 Calls ======
+  PASS: 1/1 expected L2 calls verified
+
+====== Scenario Self-Verification (VerifyNetwork, L1) ======
+  VERIFY_PASS: local rate 1 -> 2 -> 1, quotes 1 -> 2 -> 1
+
+====== Summary ======
+
+User tx:        0x9e76a7964a4254c7f573251f13292140ed3d8b911f9551ef80bd114f77ee2f24  (block 264)
+L1 postBatch:   0x99f1d3bda352334b6e3e8e9befa0a1781b8c0db7b356478ebbacfd2fec7ff75d  (block 45)
+Source L2 transaction: 0x9e76a7964a4254c7f573251f13292140ed3d8b911f9551ef80bd114f77ee2f24
+L1 execution: 0x99f1d3bda352334b6e3e8e9befa0a1781b8c0db7b356478ebbacfd2fec7ff75d  (block 45)
+L2 system table load: 0x8c899c4972498f9c41ede7615e1f8a292acbb596b450c0ed47012db278de90bc  (block 264)
+
+====== Done ======

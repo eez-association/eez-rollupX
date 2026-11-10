@@ -954,3 +954,19 @@ code/storage, the genesis state root and validation identity. There is no migrat
 activation switch, mixed-genesis mode or rollback to an older genesis on an existing
 datadir. Prepare all node/follower/signer/deploy artifacts from the same revision
 before starting a new network. Existing networks are outside this change's scope.
+
+
+### Native operations V1 upgrade
+
+For an already compatible protocol deployment, V1 changes only native table
+construction: completed static candidates are reused. The standardized blob
+stream and deployed contracts are unchanged. V0 histories retain their original
+per-observation reconstruction; the authenticated operations byte selects the
+policy. See the [native wire contract](../proposals/native-system-transactions.md#direct-v0-wire-contract).
+
+Upgrade all readers/followers before publishing V1. Coordinate Composer and
+signer cutover: validation identity 9 and operations capability tag 1 reject old
+role combinations before proving. This change needs no genesis or datadir
+replacement; the earlier protocol compatibility boundaries still apply. Once V1
+has been included, do not roll readers back to a V0-only binary. In-memory pending
+requests remain subject to the existing restart/resubmission limitations.

@@ -5,13 +5,13 @@
 //! converted to the exact [`ExecutedAction`] preorder consumed by the same
 //! materializer used during live composition.
 
+pub use eez_payload_codec::v0::Version as OperationsVersion;
+
 use alloy_primitives::{Bytes, U256};
 use eez_blob_codec::Message;
 use thiserror::Error;
 
-use crate::{
-    CallMode, Composition, ExecutedAction, ExecutionOutcome, RollupId, materialize_actions,
-};
+use crate::{CallMode, Composition, ExecutedAction, ExecutionOutcome, RollupId};
 
 mod reconstruction;
 pub use reconstruction::{ReconstructionActions, ReconstructionError};
@@ -19,6 +19,8 @@ pub use reconstruction::{ReconstructionActions, ReconstructionError};
 /// One cross-chain transaction represented by the native semantic messages.
 #[derive(Clone, Debug)]
 pub struct SemanticTransaction {
+    /// Native operations version that fixes exact table construction.
+    pub operations_version: OperationsVersion,
     /// Chain containing the originating signed transaction (`0` denotes L1).
     pub origin_chain: RollupId,
     /// Originating signed transaction. The Composer holds it for both
@@ -38,14 +40,21 @@ impl SemanticTransaction {
     /// Returns an error when the decoded forest is outside the supported table
     /// profile or violates preorder, call-result, or rollback invariants.
     pub fn materialize(&self) -> Result<Composition, BlobSemanticError> {
-        materialize_actions(self.origin_chain, self.actions.clone())
-            .map_err(|error| BlobSemanticError::Materialization(error.to_string()))
+        crate::composition::materialize_actions_with_version(
+            self.origin_chain,
+            self.actions.clone(),
+            self.operations_version,
+        )
+        .map_err(|error| BlobSemanticError::Materialization(error.to_string()))
     }
 }
 
 /// Native semantic translation failure.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum BlobSemanticError {
+    /// Native operations could not bind the semantic construction version.
+    #[error("invalid native operations: {0}")]
+    Operations(String),
     /// A semantic message appeared without an open transaction.
     #[error("{message} appears outside a cross-chain transaction")]
     OutsideTransaction {
@@ -105,16 +114,34 @@ struct PartialTransaction {
     snapshots: Vec<(usize, usize)>,
 }
 
-/// Decode all native cross-chain semantic transactions from a validated EEZ
-/// message stream. `ChainOperation` and `CloseBlobStream` remain available to
-/// their own consumers and are skipped here.
+/// Decode native semantics using the operations version prefix. Callers must
+/// authenticate the enclosing blob commitment and validate the ordinary columns
+/// independently. This establishes semantic syntax and reconstruction policy,
+/// not operation validity or execution authorization.
 ///
 /// # Errors
 ///
 /// Returns an error for malformed semantic boundaries, unsupported non-zero
 /// call gas, or a forest the production materializer cannot represent.
+pub fn decode_native_semantics(
+    native: &eez_blob_codec::NativePayload,
+) -> Result<Vec<SemanticTransaction>, BlobSemanticError> {
+    let version = OperationsVersion::from_prefix(&native.operations)
+        .map_err(|error| BlobSemanticError::Operations(error.to_string()))?;
+    decode_semantic_transactions_for_version(&native.semantic_messages, version)
+}
+
+/// Decode an unframed semantic stream under the current construction profile.
 pub fn decode_semantic_transactions(
     messages: &[Message],
+) -> Result<Vec<SemanticTransaction>, BlobSemanticError> {
+    decode_semantic_transactions_for_version(messages, OperationsVersion::V1)
+}
+
+/// Decode semantics with the construction policy bound by the native payload.
+pub fn decode_semantic_transactions_for_version(
+    messages: &[Message],
+    operations_version: OperationsVersion,
 ) -> Result<Vec<SemanticTransaction>, BlobSemanticError> {
     let mut transactions = Vec::new();
     let mut current: Option<PartialTransaction> = None;
@@ -262,6 +289,7 @@ pub fn decode_semantic_transactions(
                     action.revert_spans.reverse();
                 }
                 let semantic = SemanticTransaction {
+                    operations_version,
                     origin_chain: transaction.origin_chain,
                     tx_data: transaction.tx_data,
                     actions: transaction.actions,
@@ -514,8 +542,66 @@ mod tests {
     }
 
     #[test]
+    fn native_operations_bind_static_construction_version() {
+        let mut read = action(Some(0), 0, 1, 2);
+        read.call_mode = CallMode::Static;
+        read.value = U256::ZERO;
+        let transaction = SemanticTransaction {
+            operations_version: OperationsVersion::V1,
+            origin_chain: RollupId(1),
+            tx_data: Bytes::from_static(b"signed tx"),
+            actions: vec![action(None, 1, 0, 1), read.clone(), read],
+        };
+        let messages = encode_semantic_transaction(&transaction).unwrap();
+        let runs = [eez_payload_codec::v0::BlockRun {
+            blocks: 1,
+            beneficiary: Address::ZERO,
+            extra_data: &[],
+            transactions: &[],
+        }];
+        for (operations, version, rows) in [
+            (
+                eez_payload_codec::v0::encode(&runs).unwrap(),
+                OperationsVersion::V0,
+                2,
+            ),
+            (
+                eez_payload_codec::v0::encode_current(&runs).unwrap(),
+                OperationsVersion::V1,
+                1,
+            ),
+        ] {
+            let native = eez_blob_codec::NativePayload {
+                operations: operations.into(),
+                semantic_messages: messages.clone(),
+            };
+            let decoded = decode_native_semantics(&native).unwrap();
+            assert_eq!(decoded.len(), 1);
+            assert_eq!(decoded[0].operations_version, version);
+            assert_eq!(
+                decoded[0].actions.len(),
+                3,
+                "every observation survives compaction"
+            );
+            assert_eq!(
+                decoded[0].materialize().unwrap().targets[0].batch.entries[0]
+                    .expectedL1ToL2Calls
+                    .len(),
+                rows
+            );
+            let mut invalid = native;
+            invalid.operations = Bytes::from_static(&[2]);
+            assert!(matches!(
+                decode_native_semantics(&invalid),
+                Err(BlobSemanticError::Operations(_))
+            ));
+        }
+    }
+
+    #[test]
     fn nested_semantics_round_trip_through_messages_and_tables() {
         let transaction = SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId(1),
             tx_data: Bytes::from_static(b"signed tx"),
             actions: vec![action(None, 1, 0, 1), action(Some(0), 0, 1, 2)],
@@ -561,6 +647,7 @@ mod tests {
             other => panic!("expected InitiateCrossChainTransaction, got {other:?}"),
         };
         let outbound = SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId(1),
             tx_data: Bytes::from_static(b"signed L2 tx"),
             actions: vec![action(None, 1, 0, 1)],
@@ -569,6 +656,7 @@ mod tests {
         assert_eq!(tx_data(&messages), Bytes::from_static(b"signed L2 tx"));
 
         let inbound = SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId::MAINNET,
             tx_data: Bytes::from_static(b"signed L1 tx"),
             actions: vec![action(None, 0, 1, 1)],
@@ -602,6 +690,7 @@ mod tests {
         let mut first = action(None, 1, 0, 1);
         first.revert_spans = vec![2];
         let transaction = SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId(1),
             tx_data: Bytes::new(),
             actions: vec![first, action(None, 1, 0, 2)],
@@ -642,6 +731,7 @@ mod tests {
     #[test]
     fn nested_snapshots_sharing_first_call_round_trip_exactly() {
         let transaction = SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId(1),
             tx_data: Bytes::new(),
             actions: vec![action(None, 1, 0, 1), action(None, 1, 0, 2)],
@@ -677,6 +767,7 @@ mod tests {
     #[test]
     fn snapshot_cannot_outlive_its_call_context() {
         let transaction = SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId(1),
             tx_data: Bytes::new(),
             actions: vec![action(None, 1, 0, 1), action(Some(0), 0, 1, 2)],

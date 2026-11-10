@@ -67,6 +67,7 @@ fn fixture_semantics(
         .into_iter()
         .zip(users)
         .map(|(entry, user)| SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId(1),
             tx_data: Bytes::copy_from_slice(user),
             actions: entry
@@ -77,6 +78,7 @@ fn fixture_semantics(
         })
         .collect::<Vec<_>>();
     semantics.extend(inbound.iter().map(|entry| SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions: vec![action(&entry.l2ToL1Calls[0], RollupId(1), entry)],
@@ -708,7 +710,7 @@ fn v0_da_binds_transaction_bytes_and_published_metadata() {
         (Address::repeat_byte(1), &[][..]),
         (Address::ZERO, &[1][..]),
     ] {
-        let payload = eez_payload_codec::v0::encode(&[eez_payload_codec::v0::BlockRun {
+        let payload = eez_payload_codec::v0::encode_current(&[eez_payload_codec::v0::BlockRun {
             blocks: 1,
             beneficiary,
             extra_data,

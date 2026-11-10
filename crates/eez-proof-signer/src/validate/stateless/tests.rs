@@ -220,6 +220,7 @@ fn with_mutable_delivery(mut claim: FifoObservationClaim) -> FifoObservationClai
     use eez_protocol::settlement::{FifoTransactionRootPlan, fifo_observation_claims};
     use eez_protocol::{ExecutedAction, ExecutionOutcome, RollupId};
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions: vec![ExecutedAction {

@@ -1,6 +1,6 @@
 # Portable validation identity
 
-Status: normative for validation contract 8, capability profile 2 and v2 proving.
+Status: normative for validation contract 9, capability profile 2 and v2 proving.
 This is a compatibility namespace, never authorization to execute or sign.
 No Rust dependency, Cargo lockfile, source revision, binary hash, transport URL,
 signing key or resource limit participates.
@@ -27,10 +27,12 @@ Old runtime artifacts cannot process all newly supported shapes. The runtime
 upgrade boundary is documented in the
 [full protocol proposal](../../docs/proposals/full-protocol-e2e.md#compatibility-and-recovery).
 
-The review corrections in PR #123 form part of its proposed version-8 contract;
-the target branch at `ff7a5cdc` still uses version 7. Earlier pre-release PR builds
-are not interchangeable with the corrected build despite the shared version
-number: upgrade them together. This namespace is not executable provenance.
+Version 9 adds explicit native operations V1 for reusable static candidates,
+while preserving exact V0 historical reconstruction. Capabilities report operations
+tag 1; the on-chain signing domain remains 7. Upgrade readers/signers before V1
+producers, and retain V1-capable readers after V1 inclusion. No new protocol pin,
+genesis or database format is required. A validation identity is not executable
+provenance.
 
 ## Encoding
 
@@ -40,7 +42,7 @@ with these ten elements in this exact order:
 | Position | Element | Encoding/value |
 | --- | --- | --- |
 | 0 | domain | UTF-8 bytes of `eez.validation-identity` |
-| 1 | validation-contract version | unsigned integer `8` |
+| 1 | validation-contract version | unsigned integer `9` |
 | 2 | rollup ID | locally configured nonzero u64 |
 | 3 | L2 chain ID | u64 from the locally loaded L2 chain document |
 | 4 | system address | exactly 20 raw bytes |
@@ -141,9 +143,9 @@ not admit a genesis configuration. Hash and load the same document snapshot.
 
 ## Versioning and operations
 
-Validation-contract version 8 covers the RLP tuple above, canonical JSON rules
+Validation-contract version 9 covers the RLP tuple above, canonical JSON rules
 and the complete offline validation contract:
-the fixed Osaka L2 profile, compact V0 operations, versionless cross-chain 0x45 and optional history 0x46/version-1 transactions
+the fixed Osaka L2 profile, version-bound V0/V1 operations, versionless cross-chain 0x45 and optional history 0x46/version-1 transactions
 (execution-group source identities belong only to cross-chain
 transactions), no system nonce,
 per-transaction base-fee collection, complete-group SYSTEM/EEZL2 balance cleanup and block-finalization cleanup, permanent history, recorded history transactions and delayed synchronized

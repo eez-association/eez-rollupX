@@ -3779,6 +3779,7 @@ where
                     // the shape gate itself, so an entry the Sync-block lowering
                     // cannot represent comes back as its `Err`.
                     let semantic = eez_protocol::blob_semantics::SemanticTransaction {
+                        operations_version: Default::default(),
                         origin_chain: eez_protocol::RollupId(rollup_id),
                         tx_data: held.raw_tx.clone(),
                         actions: composition.actions.clone(),
@@ -4611,6 +4612,7 @@ where
                     }
                     // ── ACCEPT ───────────────────────────────────────
                     let semantic = eez_protocol::blob_semantics::SemanticTransaction {
+                        operations_version: Default::default(),
                         origin_chain: eez_protocol::RollupId::MAINNET,
                         tx_data: held.raw_tx.clone(),
                         actions: composition.actions.clone(),

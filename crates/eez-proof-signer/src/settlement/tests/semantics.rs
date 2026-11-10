@@ -81,6 +81,7 @@ fn authorized_outbound_fixture() -> (
     let window = validated_window(block_rlp(transactions));
     let call = batch.entries[1].l2ToL1Calls[0].clone();
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId(1),
         tx_data: raw_user,
         actions: vec![semantic_action(
@@ -178,6 +179,7 @@ fn nested_outbound_semantics_require_the_canonical_single_host() {
         flat.returnData.clone(),
     ));
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId(1),
         tx_data: raw[0].clone().into(),
         actions,
@@ -266,6 +268,7 @@ fn native_inbound_semantics_bind_both_sides_and_reject_result_mutation() {
     let plan = effect_plan(&batch, &settling);
     let inbound = verify_inbound_effect_entries(&plan).unwrap();
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions: vec![semantic_action(
@@ -353,6 +356,7 @@ fn native_lookup_semantics_bind_results_without_an_l2_effect() {
         };
         action.revert_spans = revert_span.into_iter().collect();
         let semantic = SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId::MAINNET,
             tx_data: Bytes::new(),
             actions: vec![action],
@@ -449,6 +453,7 @@ fn failed_lookup_binds_complete_callback_table_before_replay() {
     );
     nested.parent_index = Some(0);
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions: vec![outer, nested],
@@ -595,6 +600,7 @@ fn native_inbound_semantics_finalize_root_dependent_nested_fields() {
         action.parent_index = Some(index - 1);
     }
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions,
@@ -626,6 +632,7 @@ fn native_l1_static_semantics_bind_exact_pinned_static_entry() {
     );
     action.call_mode = CallMode::Static;
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions: vec![action],

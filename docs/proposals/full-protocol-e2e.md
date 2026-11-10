@@ -126,9 +126,10 @@ behavior remains unchanged.
 ### Static reads and partitioning
 
 Static reads leave mutable cursors unchanged. A failed mutable candidate can be
-selected again after a read. Preserve one static row per observation for exact
-historical reconstruction; runtime lookup can still select an earlier identical
-candidate. Each observed read can cover one byte-identical row, never an unchecked
+selected again after a read. V0 preserves one static row per observation for
+exact historical reconstruction. V1 reuses complete, completed candidates at the
+same position and within the live cursor window. Runtime lookup may select an
+earlier candidate in either version. Each observed read can cover one byte-identical row, never an unchecked
 extra row. Position keys alone cannot distinguish local-write sequences such as
 1 → 2 → 1. Resolve against fixed host contexts,
 memoize only within one pending read, reject cycles and enforce nesting limits even
@@ -143,10 +144,11 @@ not establish whole-node throughput.
 
 ## Compatibility and recovery
 
-No protocol pin, deployed ABI, genesis or native wire/storage format changes are
-required for baseline-compatible deployments. RPC validation version 8 identifies
-the extended acceptance rules; deployed signing domain 7 and the registered vkey
-remain unchanged. Network, registry and proof-system bindings stay mandatory.
+No protocol pin, deployed ABI, genesis or database format changes are required
+for baseline-compatible deployments. RPC validation version 9 identifies the
+extended acceptance rules and native operations V1 compact static construction.
+V0 remains decodable with its original construction rules. Deployed signing domain
+7 and the registered vkey remain unchanged. Network, registry and proof-system bindings stay mandatory.
 This extension neither revokes existing signatures nor requires key rotation.
 
 Upgrade Composer, signer and followers together before enabling the new behavior.
@@ -182,3 +184,21 @@ Shared trace folding was rejected: it saved only five further lines and increase
 median finalization time by about 3% on two workloads. Finalization and independent
 verification remain unchanged. The retained candidate passed the full local qualification, including all 64
 protocol scenarios and independent cold replay; see the linked audit.
+
+
+### Static candidate compaction (2026-11-10 implementation)
+
+Scope: reuse complete, completed static candidates at the same live position,
+after the mutable cursor, while preserving every observation and exact native
+binding. No core protocol or gitlink change. Native operations V1 retains the V0
+column layout but selects compact static construction; V0 retains per-observation
+construction for exact historical replay. The authenticated operations byte is
+required: L1 tables alone cannot distinguish layouts when only L2 rows differ.
+Do not infer a layout from failed validation or normalize supplied tables.
+
+Acceptance: compact local-write sequences in both directions; changed callback
+programs/outcomes and cursor/position boundaries remain distinct; frozen V0
+history reconstructs unchanged; wrong version/table combinations reject; pinned
+Kurtosis cases pass with original fixtures. Upgrade readers/signers before V1
+producers. Old readers reject V1, so rollback after V1 inclusion requires a
+V1-capable reader. No database/genesis migration is intended.

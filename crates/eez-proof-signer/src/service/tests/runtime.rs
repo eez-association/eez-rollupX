@@ -55,7 +55,7 @@ async fn capabilities_report_offline_identity_and_effective_limits_while_worker_
         .unwrap()
         .unwrap()
         .into_inner();
-        assert_eq!(response.operations_tag, 0);
+        assert_eq!(response.operations_tag, 1);
         assert_eq!(response.profile_id, eez_control_rpc::OFFLINE_PROFILE_ID);
         assert_eq!(response.validation_identity, expected.to_vec());
         assert_eq!(

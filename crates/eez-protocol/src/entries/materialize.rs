@@ -140,6 +140,14 @@ pub(crate) fn materialize_batches(
     recorded: &[ExecutedAction],
     entry_rollup_id: RollupId,
 ) -> ProtocolResult<HashMap<RollupId, MaterializedBatch>> {
+    materialize_batches_with_version(recorded, entry_rollup_id, Default::default())
+}
+
+pub(crate) fn materialize_batches_with_version(
+    recorded: &[ExecutedAction],
+    entry_rollup_id: RollupId,
+    version: crate::blob_semantics::OperationsVersion,
+) -> ProtocolResult<HashMap<RollupId, MaterializedBatch>> {
     let forest = CallForest::new(recorded, entry_rollup_id)?;
     let mut materializer = Materializer::new(
         recorded,
@@ -148,6 +156,7 @@ pub(crate) fn materialize_batches(
         forest.regions,
     );
 
+    materializer.reuse_static = version == crate::blob_semantics::OperationsVersion::V1;
     let source_entry_count;
     if entry_rollup_id.is_mainnet() {
         let applied_roots = crate::settlement::l1_applied_root_mask(recorded)
@@ -764,6 +773,7 @@ struct ActiveRegion {
 }
 
 struct Materializer<'a> {
+    reuse_static: bool,
     recorded: &'a [ExecutedAction],
     children: Vec<Vec<usize>>,
     subtree_ends: Vec<usize>,
@@ -784,7 +794,11 @@ struct Materializer<'a> {
 enum StaticFrame {
     L1Pool(usize),
     L2Pool(usize),
-    Row { entry: usize, row: usize },
+    Row {
+        entry: usize,
+        row: usize,
+        reused: bool,
+    },
 }
 
 impl<'a> Materializer<'a> {
@@ -795,6 +809,7 @@ impl<'a> Materializer<'a> {
         regions: HashMap<usize, Vec<RevertRegion>>,
     ) -> Self {
         Self {
+            reuse_static: true,
             recorded,
             children,
             subtree_ends,
@@ -1015,10 +1030,14 @@ impl<'a> Materializer<'a> {
         let output = Bytes::copy_from_slice(call.outcome.return_data().expect("resolved outcome"));
         let location = if let Some(context) = self.active.get(&source) {
             let entry = context.entry_index;
-            // Retain one row per observation: native historical binding compares
-            // these bytes exactly. Static lookup may select an earlier identical
-            // row at execution time, but deduplicating changes recorded tables.
-            let (row, _) = self.push_row(source, call)?;
+            let (row, reused) = match self
+                .reuse_static
+                .then(|| self.reusable_static_row(node))
+                .flatten()
+            {
+                Some(row) => (row, true),
+                None => self.push_row(source, call)?,
+            };
             self.push_event(
                 source,
                 TraceEvent::StaticLookup {
@@ -1026,7 +1045,7 @@ impl<'a> Materializer<'a> {
                     call_hash: source_call_hash(call),
                 },
             );
-            Some(StaticFrame::Row { entry, row })
+            Some(StaticFrame::Row { entry, row, reused })
         } else if source == origin {
             let table = self.outputs.entry(source).or_default();
             if source.is_mainnet() {
@@ -1076,10 +1095,12 @@ impl<'a> Materializer<'a> {
                 StaticFrame::L2Pool(index) => table.l2_static_entries[index]
                     .incomingCalls
                     .push(lower_call_to_l2(&encoded)),
-                StaticFrame::Row { entry, row } => {
-                    table.entries[entry].expectedL1ToL2Calls[row]
-                        .l2ToL1Calls
-                        .push(encoded);
+                StaticFrame::Row { entry, row, reused } => {
+                    if !reused {
+                        table.entries[entry].expectedL1ToL2Calls[row]
+                            .l2ToL1Calls
+                            .push(encoded);
+                    }
                 }
             }
             hash.append(call.outcome.is_success(), &output);
@@ -1126,6 +1147,60 @@ impl<'a> Materializer<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Static reads retain the mutable cursor. Reuse a completed candidate
+    /// only when its complete callback array, callback commitment and cached
+    /// outcome match this observation. Equal position keys alone are not
+    /// enough: local writes can change the callback results between reads.
+    fn reusable_static_row(&self, node: usize) -> Option<usize> {
+        let call = &self.recorded[node];
+        let chain = call.source_rollup_id;
+        let context = &self.active[&chain];
+        let output = &self.outputs[&chain];
+        let key = nested_position_key(
+            source_call_hash(call),
+            output.positions[context.entry_index].rolling.current(),
+        );
+        let callbacks: Vec<_> = self.children[node]
+            .iter()
+            .map(|&child| l1_call_from_action(&self.recorded[child]))
+            .collect();
+        let mut hash = StaticCallRollingHash::new();
+        for &child in &self.children[node] {
+            let outcome = &self.recorded[child].outcome;
+            hash.append(
+                outcome.is_success(),
+                outcome.return_data().expect("resolved outcome"),
+            );
+        }
+        output.entries[context.entry_index]
+            .expectedL1ToL2Calls
+            .iter()
+            .enumerate()
+            .skip(context.next_row)
+            .find(|(index, row)| {
+                let pending = self.static_frames.get(&chain).is_some_and(|frames| {
+                    frames.iter().any(|(frame, _)| {
+                        matches!(frame,
+                        StaticFrame::Row { entry, row, .. }
+                            if *entry == context.entry_index && row == index)
+                    })
+                });
+                !pending
+                    && row.expectedL1toL2Hash == key
+                    && row.revertedOrStaticRollingHash == hash.current()
+                    && row.success == call.outcome.is_success()
+                    && row.returnData.as_ref()
+                        == call.outcome.return_data().expect("resolved outcome")
+                    && row.l2ToL1Calls.len() == callbacks.len()
+                    && row
+                        .l2ToL1Calls
+                        .iter()
+                        .zip(&callbacks)
+                        .all(|(actual, expected)| actual.abi_encode() == expected.abi_encode())
+            })
+            .map(|(index, _)| index)
     }
 
     fn install_context(&mut self, chain: RollupId, entry_index: usize) {
@@ -1579,13 +1654,20 @@ mod tests {
     }
 
     #[test]
-    fn static_local_write_preserves_rows_and_resolves_earlier_candidates() {
+    fn static_local_write_resolves_candidates_in_both_wire_versions() {
         let l2 = RollupId(1);
-        for (origin, reader, values) in [(RollupId::MAINNET, l2), (l2, RollupId::MAINNET)]
+        for (origin, reader, values, version) in [(RollupId::MAINNET, l2), (l2, RollupId::MAINNET)]
             .into_iter()
             .flat_map(|(origin, reader)| {
                 [vec![1_u8, 2, 1], vec![1, 1, 2, 1], vec![1, 2, 2, 1]]
                     .map(move |values| (origin, reader, values))
+            })
+            .flat_map(|(origin, reader, values)| {
+                [
+                    crate::blob_semantics::OperationsVersion::V0,
+                    crate::blob_semantics::OperationsVersion::V1,
+                ]
+                .map(move |version| (origin, reader, values.clone(), version))
             })
         {
             let mut root = action(0, None, origin, reader);
@@ -1607,16 +1689,27 @@ mod tests {
                 rate.outcome = quote.outcome.clone();
                 calls.extend([quote, rate]);
             }
-            let mut batches =
-                materialize_batches(&calls, origin).expect("materialize local writes");
+            let mut batches = materialize_batches_with_version(&calls, origin, version)
+                .expect("materialize local writes");
             let rows = &batches[&reader].batch.entries[0].expectedL1ToL2Calls;
             assert_eq!(
                 rows.len(),
-                values.len(),
-                "reader {reader:?}: preserve historical observation rows"
+                if version == crate::blob_semantics::OperationsVersion::V0 {
+                    values.len()
+                } else {
+                    2
+                },
+                "reader {reader:?}: version-selected candidate rows"
             );
             assert_eq!(rows[0].returnData.as_ref(), [1]);
-            assert_eq!(rows[1].returnData.as_ref(), [values[1]]);
+            assert_eq!(
+                rows[1].returnData.as_ref(),
+                [if version == crate::blob_semantics::OperationsVersion::V0 {
+                    values[1]
+                } else {
+                    2
+                }]
+            );
             let different = rows
                 .iter()
                 .find(|row| row.returnData.as_ref() == [2])
@@ -2894,7 +2987,7 @@ mod tests {
             finalize_l1_entry_traces(&mut host.batch, &host.entry_traces).expect("finalize host");
             let rows = &host.batch.entries[0].expectedL1ToL2Calls;
             if accepted {
-                assert_eq!(rows.len(), 2, "preserve one historical row per observation");
+                assert_eq!(rows.len(), 1, "reuse the identical completed candidate");
             } else {
                 assert_eq!(rows.len(), 2);
                 assert_eq!(rows[0].expectedL1toL2Hash, rows[1].expectedL1toL2Hash);

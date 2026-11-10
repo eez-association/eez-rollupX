@@ -202,9 +202,7 @@ impl Fixture {
             signature: hex::decode(response["signature"].as_str().unwrap()).unwrap(),
         };
         let native = native_payload(&mut fixture.input);
-        let semantics =
-            eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)
-                .unwrap();
+        let semantics = eez_protocol::blob_semantics::decode_native_semantics(&native).unwrap();
         let actions = eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
             &semantics,
             RollupId(1),
@@ -472,9 +470,7 @@ async fn native_changing_reads_and_caught_revert_replay_original_execution_with_
             .as_ref()
             .unwrap();
         let batch = settlement::decode_canonical_post_batch(post.abi_calldata.clone()).unwrap();
-        let semantics =
-            eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)
-                .unwrap();
+        let semantics = eez_protocol::blob_semantics::decode_native_semantics(&native).unwrap();
         // The producing Composer publishes the signed origin only for an L2 origin.
         for transaction in &semantics {
             assert_eq!(

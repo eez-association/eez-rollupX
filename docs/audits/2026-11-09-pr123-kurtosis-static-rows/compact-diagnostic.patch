@@ -1,0 +1,37 @@
+diff --git a/crates/eez-protocol/src/entries/materialize.rs b/crates/eez-protocol/src/entries/materialize.rs
+index 552123d9..e7338164 100644
+--- a/crates/eez-protocol/src/entries/materialize.rs
++++ b/crates/eez-protocol/src/entries/materialize.rs
+@@ -1651,6 +1651,13 @@ mod tests {
+                 l2,
+             )
+             .expect("independently verify reused static candidate");
++            let mut compact_l1 = l1.batch.entries[0].clone();
++            let mut compact_l2 = l2_table.batch.entries.clone();
++            for entry in std::iter::once(&mut compact_l1).chain(compact_l2.iter_mut()) {
++                let mut seen = std::collections::HashSet::new();
++                entry.expectedL1ToL2Calls.retain(|row| seen.insert(row.abi_encode()));
++            }
++            eprintln!("DIAGNOSTIC compact local writes reader={reader:?} values={values:?}: {:?}", crate::entries::verify_nested_group(&compact_l1, &compact_l2, direction, l2));
+             for mutation in 0..5 {
+                 let mut forged_l1 = l1.batch.entries[0].clone();
+                 let mut forged_l2 = l2_table.batch.entries.clone();
+diff --git a/crates/eez-protocol/tests/call_patterns/historical_static_replay.rs b/crates/eez-protocol/tests/call_patterns/historical_static_replay.rs
+index 2e7c9f03..9d07e182 100644
+--- a/crates/eez-protocol/tests/call_patterns/historical_static_replay.rs
++++ b/crates/eez-protocol/tests/call_patterns/historical_static_replay.rs
+@@ -93,6 +93,14 @@ fn repeated_static_replay_compatibility() {
+     };
+     let reconstruction = ReconstructionActions::from_semantics(&[tx], RollupId(1), 1).unwrap();
+     reconstruction.bind_settlement(&batch).unwrap();
++    let mut compact = batch.clone();
++    let rows = &mut compact.entries[1].expectedL1ToL2Calls;
++    assert_eq!(rows.len(), 2);
++    assert_eq!(rows[0].abi_encode(), rows[1].abi_encode());
++    rows.pop();
++    eprintln!("DIAGNOSTIC compact repeated read verifier: {:?}", verify_outbound_source_group(&compact.entries[1], &sources, RollupId(1)));
++    eprintln!("DIAGNOSTIC compact repeated read binding: {:?}", reconstruction.bind_settlement(&compact));
++
+     // Frozen from c702f90da19cc149890d0a17a4ef6c200dcb6a21, protocol
+     // 84a5b5207880f192a6a5896cbfe0bac5249db47f. Baseline verification and
+     // native settlement binding both accepted these exact bytes.

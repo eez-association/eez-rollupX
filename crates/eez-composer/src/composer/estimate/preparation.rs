@@ -130,6 +130,7 @@ pub(super) fn inbound(
     )
     .map_err(unsupported)?;
     let semantics = eez_protocol::blob_semantics::SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions: c.actions.clone(),

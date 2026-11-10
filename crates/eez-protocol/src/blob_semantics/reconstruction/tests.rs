@@ -40,6 +40,7 @@ fn signed() -> Bytes {
 
 fn semantic(source: u64, actions: Vec<ExecutedAction>) -> SemanticTransaction {
     SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId(source),
         tx_data: signed(),
         actions,

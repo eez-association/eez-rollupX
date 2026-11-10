@@ -38,6 +38,7 @@ fn update(marker: u8) -> RootUpdateSol {
 #[test]
 fn repeated_static_replay_compatibility() {
     let tx = SemanticTransaction {
+        operations_version: eez_protocol::blob_semantics::OperationsVersion::V0,
         origin_chain: RollupId(1),
         tx_data: TxEnvelope::from(
             TxLegacy {
@@ -91,7 +92,8 @@ fn repeated_static_replay_compatibility() {
         immediateEntryCount: U256::from(2),
         ..Default::default()
     };
-    let reconstruction = ReconstructionActions::from_semantics(&[tx], RollupId(1), 1).unwrap();
+    let reconstruction =
+        ReconstructionActions::from_semantics(std::slice::from_ref(&tx), RollupId(1), 1).unwrap();
     reconstruction.bind_settlement(&batch).unwrap();
     // Frozen from c702f90da19cc149890d0a17a4ef6c200dcb6a21, protocol
     // 84a5b5207880f192a6a5896cbfe0bac5249db47f. Baseline verification and
@@ -103,11 +105,34 @@ fn repeated_static_replay_compatibility() {
     reconstruction
         .bind_settlement(&frozen)
         .expect("replay baseline-supported static rows");
+    let mut modern_tx = tx.clone();
+    modern_tx.operations_version = eez_protocol::blob_semantics::OperationsVersion::V1;
+    let mut modern = modern_tx.materialize().unwrap();
+    let modern_host = &mut modern.targets[0];
+    assert_eq!(modern_host.batch.entries[0].expectedL1ToL2Calls.len(), 1);
+    modern_host.batch.entries[0].rootUpdates = vec![update(2)];
+    finalize_l1_entry_traces(&mut modern_host.batch, &modern_host.entry_traces).unwrap();
+    let mut modern_batch = batch.clone();
+    modern_batch.entries[1] = modern_host.batch.entries[0].clone();
+    let modern_reconstruction =
+        ReconstructionActions::from_semantics(&[modern_tx], RollupId(1), 1).unwrap();
+    modern_reconstruction
+        .bind_settlement(&modern_batch)
+        .unwrap();
+    assert!(
+        modern_reconstruction.bind_settlement(&frozen).is_err(),
+        "V1 must not silently accept V0 construction"
+    );
+    assert!(
+        reconstruction.bind_settlement(&modern_batch).is_err(),
+        "V0 must not silently accept V1 construction"
+    );
 }
 
 #[test]
 fn terminal_failed_retries_preserve_baseline_source_slots() {
     let mut tx = SemanticTransaction {
+        operations_version: eez_protocol::blob_semantics::OperationsVersion::V0,
         origin_chain: RollupId(1),
         tx_data: TxEnvelope::from(
             TxLegacy {
@@ -165,7 +190,8 @@ fn terminal_failed_retries_preserve_baseline_source_slots() {
         immediateEntryCount: U256::from(2),
         ..Default::default()
     };
-    let reconstruction = ReconstructionActions::from_semantics(&[tx], RollupId(1), 1).unwrap();
+    let reconstruction =
+        ReconstructionActions::from_semantics(std::slice::from_ref(&tx), RollupId(1), 1).unwrap();
     reconstruction.bind_settlement(&batch).unwrap();
 
     let frozen = EvmBatch::abi_decode(
@@ -185,5 +211,48 @@ fn terminal_failed_retries_preserve_baseline_source_slots() {
     assert!(
         verify_outbound_source_group(&host.batch.entries[0], &extra, RollupId(1)).is_err(),
         "an extra duplicate slot has no observed invocation"
+    );
+}
+
+#[test]
+fn l2_only_static_compaction_requires_the_authenticated_version() {
+    use eez_protocol::blob_semantics::OperationsVersion;
+    let mut transaction = SemanticTransaction {
+        operations_version: OperationsVersion::V0,
+        origin_chain: RollupId::MAINNET,
+        tx_data: Bytes::new(),
+        actions: vec![
+            call(None, 0, 1, CallMode::Mutable),
+            call(Some(0), 1, 0, CallMode::Static),
+            call(Some(0), 1, 0, CallMode::Static),
+        ],
+    };
+    let legacy = transaction.materialize().unwrap();
+    let legacy_replay =
+        ReconstructionActions::from_semantics(std::slice::from_ref(&transaction), RollupId(1), 1)
+            .unwrap();
+    transaction.operations_version = OperationsVersion::V1;
+    let compact = transaction.materialize().unwrap();
+    let compact_replay =
+        ReconstructionActions::from_semantics(&[transaction], RollupId(1), 1).unwrap();
+    assert_eq!(
+        legacy.source.batch.abi_encode(),
+        compact.source.batch.abi_encode(),
+        "L1 tables alone cannot identify the L2 reconstruction policy"
+    );
+    assert_eq!(
+        legacy.targets[0].batch.entries[0].expectedL1ToL2Calls.len(),
+        2
+    );
+    assert_eq!(
+        compact.targets[0].batch.entries[0]
+            .expectedL1ToL2Calls
+            .len(),
+        1
+    );
+    assert_ne!(
+        legacy_replay.inbound()[0].as_abi_entry().abi_encode(),
+        compact_replay.inbound()[0].as_abi_entry().abi_encode(),
+        "version-selected replay preserves the exact native transaction bytes"
     );
 }

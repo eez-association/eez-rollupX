@@ -1,4 +1,4 @@
-//! Direct columnar V0 operations, including the terminal ordinary prefix.
+//! Direct columnar operations (V0 and V1), including the terminal ordinary prefix.
 //!
 //! Parsing borrows the input and never allocates by the declared block count.
 //! A valid u32 empty run is a wire value, not a promise that a node will execute
@@ -18,11 +18,35 @@ mod sizing;
 pub use sizing::PayloadSizer;
 
 pub const VERSION: u8 = 0;
+
+/// Native table construction selected by the authenticated operations prefix.
+/// Both versions use the same column layout; V0 preserves historical static
+/// observation rows, while V1 permits reuse of completed reentrant static rows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Version {
+    V0 = 0,
+    #[default]
+    V1 = 1,
+}
+
+impl Version {
+    /// Read only the construction-version prefix. This does not validate the
+    /// remaining columns; use `Payload::decode` before consuming operations.
+    pub fn from_prefix(wire: &[u8]) -> Result<Self, Error> {
+        match wire.first() {
+            Some(0) => Ok(Self::V0),
+            Some(1) => Ok(Self::V1),
+            Some(_) => Err(Error::Version),
+            None => Err(Error::Truncated),
+        }
+    }
+}
 pub const MAX_TRANSACTIONS: usize = counts::MAX_TRANSACTIONS;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
-    #[error("expected direct operations version 0x00")]
+    #[error("unsupported direct operations version (expected 0x00 or 0x01)")]
     Version,
     #[error("truncated operations")]
     Truncated,
@@ -67,6 +91,7 @@ pub struct BlockRun<'a> {
 #[derive(Clone, Debug)]
 pub struct Payload<'a> {
     wire: &'a [u8],
+    version: Version,
     blocks: u32,
     transaction_count: usize,
     counts: &'a [u8],
@@ -77,14 +102,17 @@ pub struct Payload<'a> {
 }
 
 impl<'a> Payload<'a> {
+    /// Authenticated wire version; callers bind semantic table construction to it.
+    pub fn version(&self) -> Version {
+        self.version
+    }
+
     /// Check all column coverage, canonical integers, metadata and exact
     /// EIP-2718 bytes before returning a lazy plan. Work is proportional to
     /// supplied bytes, including for a u32::MAX empty span.
     pub fn decode(wire: &'a [u8]) -> Result<Self, Error> {
         let mut input = wire;
-        if take(&mut input, 1)? != [VERSION] {
-            return Err(Error::Version);
-        }
+        let version = Version::from_prefix(take(&mut input, 1)?)?;
         let blocks = varint(&mut input)?;
         if blocks == 0 {
             return Err(Error::EmptyRange);
@@ -137,6 +165,7 @@ impl<'a> Payload<'a> {
         }
         let payload = Self {
             wire,
+            version,
             blocks,
             transaction_count,
             counts,
@@ -365,13 +394,22 @@ impl FusedIterator for Blocks<'_> {}
 /// Encode producer runs into the unique columnar body. Runs may be split at any
 /// metadata boundary; all three columns independently coalesce equal neighbors.
 pub fn encode(runs: &[BlockRun<'_>]) -> Result<Vec<u8>, Error> {
+    encode_version(runs, Version::V0)
+}
+
+/// Encode the current native profile with compact static table construction.
+pub fn encode_current(runs: &[BlockRun<'_>]) -> Result<Vec<u8>, Error> {
+    encode_version(runs, Version::V1)
+}
+
+fn encode_version(runs: &[BlockRun<'_>], version: Version) -> Result<Vec<u8>, Error> {
     let summary = runs.iter().try_fold(PayloadSizer::default(), |sum, run| {
         sum.combine(&PayloadSizer::run(run)?)
     })?;
     let mut out = Vec::new();
     out.try_reserve_exact(summary.encoded_len()?)
         .map_err(|_| Error::Allocation)?;
-    out.push(VERSION);
+    out.push(version as u8);
     write_varint(summary.block_count(), &mut out);
     let mut empty = 0u32;
     for run in runs {

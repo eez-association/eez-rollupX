@@ -1463,6 +1463,7 @@ mod tests {
 
     fn static_semantics() -> Vec<SemanticTransaction> {
         vec![SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: eez_protocol::RollupId(0),
             tx_data: Bytes::new(),
             actions: vec![eez_protocol::ExecutedAction {

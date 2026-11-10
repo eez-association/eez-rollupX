@@ -204,8 +204,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     let native = decode_native_payload(&selected_blobs, rollup_id)?;
-    let semantic_transactions =
-        eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)?;
+    let semantic_transactions = eez_protocol::blob_semantics::decode_native_semantics(&native)?;
     let payload = eez_payload_codec::v0::Payload::decode(&native.operations)?;
     // With the L2 chain id, bind the semantic brackets to this batch's exact
     // settlement tables as the deriver does. L1-origin brackets publish no

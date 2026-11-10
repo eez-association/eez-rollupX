@@ -69,7 +69,7 @@ flowchart LR
    L2 source table recursively matches the L1 host entry and all recomputed
    L2-origin call hashes match the ordered EEZL2 receipt events. Exact
    `[load, user]` transaction-byte equality remains part of the DA gate in step 8.
-8. `da` binds the direct V0 count/metadata/ordinary-transaction columns and
+8. `da` binds the direct V0/V1 count/metadata/ordinary-transaction columns and
    authorized native action suffix to independently validated reconstruction
    facts. Inner version 0 has no profile selector, full terminal block or raw
    sidecar arrays. Tests use this same gate. Checked inbound sidecars remain

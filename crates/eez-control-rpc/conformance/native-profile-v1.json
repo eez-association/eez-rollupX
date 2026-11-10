@@ -7,7 +7,7 @@
     "These synthetic inputs do not certify runtime, signature, ancestry, schedule or settlement validity.",
     "Public test recipients are not production defaults.",
     "Independent manual Python ABI/RLP construction was cross-checked with Foundry cast 1.7.1.",
-    "Network profiles and verification keys preserve signing domain 7; RPC validation identity uses version 8. The Core manager returns exactly two words; it stores no profile or rule-period schedule."
+    "Network profiles and verification keys preserve signing domain 7; RPC validation identity uses version 9. The Core manager returns exactly two words; it stores no profile or rule-period schedule."
   ],
   "vectors": [
     {
@@ -712,7 +712,7 @@
       "comparison": "different"
     }
   ],
-  "validationVersion": 8,
+  "validationVersion": 9,
   "historyEnvelopeVersion": 1,
   "historyTransactionType": "0x46",
   "crossChainFields": [

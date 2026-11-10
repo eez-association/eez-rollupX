@@ -12,7 +12,7 @@ and pinned core define interoperability. Shared type/version names alone do not:
 | Native transactions and receipts | Cross-chain `0x45` has six fields and no version, with execution-group source identities; optional HistoryUpdate `0x46` version **1** has only chain ID and 1–64 explicit increasing positive number/hash pairs after its version. Receipts retain the corresponding type. |
 | `ChainOperation` payload | Direct RollupX V0 (`0x00`), including its [compact count grammar](../../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract); this differs from the draft's per-block uvarints. |
 | Execution and settlement | The single `NetworkProfile` bound by the registered verification key, genesis, L1 rules and [signer validation contract](../../eez-proof-signer/SPEC.md). |
-| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 8, as defined below. |
+| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 9, as defined below. |
 
 These are the fixed contracts of one network profile, not selectable compatibility
 modes. The [compliance review](../../../docs/audits/2026-10-24-specs-compliance/README.md)
@@ -77,7 +77,7 @@ requires reconstruction, not a trusted counter override. SourceHash alone is
 neither authorization nor global deduplication; chain-ID reuse can produce equal
 identifiers across deployments. No new RPC field or chain RPC is needed.
 
-Advertise capability profile 2 (the fixed v2 wire discriminator), operations tag 0, that identity, and finite
+Advertise capability profile 2 (the fixed v2 wire discriminator), operations tag 1, that identity, and finite
 positive limits/timeouts as specified by [RPC discovery](../SPEC.md#21-validation-identity-and-capability-discovery).
 The Composer consumes these limits for planning. In particular, a block ceiling
 must fit at least one complete network Sync interval. Limits need not equal the

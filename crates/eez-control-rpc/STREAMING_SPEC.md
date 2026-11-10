@@ -341,7 +341,7 @@ Obsolete signer RPC settings reject, including explicitly empty environment
 values. Composer, followers and transaction senders retain their own chain
 connections.
 
-Capabilities must advertise offline profile 2, operations tag 0 and an exact
+Capabilities must advertise offline profile 2, operations tag 1 and an exact
 matching validation identity. Validation identity binds the fixed offline profile,
 L1/L2 rules, runtime, registry/manager, rollup and the validation-contract
 version. The exact language-neutral encoding is defined in

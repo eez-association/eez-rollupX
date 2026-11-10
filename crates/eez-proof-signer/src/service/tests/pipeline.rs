@@ -306,6 +306,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
     batch.callData = settlement::encode_da_payload(&[Vec::new()]).into();
     let inbound_call = &sidecar.l2ToL1Calls[0];
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions: vec![fixture_action(
@@ -554,6 +555,7 @@ fn a_fully_bound_outbound_effect_passes_settlement_checks() {
     );
     let call = &batch.entries[1].l2ToL1Calls[0];
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId(1),
         tx_data: Bytes::copy_from_slice(&user),
         actions: vec![fixture_action(

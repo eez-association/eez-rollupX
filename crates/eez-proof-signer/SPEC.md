@@ -333,7 +333,7 @@ The daemon serves `prove.v2.Prover.ProveStream` and the shared Capabilities quer
 is normative for attachment epochs, queues, byte accounting, duplicates,
 Resume/Rewind/Cancel and subrange finalization.
 
-Capabilities reports operations tag 0, offline profile 2, validation identity
+Capabilities reports operations tag 1, offline profile 2, validation identity
 and effective limits without acquiring an expensive worker or signing.
 Every stream requires matching `eez-validation-identity-bin` metadata before
 admission. Identity binds loaded chain/deployment/profile and proof rules, not
@@ -490,7 +490,7 @@ exactly once and retain its bytes when reconstructing cross-chain groups.
 
 The permanent contract stores every numbered hash from the configured starting
 block to the recorded endpoint, including never-selected intermediate headers.
-Absence rejects explicitly. Public V0 operations carry the exact history
+Absence rejects explicitly. Public V0/V1 operations carry the exact history
 transaction in their ordinary prefix; it is not a cross-chain action and is
 allowed in historical mode. EEZL2 native actions retain terminal-only framing
 and all existing settlement authorization checks.
@@ -876,8 +876,10 @@ rows. Both final rolling hashes and every nested outcome MUST match.
 Static lookups MUST scan from the unchanged mutable cursor, recompute each
 candidate's callback-result commitment, and select the first matching candidate.
 A later read MAY reuse an earlier candidate, including one skipped by an
-intervening read after local writes. Construction retains one row per observation, including identical completed
-candidates. Coverage may match one byte-identical row per validated read. During one pending read, both host hashes
+intervening read after local writes. V0 construction retains one row per observation. V1 construction reuses a completed
+reentrant static candidate only when its position key, complete callback array, callback-result
+commitment, success and return bytes match, and the row is at or after the live
+mutable cursor. Every read remains in the independently validated semantic stream. Coverage may match one byte-identical row per validated read. During one pending read, both host hashes
 and cursors are fixed; verification MAY memoize recursively checked `(chain,
 position key)` resolutions within that read. It MUST discard that memoization
 before a subsequent direct call changes the host position. Cyclic resolution
@@ -1002,10 +1004,10 @@ frame or enclosing rollback scope discards its complete descendant effects.
 
 The baseline manager/genesis profile remains required. This extension preserves
 its signing domain 7 and registered verification key; it requires no contract,
-genesis or datadir replacement. RPC validation version 8 and capability profile 2
+genesis or datadir replacement. RPC validation version 9 and capability profile 2
 identify the extended runtime contract before proving. Upgrade Composer, signer
 and followers together and discard old sessions; older lookup requests may need
-additional manager witnesses. Preserve the original per-observation static row
+additional manager witnesses. Preserve the version-selected static row
 layout so baseline-supported historical tables still bind exactly. Coverage of
 a repeated static row requires an actual read of a byte-identical validated
 program; extra, unselected or differing rows remain invalid. Baseline terminal failed
@@ -1035,11 +1037,15 @@ here. The discrepancy is recorded in the [port proposal](../../docs/proposals/l2
 
 ## 11. Data-availability and Sync-block verification
 
-The new network uses direct RollupX V0 (`0x00`) from genesis under the
-[wire and action contract](../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract).
-There is no activation option, old-format acceptance, profile selector, or
-full-block escape in operations. The RPC capability's profile identifier is a
-separate namespace.
+New production uses direct RollupX V1 (`0x01`); readers also accept V0 (`0x00`)
+under the [wire and action contract](../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract).
+Both use identical columns. The authenticated version selects static table
+construction: V0 retains one row per observation; V1 reuses complete reentrant static candidates. Static pool allocation is unchanged.
+There is no heuristic fallback or normalization of supplied tables. Historical V0
+replay MUST reproduce its original table and native transaction bytes. Upgrade
+readers and signers before enabling V1 producers; old readers reject V1. After V1
+inclusion, rollback requires a V1-capable reader. No genesis/database migration
+is required. The RPC capability profile remains a separate namespace.
 
 The count, beneficiary and extraData columns cover every position, including the
 terminal. Every pure transaction is carried as exact EIP-2718 bytes with a
@@ -1055,7 +1061,7 @@ all tables and outbound groups and binds them to settlement authorization. No
 missing, reordered, unused, byte-different or unsupported action can be normalized
 into a valid candidate.
 
-V0 MUST cover exactly the independently replayed window. Published metadata and
+Both versions MUST cover exactly the independently replayed window. Published metadata and
 ordinary transaction bytes MUST match every block's reconstruction evidence. For
 the terminal, operations contain the ordinary prefix, including the recorded history
 transaction, before its first EEZL2 native action. The remaining actions MUST reconstruct byte for byte to the exact

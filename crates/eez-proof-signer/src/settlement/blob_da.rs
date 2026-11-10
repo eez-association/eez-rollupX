@@ -2,7 +2,7 @@
 
 use alloy_primitives::{B256, Bytes, U256};
 use eez_blob_codec::{Blob, blob_versioned_hashes, decode_native_payload};
-use eez_protocol::blob_semantics::{SemanticTransaction, decode_semantic_transactions};
+use eez_protocol::blob_semantics::{SemanticTransaction, decode_native_semantics};
 
 use super::CanonicalPostBatch;
 
@@ -107,7 +107,7 @@ pub(crate) fn verify_da_carrier_with_limit(
         .collect::<Result<Vec<_>, _>>()?;
     let native = decode_native_payload(&blobs, expected_rollup_id)
         .map_err(|error| BlobDaError::InvalidProfile(error.to_string()))?;
-    let semantic_transactions = decode_semantic_transactions(&native.semantic_messages)
+    let semantic_transactions = decode_native_semantics(&native)
         .map_err(|error| BlobDaError::InvalidProfile(error.to_string()))?;
     let transaction_blob_hashes =
         blob_versioned_hashes(&blobs).map_err(|error| BlobDaError::Kzg(error.to_string()))?;

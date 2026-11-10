@@ -1,0 +1,15 @@
+{
+  "commits": {
+    "root": "1f4afd2c0d112be449fc5479230425c1f0180d00",
+    "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f"
+  },
+  "images": {
+    "node": "ghcr.io/eez-association/eez-rollupx-node@sha256:995c84bb9f5d8076f0838dc83ceb39e3e945b6a57ac8dfacc5ca925a177351b6",
+    "proof_signer": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:d3779bbb53e9f1de506322fa3a34c95d95ac5144082235e5680ddb1af8d29085",
+    "deploy": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:9e0c8e639739b40fc2a134d857191c4a4d0a6c794423c351d455a3f7840e4ace"
+  },
+  "helpers_sha256": {
+    "e2e-causal-verify": "2fc71a263b388f5f410e0aca2aebb56412bf56f09644868101bd98f6e88d6d1b",
+    "verify_blob_evidence": "7a5a484fd41429d7a011b6b667fcbd32752baa81c2359331a6fa3606fa7244f5"
+  }
+}

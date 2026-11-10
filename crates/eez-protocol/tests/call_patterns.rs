@@ -124,7 +124,7 @@ fn static_pool_callbacks_reuse_within_a_read_and_separate_local_write_contexts()
     });
     finalize_l1_entry_traces(&mut target.batch, &target.entry_traces).unwrap();
     let host = &target.batch.entries[0];
-    assert_eq!(host.expectedL1ToL2Calls.len(), 6);
+    assert_eq!(host.expectedL1ToL2Calls.len(), 3);
     let keys = host
         .expectedL1ToL2Calls
         .iter()
@@ -154,7 +154,9 @@ fn static_pool_callbacks_reuse_within_a_read_and_separate_local_write_contexts()
     let error = verify_outbound_source_group(&forged, &sources, l2)
         .expect_err("a previous read's row cannot answer the next read");
     assert!(
-        error.to_string().contains("did not consume the complete"),
+        error
+            .to_string()
+            .contains("outbound static callback does not match its L1 host row"),
         "{error}"
     );
 }

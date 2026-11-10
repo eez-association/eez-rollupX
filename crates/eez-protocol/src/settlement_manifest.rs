@@ -304,9 +304,7 @@ impl SettlementManifest {
         // outbound-first ordering in the native semantic stream.
         for (user_index, semantic) in inbound_semantics {
             let user = &mut users[user_index];
-            let composition =
-                crate::materialize_actions(user.source_rollup_id, semantic.actions.clone())
-                    .map_err(|error| error.to_string())?;
+            let composition = semantic.materialize().map_err(|error| error.to_string())?;
             // The shared projection validates exact materialized coverage and
             // includes recursive static-pool reads. Those observations do not
             // consume mutable queue positions or produce physical checkpoints.
@@ -448,6 +446,7 @@ mod tests {
     #[test]
     fn manifest_keeps_static_and_reverting_lookup_users_without_effects() {
         let users = [SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId(0),
             tx_data: signed(0),
             actions: vec![
@@ -471,6 +470,7 @@ mod tests {
         let mut recursive_read = action(0, CallMode::Static, true);
         recursive_read.parent_index = Some(1);
         let users = [SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId::MAINNET,
             tx_data: signed(0),
             actions: vec![
@@ -503,6 +503,7 @@ mod tests {
     fn manifest_maps_multiple_inbound_actions_at_exact_fifo_positions() {
         let users = [
             SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(0),
                 tx_data: signed(0),
                 actions: vec![
@@ -513,6 +514,7 @@ mod tests {
                 ],
             },
             SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(0),
                 tx_data: signed(1),
                 actions: vec![action(0, CallMode::Mutable, true)],
@@ -589,11 +591,13 @@ mod tests {
     fn lookup_only_user_keeps_fifo_identity_and_advances_mutable_queue_positions() {
         let users = [
             SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(0),
                 tx_data: signed(1),
                 actions: vec![action(0, CallMode::Mutable, true)],
             },
             SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(0),
                 tx_data: signed(0),
                 actions: vec![
@@ -654,6 +658,7 @@ mod tests {
     fn manifest_preserves_fifo_across_outbound_first_and_whole_multiroot_groups() {
         let users = [
             SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(1),
                 tx_data: signed(9),
                 actions: vec![
@@ -662,6 +667,7 @@ mod tests {
                 ],
             },
             SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(0),
                 tx_data: signed(0),
                 actions: vec![action(0, CallMode::Mutable, true)],
@@ -750,6 +756,7 @@ mod tests {
     #[test]
     fn manifest_rejects_missing_duplicate_or_malformed_signed_users() {
         let mut users = [SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId(0),
             tx_data: signed(0),
             actions: vec![action(0, CallMode::Static, true)],
@@ -780,6 +787,7 @@ mod tests {
                     _ => {}
                 }
                 let users = [SemanticTransaction {
+                    operations_version: Default::default(),
                     origin_chain: RollupId(source),
                     tx_data: signed(0),
                     actions: if invalid == "empty" {
@@ -807,6 +815,7 @@ mod tests {
     #[test]
     fn manifest_rejects_missing_or_unowned_checkpoints() {
         let users = [SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId(0),
             tx_data: signed(0),
             actions: vec![action(0, CallMode::Mutable, true)],

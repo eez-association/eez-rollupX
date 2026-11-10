@@ -182,6 +182,7 @@ impl GasEstimator {
     ) -> Result<(), EstimateError> {
         let mut replay = self.priced_inbound(snapshot, tx, deadline, pricing)?;
         let semantic = eez_protocol::blob_semantics::SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId::MAINNET,
             tx_data: Bytes::new(),
             actions: replay.actions,
@@ -744,6 +745,7 @@ impl GasEstimator {
         let replay = if entry == RollupId::MAINNET {
             let (blobs, da_bytes) = if let Some(pricing) = &pricing {
                 let semantic = eez_protocol::blob_semantics::SemanticTransaction {
+                    operations_version: Default::default(),
                     origin_chain: RollupId::MAINNET,
                     tx_data: Bytes::new(),
                     actions: composition.actions.clone(),

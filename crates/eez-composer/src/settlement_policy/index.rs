@@ -55,7 +55,7 @@ impl ActivityIndex {
         mut load: impl FnMut(B256) -> Result<BlockActivity, PolicyError>,
     ) -> Result<bool, PolicyError> {
         let codec = (
-            eez_payload_codec::v0::VERSION,
+            eez_payload_codec::v0::Version::V1 as u8,
             eez_blob_codec::PROTOCOL_VERSION,
         );
         let mut invalidated = self.codec != codec || self.anchor != Some(anchor);

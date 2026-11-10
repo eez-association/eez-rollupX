@@ -630,11 +630,21 @@ pub fn materialize_actions(
     entry_rollup_id: RollupId,
     recorded: Vec<crate::ExecutedAction>,
 ) -> CompositionResult<Composition> {
+    materialize_actions_with_version(entry_rollup_id, recorded, Default::default())
+}
+
+#[allow(clippy::result_large_err)]
+pub(crate) fn materialize_actions_with_version(
+    entry_rollup_id: RollupId,
+    recorded: Vec<crate::ExecutedAction>,
+    version: crate::blob_semantics::OperationsVersion,
+) -> CompositionResult<Composition> {
     if recorded.is_empty() {
         return Err(ProtocolErrorKind::EmptyCalls.into());
     }
     entries::ensure_materializable_calls(&recorded)?;
-    let mut materialized = entries::materialize_batches(&recorded, entry_rollup_id)?;
+    let mut materialized =
+        entries::materialize_batches_with_version(&recorded, entry_rollup_id, version)?;
 
     // Sort by rollup ID so identical inputs produce identical target order.
     let mut plan: Vec<RollupId> = materialized.keys().copied().collect();

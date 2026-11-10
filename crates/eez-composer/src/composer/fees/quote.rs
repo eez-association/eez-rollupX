@@ -1142,6 +1142,7 @@ where
                 .ok_or(FeeQuoteError::Unavailable("source gas"))?;
             let native_gas = remaining - native.remaining_gas() - gas;
             let semantic = eez_protocol::blob_semantics::SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(rollup_id),
                 tx_data: raw_size,
                 actions: composition.actions.clone(),

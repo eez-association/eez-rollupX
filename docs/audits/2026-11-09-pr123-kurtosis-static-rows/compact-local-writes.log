@@ -1,0 +1,8 @@
+DIAGNOSTIC compact local writes reader=RollupId(1) values=[1, 2, 1]: Ok(NestedPairVerification { l2_outbound_hashes: [], ether_delta: 0, l1_to_l2_value: 0, l2_to_l1_value: 0, l2_to_l1_executed_value: 0 })
+DIAGNOSTIC compact local writes reader=RollupId(1) values=[1, 1, 2, 1]: Ok(NestedPairVerification { l2_outbound_hashes: [], ether_delta: 0, l1_to_l2_value: 0, l2_to_l1_value: 0, l2_to_l1_executed_value: 0 })
+DIAGNOSTIC compact local writes reader=RollupId(1) values=[1, 2, 2, 1]: Ok(NestedPairVerification { l2_outbound_hashes: [], ether_delta: 0, l1_to_l2_value: 0, l2_to_l1_value: 0, l2_to_l1_executed_value: 0 })
+DIAGNOSTIC compact local writes reader=RollupId(0) values=[1, 2, 1]: Ok(NestedPairVerification { l2_outbound_hashes: [0xdb22e68a107625c661213dd1c8483138893ea7708a3720aba555d571713b6e74], ether_delta: 0, l1_to_l2_value: 0, l2_to_l1_value: 0, l2_to_l1_executed_value: 0 })
+DIAGNOSTIC compact local writes reader=RollupId(0) values=[1, 1, 2, 1]: Ok(NestedPairVerification { l2_outbound_hashes: [0xdb22e68a107625c661213dd1c8483138893ea7708a3720aba555d571713b6e74], ether_delta: 0, l1_to_l2_value: 0, l2_to_l1_value: 0, l2_to_l1_executed_value: 0 })
+DIAGNOSTIC compact local writes reader=RollupId(0) values=[1, 2, 2, 1]: Ok(NestedPairVerification { l2_outbound_hashes: [0xdb22e68a107625c661213dd1c8483138893ea7708a3720aba555d571713b6e74], ether_delta: 0, l1_to_l2_value: 0, l2_to_l1_value: 0, l2_to_l1_executed_value: 0 })
+test entries::materialize::tests::static_local_write_preserves_rows_and_resolves_earlier_candidates ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 230 filtered out; finished in 0.00s

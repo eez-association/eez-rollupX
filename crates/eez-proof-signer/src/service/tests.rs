@@ -746,6 +746,7 @@ fn fixture_semantics(batch: &eez_protocol::EvmBatch, block_rlp: &[u8]) -> Vec<Se
             .get(1)
             .expect("outbound fixture has [load, user]");
         semantic.push(SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId(1),
             tx_data: Bytes::copy_from_slice(raw_user),
             actions: entry
@@ -772,6 +773,7 @@ fn fixture_semantics(batch: &eez_protocol::EvmBatch, block_rlp: &[u8]) -> Vec<Se
             continue;
         };
         semantic.push(SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId::MAINNET,
             tx_data: Bytes::new(),
             actions: vec![fixture_action(

@@ -524,7 +524,7 @@ mod tests {
 
     fn test_capabilities() -> eez_control_rpc::v2::CapabilitiesResponse {
         eez_control_rpc::v2::CapabilitiesResponse {
-            operations_tag: 0,
+            operations_tag: 1,
             profile_id: eez_control_rpc::OFFLINE_PROFILE_ID,
             validation_identity: TEST_IDENTITY.to_vec(),
             max_window_blocks: 65_536,

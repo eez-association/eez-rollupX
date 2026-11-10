@@ -1,4 +1,4 @@
-//! Producer projection into the sole direct V0 operations format.
+//! Producer projection into the current direct operations format.
 //! Actions and their authorization remain in the enclosing native EEZ stream.
 
 use alloy_eips::Encodable2718 as _;
@@ -86,5 +86,5 @@ pub fn encode_operations(
             transactions,
         })
         .collect::<Vec<_>>();
-    Ok(v0::encode(&runs)?)
+    Ok(v0::encode_current(&runs)?)
 }

@@ -1114,7 +1114,7 @@ impl Prover for ProveSvc {
         // the per-message ceiling. No permit, witness, or attestable value is
         // acquired/constructed here.
         Ok(Response::new(eez_control_rpc::v2::CapabilitiesResponse {
-            operations_tag: u32::from(eez_payload_codec::v0::VERSION),
+            operations_tag: eez_payload_codec::v0::Version::V1 as u32,
             profile_id: eez_control_rpc::OFFLINE_PROFILE_ID,
             validation_identity: self.state.validation_identity.to_vec(),
             max_window_blocks: window.blocks as u64,
