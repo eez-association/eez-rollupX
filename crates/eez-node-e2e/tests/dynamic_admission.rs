@@ -1694,15 +1694,31 @@ async fn delayed_inbound_original_reports_the_batch_that_actually_settled() {
         .parse::<alloy_primitives::B256>()
         .unwrap();
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
-    let delivery_receipt = l2.get_transaction_receipt(delivery).await.unwrap().unwrap();
-    assert!(delivery_receipt.status());
-    wait_for_safe_prefix_convergence(
-        &[&world.node, &follower],
-        delivery_receipt.block_number.unwrap(),
-        TIMEOUT,
+    // Inbound delivery is an EEZ native transaction (0x45), outside Alloy's
+    // Ethereum-only receipt envelope. Check its RPC fields without decoding it
+    // as a signed Ethereum transaction.
+    let delivery_receipt: serde_json::Value = l2
+        .client()
+        .request("eth_getTransactionReceipt", (delivery,))
+        .await
+        .unwrap();
+    assert_eq!(delivery_receipt["status"], "0x1");
+    assert_eq!(
+        delivery_receipt["transactionHash"],
+        serde_json::json!(delivery)
+    );
+    assert_eq!(delivery_receipt["type"], "0x45");
+    let delivery_height = u64::from_str_radix(
+        delivery_receipt["blockNumber"]
+            .as_str()
+            .unwrap()
+            .trim_start_matches("0x"),
+        16,
     )
-    .await
     .unwrap();
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], delivery_height, TIMEOUT)
+        .await
+        .unwrap();
     assert_eq!(
         l2_value(&world.l2_rpc(), world.value_l2).await.unwrap(),
         U256::from(731)
