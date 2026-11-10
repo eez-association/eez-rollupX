@@ -185,7 +185,7 @@ mod tests {
             data: Bytes::from_static(&[0x61, 0x46, 0x19, 0x54, 0xff]),
             value: U256::ZERO,
             outcome,
-            revert_span: None,
+            revert_spans: vec![],
         }
     }
 

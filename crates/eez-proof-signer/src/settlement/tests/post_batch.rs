@@ -342,3 +342,57 @@ fn blob_indices_are_checked_by_the_da_gate_and_hash_computation() {
             .is_ok()
     );
 }
+
+#[test]
+fn manager_destination_checks_all_l1_arrays_against_runtime_proxy() {
+    let registry = Address::repeat_byte(0x11);
+    let implementation = Address::repeat_byte(0x22);
+    let rollup_manager = Address::repeat_byte(0x33);
+    for location in 0..3 {
+        for destination in [registry, implementation, rollup_manager] {
+            let call = L2ToL1CallSol {
+                targetAddress: destination,
+                // The forbidden destination must reject even in a rollback span.
+                revertNextNCalls: u16::from(location != 2),
+                isStatic: location == 2,
+                gas: 0,
+                sourceAddress: Address::ZERO,
+                sourceRollupId: 1,
+                value: U256::ZERO,
+                data: Bytes::new(),
+            };
+            let mut batch = EvmBatch::default();
+            match location {
+                0 => batch.entries.push(ExecutionEntrySol {
+                    l2ToL1Calls: vec![call],
+                    ..Default::default()
+                }),
+                1 => batch.entries.push(ExecutionEntrySol {
+                    expectedL1ToL2Calls: vec![ExpectedL1ToL2CallSol {
+                        l2ToL1Calls: vec![call],
+                        expectedL1toL2Hash: B256::ZERO,
+                        revertedOrStaticRollingHash: B256::ZERO,
+                        success: true,
+                        returnData: Bytes::new(),
+                    }],
+                    ..Default::default()
+                }),
+                _ => batch.staticEntries.push(StaticExecutionEntrySol {
+                    l2ToL1Calls: vec![call],
+                    ..Default::default()
+                }),
+            }
+            let result =
+                CanonicalPostBatch::from_decoded_for_test(batch).validate_l1_destinations(registry);
+            if destination == registry {
+                assert!(
+                    matches!(result, Err(PublicInputError::ManagerDestination { manager }) if manager == registry)
+                );
+            } else {
+                // This guard must not conflate runtime and implementation identity;
+                // the other settlement gates still apply to these destinations.
+                result.unwrap();
+            }
+        }
+    }
+}

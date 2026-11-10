@@ -204,8 +204,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     let native = decode_native_payload(&selected_blobs, rollup_id)?;
-    let semantic_transactions =
-        eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)?;
+    let semantic_transactions = eez_protocol::blob_semantics::decode_native_semantics(&native)?;
     let payload = eez_payload_codec::v0::Payload::decode(&native.operations)?;
     // With the L2 chain id, bind the semantic brackets to this batch's exact
     // settlement tables as the deriver does. L1-origin brackets publish no
@@ -222,7 +221,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 eez_protocol::RollupId(rollup_id),
                 chain,
             )?
-            .bind_settlement(&posted.batch)?;
+            .bind_observed_settlement(&posted.batch)?;
             true
         }
     };
@@ -276,7 +275,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                         "success": success,
                         "result_kind": if success { "ReturnSuccess" } else { "ReturnFail" },
                         "return_data": format!("0x{}", hex::encode(return_data)),
-                        "revert_span": action.revert_span,
+                        "revert_spans": action.revert_spans,
                     })
                 }).collect::<Vec<_>>(),
             })

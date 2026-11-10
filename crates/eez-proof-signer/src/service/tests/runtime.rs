@@ -55,7 +55,7 @@ async fn capabilities_report_offline_identity_and_effective_limits_while_worker_
         .unwrap()
         .unwrap()
         .into_inner();
-        assert_eq!(response.operations_tag, 0);
+        assert_eq!(response.operations_tag, 1);
         assert_eq!(response.profile_id, eez_control_rpc::OFFLINE_PROFILE_ID);
         assert_eq!(response.validation_identity, expected.to_vec());
         assert_eq!(
@@ -241,12 +241,4 @@ async fn shutdown_waits_for_detached_request_work() {
         .await
         .expect("shutdown did not observe the released request slot")
         .expect("shutdown waiter panicked");
-}
-
-#[test]
-fn portable_validation_version_matches_manager_execution_contract() {
-    assert_eq!(
-        eez_control_rpc::identity::VALIDATION_VERSION,
-        eez_protocol::l2::VALIDATION_VERSION
-    );
 }

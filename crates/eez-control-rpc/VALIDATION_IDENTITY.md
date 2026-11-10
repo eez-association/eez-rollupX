@@ -1,20 +1,38 @@
 # Portable validation identity
 
-Status: normative for validation contract 7, capability profile 2 and v2 proving.
+Status: normative for validation contract 9, capability profile 2 and v2 proving.
 This is a compatibility namespace, never authorization to execute or sign.
 No Rust dependency, Cargo lockfile, source revision, binary hash, transport URL,
 signing key or resource limit participates.
 
-Version 7 uses the unmodified Core `Rollup` manager and its timestamp/hash
-context. The registered vkey binds the validation program and network profile.
-It removes automatic accepted-root/rule-period proof expiry. The L2 execution
+Version 8 retains the unmodified Core `Rollup` manager and timestamp/hash
+context introduced in version 7. The registered vkey binds the deployed signing domain and network profile.
+Version 7 already removed automatic accepted-root/rule-period proof expiry. The L2 execution
 rules, including the upgradeable history store, 0x46 imports and block-end balance
 cleanup, remain unchanged. Known compatible L1 fork crossings are allowed;
 incompatible changes require coordinated on-chain key revocation/replacement.
 
-Use matching node, follower, signer and deployment artifacts for fresh networks.
-Previous manager/context/key formats and sessions are unsupported. The v2
+Use matching Composer, follower and signer artifacts. Version-7 proving sessions
+are unsupported; the deployed signing domain and registered keys remain unchanged.
+Earlier manager/context/genesis migration boundaries are unaffected. The v2
 protobuf, cross-chain 0x45 and protocol pin are unchanged.
+
+Version 8 extends the accepted cross-chain profile to recursive static callbacks,
+failed mutable calls with descendants, nested rollback scopes and authenticated
+mutable lookup replay. Reused rows retain exact callback and execution
+commitments. The protobuf, protocol pin and native encodings remain unchanged.
+RPC version 8 is not hashed into the registered key. The signing domain remains
+7 because this extension does not change the meaning of valid prior attestations.
+Old runtime artifacts cannot process all newly supported shapes. The runtime
+upgrade boundary is documented in the
+[full protocol proposal](../../docs/proposals/full-protocol-e2e.md#compatibility-and-recovery).
+
+Version 9 adds explicit native operations V1 for reusable static candidates,
+while preserving exact V0 historical reconstruction. Capabilities report operations
+tag 1; the on-chain signing domain remains 7. Upgrade readers/signers before V1
+producers, and retain V1-capable readers after V1 inclusion. No new protocol pin,
+genesis or database format is required. A validation identity is not executable
+provenance.
 
 ## Encoding
 
@@ -24,7 +42,7 @@ with these ten elements in this exact order:
 | Position | Element | Encoding/value |
 | --- | --- | --- |
 | 0 | domain | UTF-8 bytes of `eez.validation-identity` |
-| 1 | validation-contract version | unsigned integer `7` |
+| 1 | validation-contract version | unsigned integer `9` |
 | 2 | rollup ID | locally configured nonzero u64 |
 | 3 | L2 chain ID | u64 from the locally loaded L2 chain document |
 | 4 | system address | exactly 20 raw bytes |
@@ -58,6 +76,10 @@ abi.encode(
    uint32 updateOffset, bytes32 l1ConfigHash, address feeCollector)
 )
 ```
+
+The signing-domain version changes only for an explicitly incompatible rule
+change or attestation revocation, not for additional compatible runtime support.
+It identifies a policy; ECDSA does not attest which binary holds the private key.
 
 The registered verification key is:
 
@@ -121,9 +143,9 @@ not admit a genesis configuration. Hash and load the same document snapshot.
 
 ## Versioning and operations
 
-Validation-contract version 7 covers the RLP tuple above, canonical JSON rules
+Validation-contract version 9 covers the RLP tuple above, canonical JSON rules
 and the complete offline validation contract:
-the fixed Osaka L2 profile, compact V0 operations, versionless cross-chain 0x45 and optional history 0x46/version-1 transactions
+the fixed Osaka L2 profile, version-bound V0/V1 operations, versionless cross-chain 0x45 and optional history 0x46/version-1 transactions
 (execution-group source identities belong only to cross-chain
 transactions), no system nonce,
 per-transaction base-fee collection, complete-group SYSTEM/EEZL2 balance cleanup and block-finalization cleanup, permanent history, recorded history transactions and delayed synchronized
@@ -152,7 +174,8 @@ The 2026-11-04 dependency review updates only `pulldown-cmark` 0.13.5 to
 comments at build time; the generated `prove.v2.rs` remains byte-identical
 (SHA-256 `d69840cb22b68e83cb7250a566a58599c4d6b269ac301fb0505e4101ddeea966`).
 No execution, decoding, or wire semantics change, so only the local lockfile
-review digest changes; `VALIDATION_VERSION` remains 7.
+review digest changed; that dependency-only revision retained version 7. The
+subsequent cross-chain extension described above uses RPC validation version 8.
 
 Composer compares the hash with its own local result at Capabilities and sends
 the same 32 bytes as binary `eez-validation-identity-bin` metadata on every stream.
@@ -161,10 +184,9 @@ Block. The remote hash is never an input to the local calculation. To diagnose a
 mismatch compare each local preimage field; the unchanged wire hash does not
 identify a differing field.
 
-Different validation-contract versions fail the exact comparison.
-Deploy matching Composer/prover/follower artifacts and newly generated genesis
-and registered verification key together. The network profile binds the collector and execution profile;
-the service uses v2 and validation-contract version 7. Discard retained sessions
-when changing identity. This is a fresh-network profile, with no migration or
-rollback path for existing blocks/databases.
+Different RPC validation versions fail the exact comparison. Upgrade matching
+Composer/prover/follower artifacts and discard retained sessions. Compatible
+support extensions retain the signing domain, registered key and existing genesis;
+the RPC version is not an on-chain key version. Earlier incompatible manager or
+execution-profile migrations remain outside this compatibility boundary.
 Pending requests/counters remain in memory; restart is not durable queue recovery.

@@ -91,7 +91,7 @@ fn validate(
     capabilities: &CapabilitiesResponse,
     expected: alloy_primitives::B256,
 ) -> ProverResult<()> {
-    if capabilities.operations_tag != 0
+    if capabilities.operations_tag != 1
         || capabilities.profile_id != eez_control_rpc::OFFLINE_PROFILE_ID
     {
         return Err(ProverError::Backend(

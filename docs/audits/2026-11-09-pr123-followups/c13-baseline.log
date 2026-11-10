@@ -1,0 +1,22 @@
+   Compiling eez-protocol v0.1.0 (/home/edu/Development/rollupX/artifacts/full-protocol-e2e-20261030/crates/eez-protocol)
+    Finished `test` profile [optimized + debuginfo] target(s) in 3.17s
+     Running unittests src/lib.rs (target/debug/deps/eez_protocol-c8c12458cb926609)
+
+running 1 test
+test blob_semantics::reconstruction::tests::observed_settlement_accepts_retuned_dispatch ... FAILED
+
+failures:
+
+---- blob_semantics::reconstruction::tests::observed_settlement_accepts_retuned_dispatch stdout ----
+
+thread 'blob_semantics::reconstruction::tests::observed_settlement_accepts_retuned_dispatch' (236) panicked at crates/eez-protocol/src/blob_semantics/reconstruction/tests.rs:403:37:
+called `Result::unwrap()` on an `Err` value: Settlement("immediate static entries are unsupported")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    blob_semantics::reconstruction::tests::observed_settlement_accepts_retuned_dispatch
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 230 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p eez-protocol --lib`

@@ -202,9 +202,7 @@ impl Fixture {
             signature: hex::decode(response["signature"].as_str().unwrap()).unwrap(),
         };
         let native = native_payload(&mut fixture.input);
-        let semantics =
-            eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)
-                .unwrap();
+        let semantics = eez_protocol::blob_semantics::decode_native_semantics(&native).unwrap();
         let actions = eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
             &semantics,
             RollupId(1),
@@ -472,9 +470,7 @@ async fn native_changing_reads_and_caught_revert_replay_original_execution_with_
             .as_ref()
             .unwrap();
         let batch = settlement::decode_canonical_post_batch(post.abi_calldata.clone()).unwrap();
-        let semantics =
-            eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)
-                .unwrap();
+        let semantics = eez_protocol::blob_semantics::decode_native_semantics(&native).unwrap();
         // The producing Composer publishes the signed origin only for an L2 origin.
         for transaction in &semantics {
             assert_eq!(
@@ -516,7 +512,15 @@ async fn native_changing_reads_and_caught_revert_replay_original_execution_with_
             assert!(actions.outbound().is_empty());
         }
         let server = fixture.server().await;
-        let response = server.attest(fixture.input.clone()).await;
+        let response = server
+            .exchange(fixture.input.clone())
+            .await
+            .unwrap_or_else(|status| {
+                panic!(
+                    "{name}: {status:?}; {:?}",
+                    pipeline_error(&fixture.state, fixture.input.clone())
+                )
+            });
         assert_attestation(
             &response,
             fixture.expected_hash,
@@ -624,6 +628,40 @@ async fn forged_native_lookup_outcome_reaches_observation_replay_and_never_signs
     assert_eq!(fixture.state.attester.signing_calls(), 0);
 }
 
+#[tokio::test]
+async fn missing_lookup_manager_code_reaches_observation_replay_and_never_signs() {
+    let mut fixture = Fixture::load("native-osaka-lookup");
+    let (genesis, _, _) = crate::testkit::native_capture("native-osaka-lookup");
+    let code = genesis.alloc[&eez_primitives::EEZL2_GENESIS_IMPLEMENTATION_ADDRESS]
+        .code
+        .as_ref()
+        .unwrap();
+    let Some(WindowPart::Block(block)) = &mut fixture.input.last_mut().unwrap().kind else {
+        panic!("terminal block");
+    };
+    let codes = &mut block.witness.as_mut().unwrap().codes;
+    let count = codes.len();
+    codes.retain(|candidate| candidate.as_slice() != code.as_ref());
+    assert_eq!(codes.len() + 1, count);
+    // Canonical block execution and native semantic binding must pass. This
+    // implementation is needed by the subsequent scratch manager delivery.
+    let error = pipeline_error(&fixture.state, fixture.input.clone());
+    assert_eq!(error.gate(), "observation_replay", "{error:?}");
+    assert!(format!("{error:?}").contains("bytecode"), "{error:?}");
+    let server = fixture.server().await;
+    assert_eq!(
+        server.prove(fixture.input).await.code(),
+        Code::FailedPrecondition
+    );
+    assert_eq!(fixture.state.attester.signing_calls(), 0);
+}
+
+#[test]
+#[ignore = "explicit supplemental witness generation from exact captured block replay"]
+fn supplement_native_lookup_capture_witness() {
+    crate::testkit::history_observations::complete_native_capture_witness("native-osaka-lookup");
+}
+
 /// Refresh commitments after an intentional proof-policy change while retaining
 /// the captured execution/witness bytes. This constructs expected values from
 /// inputs; it never invokes a service or learns an expected digest from one.
@@ -709,4 +747,40 @@ fn regenerate_native_fixture_commitments() {
         )
         .unwrap();
     }
+}
+
+#[tokio::test]
+async fn manager_destination_is_rejected_by_independent_signer_before_signing() {
+    let mut fixture = Fixture::load("native-offline-bidirectional");
+    let registry = fixture.state.deployment.registry;
+    assert_ne!(registry, fixture.state.deployment.manager);
+    let post = header_mut(&mut fixture.input[0])
+        .post_batch
+        .as_mut()
+        .unwrap();
+    let mut batch = settlement::decode_canonical_post_batch(post.abi_calldata.clone()).unwrap();
+    batch.validate_l1_destinations(registry).unwrap();
+    let call = batch
+        .entries
+        .iter_mut()
+        .flat_map(|entry| entry.l2ToL1Calls.iter_mut())
+        .next()
+        .expect("captured bidirectional request has an L1 forwarded call");
+    call.targetAddress = registry;
+    post.abi_calldata = eez_protocol::entries::encode_postbatch(&batch);
+    // The complete captured execution remains valid. The explicit destination
+    // gate must reject this canonical mutation before downstream DA comparisons.
+    let error = pipeline_error(&fixture.state, fixture.input.clone());
+    assert!(
+        matches!(error, PipelineError::Settlement(
+        SettlementPipelineError::PublicInputs(settlement::PublicInputError::ManagerDestination { manager })
+    ) if manager == registry),
+        "{error:?}"
+    );
+    let server = fixture.server().await;
+    assert_eq!(
+        server.prove(fixture.input).await.code(),
+        Code::FailedPrecondition
+    );
+    assert_eq!(fixture.state.attester.signing_calls(), 0);
 }

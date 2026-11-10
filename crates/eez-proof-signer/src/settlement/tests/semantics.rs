@@ -30,7 +30,7 @@ fn semantic_action(
             gas_used: 0,
             success: true,
         },
-        revert_span: None,
+        revert_spans: vec![],
     }
 }
 
@@ -81,6 +81,7 @@ fn authorized_outbound_fixture() -> (
     let window = validated_window(block_rlp(transactions));
     let call = batch.entries[1].l2ToL1Calls[0].clone();
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId(1),
         tx_data: raw_user,
         actions: vec![semantic_action(
@@ -178,6 +179,7 @@ fn nested_outbound_semantics_require_the_canonical_single_host() {
         flat.returnData.clone(),
     ));
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId(1),
         tx_data: raw[0].clone().into(),
         actions,
@@ -266,6 +268,7 @@ fn native_inbound_semantics_bind_both_sides_and_reject_result_mutation() {
     let plan = effect_plan(&batch, &settling);
     let inbound = verify_inbound_effect_entries(&plan).unwrap();
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions: vec![semantic_action(
@@ -351,8 +354,9 @@ fn native_lookup_semantics_bind_results_without_an_l2_effect() {
             gas_used: 0,
             success,
         };
-        action.revert_span = revert_span;
+        action.revert_spans = revert_span.into_iter().collect();
         let semantic = SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId::MAINNET,
             tx_data: Bytes::new(),
             actions: vec![action],
@@ -421,7 +425,7 @@ fn native_lookup_semantics_bind_results_without_an_l2_effect() {
 }
 
 #[test]
-fn source_reverted_lookup_with_cross_chain_descendants_is_rejected() {
+fn failed_lookup_binds_complete_callback_table_before_replay() {
     let root = B256::ZERO;
     let mut outer = semantic_action(
         RollupId::MAINNET,
@@ -432,7 +436,12 @@ fn source_reverted_lookup_with_cross_chain_descendants_is_rejected() {
         Bytes::from_static(b"outer call"),
         Bytes::from_static(b"outer result"),
     );
-    outer.revert_span = Some(2);
+    outer.revert_spans = vec![2];
+    outer.outcome = ExecutionOutcome::Resolved {
+        success: false,
+        return_data: b"outer result".to_vec(),
+        gas_used: 21_000,
+    };
     let mut nested = semantic_action(
         RollupId(1),
         RollupId::MAINNET,
@@ -444,6 +453,7 @@ fn source_reverted_lookup_with_cross_chain_descendants_is_rejected() {
     );
     nested.parent_index = Some(0);
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions: vec![outer, nested],
@@ -455,7 +465,7 @@ fn source_reverted_lookup_with_cross_chain_descendants_is_rejected() {
     assert_eq!(decoded[0].origin_chain, semantic.origin_chain);
     assert_eq!(decoded[0].tx_data, semantic.tx_data);
     assert_eq!(decoded[0].actions.len(), 2);
-    assert_eq!(decoded[0].actions[0].revert_span, Some(2));
+    assert_eq!(decoded[0].actions[0].revert_spans, vec![2]);
     assert_eq!(
         decoded[0].actions[0].data,
         Bytes::from_static(b"outer call")
@@ -490,19 +500,54 @@ fn source_reverted_lookup_with_cross_chain_descendants_is_rejected() {
     let mut batch = state_chain(&[root, root]);
     batch.entries.push(lookup);
     batch.immediateEntryCount = U256::from(1);
-    let error = verify_native_semantics(
+    let window = validated_window(block_rlp(Vec::new()));
+    let claims = crate::settlement::semantics::verify_native_semantics_with_observations(
         &decoded,
-        &validated_window(block_rlp(Vec::new())),
+        &window,
         &AuthorizedOutboundEffects::default(),
         &AuthorizedInboundEffects::default(),
         &batch,
         expected_rollup_id(),
     )
-    .unwrap_err();
+    .expect("the complete lookup requires independent destination replay");
+    assert_eq!(claims.len(), 1);
+    assert!(claims[0].delivery.is_some());
+    assert_eq!(
+        claims[0].expected_output,
+        Bytes::from_static(b"outer result")
+    );
+
+    let mut unsafe_semantics = decoded.clone();
+    if let ExecutionOutcome::Resolved { success, .. } = &mut unsafe_semantics[0].actions[0].outcome
+    {
+        *success = true;
+    }
+    let error = verify_native_semantics(
+        &unsafe_semantics,
+        &window,
+        &AuthorizedOutboundEffects::default(),
+        &AuthorizedInboundEffects::default(),
+        &batch,
+        expected_rollup_id(),
+    )
+    .expect_err("a predicted source rollback cannot authorize successful lookup callbacks");
+    assert!(
+        matches!(error, SemanticBindingError::Materialization { reason, .. }
+        if reason.contains("successful non-applying L1 roots with callbacks"))
+    );
+
+    let mut forged = decoded;
+    forged[0].actions[1].data = Bytes::from_static(b"forged callback");
     assert!(matches!(
-        error,
-        SemanticBindingError::FifoRootSchedule { reason, .. }
-            if reason.contains("multi-chain observation replay is unsupported")
+        verify_native_semantics(
+            &forged,
+            &window,
+            &AuthorizedOutboundEffects::default(),
+            &AuthorizedInboundEffects::default(),
+            &batch,
+            expected_rollup_id(),
+        ),
+        Err(SemanticBindingError::InboundSettlement)
     ));
 }
 
@@ -555,6 +600,7 @@ fn native_inbound_semantics_finalize_root_dependent_nested_fields() {
         action.parent_index = Some(index - 1);
     }
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions,
@@ -586,6 +632,7 @@ fn native_l1_static_semantics_bind_exact_pinned_static_entry() {
     );
     action.call_mode = CallMode::Static;
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions: vec![action],

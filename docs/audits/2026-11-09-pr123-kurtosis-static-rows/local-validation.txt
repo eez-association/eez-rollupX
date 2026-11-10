@@ -1,0 +1,68 @@
+affected packages, first pass
+source log: /tmp/pr123-compact-validation.log
+running 21 tests
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.70s
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.47s
+running 426 tests
+test held_pool::tests::profile_blocked_backlog_discovery ... ignored, manual component profile; records timings without timing assertions
+test result: ok. 425 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.32s
+running 7 tests
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+running 74 tests
+test result: ok. 74 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+running 200 tests
+test result: FAILED. 199 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.04s
+
+remaining packages, final pass
+source log: /tmp/pr123-compact-final-units.log
+running 200 tests
+test result: ok. 200 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.06s
+running 345 tests
+test service::sessions::tests::vectors::regenerate_offline_vectors ... ignored, explicit frozen fixture generation; see conformance/README.md
+test service::tests::derivation::captured::inventory_native_proving_fixtures ... ignored, explicit local native-fixture inventory utility
+test service::tests::derivation::captured::regenerate_native_fixture_commitments ... ignored, explicit native commitment regeneration; see conformance/README.md
+test service::tests::derivation::captured::supplement_native_lookup_capture_witness ... ignored, explicit supplemental witness generation from exact captured block replay
+test service::tests::derivation::history_observations::regenerate_history_observation_process_fixtures ... ignored, explicit regeneration utility for the standalone signer process regression
+test result: ok. 340 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 2.44s
+running 232 tests
+test result: ok. 232 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+running 31 tests
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+running 11 tests
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+running 3 tests
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+running 2 tests
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+static read process cases
+source log: /tmp/pr123-compact-process-final.log
+running 4 tests
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 201 filtered out; finished in 785.37s
+
+nested calls and history process cases
+source log: /tmp/pr123-compact-extra-process.log
+running 8 tests
+test cross_chain::combined_history::kurtosis_combined_history_observations_replay_offline ... ignored, requires an owned offset-5 Kurtosis capture and its retained genesis
+test result: ok. 7 passed; 0 failed; 1 ignored; 0 measured; 197 filtered out; finished in 400.96s
+
+current-profile fixture regeneration
+source log: /tmp/pr123-compact-fixtures.log
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 344 filtered out; finished in 2.09s
+
+unknown-version rejection
+source log: /tmp/pr123-compact-version-rejection.log
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 344 filtered out; finished in 0.03s
+
+The first-pass L1 failure is superseded by the final 200/200 L1 run.
+The first-pass log stopped there; it does not report coverage of later packages.
+Payload codec: 17 unit + 2 integration tests passed in /tmp/pr123-compact-remaining.log.
+Prover client: 34 tests passed in /tmp/pr123-compact-remaining.log.
+All raw /tmp logs are local-only. This file retains selected summaries.

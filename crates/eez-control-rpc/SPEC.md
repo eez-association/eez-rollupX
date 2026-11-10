@@ -49,7 +49,7 @@ Generate clients from the single schema; no second service or package is needed.
 
 ### 2.1 Validation identity and capability discovery
 
-Capabilities returns operations tag 0, offline profile 2, the 32-byte validation
+Capabilities returns operations tag 1, offline profile 2, the 32-byte validation
 identity, effective block/byte/witness-item/message limits and timeouts. The call
 neither occupies the expensive worker nor signs. Validation identity binds actual
 loaded L1/L2 configuration, fixed genesis/history profile, registry/manager,
@@ -177,7 +177,7 @@ The new network uses one format from genesis without an activation setting.
 The columns cover all blocks, including terminal metadata and its ordinary
 prefix. Timestamps, fixed header fields and randomness are independently derived;
 there are no full-block escapes, environment overrides, sidecar arrays or group
-sizes in operations. See the [direct V0 contract](../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract)
+sizes in operations. See the [direct V0/V1 contract](../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract)
 for exact bounds, maximal runs and canonical decoding.
 
 The surrounding native semantic stream reconstructs the authorized mutable and

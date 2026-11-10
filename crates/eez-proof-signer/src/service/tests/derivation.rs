@@ -100,7 +100,7 @@ fn published_blocks(blocks: &[BlockWitness]) -> Vec<PublishedBlock> {
 }
 
 fn encode_published(blocks: &[PublishedBlock]) -> Vec<u8> {
-    v0::encode(
+    v0::encode_current(
         &blocks
             .iter()
             .map(|block| BlockRun {
@@ -209,10 +209,16 @@ async fn terminal_metadata_is_published_and_independently_bound() {
 #[tokio::test]
 async fn unsupported_operations_tags_are_rejected_before_signing() {
     let blocks = blocks(2);
-    let unsupported = [vec![1], vec![2], vec![3], vec![0xff]];
+    let canonical = payload(&blocks);
     let state = state();
     let server = TestServer::new(state.clone()).await;
-    for operations in unsupported {
+    for tag in [2, 3, 0xff] {
+        let mut operations = canonical.clone();
+        operations[0] = tag;
+        assert_eq!(
+            Payload::decode(&operations).unwrap_err(),
+            eez_payload_codec::v0::Error::Version
+        );
         assert_eq!(
             server
                 .prove(request(&state, blocks.clone(), operations))
@@ -228,7 +234,7 @@ async fn unsupported_operations_tags_are_rejected_before_signing() {
 async fn noncanonical_count_columns_never_reach_the_attester() {
     let blocks = blocks(3);
     let canonical = payload(&blocks);
-    assert_eq!(&canonical[..2], &[0, 15]);
+    assert_eq!(&canonical[..2], &[1, 15]);
     let state = state();
     let server = TestServer::new(state.clone()).await;
     for counts in [
@@ -239,7 +245,7 @@ async fn noncanonical_count_columns_never_reach_the_attester() {
         vec![0x80, 1],
         vec![0xff, 0xff, 0xff, 0xff, 0xff, 15],
     ] {
-        let operations = [vec![0, 15], counts, canonical[3..].to_vec()].concat();
+        let operations = [vec![1, 15], counts, canonical[3..].to_vec()].concat();
         assert!(Payload::decode(&operations).is_err());
         assert_eq!(
             server

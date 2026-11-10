@@ -1,0 +1,7 @@
+[PASS] test_StaticLookup_NestedRetriesAfterLocalWrites() (gas: 2017820)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 4.27ms (726.93µs CPU time)
+[PASS] test_StaticLookup_NestedRetriesAfterLocalWrites() (gas: 2409669)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 4.59ms (1.05ms CPU time)
+[PASS] test_StaticLookup_NestedRetriesAfterLocalWrites() (gas: 2419467)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 4.97ms (1.04ms CPU time)
+Ran 3 test suites in 9.02ms (13.83ms CPU time): 3 tests passed, 0 failed, 0 skipped (3 total tests)

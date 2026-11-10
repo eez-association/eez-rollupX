@@ -175,7 +175,7 @@ fn all_shortest_u32_boundaries_and_count_tokens_are_checked_without_expansion() 
         assert!(varint(&mut &*invalid).is_err());
     }
     assert_eq!(Payload::decode(&[0, 0]).unwrap_err(), Error::EmptyRange);
-    assert_eq!(Payload::decode(&[1]).unwrap_err(), Error::Version);
+    assert_eq!(Payload::decode(&[2]).unwrap_err(), Error::Version);
     let mut suffix = reference_empty(600);
     suffix.push(0);
     assert_eq!(Payload::decode(&suffix).unwrap_err(), Error::Trailing);
@@ -389,5 +389,25 @@ proptest! {
             prop_assert!(payload.count_runs().count() <= bytes.len());
             prop_assert!(payload.transactions().count() <= bytes.len() / 2);
         }
+    }
+}
+
+#[test]
+fn wire_version_is_explicit_and_columns_are_unchanged() {
+    let runs = [BlockRun {
+        blocks: 2,
+        beneficiary: Address::ZERO,
+        extra_data: &[],
+        transactions: &[],
+    }];
+    let old = encode(&runs).unwrap();
+    let new = super::encode_current(&runs).unwrap();
+    assert_eq!(&old[1..], &new[1..]);
+    assert_eq!(Payload::decode(&old).unwrap().version(), super::Version::V0);
+    assert_eq!(Payload::decode(&new).unwrap().version(), super::Version::V1);
+    for version in [2, 255] {
+        let mut invalid = new.clone();
+        invalid[0] = version;
+        assert_eq!(Payload::decode(&invalid).unwrap_err(), Error::Version);
     }
 }

@@ -130,6 +130,7 @@ pub(super) fn inbound(
     )
     .map_err(unsupported)?;
     let semantics = eez_protocol::blob_semantics::SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions: c.actions.clone(),
@@ -195,11 +196,14 @@ pub(super) fn inbound(
                 .get(target_index)
                 .ok_or_else(|| unsupported("missing inbound sidecar"))?;
             target_index += 1;
-            let inflow = eez_protocol::entries::entry_flat_value_sum(target.as_abi_entry())
-                .ok_or_else(|| unsupported("inbound value shape"))?;
-            let outflow = eez_protocol::entries::entry_flat_value_sum(entry)
-                .ok_or_else(|| unsupported("callback value shape"))?;
-            ether_delta(inflow, outflow)?
+            let value = eez_protocol::entries::project_inbound_value(
+                entry,
+                &traces[source_index],
+                target.as_abi_entry(),
+                eez_protocol::RollupId(e.rollup_id),
+            )
+            .map_err(unsupported)?;
+            ether_delta(value.l1_to_l2_value, value.l2_to_l1_value)?
         } else {
             EtherDeltaSol::ZERO
         };

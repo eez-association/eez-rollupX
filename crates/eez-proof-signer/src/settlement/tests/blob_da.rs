@@ -1,5 +1,16 @@
 use super::*;
 
+fn native_operations() -> Bytes {
+    eez_payload_codec::v0::encode_current(&[eez_payload_codec::v0::BlockRun {
+        blocks: 1,
+        beneficiary: Address::ZERO,
+        extra_data: &[],
+        transactions: &[],
+    }])
+    .unwrap()
+    .into()
+}
+
 fn physical_blobs(payload: Bytes) -> Vec<Vec<u8>> {
     eez_blob_codec::encode_native_payload(expected_rollup_id().get(), payload, Vec::new())
         .unwrap()
@@ -52,7 +63,7 @@ fn network_aware_carrier_accepts_nine_blobs_and_preserves_exact_payload() {
 
 #[test]
 fn canonical_blob_profile_recovers_payload_and_kzg_hashes() {
-    let payload = Bytes::from_static(b"authenticated blob payload");
+    let payload = native_operations();
     let submitted = physical_blobs(payload.clone());
     let validated = submitted
         .iter()
@@ -72,7 +83,7 @@ fn canonical_blob_profile_recovers_payload_and_kzg_hashes() {
 fn native_blob_profile_recovers_cross_chain_semantics() {
     use eez_blob_codec::Message;
 
-    let payload = Bytes::from_static(b"native semantic payload");
+    let payload = native_operations();
     let submitted = physical_native_blobs(
         payload.clone(),
         vec![
@@ -112,7 +123,7 @@ fn native_blob_profile_rejects_semantics_outside_deployment_gas_profile() {
     use eez_blob_codec::Message;
 
     let submitted = physical_native_blobs(
-        Bytes::from_static(b"payload"),
+        native_operations(),
         vec![
             Message::InitiateCrossChainTransaction {
                 chain_id: 1,

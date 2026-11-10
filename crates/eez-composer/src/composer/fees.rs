@@ -610,6 +610,7 @@ mod tests {
             .iter()
             .filter(|tx| !eez_primitives::is_native_type(tx.ty()))
             .map(|tx| eez_protocol::blob_semantics::SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(1),
                 tx_data: tx.encoded_2718().into(),
                 actions: vec![],

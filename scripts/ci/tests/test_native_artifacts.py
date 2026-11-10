@@ -280,7 +280,7 @@ class NativeArtifactTest(unittest.TestCase):
     def test_test_inventory_and_serialism_are_preserved(self):
         self.assertEqual(native.TARGETS, ["node_e2e",
                                          "public_inputs_hash_vectors", "rolling_hash_vectors", "causal_evidence",
-                                         "ethereum_kzg_compatibility", "issue35"])
+                                     "ethereum_kzg_compatibility", "call_patterns", "issue35"])
         self.assertEqual(sorted(native.E2E_MODULES), sorted([
             "e2e", "cross_chain", "native_system", "derivable_operations", "chained_interstate", "partial_consumption",
             "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay",

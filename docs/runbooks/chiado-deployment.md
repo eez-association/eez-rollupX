@@ -661,6 +661,16 @@ It supports replacing a compatible runtime, moving hosts and restoring the same
 network. It provides no conversion of an earlier Chiado deployment. Existing
 networks keep their own matching release, contracts, genesis and data.
 
+Before a poster retunes immediate mutable/static dispatch, upgrade every follower
+to a build supporting semantic settlement boundaries. Older followers can reject
+that valid L1 history; after inclusion, downgrading to them is unsupported. No wire
+or storage migration is added by this change. Keep Composer and signer on the
+matching release; their production dispatch profile remains restricted. Supported
+wrappers must forward canonical outer `postAndVerifyBatch(batch)` calldata verbatim,
+using the fork's native blob layout. Alternative wrapper ABIs or internal batch
+rewrites require separate support. A poster changing dispatch must re-estimate gas
+for that path; the original queue-only estimate need not cover its callback.
+
 For ordered restore/replay setup, use the
 [existing-rollup Composer procedure](chiado-existing-rollup.md).
 
@@ -867,6 +877,19 @@ L1 configuration, then derives the key from the profile, registry, proof system
 and attester. `EEZ_VKEY` must equal this value; a padded signer address is invalid.
 The signer verifies this before serving. No L1 or L2 RPC is needed by the signer.
 
+The [complete pinned E2E support extension](../proposals/full-protocol-e2e.md)
+preserves signing domain 7 and the existing registered vkey, contracts and genesis
+for deployments already within that baseline compatibility boundary. Its RPC
+identity is version 8: upgrade Composer, signer/prover and followers together,
+discard old sessions, and rebuild lookup requests with complete manager witnesses.
+Use the reviewed corrections described in the extension proposal: historical
+static observations and terminal failed retry slots retain their original bytes,
+and successful non-applying lookups with callbacks are rejected. A caller's
+predicted rollback does not authorize persistent L1 callback effects.
+Old followers cannot replay newly admitted shapes; downgrade after their canonical
+inclusion is unsupported. This does not establish a live migration from the old
+custom manager or an arbitrary earlier genesis.
+
 For a future incompatible validation change, first identify pending proofs and
 canonical settlement progress. Revoke/replace the old registered vkey or proof
 system on L1 before incompatible rules activate, coordinate all runtime roles,
@@ -931,3 +954,19 @@ code/storage, the genesis state root and validation identity. There is no migrat
 activation switch, mixed-genesis mode or rollback to an older genesis on an existing
 datadir. Prepare all node/follower/signer/deploy artifacts from the same revision
 before starting a new network. Existing networks are outside this change's scope.
+
+
+### Native operations V1 upgrade
+
+For an already compatible protocol deployment, V1 changes only native table
+construction: completed static candidates are reused. The standardized blob
+stream and deployed contracts are unchanged. V0 histories retain their original
+per-observation reconstruction; the authenticated operations byte selects the
+policy. See the [native wire contract](../proposals/native-system-transactions.md#direct-v0-wire-contract).
+
+Upgrade all readers/followers before publishing V1. Coordinate Composer and
+signer cutover: validation identity 9 and operations capability tag 1 reject old
+role combinations before proving. This change needs no genesis or datadir
+replacement; the earlier protocol compatibility boundaries still apply. Once V1
+has been included, do not roll readers back to a V0-only binary. In-memory pending
+requests remain subject to the existing restart/resubmission limitations.

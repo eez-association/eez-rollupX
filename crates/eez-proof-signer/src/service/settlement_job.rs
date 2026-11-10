@@ -113,6 +113,10 @@ pub(super) fn settle_validated(
     if Instant::now() >= deadline {
         return Err(PipelineError::DeadlineBeforeSettlement);
     }
+    ensure_settlement_active(cancellation)?;
+    canonical_batch
+        .validate_l1_destinations(state.deployment.registry)
+        .map_err(SettlementPipelineError::from)?;
     let (recomputed_public_inputs_hash, observation_claims, has_actions) =
         run_settlement_with_observations(
             SettlementInput {
@@ -287,7 +291,10 @@ impl SettlementPipelineError {
                     "settlement validation rejected",
                 ),
             },
-            Self::PublicInputs(settlement::PublicInputError::InvalidStructure(_))
+            Self::PublicInputs(
+                settlement::PublicInputError::InvalidStructure(_)
+                | settlement::PublicInputError::ManagerDestination { .. },
+            )
             | Self::RootUpdateChain(_)
             | Self::InboundEffects(_)
             | Self::OutboundEffects(_)

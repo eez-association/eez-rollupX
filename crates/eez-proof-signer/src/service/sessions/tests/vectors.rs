@@ -134,7 +134,7 @@ impl Fixture {
                 transactions: txs,
             })
             .collect::<Vec<_>>();
-        let operations = eez_payload_codec::v0::encode(&runs).unwrap();
+        let operations = eez_payload_codec::v0::encode_current(&runs).unwrap();
         let blobs = eez_blob_codec::encode_native_payload(
             self.begin.rollup_id,
             operations.into(),

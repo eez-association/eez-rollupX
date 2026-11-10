@@ -1,0 +1,26 @@
+--- a/crates/eez-protocol/src/entries/materialize.rs
++++ b/crates/eez-protocol/src/entries/materialize.rs
+@@ -203,15 +203,14 @@
+                             .find(|(_, entry)| entry.proxyEntryHash == hash)
+                     });
+                 let selected = existing.map(|(slot, entry)| (slot, entry.clone()));
+-                if let Some((_, previous)) = &selected {
+-                    if previous.success != call.outcome.is_success()
+-                        || Some(previous.returnData.as_ref()) != call.outcome.return_data()
+-                    {
+-                        return Err(ProtocolErrorKind::InvalidEncoding(
+-                            "L2 source cursor is reused with a different outcome".into(),
+-                        )
+-                        .into());
+-                    }
++                if let Some((_, previous)) = &selected
++                    && (previous.success != call.outcome.is_success()
++                        || Some(previous.returnData.as_ref()) != call.outcome.return_data())
++                {
++                    return Err(ProtocolErrorKind::InvalidEncoding(
++                        "L2 source cursor is reused with a different outcome".into(),
++                    )
++                    .into());
+                 }
+                 let prior = selected.as_ref().map(|(slot, entry)| {
+                     (

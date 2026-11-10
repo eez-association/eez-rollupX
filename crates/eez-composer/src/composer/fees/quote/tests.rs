@@ -422,7 +422,7 @@ fn placeholder_bounds_signature_encoding_but_env_has_real_sender() {
 #[test]
 fn cancellation_and_frame_exhaustion_fail_closed() {
     let cancelled = Arc::new(AtomicBool::new(false));
-    let budget = Budget::new(Arc::clone(&cancelled));
+    let budget = Budget::new(Arc::clone(&cancelled), 1);
     assert!(budget.check().is_ok());
     budget.exhausted.store(true, Ordering::Relaxed);
     assert!(matches!(
@@ -453,35 +453,37 @@ fn bounded_session_refuses_further_target_execution() {
         fn checkpoint(&mut self) -> ExecutorResult<SessionSnapshot> {
             Ok(Box::new(()))
         }
-        fn rollback(&mut self, _: SessionSnapshot) -> ExecutorResult<()> {
+        fn rollback(&mut self, _: &SessionSnapshot) -> ExecutorResult<()> {
             Ok(())
         }
     }
-    let count = Arc::new(AtomicUsize::new(0));
-    let budget = Arc::new(Budget::new(Arc::new(AtomicBool::new(false))));
-    let mut session = BoundedSession {
-        inner: Box::new(Counter(Arc::clone(&count))),
-        budget: Arc::clone(&budget),
-    };
-    let req = ExecutionRequest {
-        call_mode: eez_protocol::CallMode::Mutable,
-        target_address: Address::ZERO,
-        data: Bytes::new(),
-        value: U256::ZERO,
-        source_address: Address::ZERO,
-        source_rollup_id: RollupId(1),
-    };
-    let mut builder = CompositionBuilder::new(RollupId(1), HashMap::new());
-    for _ in 0..MAX_FRAMES {
-        session.execute(req.clone(), &mut builder).unwrap();
+    for (types, allowed_frames) in [(1, 32), (2, 64)] {
+        let count = Arc::new(AtomicUsize::new(0));
+        let budget = Arc::new(Budget::new(Arc::new(AtomicBool::new(false)), types));
+        let mut session = BoundedSession {
+            inner: Box::new(Counter(Arc::clone(&count))),
+            budget: Arc::clone(&budget),
+        };
+        let req = ExecutionRequest {
+            call_mode: eez_protocol::CallMode::Mutable,
+            target_address: Address::ZERO,
+            data: Bytes::new(),
+            value: U256::ZERO,
+            source_address: Address::ZERO,
+            source_rollup_id: RollupId(1),
+        };
+        let mut builder = CompositionBuilder::new(RollupId(1), HashMap::new());
+        for _ in 0..allowed_frames {
+            session.execute(req.clone(), &mut builder).unwrap();
+        }
+        assert!(session.execute(req.clone(), &mut builder).is_err());
+        assert!(session.execute(req, &mut builder).is_err());
+        assert_eq!(count.load(Ordering::Relaxed), allowed_frames);
+        assert!(matches!(
+            budget.check(),
+            Err(FeeQuoteError::Limit("nested frame budget"))
+        ));
     }
-    assert!(session.execute(req.clone(), &mut builder).is_err());
-    assert!(session.execute(req, &mut builder).is_err());
-    assert_eq!(count.load(Ordering::Relaxed), MAX_FRAMES);
-    assert!(matches!(
-        budget.check(),
-        Err(FeeQuoteError::Limit("nested frame budget"))
-    ));
 }
 
 #[test]
@@ -513,7 +515,7 @@ fn advisory_parent_keeps_ordinary_history_and_excludes_unsettled_native_effects(
         blocks.push(block.header.clone());
         provider.add_block(block.header.hash_slow(), block);
     }
-    let budget = Budget::new(Arc::new(AtomicBool::new(false)));
+    let budget = Budget::new(Arc::new(AtomicBool::new(false)), 1);
     for (settled, expected) in [(0, 1), (2, 3), (4, 4)] {
         let endpoint = L2Endpoint {
             number: settled,
@@ -567,7 +569,7 @@ fn quote_history_uses_the_posting_window_and_ignores_the_native_suffix() {
         }
         provider.add_block(hash, block);
     }
-    let budget = Budget::new(Arc::new(AtomicBool::new(false)));
+    let budget = Budget::new(Arc::new(AtomicBool::new(false)), 1);
     // A 301-block posting window fits 300 ordinary blocks plus the new terminal.
     // The newer speculative suffix is irrelevant to this independent quote.
     let parent = advisory_parent(&provider, endpoint, 300, &budget).unwrap();
@@ -617,7 +619,7 @@ fn history_sizing_matches_encoding_and_refuses_unreconciled_native_blocks() {
     block.body.transactions.push(tx);
     let parent = SealedHeader::seal_slow(block.header.clone());
     provider.add_block(parent.hash(), block.clone());
-    let budget = Budget::new(Arc::new(AtomicBool::new(false)));
+    let budget = Budget::new(Arc::new(AtomicBool::new(false)), 1);
     let measured = history_size(&provider, &parent, endpoint, beneficiary, 4, &budget).unwrap();
     let expected = eez_payload_codec::v0::encode(&[
         BlockRun {

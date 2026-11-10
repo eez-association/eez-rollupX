@@ -26,6 +26,9 @@ invalid cases; only independent observation replay distinguishes them.
 and epoch issued by its server. `identity.json` pins the exact request Keccak,
 public-input digest, deployment inputs and independently configured validation
 identity. Digests are computed from inputs, never learned from server responses.
+These current-profile fixtures use native operations V1 and RPC validation
+identity 9. Frozen V0 compatibility vectors are maintained separately in the
+protocol's historical static replay tests.
 The signing key is the intentionally public Anvil account #1 key.
 The version-7 network-bound key authenticates the local execution configuration;
 the signed anchor uses the original Core Rollup's `(timestamp, blockHash)` context.

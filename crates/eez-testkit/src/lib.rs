@@ -441,7 +441,9 @@ pub const REJECTING_BUILDER_ENV: &str = "EEZ_TEST_REJECTING_BUILDER";
 /// Test-only marker for [`setup_cross_chain_with_env`]: when set to `1`, the
 /// fixture deploys `contracts/src/EEZPostBatcher.sol` for the registry from
 /// [`POST_BATCHER_DEPLOYER`] and sets `EEZ_L1_POSTBATCH_TARGET` to it. Consumed
-/// by the fixture, never passed to the node.
+/// by the fixture, never passed to the node. The value `meta` instead selects
+/// `EEZMetaPostBatcher`, a test-only callback poster that is deliberately not
+/// whitelisted for wallet estimation.
 pub const POST_BATCHER_ENV: &str = "EEZ_TEST_POST_BATCHER";
 
 /// Deploys the [`POST_BATCHER_ENV`] wrapper at its first L1 nonce, so the node
@@ -2768,6 +2770,8 @@ sol! {
     }
     #[sol(rpc)]
     interface IStaticRoundTripReader {
+        function readAfterDeployingCallback(address manager, address callback, uint64 remoteRollup) external returns (uint256);
+        function missingProxyErrorHash() external view returns (bytes32);
         function read() external returns (uint256);
         function lastRead() external view returns (uint256);
         function reads() external view returns (uint256);
@@ -3331,7 +3335,17 @@ pub async fn deploy_post_batcher(
     chain_id: u64,
     registry: Address,
 ) -> Result<Address> {
-    let artifact = repo_root().join("contracts/out/EEZPostBatcher.sol/EEZPostBatcher.json");
+    deploy_post_batcher_fixture(rpc_url, key, chain_id, registry, "EEZPostBatcher").await
+}
+
+async fn deploy_post_batcher_fixture(
+    rpc_url: &str,
+    key: &str,
+    chain_id: u64,
+    registry: Address,
+    name: &str,
+) -> Result<Address> {
+    let artifact = repo_root().join(format!("contracts/out/{name}.sol/{name}.json"));
     // Derivation decodes the poster's input with the registry ABI.
     require_artifact_method(
         &artifact,
@@ -6203,10 +6217,11 @@ async fn setup_native_inner(
     env.extend_from_slice(extra_env);
     // The node validates the wrapper during boot and does not post until it
     // exists, so its precomputed address can be configured before deployment.
-    let post_batcher = if extra_env
+    let post_batcher_fixture = extra_env
         .iter()
-        .any(|(name, value)| *name == POST_BATCHER_ENV && value == "1")
-    {
+        .rev()
+        .find_map(|(name, value)| (*name == POST_BATCHER_ENV).then_some(value.as_str()));
+    let post_batcher = if matches!(post_batcher_fixture, Some("1" | "meta")) {
         let address = signer_address(POST_BATCHER_DEPLOYER)?.create(0);
         env.push(("EEZ_L1_POSTBATCH_TARGET", format!("{address:#x}")));
         Some(address)
@@ -6273,11 +6288,16 @@ async fn setup_native_inner(
         );
     }
     if let Some(expected) = post_batcher {
-        let deployed = deploy_post_batcher(
+        let deployed = deploy_post_batcher_fixture(
             &l1_rpc,
             POST_BATCHER_DEPLOYER,
             DEV_CHAIN_ID,
             cfg.eez_address,
+            if post_batcher_fixture == Some("meta") {
+                "EEZMetaPostBatcher"
+            } else {
+                "EEZPostBatcher"
+            },
         )
         .await?;
         ensure!(

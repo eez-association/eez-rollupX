@@ -72,14 +72,12 @@ are pinned at their exact FIFO positions relative to mutable entries.
 The profile supports exactly one nonzero rollup ID, one nonzero proof-system
 address, and one nonzero proof-system verification key. It supports nested and
 reentrant calls alternating between L1 and that L2, multi-root outbound
-transactions, terminal failed top-level calls, terminal static calls,
-successful top-level static reads whose only descendants are terminal,
-successful static callbacks to the reading chain, and terminal failed nested
-rows with no descendants. Calls rolled back inside a recovered source-chain
-frame are represented by canonical, non-overlapping `revertNextNCalls` windows.
-It does not support failed calls with descendants, any other static call with
-descendants, explicit call gas, overlapping or out-of-bounds rollback windows,
-sender binding, other L2 targets, or multiple proof systems. Both actual-parent
+transactions, failed mutable calls with bound descendants, and recursive static
+reads and callbacks (including failed reads and callbacks). Calls rolled back
+inside a recovered source-chain frame use canonical, properly nested
+`revertNextNCalls` windows. Multi-root lookup rollback uses temporary state
+shared only within its bound source scopes. Explicit call gas, crossing or out-of-bounds rollback windows,
+sender binding, other L2 targets, and multiple proof systems are unsupported. Both actual-parent
 and historical L1 anchor modes are supported under the distinct rules below.
 
 No failed stage may produce a signature. A successful signature authorizes the
@@ -149,6 +147,12 @@ The pinned contract intentionally lets the poster select the dispatch path for
 eligible entries beyond the mandatory complete leading zero-proxy run. A
 deployment that requires dispatch integrity MUST add an independent binding or
 submission policy.
+
+The follower may replay those dispatch choices without widening signer admission.
+This support requires canonical outer `postAndVerifyBatch(batch)` calldata forwarded
+verbatim to EEZ and the fork's native blob layout. Arbitrary wrapper ABIs, internal
+batch rewrites, trailing calldata, and reordered or additional blobs remain outside
+the follower profile. Core acceptance alone does not establish that profile.
 
 [`docs/unbound-scheduling-counts-assessment.md`](docs/unbound-scheduling-counts-assessment.md)
 records the accepted protocol semantics and the mutation evidence behind this
@@ -329,7 +333,7 @@ The daemon serves `prove.v2.Prover.ProveStream` and the shared Capabilities quer
 is normative for attachment epochs, queues, byte accounting, duplicates,
 Resume/Rewind/Cancel and subrange finalization.
 
-Capabilities reports operations tag 0, offline profile 2, validation identity
+Capabilities reports operations tag 1, offline profile 2, validation identity
 and effective limits without acquiring an expensive worker or signing.
 Every stream requires matching `eez-validation-identity-bin` metadata before
 admission. Identity binds loaded chain/deployment/profile and proof rules, not
@@ -486,7 +490,7 @@ exactly once and retain its bytes when reconstructing cross-chain groups.
 
 The permanent contract stores every numbered hash from the configured starting
 block to the recorded endpoint, including never-selected intermediate headers.
-Absence rejects explicitly. Public V0 operations carry the exact history
+Absence rejects explicitly. Public V0/V1 operations carry the exact history
 transaction in their ordinary prefix; it is not a cross-chain action and is
 allowed in historical mode. EEZL2 native actions retain terminal-only framing
 and all existing settlement authorization checks.
@@ -642,6 +646,13 @@ outbound observations, terminal effects, DA or signing.
 
 ## 7. Canonical batch and public-input profile
 
+Before signing, the signer MUST independently reject every forwarded L1 call
+whose destination is the configured deployed EEZ registry address. This includes
+mutable entries, nested expected L1-to-L2 rows, and static-entry callback arrays.
+The checked identity is the executing EEZ proxy under delegatecall, not its
+implementation or the separate RollupX manager. This check does not depend on
+Composer admission or L1 settlement rehearsal.
+
 `Finalize.settlement.abi_calldata` MUST exact-decode as the current
 `postAndVerifyBatch(ProofSystemBatchPerVerificationEntries)` ABI with selector
 `0xe4a480e4`. Re-encoding the decoded argument MUST reproduce every byte after
@@ -736,16 +747,27 @@ The claimed entry at the same position MUST have the same direction.
 
 Every item in `entries` MUST be an anchor, a mutable effect, or an exact
 lookup-only inbound entry. An outbound or applying inbound effect MUST be
-successful. A lookup MAY report failure only as a terminal top-level call
-without nested rows. A nested row MAY fail only when its call sub-array is empty and its
-`revertedOrStaticRollingHash` is nonzero; successful rows MUST have a zero
+successful. A lookup MAY report failure with nested callbacks, provided the
+complete table is bound to native semantics and independently replayed as
+specified in section 11. A successful lookup MUST have empty callback and
+reentrant tables: its predicted source-frame rollback is not enforced by L1
+and cannot authorize persistent callbacks without a canonical L2 transition.
+A callback-free, zero-value lookup authenticates the observed target outcome;
+it does not establish that an L2 transaction committed or that the enclosing L1
+caller will revert at inclusion. Applications MUST NOT treat such a return value
+as evidence of canonical L2 effects. Failed mutable nested rows retain their complete
+reverted execution traces.
+A mutable failure MUST bind the independently recomputed reverted execution
+hash; a terminal static failure MUST carry the empty callback hash (zero).
+Static callback result commitments MUST include both success and exact output,
+and repeated identical callback lookups MUST agree on both. Successful mutable rows MUST have a zero
 reverted hash. Every flat call, including calls in row sub-arrays, MUST have
-`gas == 0`. A static call MUST carry zero value and no revert span. A static
-call nested in a mutable call MUST have no semantic descendants; a top-level
-static read MAY have the static callbacks described in sections 10 and 11. A mutable call MAY start
-a rollback window by setting `revertNextNCalls` to the number of consecutive
-calls in that window, including itself. The window MUST fit in its current call
-array and no later call inside it may start another window.
+`gas == 0`. A static call MUST carry zero value. A static call's descendants
+MUST remain static; each pending read binds its own callback fold as described
+in sections 10 and 11. A call MAY start a source rollback window by setting
+`revertNextNCalls` to the number of consecutive calls in that window, including
+itself. The window MUST fit in its current call array. Nested windows MUST be
+properly contained; crossing windows are invalid.
 
 The leading entry is a canonical anchor only if:
 
@@ -762,14 +784,17 @@ Every later entry MUST be one of:
   `l2ToL1Calls` array; or
 - **inbound effect:** `proxyEntryHash != 0`, successful, and exactly bound to a
   replayed L2 system transaction; or
-- **inbound lookup:** `proxyEntryHash != 0`, empty call arrays, a zero-value
-  no-op root update, and the exact L1 seed for that proxy hash and current root.
+- **inbound lookup:** `proxyEntryHash != 0` and a zero-value no-op root update.
+  Empty callback tables additionally require the exact L1 seed for that proxy
+  hash and current root. Nonempty callback tables require complete native
+  semantic binding and authenticated observation replay.
 
 Classification deliberately does not infer nested execution from one entry
 alone. Sections 9 and 10 bind every effect to its exact complementary L2
 execution table and reject extra roots, rows, or flat calls. Section 11 binds
 lookup results and any source-reverted nested messages to the signed native
-semantic blob; lookup entries have no complementary L2 execution table.
+semantic blob. Lookup entries have no canonical L2 transaction; mutable
+lookups derive a complementary scratch table from the bound native actions.
 
 A second anchor or any other shape MUST be rejected.
 
@@ -839,14 +864,36 @@ The corresponding batch entry MUST:
   below.
 
 Starting from the L1 root-update seed and the L2 proxy seed, the signer MUST
-inverse-execute both tables. It MUST consume unified rows in forward order,
-require each row key to equal
-`keccak256(sourceCallHash || currentDestinationRollingHash)`, apply the exact
-`CALL_BEGIN`, `NESTED_BEGIN`, `CALL_END`, and `NESTED_END` transitions, and
-consume every flat call and row exactly once. Both final rolling hashes and
-every nested outcome MUST match. The update's `etherDelta` MUST equal the sum
-of values on all L1-to-L2 calls minus the sum on all L2-to-L1 calls, within the
-`int192` range.
+inverse-execute both tables. Mutable lookups MUST select the first matching row
+at or after the live cursor, advance that cursor, and restore it when the frame
+reverts. Each row key MUST equal
+`keccak256(sourceCallHash || currentDestinationRollingHash)`. Verification MUST
+apply the exact `CALL_BEGIN`, `NESTED_BEGIN`, `CALL_END`, and `NESTED_END`
+transitions and account for every row and complete callback array. Row coverage
+is not a consumption cursor: reverted mutable calls and static reads may reuse
+rows. Both final rolling hashes and every nested outcome MUST match.
+
+Static lookups MUST scan from the unchanged mutable cursor, recompute each
+candidate's callback-result commitment, and select the first matching candidate.
+A later read MAY reuse an earlier candidate, including one skipped by an
+intervening read after local writes. V0 construction retains one row per observation. V1 construction reuses a completed
+reentrant static candidate only when its position key, complete callback array, callback-result
+commitment, success and return bytes match, and the row is at or after the live
+mutable cursor. Every read remains in the independently validated semantic stream. Coverage may match one byte-identical row per validated read. During one pending read, both host hashes
+and cursors are fixed; verification MAY memoize recursively checked `(chain,
+position key)` resolutions within that read. It MUST discard that memoization
+before a subsequent direct call changes the host position. Cyclic resolution
+graphs and depth beyond the supported nesting bound MUST reject; shared
+subgraphs MUST NOT cause exponential verification work. A memoized resolution
+MUST retain its maximum descendant depth and recheck it against the current
+prefix; reaching a cached suffix through a longer path MUST NOT bypass the bound.
+Only a successfully
+resolved candidate and its checked callback graph establish row coverage.
+Independent execution and semantic observation replay remain required; table
+resolution alone does not establish that cached results are authentic. The update's `etherDelta` MUST equal the sum
+of surviving L1-to-L2 values minus surviving L2-to-L1 values, within the
+`int192` range. Failed frames and enclosing rollback scopes discard all their
+nested transfers, including successful descendants.
 
 Every L2-origin call recomputed from an inbound nested pair MUST have one
 matching current six-field `EEZL2.CrossChainCallExecuted` event in the inbound
@@ -875,10 +922,12 @@ callbacks in reentrant rows; static sources commit no value. An outbound load is
 therefore not necessarily zero-value
 ([native funding](../../docs/proposals/native-system-transactions.md)).
 A group MAY contain only mutable sources,
-or terminal static sources interleaved with successful flat mutable roots in
-one outbound host. A multi-root host containing static sources MUST cover the
-complete load and user transaction; it MUST NOT carry separate callbacks,
-reverted mutable roots, root revert spans, or nested mutable roots.
+or static sources interleaved with mutable roots in one outbound host.
+A multi-root host containing static sources MUST cover the complete load and
+user transaction, including nested callbacks. Failed mutable roots and complete
+root revert spans are permitted only with the same independent cursor, hash and
+effect rollback checks as mutable-only groups. A restored cursor MUST resolve
+the same complete source program; static reads never advance that cursor.
 
 The load serializes mutable sources first, then static sources. Verification
 MUST traverse the host's original call order, advancing the mutable cursor only
@@ -888,23 +937,30 @@ L2 ABI (without L1 routing or root-pin fields). A static source MAY carry
 `incomingCalls`: the callbacks to L2 made by the L1 target of the read. Each
 MUST be static, with zero value, zero gas and no revert span, and a source
 without callbacks MUST have a zero rolling hash. While verifying the static
-root, each callback MUST resolve the host's next row, whose position key is
+root, each callback MUST resolve a host row at or after the unchanged mutable
+cursor, allowing reuse; its position key is
 the callback's hash and the host rolling hash after the root's `CALL_BEGIN`
-(static rows do not advance it). That row MUST be successful, with no
-sub-calls and a zero reverted/static hash, and the untagged static fold of the
+(static rows do not advance it). A row MAY return or revert. Its static
+sub-calls recursively resolve further source pool entries at the same mutable
+cursor. Their untagged result fold MUST equal the row's
+`revertedOrStaticRollingHash`; an empty callback list requires zero. Every
+recursive source entry and host row MUST be consumed by this verification,
+including exact call identities and outputs. The untagged static fold of the
 rows' results MUST equal the source's `rollingHash`. L2 executes the callbacks
 and checks that fold, so the values L1 returns are the values L2 computes.
-Repeated identical callbacks share one position key, and L1 resolves each repeat
-to the first matching row without advancing its cursor, so their rows MUST carry
-the same result. In a
-group containing static sources, host rows are allowed only for these
-callbacks. Each `expectedEntryIndex` MUST equal the mutable
+Repeated callback candidates with the same position key and callback hash MUST
+carry identical success and output. Candidates with different callback hashes
+may represent different local states. The check spans the complete host,
+including different pending read frames. Mixed groups may also contain mutable
+callback rows, verified under the same recursive cursor and rollback rules. Each `expectedEntryIndex` MUST equal the mutable
 cursor independently reconstructed at that root in the host's call order. The
-complete `(expectedEntryIndex, proxyEntryHash)` lookup key MUST have identical
+complete `(expectedEntryIndex, proxyEntryHash, rollingHash)` lookup key MUST have identical
 success and return bytes wherever repeated. Different positions MAY carry
 different results for the same hash. Local writes without successful mutable
 cross-chain consumption do not advance this cursor; different results at one
-position remain unsupported. Static rows do not advance the mutable cursor.
+position require distinct callback-result commitments. Static rows do not advance
+the mutable cursor. A recursive static pool belongs to one complete signed load;
+the number of pool entries need not equal the number of top-level host calls.
 The full position-bearing static ABI MUST be reconstructed from authenticated
 native-blob semantics and compared with the executed load table. An L1-shaped
 projection that drops the position MUST NOT authorize signing or replay.
@@ -926,8 +982,8 @@ reusing it or leaving trailing observations unclaimed.
 The event's `callGas` MUST be zero. The batch entry MUST:
 
 - target the expected rollup;
-- contain one or more root `l2ToL1Calls`; mutable-only hosts MAY contain valid
-  nested rows for multiple roots, subject to the supported recursive profile;
+- contain one or more root `l2ToL1Calls`; hosts MAY contain valid mutable or
+  static nested rows for multiple roots, subject to the supported recursive profile;
 - use `proxyEntryHash == 0`;
 - have `success == true`; and
 - carry only calls and rows in the supported mutable shape from section 8.3.
@@ -940,14 +996,32 @@ section 9.2. Each L2-origin source hash uses target rollup `0` and zero
 `callGas`; mutable-call hashes MUST equal the ordered event hashes. Static roots
 MUST contribute to the host rolling hash but MUST NOT require receipt events
 or contribute transferred value. The update's
-`etherDelta` MUST equal total L1-to-L2 value minus total L2-to-L1 value across
-all roots covered by that host, within the `int192` range.
+`etherDelta` MUST equal surviving L1-to-L2 value minus surviving L2-to-L1 value
+across all roots covered by that host, within the `int192` range. Every failed
+frame or enclosing rollback scope discards its complete descendant effects.
 
 ### Fresh-network profile boundary
 
-Deploy matching contracts, genesis, Composer, signer and followers together with
-fresh datadirs. There is no old/new activation height or migration. Validation-contract version 7 and capability profile 2 identify the
-current contract before proving. Configuration and wire inputs must match it. Restart may require client
+The baseline manager/genesis profile remains required. This extension preserves
+its signing domain 7 and registered verification key; it requires no contract,
+genesis or datadir replacement. RPC validation version 9 and capability profile 2
+identify the extended runtime contract before proving. Upgrade Composer, signer
+and followers together and discard old sessions; older lookup requests may need
+additional manager witnesses. Preserve the version-selected static row
+layout so baseline-supported historical tables still bind exactly. Coverage of
+a repeated static row requires an actual read of a byte-identical validated
+program; extra, unselected or differing rows remain invalid. Baseline terminal failed
+attempts also retain their serialized source slots even though the runtime cursor
+rolls back; each identical slot requires a corresponding verified invocation.
+Construction preserves first-match slot order; it does not reorder earlier
+programs to make a later outcome reachable. For example, `B succeeds in a reverted
+scope; A fails; B succeeds; A succeeds` is unsupported when the last A selects the
+cached failed A. A different prearranged table could express that sequence, but
+this builder rejects it instead of silently changing historical slot order.
+Old followers cannot
+replay newly admitted shapes.
+No live migration of a pre-baseline network is established by these tests.
+Configuration and wire inputs must match the runtime identity. Restart may require client
 resubmission because queue ownership remains in memory; this feature does not
 add durable request recovery or change retry attribution.
 
@@ -963,11 +1037,15 @@ here. The discrepancy is recorded in the [port proposal](../../docs/proposals/l2
 
 ## 11. Data-availability and Sync-block verification
 
-The new network uses direct RollupX V0 (`0x00`) from genesis under the
-[wire and action contract](../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract).
-There is no activation option, old-format acceptance, profile selector, or
-full-block escape in operations. The RPC capability's profile identifier is a
-separate namespace.
+New production uses direct RollupX V1 (`0x01`); readers also accept V0 (`0x00`)
+under the [wire and action contract](../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract).
+Both use identical columns. The authenticated version selects static table
+construction: V0 retains one row per observation; V1 reuses complete reentrant static candidates. Static pool allocation is unchanged.
+There is no heuristic fallback or normalization of supplied tables. Historical V0
+replay MUST reproduce its original table and native transaction bytes. Upgrade
+readers and signers before enabling V1 producers; old readers reject V1. After V1
+inclusion, rollback requires a V1-capable reader. No genesis/database migration
+is required. The RPC capability profile remains a separate namespace.
 
 The count, beneficiary and extraData columns cover every position, including the
 terminal. Every pure transaction is carried as exact EIP-2718 bytes with a
@@ -983,7 +1061,7 @@ all tables and outbound groups and binds them to settlement authorization. No
 missing, reordered, unused, byte-different or unsupported action can be normalized
 into a valid candidate.
 
-V0 MUST cover exactly the independently replayed window. Published metadata and
+Both versions MUST cover exactly the independently replayed window. Published metadata and
 ordinary transaction bytes MUST match every block's reconstruction evidence. For
 the terminal, operations contain the ordinary prefix, including the recorded history
 transaction, before its first EEZL2 native action. The remaining actions MUST reconstruct byte for byte to the exact
@@ -1075,11 +1153,39 @@ independently validated FIFO-position root pins and MUST byte-for-byte reproduce
 of any static callbacks to L1. Replay of such a read executes its L2 target at
 the pinned prefix and answers each authorized-proxy dispatch only if it is the
 next semantic callback, with the same caller, target and calldata, in a static
-frame, with zero value. It returns the callback's claimed output without
+frame, with zero value. It returns or reverts with the callback's claimed output
+according to its committed success bit, without
 charging gas, as live simulation does. Any other dispatch, or a callback that is
-never made, rejects the request. The callback results themselves are enforced
-on L1 (section 1.1). A lookup-only mutable action with a semantic descendant
-remains unsupported.
+never made, rejects the request. A recursive L1-origin static read has a separate
+source pool entry and observation for each read back into L2. All pin the same
+live prefix because static execution cannot change L2 state. Each observation
+answers only its immediate L1 callbacks; deeper L2 reads MUST independently
+re-execute against that prefix, and none may be omitted. The callback results themselves are enforced
+on L1 (section 1.1).
+
+For a mutable lookup, derive one complete L2 delivery table and its checked
+funding from the bound native action subtree using the shared materializer.
+Execute it through the authenticated L2 manager using the native system
+transaction type and native gas cap, without committing its state. Manager
+validation MUST succeed. Independently capture the root target frame selected
+by exact proxy caller, target, calldata and value, and compare its success bit
+and exact output to the claim. A manager validation revert MUST NOT count as
+the target's claimed revert. Missing target execution, malformed tables, missing
+witness data and third-chain execution MUST reject before signing. Callback
+results supplied by the table remain bound to the source execution enforced on
+L1. The source-visible outcome and the scratch delivery's completion status are
+separate; a failed target may have a successfully validated scratch delivery.
+
+Rollback confined to one root's subtree uses this discarded replay. For a
+source rollback spanning multiple root calls, derive the observation ranges
+from the bound native action spans, including static observations in their
+original order. Ranges MUST remain at one canonical prefix and be properly
+nested. Execute observations in a separate disposable state overlay; retain
+mutable writes while a source rollback scope is open, restore the corresponding
+snapshot at each scope end, and discard the overlay before canonical execution
+continues. Reads MUST still reach the witness recorder. No temporary write may
+enter canonical state. Source transactions with adjacent observations MUST NOT
+share writes beyond their derived rollback scopes.
 
 For each L1-origin semantic transaction, top-level source actions are projected
 in their original order. A successful mutable action advances the live root to

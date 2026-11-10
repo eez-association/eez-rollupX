@@ -527,7 +527,19 @@ is retained. v2 transport and witness fields remain unchanged.
 
 ### Direct V0 wire contract
 
-Keep the direct compact V0 body:
+V0 (`00`) and V1 (`01`) share the direct columnar body below. The version byte
+also fixes construction of the enclosing native semantic stream: V0 retains
+per-observation static rows, V1 reuses completed static candidates within the
+current position/cursor. New producers emit V1. Decode historical V0 with its
+original policy; never infer the version from a table mismatch. The standardized
+EEZ outer blob stream remains version `00` and its protocol pin is unchanged.
+
+Upgrade readers and signers before V1 producers. Old readers reject V1, so
+rollback after V1 inclusion requires V1-capable binaries. No database/genesis
+migration is needed. RPC validation identity is version 9; capabilities report
+operations tag 1. This is distinct from the unchanged on-chain signing domain 7.
+
+Column body (shown with the historical V0 prefix):
 
 ```text
 00 || uvarint32(block_count) || count_tokens

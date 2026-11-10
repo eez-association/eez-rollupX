@@ -1,4 +1,4 @@
-//! Canonical direct V0 ChainOperation payloads for the fresh RollupX network.
+//! Canonical direct ChainOperation payloads for the RollupX network.
 //! Syntax validation does not authorize settlement or establish execution.
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]

@@ -253,7 +253,8 @@ impl ReconstructionActions {
             .collect()
     }
 
-    /// Match every semantic L1 table to its exact supplied settlement table.
+    /// Match every semantic L1 table to its exact supplied settlement table,
+    /// requiring the signer's supported dispatch profile.
     /// Only root updates/pins are supplied by settlement: their values still
     /// require independent execution/commitment authorization by the caller.
     /// No extra semantic or settlement suffix is accepted.
@@ -263,10 +264,44 @@ impl ReconstructionActions {
                 "immediate static entries are unsupported",
             ));
         }
+        let boundary = self.bind_observed_settlement(batch)?;
+        if batch.immediateEntryCount != alloy_primitives::U256::from(boundary) {
+            return Err(ReconstructionError::Settlement(
+                "immediate count differs from outbound boundary",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Bind canonical L1 settlement tables independently of the poster's dispatch choice.
+    /// Returns the first inbound table index, derived from the semantic stream,
+    /// not from the unproven immediate counts. The caller must authenticate L1
+    /// inclusion and blob commitments independently. This does not establish which
+    /// entries executed: callers must still reconcile canonical root advancement.
+    /// This does not enforce signer admission: producers/signers need their stricter
+    /// dispatch checks (as in [`Self::bind_settlement`]) in addition to table binding.
+    pub fn bind_observed_settlement(&self, batch: &EvmBatch) -> Result<usize, ReconstructionError> {
+        // Each outbound semantic transaction has exactly one settlement host.
+        let boundary =
+            self.outbound
+                .len()
+                .checked_add(1)
+                .ok_or(ReconstructionError::Settlement(
+                    "outbound boundary overflow",
+                ))?;
         let immediate = usize::try_from(batch.immediateEntryCount)
             .map_err(|_| ReconstructionError::Settlement("immediate count overflow"))?;
-        if immediate == 0 || immediate > batch.entries.len() {
+        let immediate_static = usize::try_from(batch.immediateStaticEntryCount)
+            .map_err(|_| ReconstructionError::Settlement("immediate static count overflow"))?;
+        if immediate < boundary || immediate > batch.entries.len() {
             return Err(ReconstructionError::Settlement("invalid immediate count"));
+        }
+        if immediate_static > batch.staticEntries.len()
+            || (immediate_static != 0 && immediate == boundary)
+        {
+            return Err(ReconstructionError::Settlement(
+                "invalid immediate static count",
+            ));
         }
         let (anchor, rest) = batch
             .entries
@@ -275,8 +310,8 @@ impl ReconstructionActions {
         if !crate::settlement::is_root_only_entry(anchor, self.rollup.0) {
             return Err(ReconstructionError::Settlement("invalid anchor shape"));
         }
-        let mut outbound = &rest[..immediate - 1];
-        let mut inbound = &batch.entries[immediate..];
+        let mut outbound = &rest[..boundary - 1];
+        let mut inbound = &batch.entries[boundary..];
         let mut statics = batch.staticEntries.as_slice();
         for composition in &self.compositions {
             let mut composition = composition.clone();
@@ -321,7 +356,7 @@ impl ReconstructionActions {
         if !outbound.is_empty() || !inbound.is_empty() || !statics.is_empty() {
             return Err(ReconstructionError::Settlement("unused settlement entries"));
         }
-        Ok(())
+        Ok(boundary)
     }
 }
 

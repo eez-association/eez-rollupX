@@ -412,8 +412,10 @@ fn verify_input(input: &Value) -> AnyResult<Value> {
             )?;
         }
         (Direction::Outbound, false) => {
-            if selected.is_empty() {
-                return fail("outbound causal verification selected no L2 entries");
+            if selected.is_empty() && loaded_static.is_empty() {
+                return fail(
+                    "outbound causal verification selected no L2 entries or static sources",
+                );
             }
             // Each outbound user has its own complete load. Static positions
             // are local to that load, so combining pools from multiple loads or
@@ -452,7 +454,8 @@ fn verify_input(input: &Value) -> AnyResult<Value> {
             let (l1_index, facts) = candidates.remove(0);
             expected_outbound_hashes.extend(facts.l2_outbound_hashes.iter().copied());
             pairs.push(json!({
-                "kind": if loaded_static.is_empty() { "mutable" } else { "mixed" },
+                "kind": if loaded_static.is_empty() { "mutable" }
+                    else if selected.is_empty() { "static" } else { "mixed" },
                 "direction": "L2_to_L1",
                 "l2_static_entry_indices": (0..loaded_static.len()).collect::<Vec<_>>(),
                 "l1_entry_indices": [l1_index],
@@ -745,6 +748,115 @@ mod tests {
                 .to_string()
                 .contains("mutable inbound evidence")
         );
+    }
+
+    fn static_only_fixture() -> Value {
+        use alloy_primitives::U256;
+        use eez_protocol::abi::{L2ToL1CallSol, RootUpdateSol};
+        use eez_protocol::{
+            CallHashInput, CallMode, EntryRollingHash, common_cross_chain_call_hash,
+        };
+        let mut host = ExecutionEntrySol {
+            destinationRollupId: 1,
+            success: true,
+            rootUpdates: vec![RootUpdateSol {
+                rollupId: 1,
+                currentRoot: B256::ZERO,
+                newRoot: B256::with_last_byte(1),
+                etherDelta: Default::default(),
+            }],
+            ..Default::default()
+        };
+        let mut rolling = EntryRollingHash::seed_for_l1([(1, B256::ZERO)], B256::ZERO);
+        let mut statics = vec![];
+        for tag in [1_u8, 2] {
+            let call = L2ToL1CallSol {
+                isStatic: true,
+                sourceRollupId: 1,
+                sourceAddress: Address::with_last_byte(1),
+                targetAddress: Address::with_last_byte(2),
+                value: U256::ZERO,
+                gas: 0,
+                revertNextNCalls: 0,
+                data: Bytes::from(vec![tag]),
+            };
+            let key = common_cross_chain_call_hash(CallHashInput {
+                call_mode: CallMode::Static,
+                source_rollup_id: RollupId(1),
+                target_rollup_id: RollupId::MAINNET,
+                source_address: call.sourceAddress,
+                target_address: call.targetAddress,
+                value: U256::ZERO,
+                data: &call.data,
+            });
+            rolling.call_begin(key);
+            rolling.call_end(true, &[tag]);
+            host.l2ToL1Calls.push(call);
+            statics.push(L2StaticExecutionEntrySol {
+                expectedEntryIndex: U256::ZERO,
+                proxyEntryHash: key,
+                incomingCalls: vec![],
+                rollingHash: B256::ZERO,
+                success: true,
+                returnData: Bytes::from(vec![tag]),
+            });
+        }
+        host.rollingHash = rolling.current();
+        let mut post = postAndVerifyBatchCall {
+            batch: Default::default(),
+        };
+        post.batch.entries.push(host);
+        let load = loadExecutionTableCall {
+            _entries: vec![],
+            _staticEntries: statics,
+        };
+        json!({
+            "direction":"L2_to_L1", "rollup_id":1,
+            "registry":Address::with_last_byte(3), "manager_l2":Address::with_last_byte(4),
+            "l1_calldata":Bytes::from(post.abi_encode()),
+            "l2_calldata":[Bytes::from(load.abi_encode())],
+            "expected_l2_entry_hashes":[], "l1_receipts":[{"logs":[]}], "l2_receipts":[{"logs":[]}]
+        })
+    }
+
+    #[test]
+    fn static_only_evidence_requires_the_complete_position_bound_source_pool() {
+        let input = static_only_fixture();
+        let verified = verify_input(&input).expect("complete static-only load");
+        assert_eq!(verified["pairs"][0]["kind"], "static");
+        assert_eq!(
+            verified["pairs"][0]["l2_static_entry_indices"],
+            json!([0, 1])
+        );
+        for mutation in ["missing", "extra", "position", "result", "split"] {
+            let mut forged = input.clone();
+            let raw = parse_bytes_list(&forged, "l2_calldata").unwrap();
+            let mut load = loadExecutionTableCall::abi_decode(&raw[0]).unwrap();
+            match mutation {
+                "missing" => {
+                    load._staticEntries.pop();
+                }
+                "extra" => load._staticEntries.push(load._staticEntries[0].clone()),
+                "position" => {
+                    load._staticEntries[0].expectedEntryIndex = alloy_primitives::U256::ONE
+                }
+                "result" => load._staticEntries[0].returnData = Bytes::from_static(&[0xff]),
+                "split" => {}
+                _ => unreachable!(),
+            }
+            forged["l2_calldata"] = json!([Bytes::from(load.abi_encode())]);
+            let expected = if mutation == "split" {
+                forged["l2_calldata"] = json!([
+                    Bytes::from(load.abi_encode()),
+                    Bytes::from(load.abi_encode())
+                ]);
+                "one complete source load"
+            } else {
+                "expected one L1 host"
+            };
+            let error = verify_input(&forged).unwrap_err().to_string();
+            assert!(error.contains(expected), "{mutation}: {error}");
+        }
     }
 
     fn mixed_fixture(repeated: bool) -> Value {

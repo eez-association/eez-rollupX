@@ -1,0 +1,95 @@
+====== Deploy ======
+--- DeployL2 (L2) ---
+QUOTE=0xc2e672D37fDA5203A891128474EC641111b43451
+--- DeployReader (L1) ---
+READER=0x466082D68F1532C10F00740f052e0832CF9De6C1
+--- DeployCallbacksL2 (L2) ---
+READER_PROXY=0x2D25E6271D0F3c2084adBF18314DD894fb91b8c2
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+
+====== Create Signed Transaction ======
+target: 0x2D25E6271D0F3c2084adBF18314DD894fb91b8c2
+calldata: 0xc0406226
+value: 0
+gas limit: 1000000
+nonce: 2 (rpc=2 front=2)
+
+====== Compute Expected Entries ======
+L1 expected calls:
+L1 expected entries: [0x67f499733bad32d52f67c49a503cdb597d194d87eb110305d3fe05fe4414c7bf]
+L2 table expected: [0xccf842290575b1f1ec07ff8a0875255978ba90f3696c5a0c182f5920090a3650]
+L2 calls expected: [0x63a3af3025174d54f7cea90e7dd6189cc44b2734036711b975884a8dee157a07]
+L1 expected table: 2240 bytes (field-level checks ON)
+L2 expected table: 2304 bytes (field-level checks ON)
+
+====== Execute L2 (user tx) ======
+submitted tx: 0x05f20a83d48d4456db47a25b06102728f820f951184186282c8a7525b0ad599a
+Waiting for receipt: 0x05f20a83d48d4456db47a25b06102728f820f951184186282c8a7525b0ad599a (420s remaining)
+tx: 0x05f20a83d48d4456db47a25b06102728f820f951184186282c8a7525b0ad599a
+block: 0x468 (status: 0x1)
+trigger blocks: 1128
+Waiting for fresh network evidence: settlement pending, index catching up, or inclusion changed
+trigger blocks: 1128
+Waiting for fresh network evidence: settlement pending, index catching up, or inclusion changed
+trigger blocks: 1128
+Waiting for fresh network evidence: settlement pending, index catching up, or inclusion changed
+trigger blocks: 1128
+
+====== Verify L1 Posted Batch Calldata (1 candidate tx, address prefilter on) ======
+    ├─ [0] console::log("FAIL: expected entry %s not in posted batch (no identity or content match)", 0) [staticcall]
+    ├─ [0] console::log("NOTE: expected L1 table decodes to 0 entries - field checks are vacuous") [staticcall]
+  FAIL: expected entry 0 not in posted batch (no identity or content match)
+  NOTE: expected L1 table decodes to 0 entries - field checks are vacuous
+Error: script failed: Posted-batch calldata verification failed
+L1 BATCH CALLDATA VERIFICATION FAILED (no candidate settlement tx contained the expected entries)
+L2 blocks to verify: [1128]
+
+====== Verify L2 Table ======
+  PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)
+  PASS: all 1 expected entries and static rows checked across 1 L2 block(s)
+
+====== Verify L2 Calls ======
+  PASS: 1/1 expected L2 calls verified
+
+====== Scenario Self-Verification (VerifyNetwork, L1) ======
+  VERIFY_PASS: local rate 1 -> 2 -> 1, quotes 1 -> 2 -> 1
+Waiting for fresh network evidence: transaction links or attempt changed; discarding this pass
+trigger blocks: 1128
+
+====== Verify L1 Posted Batch Calldata (1 candidate tx, address prefilter on) ======
+    ├─ [0] console::log("FAIL: expected entry %s not in posted batch (no identity or content match)", 0) [staticcall]
+    ├─ [0] console::log("NOTE: expected L1 table decodes to 0 entries - field checks are vacuous") [staticcall]
+  FAIL: expected entry 0 not in posted batch (no identity or content match)
+  NOTE: expected L1 table decodes to 0 entries - field checks are vacuous
+Error: script failed: Posted-batch calldata verification failed
+L1 BATCH CALLDATA VERIFICATION FAILED (no candidate settlement tx contained the expected entries)
+L2 blocks to verify: [1128]
+
+====== Verify L2 Table ======
+  PASS: L2 field checks on 1 entries (full struct, invariants, execution-event policy)
+  PASS: all 1 expected entries and static rows checked across 1 L2 block(s)
+
+====== Verify L2 Calls ======
+  PASS: 1/1 expected L2 calls verified
+
+====== Scenario Self-Verification (VerifyNetwork, L1) ======
+  VERIFY_PASS: local rate 1 -> 2 -> 1, quotes 1 -> 2 -> 1
+
+
+====== FAILED ======

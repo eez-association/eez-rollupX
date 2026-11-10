@@ -157,6 +157,7 @@ fn writer_publishes_exact_metadata_for_every_position_and_reanchors() {
     let rlps = blocks.iter().map(alloy_rlp::encode).collect::<Vec<_>>();
     let wire = encode_operations(&config, &anchor, &rlps).unwrap();
     let payload = Payload::decode(&wire).unwrap();
+    assert_eq!(payload.version(), eez_payload_codec::v0::Version::V1);
     assert_eq!(payload.block_count(), 6);
     assert_eq!(
         payload.count_runs().count(),
@@ -200,7 +201,7 @@ fn issue_35_six_hundred_empty_blocks_use_the_exact_direct_31_byte_body() {
         rlps.push(alloy_rlp::encode(block));
     }
     let wire = encode_operations(&config, &anchor, &rlps).unwrap();
-    let mut expected = vec![0, 0xd8, 4, 0xff, 0xd8, 4, 0xd8, 4];
+    let mut expected = vec![1, 0xd8, 4, 0xff, 0xd8, 4, 0xd8, 4];
     expected.extend_from_slice(Address::repeat_byte(0x11).as_slice());
     expected.extend_from_slice(&[0xd8, 4, 0]);
     assert_eq!(wire, expected);

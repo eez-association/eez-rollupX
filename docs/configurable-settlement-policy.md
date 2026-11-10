@@ -29,6 +29,17 @@ The general block threshold consolidates empty history too. All due rules are
 combined into one candidate. A pending drain has a finite endpoint; empty ticks
 do not extend it indefinitely.
 
+Cross-chain admission validates paired tables before accepting work on every L1.
+Value accounting restores complete ancestor rollback scopes. For L2-origin work,
+the early escrow check conservatively requires the sum of all executed L2-to-L1
+call values, including reverted calls: a call needs funding before it can produce
+its expected result. Only surviving withdrawals debit the candidate's remaining
+escrow reservation. This admission bound is not a consensus limit or a minimal
+peak-liquidity calculation; final native execution remains authoritative.
+On L1 chain ID 1, Composer additionally caps gross surviving L1-to-L2 value at
+0.1 ETH per inbound source transaction, without netting withdrawals. That policy
+does not apply to L2-origin callback deposits or change protocol accounting.
+
 ## Configuration
 
 Settings are read once before node launch. Existing environment/config-file
@@ -1601,7 +1612,9 @@ Both methods share the bounded quote worker pool. Signed tariff checks have
 separate capacity; both lanes use a ten-second request budget. Per type, at most three gas discovery probes, four
 pricing iterations and one final validation probe run
 (maximum sixteen across both types). Each probe may compose and replay nested
-execution. Pricing retains the aggregate 32-target-frame/eight-depth limit;
+execution. Pricing permits 32 target frames per requested transaction type
+(32 for one type, 64 for both), aggregated across all pricing iterations and
+predecessor replay, with a maximum depth of eight;
 L1 pending-prefix replay adds at most eight predecessor passes under the same
 frame, DA and deadline bounds. It does not acquire another worker or mutate
 queue ownership, canonical state or the original signed envelopes.
@@ -1745,7 +1758,11 @@ wait and network preparation; the simulated frame budget also remains bounded. I
 to 160 KiB of serialized transaction/options JSON, calldata to 64 KiB (65,536
 decoded bytes, including the selector and any ABI encoding), retained ordinary
 history to the active emission window minus one terminal block, encoded DA to 2 MiB,
-cross-chain target frames to 32 across all iterations, and nesting depth to eight.
+pricing target frames to 32 per requested transaction type (64 when both legacy
+and EIP-1559 are requested), and nesting depth to eight. This is one aggregate
+frame allowance across all variants, pricing iterations and predecessor replay;
+it does not reset between variants. Signed admission retains its 32-frame
+allowance. Both variants share the same ten-second deadline and worker permit.
 Active network/operator gas and blob limits and the negotiated emission window
 still apply. Expensive work uses Reth's blocking executor. Disconnect, timeout
 or shutdown sets cancellation; checks between frames/history/replay steps stop

@@ -505,11 +505,11 @@ impl TargetExecutionSession for L1TargetSession {
         Ok(Box::new(self.state.cache.clone()))
     }
 
-    fn rollback(&mut self, snapshot: SessionSnapshot) -> ExecutorResult<()> {
+    fn rollback(&mut self, snapshot: &SessionSnapshot) -> ExecutorResult<()> {
         let cache = snapshot
-            .downcast::<CacheState>()
-            .map_err(|_e| encoding_err("L1TargetSession::rollback: snapshot type mismatch"))?;
-        self.state.cache = *cache;
+            .downcast_ref::<CacheState>()
+            .ok_or_else(|| encoding_err("L1TargetSession::rollback: snapshot type mismatch"))?;
+        self.state.cache = cache.clone();
         Ok(())
     }
 }
@@ -698,11 +698,11 @@ impl TargetExecutionSession for InboundL2TargetSession {
         Ok(Box::new(self.fork.snapshot()))
     }
 
-    fn rollback(&mut self, snapshot: SessionSnapshot) -> ExecutorResult<()> {
-        let snap = snapshot.downcast::<ForkSnapshot>().map_err(|_e| {
+    fn rollback(&mut self, snapshot: &SessionSnapshot) -> ExecutorResult<()> {
+        let snap = snapshot.downcast_ref::<ForkSnapshot>().ok_or_else(|| {
             encoding_err("InboundL2TargetSession::rollback: snapshot type mismatch")
         })?;
-        self.fork.restore(*snap);
+        self.fork.restore(snap.clone());
         Ok(())
     }
 }

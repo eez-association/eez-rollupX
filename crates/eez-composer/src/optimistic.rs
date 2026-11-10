@@ -772,6 +772,7 @@ mod tests {
         let semantics = txs
             .iter()
             .map(|tx| SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(0),
                 tx_data: tx.raw_tx.clone(),
                 actions: vec![ExecutedAction {
@@ -788,7 +789,7 @@ mod tests {
                         gas_used: 1,
                         success: true,
                     },
-                    revert_span: None,
+                    revert_spans: vec![],
                 }],
             })
             .collect::<Vec<_>>();

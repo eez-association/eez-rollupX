@@ -13,7 +13,7 @@ use eez_protocol::{
     },
     blob_semantics::SemanticTransaction,
     entries::EntryTrace,
-    system_tx::{OutboundSourceEntry, OutboundSyncGroup},
+    system_tx::OutboundSyncGroup,
 };
 use reth_evm::{ConfigureEvm, Evm as _, execute::BlockExecutor as _};
 use reth_primitives_traits::SealedHeader;
@@ -222,16 +222,16 @@ fn batch(runtime: &PostingRuntime, input: &SettlementInput<'_>) -> Result<EvmBat
     if input.entries.is_empty() || input.entries.len() != input.traces.len() {
         return Err(FeeQuoteError::Unsupported("settlement trace coverage"));
     }
-    let counts = eez_protocol::system_tx::outbound_settlement_root_counts(input.entries)
-        .map_err(unavailable)?;
+    let counts = eez_protocol::system_tx::outbound_settlement_source_counts(
+        input.entries,
+        input.groups.iter().map(OutboundSyncGroup::source_shape),
+    )
+    .map_err(unavailable)?;
     let effects = input
         .groups
         .iter()
         .flat_map(|g| &g.effects)
         .collect::<Vec<_>>();
-    if counts.iter().sum::<usize>() != effects.len() {
-        return Err(FeeQuoteError::Unsupported("settlement effect coverage"));
-    }
     let prefix = placeholder(0)?;
     let checkpoints = (0..input.entries.len())
         .map(|i| placeholder(i + 1))
@@ -257,21 +257,25 @@ fn batch(runtime: &PostingRuntime, input: &SettlementInput<'_>) -> Result<EvmBat
     });
     let mut live = anchor;
     let mut cursor = 0;
-    for ((entry, count), new_root) in input.entries.iter().zip(counts).zip(carriers) {
-        let outflow = eez_protocol::entries::entry_flat_value_sum(entry)
-            .ok_or(FeeQuoteError::Unsupported("settlement value shape"))?;
-        let inflow = effects[cursor..cursor + count]
+    for (((entry, trace), count), new_root) in input
+        .entries
+        .iter()
+        .zip(input.traces)
+        .zip(counts)
+        .zip(carriers)
+    {
+        let sources = effects[cursor..cursor + count]
             .iter()
-            .try_fold(U256::ZERO, |total, effect| {
-                let source = match &effect.source_entry {
-                    OutboundSourceEntry::Mutable(entry) => {
-                        eez_protocol::entries::entry_flat_value_sum(entry)
-                    }
-                    OutboundSourceEntry::Static(_) => Some(U256::ZERO),
-                }?;
-                total.checked_add(source)
-            })
-            .ok_or(FeeQuoteError::Unsupported("settlement inflow shape"))?;
+            .map(|effect| &effect.source_entry)
+            .collect::<Vec<_>>();
+        let value = eez_protocol::entries::project_outbound_value(
+            entry,
+            trace,
+            &sources,
+            eez_protocol::RollupId(input.rollup_id),
+        )
+        .map_err(unavailable)?;
+        let (inflow, outflow) = (value.l1_to_l2_value, value.l2_to_l1_value);
         let delta = I256::try_from(inflow)
             .ok()
             .and_then(|inflow| {
@@ -849,6 +853,7 @@ mod tests {
             Address::repeat_byte(1),
             1,
             &[SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(0),
                 tx_data: Bytes::new(),
                 actions: vec![ExecutedAction {
@@ -865,7 +870,7 @@ mod tests {
                         success,
                         gas_used: 100,
                     },
-                    revert_span: None,
+                    revert_spans: vec![],
                 }],
             }],
         )

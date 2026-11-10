@@ -881,16 +881,16 @@ ordinary fee suggestions after the state-chaining test's 100 gwei source bids.
 Override it for a custom workload. Funding transfers are not measured settlement
 fees or production pricing assumptions.
 
-The wrapper honors the pinned upstream `E2E_EXCLUDE_FROM_ALL` marker when
-expanding the default `all` target. The current pin discovers 64 scenarios and
-marks 30 as excluded: 22 call-pattern probes, four static reads around local
-writes, two missing-callback-proxy static round trips and two static reads
-followed by nested writes (`staticThenNestedWrites` / `staticThenNestedWritesL2`).
-The default live suite therefore contains 34 scenarios. The summary lists all
-discovered scenarios, the live eligible count, and the excluded names;
-`suite.complete` means every eligible scenario was selected. Explicit names
-can still run excluded scenarios during development, but those runs do not
-establish a complete default suite.
+The default `all` target selects every discovered scenario at the pinned revision
+(currently 64). The wrapper passes exact names to upstream, including scenarios
+marked `E2E_EXCLUDE_FROM_ALL` pending integration. Those comments do not exclude
+scenarios from RollupX qualification. `suite.complete` means every discovered
+scenario was selected; `eligible` equals `discovered` and `excluded_from_all` is
+empty. Explicit names or categories remain useful for focused development runs,
+but a passing subset does not establish complete-suite coverage. A skip, missing
+result or failed semantic check fails the selected run. See the
+[implementation record](../../docs/audits/2026-10-30-full-protocol-e2e/README.md)
+for current validation status; selecting all scenarios is not evidence they pass.
 
 `EEZ_PROTOCOL_SUITE_TIMEOUT` bounds all upstream phases together (default 2400 seconds);
 a timeout stops its process group and fails the suite. Do not run another
