@@ -76,5 +76,83 @@
       "baseline-forward-reorg.log": "6e8e77a132b0693c0926de0452257e87a19f0a438f4a77985277058268987d87",
       "report.txt": "cc1c5c8e640c43637777c899da70615463b8582817589c76825a7a16ed5a509c"
     }
-  }
+  },
+  "corrected_candidate_validation": {
+    "source_head": "99652ce7e10aa8a84d5ee4ee5d210b93c3bb67e9",
+    "production_source": "ded7dff7e43a627deb821071aa446bde3f4a419f",
+    "fixture_source": "2e92af222a9a43298fd9c7346ac80419d304cb9e",
+    "composer_unit": {
+      "passed": 434,
+      "ignored": 1
+    },
+    "process": {
+      "existing_regressions_passed": 4,
+      "corrected_inbound_passed": 1,
+      "initial_inbound_trigger": "failed to create replacement; corrected fixture",
+      "first_controlled_inbound": "canonical transition succeeded; Ethereum receipt deserializer rejected native type 0x45; corrected to explicit native RPC fields",
+      "inbound_after_replacement_reconciled_passed": 1
+    },
+    "clippy_workspace": "passed",
+    "tooling": {
+      "full_suite_selected": 433,
+      "passed_after_temp_relocation": 421,
+      "failed_after_temp_relocation": 3,
+      "skipped": 9,
+      "affected_resource_suite_after_absolute_interpreter_fix": {
+        "passed": 7,
+        "failed": 0
+      },
+      "exclusions": "1 real Docker payload probe, 2 real Kurtosis probes, 1 native archive relocation probe, 3 real runtime Docker builds, 2 Gitleaks checks (tool absent locally)"
+    },
+    "logs_sha256": {
+      "unit-final.log": "a6b6ea90248e30859b5c3361de915d1da095bc904bea2c8d74934c1aed1db367",
+      "process-final.log": "bdd66a3541e1e91731fa8c32b634dff354d4e7b5ce738140ac1bc077b304288b",
+      "inbound-process.log": "74f814b716203cc3c652a88490027ddee2a64232d9fa5e2e3574016016dcc95b",
+      "inbound-final.log": "cb46bad5caa125be6bdde65be2d5b6a1ae3589b6fbab3cdd18bad23153a88909",
+      "clippy-final.log": "8c0a7ef26497980acd710176b53963536bd4b6a24ef56747f9ce828bcb248b27",
+      "builder-stub.log": "e2c25042f7c42f527a64ec5c5cb1267107f8ad4351eaf04aac514e02e9c1630e",
+      "tooling.log": "58b4d8e88ecc4978f69b72287e627809fa1d8b6c8da24bae16fe237855327077",
+      "tooling-relocated-tmp.log": "3cc81cfd7ffa34b5ba16d13dfc2117b18cfd2a4e3510288a23f374222963299e",
+      "ci-resources-final.log": "f71bd747252c33fa74505012d46bb94e96b539dcbc874927ed4e47c6087dd43e",
+      "clippy-native-receipt.log": "76607a0c34f8a6c9cdf30a5ea5de2e2ef5467565fcfba2f2b86af107c1596448",
+      "inbound-ordered.log": "c3eeb2f3f33c49a680e52e2e0ba1478419f6cb88d553664cc336c69839d09b87",
+      "clippy-ordered.log": "fa435321d13a23a481f732facff7a0f50ffe96f09b09f4203095f0b2dae483b4"
+    },
+    "local_executables_sha256": {
+      "eez-composer": "84b352ddcd34fec3e870acf16b7315db1871e4cc02a932a62a78e12eed2a6633",
+      "eez-follower": "7a509207c11524660b7bd45ecfd51687621cb78915f51564d1631bac2fa3443d",
+      "eez-proof-signer": "b100aabe0d9abbe64666969527a83c8231bd25ff4acd2f93bcb8c81eaca9d1a2",
+      "deps/node_e2e-fbf589752ef9b975": "422a3e4e3f64140532293b479197beb6d68cbf3c7f816e013c7842f294913e1b"
+    },
+    "affected_test_clippy": "passed",
+    "final_barrier_test_clippy": "passed",
+    "final_inbound_observed_reconciliation_order": [
+      "original",
+      "replacement"
+    ]
+  },
+  "corrected_candidate_reviews": [
+    {
+      "scope": "claude-review-round3",
+      "model": "claude-opus-5-5",
+      "effort": "max",
+      "report_sha256": "a4fa9125293aff762badbb409b8a61a06fb51ffcbdf39dbd5e666c973cc0635e",
+      "local_only": true
+    },
+    {
+      "scope": "claude-review-native-receipt",
+      "model": "claude-opus-5-5",
+      "effort": "max",
+      "report_sha256": "5e51066f50b08295ed1586baec3b6e3007ff337b48065d04c3bf445541be4d37",
+      "local_only": true
+    },
+    {
+      "scope": "final reconciliation barrier and readmission documentation",
+      "model": "claude-opus-5-5",
+      "effort": "max",
+      "verdict": "no blocker; corrected ordering comment",
+      "report_sha256": "231e639195996ef6434f45e0a72d320e5f8be774c9e18714be64b19b9cc5824a",
+      "local_only": true
+    }
+  ]
 }

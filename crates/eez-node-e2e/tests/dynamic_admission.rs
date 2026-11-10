@@ -1671,9 +1671,9 @@ async fn delayed_inbound_original_reports_the_batch_that_actually_settled() {
     .unwrap();
     assert!(source_receipt.status());
 
-    // Reconciliation visits the original before the replacement. Do not stop
-    // at the first Committed response: the losing attempt's later disposition
-    // must not overwrite the winning references (the incident's ordering).
+    // Either attempt may reconcile first. Wait for the replacement's disposition;
+    // Committed then requires the original's too. Both orders must preserve the
+    // winning references, rather than stopping at a transient Committed response.
     wait_for(TIMEOUT, || async {
         Ok(world
             .node

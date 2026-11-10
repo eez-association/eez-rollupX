@@ -93,7 +93,8 @@ Their pending/pass/fail status is available on
 
 Composer-only change. No protocol pin, contract, signer, blob, database or RPC
 shape changes. `basis: attempt` and `complete` retain their candidate semantics.
-No new network calls or durable queue are introduced. Ownership adds one
+No new RPC endpoint or durable queue is introduced. Rechecking unresolved
+historical attempts can add repeated canonical RPC work. Ownership adds one
 in-memory generation boundary per retained source. No performance benchmark was
 run. Restart still loses pending/status history, so upgrading cannot reconstruct
 old process-local terminal records. Older Composers retain this bug; rollback
@@ -134,7 +135,7 @@ coverage limitation, rather than being inferred from the ledger tests. The
 fixture prebuilds an empty competing payload; it does not select the retained
 replacement for that fork.
 
-No new network requests, configuration, or persistent state were added. Finality
+No new RPC endpoint, configuration, or persistent state was added. Finality
 now scans retained related history before pruning an owner. Persistent missing
 evidence can retain history longer, as required for correct ownership; no
 performance benchmark was run. Restart and rollback limits above still apply.
@@ -151,3 +152,89 @@ source/post receipts, their exact same-block ordering, native delivery, state
 and independent follower convergence. Existing outbound cases use the same
 relay mode with one transaction. Relay unit tests cover companions, early error
 and empty rejection in addition to the existing hold/drop/DA barriers.
+
+### Corrected-candidate validation
+
+Production corrections are in `ded7dff7`; the controlled inbound fixture is in
+`2e92af22`; `d17227fd` corrects the test's native receipt decoder. On the first
+controlled run, the source and post succeeded, ownership returned to the original,
+and the independent follower replayed the delivery. The test then failed because
+Alloy's Ethereum-only receipt decoder rejects EEZ type `0x45`. The final test
+checks the native RPC receipt fields directly, without weakening the status,
+identity, state or follower assertions. Both failures are preserved; neither is
+counted as a passing retry on unchanged test code.
+
+| Corrected check | Result |
+| --- | --- |
+| Composer library suite | 434 passed; one existing manual profiling test ignored |
+| Workspace Clippy, all targets | Passed |
+| Clippy for final native-receipt test amendment | Passed |
+| Format and whitespace checks; edited-document relative paths | Passed; 104 relative paths resolved |
+| Controlled relay tests | 21 passed |
+| Both outbound late-original process tests | 2 passed |
+| Partial-consumption and general reorg process tests | 2 passed |
+| Corrected inbound late-original process test | 1 passed |
+
+The five process cases used the source-built `node_e2e` target and real Composer,
+signer and follower binaries with all prebuilt overrides unset. The four existing
+cases passed in one five-case invocation whose inbound case failed at the native
+receipt decoder; the corrected inbound case passed separately. These are semantic
+process assertions and independent replay, not throughput-only checks. The exact
+replacement winning on a competing fork remains ledger-only coverage.
+
+The full tooling invocation selected 433 tests but encountered this host's `/tmp`
+quota even with `TMPDIR`, because some shell scripts pass absolute templates to
+`mktemp`. A task-local PATH wrapper relocated only those explicit templates to the
+writable task directory. That rerun passed 421 tests, failed three resource tests,
+and skipped nine opt-in/unavailable-tool tests. The three failures came from the
+wrapper's `/usr/bin/env python3` selecting those tests' mocked Python. Changing
+only the local wrapper to `/usr/bin/python3` made all seven resource tests pass.
+Thus all 424 applicable tooling tests passed across those runs, not in a single
+clean full-suite invocation. No repository workaround was added. Exclusions:
+one real Docker payload probe, two real Kurtosis resource probes, one native
+archive relocation probe, three real runtime Docker builds and two Gitleaks
+checks (Gitleaks was unavailable locally). CI still owns the full release and
+Kurtosis matrix.
+
+### Independent re-review
+
+Claude Opus 5.5 at maximum effort re-reviewed the production fixes and their
+callers. It confirmed F1–F5 fixed and found no introduced High or Medium defect.
+The broad review started from `2e92af22`; production Rust remained unchanged.
+The native receipt amendment was made while that read-only review was running,
+so a separate focused review checked its exact diff against the final test.
+That review found no blocking defect and recommended accepting the amendment.
+These were source-only reviews, not executed validation or a proof of soundness.
+Claude could not confirm the protocol checkout through its restricted toolset;
+the pinned checkout was independently verified before local validation.
+
+The broad review requested that the inbound process test wait for the exact
+replacement's reconciliation before its final assertions, rather than stopping
+at the first `Committed` response. `99652ce7` ties the barrier to the original's
+timeout, verifies the actual replacement dispatch and non-null new generation,
+waits for its reconciliation, then checks the full original reference set. That
+stronger process test passed with real L1 payload execution and follower replay.
+
+One Low, pre-existing readmission limitation is deliberately tracked in the
+[RPC contract](../../../crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission):
+explicit readmission after local disposition severs the old admission, even when
+an old dispatched attempt still has unresolved evidence. Its later canonical
+success cannot transfer ownership to the new admission. Gating readmission on
+that evidence would change admission policy; this correction preserves the
+existing explicit-readmission contract and regression. The review allowed
+tracking this limitation rather than changing that policy here. Other hypotheses
+and pre-existing observations in the local review report were not treated as
+verified new defects or silently folded into this fix.
+
+A final focused Opus 5.5/max review found no blocker in the reconciliation
+barrier or readmission documentation. It verified the event/state ordering and
+whole-reference equality, and identified an inaccurate comment: the slot path
+can reconcile the replacement first even though the recovery loop visits
+attempts in generation order. The comment was corrected without changing test
+behavior. The process test accepts either valid ordering after both dispositions;
+the ledger regression deterministically covers both orders. The stronger test
+passed and its focused Clippy check passed before this comment-only correction.
+Formatting and whitespace checks passed afterwards. Review transcripts and raw
+runtime evidence remain local-only; their report/log digests are retained in
+[evidence.json](evidence.json). No claim of complete prover soundness or of exact
+replacement-winner/finality process coverage is made.
