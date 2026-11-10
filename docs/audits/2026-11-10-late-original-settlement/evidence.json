@@ -40,5 +40,28 @@
       "16:05:47.255250",
       "replacement classified SourceCompletedWithMissingEffects"
     ]
-  ]
+  ],
+  "candidate_source": "5c4832c5e708527612bb8a0697b145aa04f172d7",
+  "local_executables_sha256": {
+    "eez-composer": "1c48537bacab2f298ea8c0fa622b3ebfa1d4e50f795a6e28d3e3c4726db34f0d",
+    "eez-follower": "7a509207c11524660b7bd45ecfd51687621cb78915f51564d1631bac2fa3443d",
+    "eez-proof-signer": "b100aabe0d9abbe64666969527a83c8231bd25ff4acd2f93bcb8c81eaca9d1a2",
+    "deps/node_e2e-fbf589752ef9b975": "10c009e781de4f968baf3dc460ba1a9daa2f8754f7b385b0dce1eec794dba973"
+  },
+  "local_validation_logs_sha256": {
+    "late-original-baseline.log": "627756fd4f595761d5f3bdb40cfc961bfe5bf43c5dea9e7c051fb5ade8382651",
+    "late-original-tests.log": "c393dc0b7d45ef1c250bd85169c00474071360657fc86f51a212645d031db8ed",
+    "late-original-tests-final.log": "f446e7a87b82295739a91c10a25847644c7e483ea235670d302f4f802e609457",
+    "process-final.log": "86fa46309b79ff0f887ce413d2fc74ee104358037328c4591e622a7f6c497952",
+    "clippy-final.log": "82c6864c2fc4763b31ec59be8be8d531b7f42e6ff45144cb1c2a1ac49579e7f1",
+    "ownership-process.log": "3916b30b7faf34302309b8c781550f211d50558b0540d995507ae583370d4aed"
+  },
+  "validation_results": {
+    "composer_unit_passed": 428,
+    "composer_unit_ignored": 1,
+    "delayed_original_process_passed": 2,
+    "partial_and_reorg_process_passed": 2,
+    "workspace_clippy": "passed",
+    "full_release_and_kurtosis": "CI pending"
+  }
 }

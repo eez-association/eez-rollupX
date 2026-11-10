@@ -45,16 +45,48 @@ The final candidate Composer suite passed **428 tests**, with one existing
 manual profiling test ignored. The new partial-application/reorg regression
 first exposed a dependency on a scheduling flag reset by reorg; using the
 retained sequence boundary fixes that case. Both first failures are preserved
-locally. Integration contracts built with Foundry 1.7.1 (existing compiler/lint
-warnings). Formatting and whitespace checks pass. Workspace Clippy passed before
-that one-line correction; the final rerun and process tests remain in progress.
+locally. The baseline test executable was not retained; its source revision and
+failure output are recorded. The exact candidate runtime/test executable hashes
+are in [evidence.json](evidence.json), compiled from
+`5c4832c5e708527612bb8a0697b145aa04f172d7`; subsequent record updates do not change
+runtime source. The hashes matched across both process invocations.
 
-The first process invocation selected two delayed-original tests but failed
-before execution while writing genesis (`Disk quota exceeded` in sandbox
-storage). The rerun uses a task-owned temporary directory and host loopback
-networking. This is an infrastructure failure, not a semantic pass or test flake.
-Raw incident RPC responses/logs and build/test logs are retained locally only;
-they are not required to run the committed regressions and are not published.
+| Check | Result |
+| --- | --- |
+| `cargo +1.95.0 test --locked -p eez-composer --lib` | 428 passed; one existing manual profile ignored |
+| `cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings` | Passed on the final code |
+| `cargo +1.95.0 fmt --all --check`; `git diff --check` | Passed |
+| `forge build --root contracts` | Passed with existing compiler/lint warnings |
+| `dynamic_admission::late_original_settlement_replaces_the_timeout_branch_without_losing_users` | Passed |
+| `dynamic_admission::late_original_after_multiple_replacements_retains_users_and_follower_parity` | Passed |
+| `partial_consumption::partial_prefix_keeps_unconsumed_users_and_receipt_costs` | Passed |
+| `queue_reorg::native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order` | Passed |
+
+The two delayed-original tests ran via
+`cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- dynamic_admission::late_original --test-threads=1`.
+The partial-consumption and reorg tests ran serially with `--exact` and both full
+names above against the same source-built `node_e2e` executable. Each invocation
+selected and passed two tests, with no ignored tests. Prebuilt runtime overrides
+were unset; the harness built all three real runtime roles with `--locked`.
+These process checks execute semantic assertions and independent follower replay,
+including successful receipt-backed batch references for the late originals.
+
+The first process invocation failed before execution while writing genesis
+(`Disk quota exceeded` in sandbox temporary storage). A host rerun passed the
+four-replacement test, but its `/tmp` output truncated and the invocation exited
+101; the remaining outcome was unavailable. The final Clippy rerun's output was
+also truncated. A direct 16 KiB write confirmed `/tmp` returned errno 122 while
+the task directory succeeded. Moving **both** temporary files and output logs to
+task-owned storage produced complete passing results for both process tests and
+Clippy. The incomplete run is retained as inconclusive infrastructure evidence,
+not counted as a passing run. No observed semantic failure was hidden by retries.
+
+Raw incident RPC responses, process logs/datadirs and build/test logs are retained
+locally only; they are not published. Small sanitized incident evidence and the
+final log/executable digests are committed. Full workspace runtime tests, the
+release-artifact matrix and Kurtosis were not run locally; CI owns those lanes.
+Their pending/pass/fail status is available on
+[PR 131](https://github.com/eez-association/eez-rollupX/pull/131).
 
 ## Compatibility and limits
 
