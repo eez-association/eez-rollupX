@@ -554,7 +554,6 @@ impl OptimisticallyIncluded {
                 // effects in the retained sequence still win, even if the newer
                 // attempt was already classified as missing those effects.
                 let late_application = *outcome == SourceOutcome::Applied
-                    && attempt.replacement_released
                     && user.replacement_start <= id.generation
                     && id.generation < user.owner
                     && !matches!(user.location, UserLocation::Terminal {

@@ -41,12 +41,18 @@ failed with actual `SourceCompletedWithMissingEffects`, expected `Committed`
 (1 selected, 0 passed). It uses the same original/replacement sequence as the
 incident and checks the terminal references through finality pruning.
 
-The initial candidate Composer suite passed 426 tests, with one existing manual
-profiling test ignored. Additional sequence/reorg tests and process assertions
-were then added; final validation is pending. Integration contracts built with
-Foundry 1.7.1 (existing compiler/lint warnings). Formatting and whitespace checks
-pass. Full process and workspace Clippy checks are running; these are not yet
-claimed as passing.
+The final candidate Composer suite passed **428 tests**, with one existing
+manual profiling test ignored. The new partial-application/reorg regression
+first exposed a dependency on a scheduling flag reset by reorg; using the
+retained sequence boundary fixes that case. Both first failures are preserved
+locally. Integration contracts built with Foundry 1.7.1 (existing compiler/lint
+warnings). Formatting and whitespace checks pass. Workspace Clippy passed before
+that one-line correction; the final rerun and process tests remain in progress.
+
+The first process invocation selected two delayed-original tests but failed
+before execution while writing genesis (`Disk quota exceeded` in sandbox
+storage). The rerun uses a task-owned temporary directory and host loopback
+networking. This is an infrastructure failure, not a semantic pass or test flake.
 Raw incident RPC responses/logs and build/test logs are retained locally only;
 they are not required to run the committed regressions and are not published.
 
