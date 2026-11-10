@@ -644,6 +644,15 @@ finality retains the winning references in bounded status history. Canonical
 source evidence can also complete users whose replacement preparation did not
 finish or whose automatic retry has already begun.
 
+Readmission limitation: a locally terminal source can be explicitly readmitted
+while a prior dispatched attempt still has unresolved evidence. That starts a
+new admission; a later `Applied` from the previous admission cannot transfer
+ownership to it. The new admission can therefore retain missing-effect/candidate
+references despite canonical execution by the old attempt. This correction does
+not change the existing readmission policy or make status an execution archive;
+clients must verify canonical receipts. Gating readmission on unresolved prior
+evidence is a separate admission-policy change.
+
 Each replacement advances exactly one slot from the current attempt, with at
 most five scheduled opportunities on one parent including the original. The
 scheduler and submission gate share the same bound. After exhaustion, wait for a

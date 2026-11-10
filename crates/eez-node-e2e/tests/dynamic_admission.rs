@@ -1627,19 +1627,28 @@ async fn delayed_inbound_original_reports_the_batch_that_actually_settled() {
         .parse::<alloy_primitives::B256>()
         .unwrap();
     world.release_bundle(&held).unwrap();
-    wait_for(Duration::from_secs(30), || async {
+    let replacement_post = wait_for(Duration::from_secs(30), || async {
+        let events = world.node.signals_since(cursor)?;
+        let released_original = events.iter().any(|event| {
+            event.name == "eez.composer.settlement.replacement"
+                && event.fields["original_post_batch"] == serde_json::json!(original_post)
+        });
+        let Some(dispatched) = events.iter().find(|event| {
+            event.name == "eez.submitter.bundle.dispatch"
+                && event.fields["target_timestamp"] == target_timestamp + 5
+        }) else {
+            return Ok(None);
+        };
         let status: serde_json::Value = composer
             .client()
             .request("eez_getCrossChainTransaction", (source,))
             .await?;
-        Ok((status["transactions"]["attemptGeneration"]
-            != original["transactions"]["attemptGeneration"]
-            && world
-                .node
-                .signals_since(cursor)?
-                .iter()
-                .any(|e| e.name == "eez.composer.settlement.replacement"))
-        .then_some(()))
+        Ok((released_original
+            && status["transactions"]["attemptGeneration"].is_string()
+            && status["transactions"]["attemptGeneration"]
+                != original["transactions"]["attemptGeneration"]
+            && status["transactions"]["postBatch"]["hash"] == dispatched.fields["tx_hash"])
+            .then(|| dispatched.fields["tx_hash"].as_str().unwrap().to_owned()))
     })
     .await
     .unwrap_or_else(|e| {
@@ -1662,6 +1671,22 @@ async fn delayed_inbound_original_reports_the_batch_that_actually_settled() {
     .unwrap();
     assert!(source_receipt.status());
 
+    // Reconciliation visits the original before the replacement. Do not stop
+    // at the first Committed response: the losing attempt's later disposition
+    // must not overwrite the winning references (the incident's ordering).
+    wait_for(TIMEOUT, || async {
+        Ok(world
+            .node
+            .signals_since(cursor)?
+            .iter()
+            .any(|event| {
+                event.name == "eez.composer.settlement.reconciled"
+                    && event.fields["post_batch_hash"] == replacement_post
+            })
+            .then_some(()))
+    })
+    .await
+    .unwrap();
     let settled = wait_for(TIMEOUT, || async {
         let status: serde_json::Value = composer
             .client()
@@ -1680,6 +1705,7 @@ async fn delayed_inbound_original_reports_the_batch_that_actually_settled() {
         settled["transactions"]["postBatch"]["hash"],
         serde_json::json!(original_post)
     );
+    assert_eq!(settled["transactions"], original["transactions"]);
     let post_receipt = l1
         .get_transaction_receipt(original_post)
         .await
