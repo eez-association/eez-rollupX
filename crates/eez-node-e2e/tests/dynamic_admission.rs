@@ -1830,6 +1830,23 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
             .await
             .unwrap();
         assert_eq!(settlement["canonicalL2"], true);
+        assert_eq!(
+            owner["transactions"]["postBatch"]["hash"], settlement["l1TransactionHash"],
+            "terminal references must identify the settled batch, including late originals"
+        );
+        assert_eq!(
+            owner["transactions"]["l1"]["hash"],
+            settlement["l1TransactionHash"]
+        );
+        let post_hash: alloy_primitives::B256 =
+            serde_json::from_value(owner["transactions"]["postBatch"]["hash"].clone()).unwrap();
+        let post_receipt = l1
+            .get_transaction_receipt(post_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(post_receipt.status());
+        assert_eq!(post_receipt.block_hash, Some(landed.header.hash));
         assert_eq!(settlement["l1BlockNumber"], format!("{target_height:#x}"));
         assert_eq!(
             settlement["l1BlockHash"],

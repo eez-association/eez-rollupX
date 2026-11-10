@@ -856,6 +856,7 @@ mod tests {
                     crate::optimistic::OwnedUser {
                         tx: tx.clone(),
                         owner: 7,
+                        replacement_start: 7,
                         fifo_position: 0,
                         location: UserLocation::Terminal {
                             reason: TerminalReason::Committed,
@@ -958,6 +959,7 @@ mod tests {
                     crate::optimistic::OwnedUser {
                         tx: root.clone(),
                         owner: 3,
+                        replacement_start: 3,
                         fifo_position: 0,
                         location: UserLocation::Composing,
                     },
@@ -989,6 +991,7 @@ mod tests {
                     crate::optimistic::OwnedUser {
                         tx: other.clone(),
                         owner: 4,
+                        replacement_start: 4,
                         fifo_position: 1,
                         location: UserLocation::Composing,
                     },

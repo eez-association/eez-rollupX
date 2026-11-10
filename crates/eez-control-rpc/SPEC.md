@@ -611,8 +611,12 @@ Admission preparation, acknowledgement and progress elsewhere are not source
 completion. See the [admission policy](../../docs/configurable-settlement-policy.md).
 Infrastructure-only failures do not charge that policy. Only an exhausted,
 still-unspent source nonce creates a dependent nonce gap. The pool transfers
-ownership and reservations under one lock. Historical attempts cannot
-release or recover users owned by a newer attempt.
+ownership and reservations under one lock. Historical failure or retry outcomes cannot
+release or recover users owned by a newer attempt. Validated complete effects
+from a retained attempt in the same deadline-replacement sequence MUST instead
+complete that source and retain the successful attempt’s transaction references.
+This requires the existing exact batch, source-consumption and whole-effect
+checks; a receipt or nonce advance alone does not qualify.
 
 The reference node tracks submitted attempts in memory. It retains signed source
 bytes, the exact pooled postBatch envelope, target, manifest, retry counters and
@@ -626,8 +630,13 @@ completed canonical derivation through the unchanged parent. This deadline is
 not a failure verdict: retain the original envelope, manifest, target, observer
 and signed users until canonical reconciliation. Returning those users to the
 held pool for recomposition MUST preserve reservations and retry counters. Old
-results MUST NOT release users owned by a newer attempt. Canonical source
-evidence can still complete users whose replacement preparation did not finish.
+failure observations MUST NOT release users owned by a newer attempt. Complete
+canonical effect evidence from the same replacement sequence takes precedence
+over the replacement’s missing-effect disposition, regardless of reconciliation
+order. Explicit readmission starts a separate sequence. Reorgs reopen the
+winning attempt’s ownership; finality retains its references in bounded status
+history. Canonical source evidence can also complete users whose replacement
+preparation did not finish.
 
 Each replacement advances exactly one slot from the current attempt, with at
 most five scheduled opportunities on one parent including the original. The

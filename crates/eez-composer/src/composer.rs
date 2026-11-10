@@ -2713,7 +2713,11 @@ where
                     } else {
                         TerminalReason::SourceCompletedWithMissingEffects
                     };
-                    SourceOutcome::Terminal(reason)
+                    if reason == TerminalReason::Committed {
+                        SourceOutcome::Applied
+                    } else {
+                        SourceOutcome::Terminal(reason)
+                    }
                 } else if source.nonce > tx.nonce {
                     SourceOutcome::Terminal(TerminalReason::SourceNonceSpent)
                 } else {
@@ -2766,11 +2770,15 @@ where
                                 });
                         }
                     }
-                    SourceOutcome::Terminal(if included {
-                        TerminalReason::Committed
+                    if own_effects_applied {
+                        SourceOutcome::Applied
                     } else {
-                        TerminalReason::SourceNonceSpent
-                    })
+                        SourceOutcome::Terminal(if included {
+                            TerminalReason::Committed
+                        } else {
+                            TerminalReason::SourceNonceSpent
+                        })
+                    }
                 }
             };
             outcomes.push(outcome);
@@ -2919,12 +2927,21 @@ where
                 submitted_groups = attempt.txs.len(), target = ?attempt.dispatched_target,
                 "canonical target slot was skipped; source dispositions do not measure this candidate capacity");
         }
+        // Keep the existing disposition log contract used by operational tooling;
+        // Applied carries additional ownership authority only inside reconciliation.
+        let dispositions = outcomes
+            .iter()
+            .map(|outcome| match outcome {
+                SourceOutcome::Applied => SourceOutcome::Terminal(TerminalReason::Committed),
+                other => *other,
+            })
+            .collect::<Vec<_>>();
         event!(name: "eez.composer.settlement.reconciled", Level::INFO,
             event_name = "eez.composer.settlement.reconciled",
             rollup_id, attempt = ?attempt.id, at_l1 = at.number,
             post_batch_hash = %attempt.id.post_batch_hash,
             canonical_l2_number = endpoint.number, canonical_l2_hash = %endpoint.hash,
-            outcomes = ?outcomes, charge_attempt = charge != AttemptCharge::None,
+            outcomes = ?dispositions, charge_attempt = charge != AttemptCharge::None,
             attempt_charge = ?charge,
             "canonical source dispositions recorded and ownership transferred");
         Ok(result)
@@ -7945,7 +7962,10 @@ fn submission_backoff_required(
     let completed = |outcome: &SourceOutcome| {
         matches!(
             outcome,
-            SourceOutcome::Terminal(TerminalReason::Committed | TerminalReason::SourceCompleted)
+            SourceOutcome::Applied
+                | SourceOutcome::Terminal(
+                    TerminalReason::Committed | TerminalReason::SourceCompleted
+                )
         )
     };
     // Consecutive canonical headers proved that this target was never built.

@@ -1,0 +1,44 @@
+{
+  "baseline": "7ea2a50edbd3304f80718304ab4f4f871b22026c",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "chain_id": 10200,
+  "l2_chain_id": 916969,
+  "rollup_id": 4,
+  "source": "0xf62d58c0238fad402e946b50d887c161eb71f261c0dc80753e94c3533d371e1f",
+  "delivery": "0xa39225c205c910759f133c2ab1031b42b0147a2cea0fd227bea43073e2aa10e5",
+  "canonical_batch": "0xbd0797d8c337e5b151bd8d6ed4cd7fce064a90ee9fd3a2e611684161cbc7c418",
+  "reported_batch": "0x620a0eee493be423312ea88e39a0ac56d51f6f975239fc9b4f94ea8db339ee2b",
+  "canonical_l1_block": 23936313,
+  "canonical_l1_hash": "0x6b6567388439da42378220fb8b16e5615971f22a13b7fb1e4182d11a4c334c4c",
+  "canonical_l2_hash": "0x1679c0d22ead7069e0ef96c543d08b65c06b5a5f05bcfd32948a2816860c8553",
+  "events_utc": [
+    [
+      "16:05:37.678704",
+      "attempt 65 dispatched"
+    ],
+    [
+      "16:05:42.254281",
+      "deadline replacement released original"
+    ],
+    [
+      "16:05:42.601484",
+      "attempt 66 dispatched"
+    ],
+    [
+      "16:05:44.292125",
+      "replacement reported dropped"
+    ],
+    [
+      "16:05:44.388752",
+      "original observed included"
+    ],
+    [
+      "16:05:47.253139",
+      "original classified Committed"
+    ],
+    [
+      "16:05:47.255250",
+      "replacement classified SourceCompletedWithMissingEffects"
+    ]
+  ]
+}

@@ -123,7 +123,9 @@ bindings, images and datadirs during the upgrade; follow the
 - Delayed-original process test: hold an actual Engine API payload until the
   Composer has dispatched its fourth replacement, then release the original. Verify
   L2 reorg, user outcomes, state, nonce ordering and independent follower parity.
-- Ledger tests: late original success/failure cannot erase newer ownership;
+- Ledger tests: validated complete effects from a retained original complete
+  that source across deadline replacements and preserve its settled references;
+  stale failures cannot erase newer ownership or affect explicit readmission;
   failed replacement preparation leaves original users reconcilable; L1 reorg
   reopens the right owner; timeout does not charge attempts.
 - Scheduler and submission tests: four extra timers, same execution height,
@@ -132,3 +134,23 @@ bindings, images and datadirs during the upgrade; follow the
 - Run affected settlement, partial-consumption, queue/reorg and resumption suites,
   formatting and Clippy before deployment. Record actual results and omissions
   in the implementation audit; design acceptance is not validation evidence.
+
+## November 10 correction: late-original completion
+
+User-authorized fix: a canonical original could settle after its deadline
+replacement took ownership. The old attempt was classified `Committed`, but its
+outcome was ignored for the newer owner; the newer attempt then reported
+`SourceCompletedWithMissingEffects` with an unincluded batch hash.
+
+Retain a per-source replacement-sequence boundary. Only independently validated
+complete effects in a retained attempt can transfer terminal ownership back to
+that attempt. Failure observations and source completion without those effects
+cannot do so. Preserve this decision through finality and reopen it on reorg.
+Explicit readmission must not inherit the old sequence. Cover both reconciliation
+orders, partial consumption, multiple replacements, finality and reorgs.
+
+This is a Composer-only correction with no protocol, RPC shape, signer, follower,
+genesis or storage migration. Older Composers can still misreport this race.
+Restart loses retained request history, so upgrading does not repair historical
+status observations from the previous process. Rollback restores the reporting
+bug; normal restart/resubmission limitations remain.
