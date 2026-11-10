@@ -142,12 +142,16 @@ replacement took ownership. The old attempt was classified `Committed`, but its
 outcome was ignored for the newer owner; the newer attempt then reported
 `SourceCompletedWithMissingEffects` with an unincluded batch hash.
 
-Retain a per-source replacement-sequence boundary. Only independently validated
-complete effects in a retained attempt can transfer terminal ownership back to
-that attempt. Failure observations and source completion without those effects
+Retain a per-source admission boundary through automatic retries and deadline
+replacements. Only independently validated complete effects in a retained
+attempt can transfer terminal ownership to that attempt, in either generation
+direction after a reorg. Failure observations and source completion without those effects
 cannot do so. Preserve this decision through finality and reopen it on reorg.
-Explicit readmission must not inherit the old sequence. Cover both reconciliation
-orders, partial consumption, multiple replacements, finality and reorgs.
+Explicit readmission must not inherit the old sequence. Reopen ownerless audits
+invalidated by a reorg. Do not prune terminal ownership while related evidence
+is unresolved, or let local eviction suppress a dispatched attempt's canonical
+effects. Cover both reconciliation orders, partial consumption, automatic retry,
+multiple replacements, finality and reorgs.
 
 This is a Composer-only correction with no protocol, RPC shape, signer, follower,
 genesis or storage migration. Older Composers can still misreport this race.

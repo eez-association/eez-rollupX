@@ -63,5 +63,18 @@
     "partial_and_reorg_process_passed": 2,
     "workspace_clippy": "passed",
     "full_release_and_kurtosis": "CI pending"
+  },
+  "adversarial_round_1": {
+    "reviewed_head": "c979251cf504f68238e2f1437831105917bb27c5",
+    "model": "claude-opus-5-5",
+    "effort": "max",
+    "verdict": "request changes",
+    "reproduced_ledger_failures": 5,
+    "baseline_forward_winner_regression": "passed with pre-PR production code",
+    "local_only_logs_sha256": {
+      "reproduction-final.log": "152de54884c2a0507779c3c2e51d6fe48d323fa6df70f4e946ee6cc99e31e0cf",
+      "baseline-forward-reorg.log": "6e8e77a132b0693c0926de0452257e87a19f0a438f4a77985277058268987d87",
+      "report.txt": "cc1c5c8e640c43637777c899da70615463b8582817589c76825a7a16ed5a509c"
+    }
   }
 }

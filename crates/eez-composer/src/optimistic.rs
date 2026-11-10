@@ -107,9 +107,9 @@ pub enum UserLocation {
 pub(crate) struct OwnedUser {
     pub tx: HeldTx,
     pub owner: u64,
-    /// Earliest attempt in this source's uninterrupted deadline-replacement sequence.
-    /// Explicit readmission and ordinary retries start a new sequence.
-    pub replacement_start: u64,
+    /// First attempt of this retained admission, including retries and replacements.
+    /// Explicit readmission removes the old owner and starts a new sequence.
+    pub first_attempt: u64,
     pub fifo_position: usize,
     pub location: UserLocation,
 }
@@ -252,24 +252,22 @@ impl OptimisticallyIncluded {
                 post_batch_hash,
             };
             for (fifo_position, tx) in txs.iter().cloned().enumerate() {
-                let replacement_start = state
+                let first_attempt = state
                     .users
                     .get(&tx.hash)
                     .filter(|user| {
                         matches!(
                             user.location,
                             UserLocation::Queued | UserLocation::Composing
-                        ) && state.attempts.get(&user.owner).is_some_and(|attempt| {
-                            attempt.replacement_released && attempt.reconciled_at.is_none()
-                        })
+                        )
                     })
-                    .map_or(generation, |user| user.replacement_start);
+                    .map_or(generation, |user| user.first_attempt);
                 state.users.insert(
                     tx.hash,
                     OwnedUser {
                         tx,
                         owner: generation,
-                        replacement_start,
+                        first_attempt,
                         fifo_position,
                         location: UserLocation::AwaitingEvidence,
                     },
@@ -550,12 +548,12 @@ impl OptimisticallyIncluded {
                 let Some(user) = state.users.get_mut(&tx.hash) else {
                     continue;
                 };
-                // A deadline only transfers scheduling ownership. Exact canonical
-                // effects in the retained sequence still win, even if the newer
-                // attempt was already classified as missing those effects.
-                let late_application = *outcome == SourceOutcome::Applied
-                    && user.replacement_start <= id.generation
-                    && id.generation < user.owner
+                // Canonical effects select the winning attempt in either direction:
+                // a reorg can replace a late original with its newer replacement.
+                // Local eviction does not revoke an already-dispatched submission.
+                // Only explicit readmission severs this source's retained history.
+                let applied = *outcome == SourceOutcome::Applied
+                    && user.first_attempt <= id.generation
                     && !matches!(user.location, UserLocation::Terminal {
                         canonical: Some(block), ..
                     } if block.number > as_of.number);
@@ -566,10 +564,10 @@ impl OptimisticallyIncluded {
                                 user.location,
                                 UserLocation::Queued | UserLocation::Composing
                             )));
-                if !current_owner && !late_application {
+                if !current_owner && !applied {
                     continue;
                 }
-                if late_application {
+                if applied {
                     user.owner = id.generation;
                     user.fifo_position = fifo_position;
                 }
@@ -664,14 +662,18 @@ impl OptimisticallyIncluded {
                 {
                     attempt.cost_recorded_at = None;
                 }
-                if attempt.txs.is_empty()
-                    && attempt
-                        .reconciled_at
-                        .is_some_and(|block| block.number > ancestor)
+                if attempt
+                    .reconciled_at
+                    .is_some_and(|block| block.number > ancestor)
                 {
+                    // Ownerless history can become the canonical winner after a
+                    // reorg. Recheck its evidence without returning its users to
+                    // the scheduler; the current owner retains that authority.
                     attempt.reconciled_at = None;
                     attempt.observation = SubmissionObservation::Uncertain;
-                    attempt.replacement_released = false;
+                    if attempt.txs.is_empty() {
+                        attempt.replacement_released = false;
+                    }
                 }
             }
             Ok(())
@@ -688,11 +690,7 @@ impl OptimisticallyIncluded {
                     let block = attempt
                         .reconciled_at
                         .filter(|block| block.number <= finalized_l1)?;
-                    (!state.users.values().any(|user| {
-                        user.owner == attempt.id.generation
-                            && !matches!(user.location, UserLocation::Terminal { .. })
-                    }))
-                    .then_some((attempt.id, block))
+                    can_forget_attempt(state, attempt).then_some((attempt.id, block))
                 })
                 .collect()
         })
@@ -710,13 +708,11 @@ impl OptimisticallyIncluded {
         audited: L1BlockRef,
     ) -> Result<Vec<FinalizedUser>, String> {
         self.update(|state| {
-            let eligible =
-                state.attempts.get(&id.generation).is_some_and(|attempt| {
-                    attempt.id == id && attempt.reconciled_at == Some(audited)
-                }) && !state.users.values().any(|user| {
-                    user.owner == id.generation
-                        && !matches!(user.location, UserLocation::Terminal { .. })
-                });
+            let eligible = state.attempts.get(&id.generation).is_some_and(|attempt| {
+                attempt.id == id
+                    && attempt.reconciled_at == Some(audited)
+                    && can_forget_attempt(state, attempt)
+            });
             if !eligible {
                 return Ok(Vec::new());
             }
@@ -749,6 +745,27 @@ impl OptimisticallyIncluded {
             Ok(released)
         })
     }
+}
+
+// Selection and pruning use the same predicate under the ledger lock. A
+// finalized source receipt does not resolve an earlier attempt's missing effect
+// evidence; retain the owner until that history can correct its disposition.
+fn can_forget_attempt(state: &AttemptState, attempt: &AttemptRecord) -> bool {
+    state
+        .users
+        .values()
+        .filter(|user| user.owner == attempt.id.generation)
+        .all(|user| {
+            matches!(user.location, UserLocation::Terminal { .. })
+                && !state
+                    .attempts
+                    .range(user.first_attempt..)
+                    .any(|(_, other)| {
+                        other.id != attempt.id
+                            && other.reconciled_at.is_none()
+                            && other.txs.iter().any(|tx| tx.hash == user.tx.hash)
+                    })
+        })
 }
 
 fn needs_resolution(state: &AttemptState, attempt: &AttemptRecord) -> bool {
@@ -1118,6 +1135,310 @@ mod tests {
     }
 
     #[test]
+    fn retained_replacement_wins_after_original_is_orphaned() {
+        for replacement_first in [false, true] {
+            let (ledger, pool, txs, original) = setup();
+            ledger
+                .observe(
+                    original,
+                    SubmissionObservation::Dispatched {
+                        block: 100,
+                        timestamp: 1000,
+                    },
+                )
+                .unwrap();
+            pool.release_for_replacement(original).unwrap();
+            let replacement = begin(&ledger, pool.pop_all(), 11);
+            ledger
+                .observe(
+                    replacement,
+                    SubmissionObservation::Dispatched {
+                        block: 100,
+                        timestamp: 1005,
+                    },
+                )
+                .unwrap();
+            pool.resolve_attempt(
+                original,
+                block(100),
+                &[SourceOutcome::Applied; 3],
+                AttemptCharge::None,
+                3,
+                || true,
+            )
+            .unwrap();
+            pool.resolve_attempt(
+                replacement,
+                block(100),
+                &[SourceOutcome::Terminal(TerminalReason::SourceCompletedWithMissingEffects); 3],
+                AttemptCharge::None,
+                3,
+                || true,
+            )
+            .unwrap();
+            pool.invalidate_after_l1(99).unwrap();
+            assert_eq!(ledger.reconciliation_attempts().len(), 2);
+            let resolve_original = || {
+                pool.resolve_attempt(
+                    original,
+                    block(101),
+                    &[SourceOutcome::Terminal(TerminalReason::SourceCompletedWithMissingEffects);
+                        3],
+                    AttemptCharge::None,
+                    3,
+                    || true,
+                )
+                .unwrap();
+            };
+            if !replacement_first {
+                resolve_original();
+            }
+            // On the alternate branch the newer, retained bundle wins instead.
+            pool.resolve_attempt(
+                replacement,
+                block(101),
+                &[SourceOutcome::Applied; 3],
+                AttemptCharge::None,
+                3,
+                || true,
+            )
+            .unwrap();
+            if replacement_first {
+                resolve_original();
+            }
+            let status = pool.transaction_status(txs[0].hash).unwrap();
+            assert_eq!(status["ownership"]["reason"], "Committed");
+            assert_eq!(
+                status["transactions"]["postBatch"]["hash"],
+                serde_json::json!(replacement.post_batch_hash)
+            );
+        }
+    }
+
+    #[test]
+    fn retained_failed_predispatch_replacement_keeps_original_sequence() {
+        let (ledger, pool, txs, original) = setup();
+        ledger
+            .observe(
+                original,
+                SubmissionObservation::Dispatched {
+                    block: 100,
+                    timestamp: 1000,
+                },
+            )
+            .unwrap();
+        pool.release_for_replacement(original).unwrap();
+        let replacement = begin(&ledger, pool.pop_all(), 11);
+        ledger
+            .observe(
+                replacement,
+                SubmissionObservation::Excluded {
+                    block: 100,
+                    charge_attempt: false,
+                },
+            )
+            .unwrap();
+        pool.resolve_attempt(
+            replacement,
+            block(99),
+            &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
+            AttemptCharge::None,
+            3,
+            || true,
+        )
+        .unwrap();
+        let next = begin(&ledger, pool.pop_all(), 12);
+        pool.resolve_attempt(
+            original,
+            block(100),
+            &[SourceOutcome::Applied; 3],
+            AttemptCharge::None,
+            3,
+            || true,
+        )
+        .unwrap();
+        pool.resolve_attempt(
+            next,
+            block(100),
+            &[SourceOutcome::Terminal(TerminalReason::SourceCompletedWithMissingEffects); 3],
+            AttemptCharge::None,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(
+            pool.transaction_status(txs[0].hash).unwrap()["ownership"]["reason"],
+            "Committed"
+        );
+    }
+
+    #[test]
+    fn retained_local_eviction_does_not_mask_original_application() {
+        let (ledger, pool, txs, original) = setup();
+        ledger
+            .observe(
+                original,
+                SubmissionObservation::Dispatched {
+                    block: 100,
+                    timestamp: 1000,
+                },
+            )
+            .unwrap();
+        pool.release_for_replacement(original).unwrap();
+        assert!(
+            !pool
+                .evict_chain_at_or_above(txs[0].sender, txs[0].direction, txs[0].nonce)
+                .is_empty()
+        );
+        pool.resolve_attempt(
+            original,
+            block(100),
+            &[SourceOutcome::Applied; 3],
+            AttemptCharge::None,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(
+            pool.transaction_status(txs[0].hash).unwrap()["ownership"]["reason"],
+            "Committed"
+        );
+    }
+
+    #[test]
+    fn retained_finality_before_original_evidence() {
+        let (ledger, pool, txs, original) = setup();
+        ledger
+            .observe(
+                original,
+                SubmissionObservation::Dispatched {
+                    block: 100,
+                    timestamp: 1000,
+                },
+            )
+            .unwrap();
+        pool.release_for_replacement(original).unwrap();
+        let replacement = begin(&ledger, pool.pop_all(), 11);
+        ledger
+            .observe(
+                replacement,
+                SubmissionObservation::Dispatched {
+                    block: 100,
+                    timestamp: 1005,
+                },
+            )
+            .unwrap();
+        ledger
+            .observe(
+                replacement,
+                SubmissionObservation::Excluded {
+                    block: 100,
+                    charge_attempt: false,
+                },
+            )
+            .unwrap();
+        pool.resolve_attempt(
+            replacement,
+            block(100),
+            &[SourceOutcome::Terminal(TerminalReason::SourceCompletedWithMissingEffects); 3],
+            AttemptCharge::None,
+            3,
+            || true,
+        )
+        .unwrap();
+        ledger.record_cost(replacement, block(100)).unwrap();
+        assert!(
+            !ledger
+                .finalization_candidates(100)
+                .iter()
+                .any(|(id, _)| *id == replacement)
+        );
+        // A caller holding a previously selected candidate cannot bypass the
+        // same history check at mutation time.
+        assert!(
+            ledger
+                .forget_finalized(replacement, block(100))
+                .unwrap()
+                .is_empty()
+        );
+        // Original lookup remains unavailable while the newer source receipt
+        // and reconciliation snapshot have passed their finality audit.
+        for (id, at) in ledger.finalization_candidates(100) {
+            if ledger.cost_recorded(id) {
+                pool.forget_finalized(id, at).unwrap();
+            }
+        }
+        // Exact original effect evidence is now available on the same chain.
+        pool.resolve_attempt(
+            original,
+            block(101),
+            &[SourceOutcome::Applied; 3],
+            AttemptCharge::None,
+            3,
+            || true,
+        )
+        .unwrap();
+        let status = pool.transaction_status(txs[0].hash).unwrap();
+        assert_eq!(status["ownership"]["reason"], "Committed");
+        assert_eq!(
+            status["transactions"]["postBatch"]["hash"],
+            serde_json::json!(original.post_batch_hash)
+        );
+    }
+
+    #[test]
+    fn retained_reorg_reopens_resolved_ownerless_original() {
+        let (ledger, pool, _, original) = setup();
+        ledger
+            .observe(
+                original,
+                SubmissionObservation::Dispatched {
+                    block: 100,
+                    timestamp: 1000,
+                },
+            )
+            .unwrap();
+        pool.release_for_replacement(original).unwrap();
+        let replacement = begin(&ledger, pool.pop_all(), 11);
+        ledger
+            .observe(
+                replacement,
+                SubmissionObservation::Dispatched {
+                    block: 100,
+                    timestamp: 1005,
+                },
+            )
+            .unwrap();
+        ledger
+            .observe(
+                original,
+                SubmissionObservation::Excluded {
+                    block: 100,
+                    charge_attempt: false,
+                },
+            )
+            .unwrap();
+        pool.resolve_attempt(
+            original,
+            block(100),
+            &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
+            AttemptCharge::None,
+            3,
+            || true,
+        )
+        .unwrap();
+        pool.invalidate_after_l1(99).unwrap();
+        // The alternate canonical block 100 may include the original, so its
+        // old exclusion must not suppress a fresh source/effect lookup.
+        assert!(
+            ledger
+                .reconciliation_attempts()
+                .iter()
+                .any(|a| a.id == original)
+        );
+    }
+
+    #[test]
     fn late_original_commit_reports_settled_references_after_replacement() {
         for replacement_first in [false, true] {
             let (ledger, pool, txs, original) = setup();
@@ -1294,7 +1615,7 @@ mod tests {
                     .users
                     .values()
                     .all(|user| user.owner == readmitted.generation
-                        && user.replacement_start == readmitted.generation)
+                        && user.first_attempt == readmitted.generation)
             )
         });
     }
@@ -1653,6 +1974,53 @@ mod tests {
                 .unwrap();
             assert_eq!(pool.queue_snapshot().completion_observations, [6, 0]);
         }
+    }
+
+    #[test]
+    fn completion_observation_is_stable_when_exact_evidence_changes_the_owner() {
+        let (ledger, pool, _, original) = setup();
+        ledger
+            .observe(
+                original,
+                SubmissionObservation::Dispatched {
+                    block: 100,
+                    timestamp: 1000,
+                },
+            )
+            .unwrap();
+        pool.release_for_replacement(original).unwrap();
+        let replacement = begin(&ledger, pool.pop_all(), 11);
+        pool.resolve_attempt(
+            replacement,
+            block(100),
+            &[SourceOutcome::Terminal(TerminalReason::Committed); 3],
+            AttemptCharge::None,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(pool.queue_snapshot().completion_observations, [3, 0]);
+        pool.resolve_attempt(
+            original,
+            block(100),
+            &[SourceOutcome::Applied; 3],
+            AttemptCharge::None,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(pool.queue_snapshot().completion_observations, [3, 0]);
+        pool.invalidate_after_l1(99).unwrap();
+        pool.resolve_attempt(
+            replacement,
+            block(101),
+            &[SourceOutcome::Applied; 3],
+            AttemptCharge::None,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(pool.queue_snapshot().completion_observations, [6, 0]);
     }
 
     #[test]
@@ -2028,7 +2396,19 @@ mod tests {
         .unwrap();
         let new = begin(&ledger, pool.pop_all(), 11);
         pool.invalidate_after_l1(99).unwrap();
-        ledger.forget_finalized(old, block(100)).unwrap();
+        assert!(ledger.forget_finalized(old, block(100)).unwrap().is_empty());
+        assert_eq!(ledger.reconciliation_attempts().len(), 2);
+        // The orphaned audit cannot authorize pruning, even without owners.
+        pool.resolve_attempt(
+            old,
+            block(101),
+            &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
+            AttemptCharge::Settlement,
+            3,
+            || true,
+        )
+        .unwrap();
+        ledger.forget_finalized(old, block(101)).unwrap();
         assert_eq!(ledger.pending_attempt().unwrap().id, new);
         assert!(ledger.read(|state| {
             state.attempts.len() == 1

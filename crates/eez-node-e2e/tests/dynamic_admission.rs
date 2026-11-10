@@ -1556,6 +1556,132 @@ async fn late_original_after_multiple_replacements_retains_users_and_follower_pa
     next_slot_replacement(true, 4).await;
 }
 
+/// Delay the canonical reader, not L1 execution: the native miner includes the
+/// original inbound bundle while Composer still owns a speculative replacement.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn delayed_inbound_original_reports_the_batch_that_actually_settled() {
+    let world = eez_testkit::setup_cross_chain_with_profile_and_rpc_faults(
+        NativeL1Profile::GnosisPrague,
+        &env(),
+    )
+    .await
+    .unwrap();
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let composer = ProviderBuilder::new().connect_http(world.l1_xchain().parse().unwrap());
+    let follower = NodeHandle::start(
+        "inbound-late-original-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    world.hold_next_bundle().unwrap();
+    let cursor = world.node.signal_cursor().unwrap();
+    let source = sign_and_send(
+        &world.l1_xchain(),
+        ANVIL_KEY_2,
+        l1.get_chain_id().await.unwrap(),
+        onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap(),
+        Some(world.setter_proxy),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(731) }.abi_encode(),
+        400_000,
+    )
+    .await
+    .unwrap();
+    let held = wait_for(TIMEOUT, || async { world.held_bundle() })
+        .await
+        .unwrap();
+    world.fail_rpc_methods(&["eth_getBlockByNumber"]).unwrap();
+    let original: serde_json::Value = composer
+        .client()
+        .request("eez_getCrossChainTransaction", (source,))
+        .await
+        .unwrap();
+    let original_post = original["transactions"]["postBatch"]["hash"]
+        .as_str()
+        .unwrap()
+        .parse::<alloy_primitives::B256>()
+        .unwrap();
+    world.release_bundle(&held).unwrap();
+    let source_receipt = wait_for(TIMEOUT, || async {
+        Ok(l1.get_transaction_receipt(source).await?)
+    })
+    .await
+    .unwrap();
+    assert!(source_receipt.status());
+    wait_for(Duration::from_secs(30), || async {
+        let status: serde_json::Value = composer
+            .client()
+            .request("eez_getCrossChainTransaction", (source,))
+            .await?;
+        Ok((status["transactions"]["attemptGeneration"]
+            != original["transactions"]["attemptGeneration"]
+            && world
+                .node
+                .signals_since(cursor)?
+                .iter()
+                .any(|e| e.name == "eez.composer.settlement.replacement"))
+        .then_some(()))
+    })
+    .await
+    .unwrap_or_else(|e| {
+        panic!(
+            "no inbound replacement: {e:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
+    world.fail_rpc_methods(&[]).unwrap();
+    let settled = wait_for(TIMEOUT, || async {
+        let status: serde_json::Value = composer
+            .client()
+            .request("eez_getCrossChainTransaction", (source,))
+            .await?;
+        Ok((status["ownership"]["reason"] == "Committed").then_some(status))
+    })
+    .await
+    .unwrap_or_else(|e| {
+        panic!(
+            "inbound original not reconciled: {e:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
+    assert_eq!(
+        settled["transactions"]["postBatch"]["hash"],
+        serde_json::json!(original_post)
+    );
+    let post_receipt = l1
+        .get_transaction_receipt(original_post)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(post_receipt.status());
+    assert_eq!(post_receipt.block_hash, source_receipt.block_hash);
+    assert!(post_receipt.transaction_index < source_receipt.transaction_index);
+    let delivery = settled["transactions"]["l2"][0]["hash"]
+        .as_str()
+        .unwrap()
+        .parse::<alloy_primitives::B256>()
+        .unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let delivery_receipt = l2.get_transaction_receipt(delivery).await.unwrap().unwrap();
+    assert!(delivery_receipt.status());
+    wait_for_safe_prefix_convergence(
+        &[&world.node, &follower],
+        delivery_receipt.block_number.unwrap(),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        l2_value(&world.l2_rpc(), world.value_l2).await.unwrap(),
+        U256::from(731)
+    );
+}
+
 async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
     // Leave time for the relay-capture poll and Engine API control handshake
     // before the targeted slot. The controller rejects requests for past slots.

@@ -51,9 +51,11 @@ It never means all candidates executed or settled. Receipts can still be null.
 
 References follow the currently retained owner generation. A replacement may
 change the poster and native transaction hashes. If complete canonical effects
-are validated in an earlier attempt from the same deadline-replacement sequence,
-terminal ownership and references follow that successful attempt, even when the
-replacement was already classified as missing effects. This does not turn
+are validated in a retained attempt from the same admission, terminal ownership
+and references follow that successful attempt, even when another attempt was
+already classified as missing effects. Automatic retries preserve that admission;
+explicit readmission starts a new one. A reorg can change the winning attempt in
+either generation direction. This does not turn
 `complete` into a settlement flag: it still describes candidate completeness.
 A retry, partial settlement or
 terminal eviction must not turn proposed hashes into claimed canonical evidence;

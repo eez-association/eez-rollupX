@@ -1864,9 +1864,9 @@ where
                                         event!(Level::ERROR, %error, "finality audit found a reorg; ownership invalidation failed");
                                     } else if let Err(error) = held_pool.forget_finalized(id, block)
                                     {
-                                        // Invalidation reopened every canonical outcome still
-                                        // owned here. Only fully transferred history or local
-                                        // terminal policy decisions remain eligible for removal.
+                                        // Invalidation also reopened ownerless history: the
+                                        // orphaned audit cannot authorize pruning, even if
+                                        // this attempt no longer schedules any users.
                                         event!(Level::ERROR, %error, "cannot prune resolved reorg history");
                                     }
                                 }

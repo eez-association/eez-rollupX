@@ -23,17 +23,18 @@ Ownership moved to generation 66 before generation 65's inclusion was observed.
 the source. The replacement's missing-effect outcome and candidate references
 then survived into finality-pruned status history.
 
-The correction distinguishes complete effects in the exact attempted batch from
-source completion elsewhere. Only the former may select an earlier owner in the
-same uninterrupted deadline-replacement sequence. Explicit readmission and
-ordinary retries start new sequences. Stale failures do not transfer ownership,
+The initial correction distinguished complete effects in the exact attempted
+batch from source completion elsewhere. It allowed only the former to select an
+earlier owner in the same uninterrupted deadline-replacement sequence. It
+incorrectly started new sequences for ordinary retries as well as explicit
+readmission; the adversarial correction below supersedes that rule. Stale failures do not transfer ownership,
 charge the newer owner, or override success. Reorg recovery and finality pruning
 use the successful attempt and its existing manifest. Retained records remain
 eligible for reconciliation even after all their sources completed elsewhere.
 See the [accepted replacement design](../../proposals/skipped-slot-speculative-retry.md#november-10-correction-late-original-completion)
 and [RPC contract](../../../crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission).
 
-## Validation
+## Initial candidate validation
 
 Rust 1.95.0, LLVM 22, Foundry 1.7.1; Cargo dependencies locked. Baseline unit
 regression `late_original_commit_reports_settled_references_after_replacement`
@@ -41,7 +42,7 @@ failed with actual `SourceCompletedWithMissingEffects`, expected `Committed`
 (1 selected, 0 passed). It uses the same original/replacement sequence as the
 incident and checks the terminal references through finality pruning.
 
-The final candidate Composer suite passed **428 tests**, with one existing
+The initial candidate Composer suite passed **428 tests**, with one existing
 manual profiling test ignored. The new partial-application/reorg regression
 first exposed a dependency on a scheduling flag reset by reorg; using the
 retained sequence boundary fixes that case. Both first failures are preserved
@@ -54,7 +55,7 @@ runtime source. The hashes matched across both process invocations.
 | Check | Result |
 | --- | --- |
 | `cargo +1.95.0 test --locked -p eez-composer --lib` | 428 passed; one existing manual profile ignored |
-| `cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings` | Passed on the final code |
+| `cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings` | Passed on the initial candidate code |
 | `cargo +1.95.0 fmt --all --check`; `git diff --check` | Passed |
 | `forge build --root contracts` | Passed with existing compiler/lint warnings |
 | `dynamic_admission::late_original_settlement_replaces_the_timeout_branch_without_losing_users` | Passed |
@@ -97,3 +98,42 @@ in-memory generation boundary per retained source. No performance benchmark was
 run. Restart still loses pending/status history, so upgrading cannot reconstruct
 old process-local terminal records. Older Composers retain this bug; rollback
 restores it. The live deployment has not been changed by this PR work.
+
+## Adversarial review and correction
+
+Claude Opus 5.5 (`claude-opus-5-5`, maximum effort) reviewed head
+`c979251cf504f68238e2f1437831105917bb27c5` read-only. Five targeted ledger
+regressions failed at that head: a replacement winning after the original was
+orphaned, a pre-dispatch replacement failure followed by an automatic retry,
+local eviction before late application, finality before original evidence, and
+reopening ownerless historical evidence after a reorg. The forward-winner case
+passed with pre-PR production code at the baseline above, demonstrating an
+introduced regression. PR #131 was returned to draft before implementation.
+The first review's raw report and baseline reproductions are retained locally
+under task-owned `artifacts/late-original/claude-review` and the separate
+`late-original-adversarial` diagnostic worktree; they are not public artifacts.
+
+The correction uses one admission boundary through all automatic retries.
+Explicit readmission alone severs that boundary. Exact canonical effect evidence
+can select either an older or newer retained attempt; source-only dispositions
+and stale failures cannot transfer ownership. Reorgs reopen all invalidated
+retained audits without scheduling ownerless history. Selection and mutation use
+the same finality predicate: terminal ownership survives while another attempt
+from its admission has unresolved evidence for that source. Completion metrics
+are deduplicated across owner changes within an admission, but invalidation and
+reobservation after a reorg still count again.
+
+All five failing regressions now pass. The replacement-winner regression covers
+both reconciliation orders and a previously reconciled, ownerless replacement.
+An additional regression covers completion metrics across canonical-owner
+correction and reorg. The complete Composer unit suite passes 434 tests, with
+one existing manual profiling test ignored. These ledger tests explicitly inject
+canonical outcomes; they do not independently establish L1 execution evidence.
+The controlled-consensus process fixture supports single-transaction outbound
+bundles; a real retained replacement winning on a competing L1 fork remains a
+process-coverage limitation, rather than being inferred from the ledger tests.
+
+No new network requests, configuration, or persistent state were added. Finality
+now scans retained related history before pruning an owner. Persistent missing
+evidence can retain history longer, as required for correct ownership; no
+performance benchmark was run. Restart and rollback limits above still apply.
