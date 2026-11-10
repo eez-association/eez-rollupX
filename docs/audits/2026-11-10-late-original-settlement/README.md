@@ -129,11 +129,25 @@ An additional regression covers completion metrics across canonical-owner
 correction and reorg. The complete Composer unit suite passes 434 tests, with
 one existing manual profiling test ignored. These ledger tests explicitly inject
 canonical outcomes; they do not independently establish L1 execution evidence.
-The controlled-consensus process fixture supports single-transaction outbound
-bundles; a real retained replacement winning on a competing L1 fork remains a
-process-coverage limitation, rather than being inferred from the ledger tests.
+A real retained replacement winning on a competing L1 fork remains a process
+coverage limitation, rather than being inferred from the ledger tests. The
+fixture prebuilds an empty competing payload; it does not select the retained
+replacement for that fork.
 
 No new network requests, configuration, or persistent state were added. Finality
 now scans retained related history before pruning an owner. Persistent missing
 evidence can retain history longer, as required for correct ownership; no
 performance benchmark was run. Restart and rollback limits above still apply.
+
+The first new inbound process test froze the canonical reader, but the
+submission observer still saw the real receipt and correctly prevented a
+replacement. It failed its required replacement barrier, before exercising the
+intended transition. That output and datadir are preserved as fixture failure
+evidence, not a production regression or a passing retry. The revised test holds
+a real Engine API payload until ownership transfers, then imports it. The
+controlled fixture forwards source companions through the standard EL pool;
+this is non-atomic and block order is not assumed. The test verifies successful
+source/post receipts, their exact same-block ordering, native delivery, state
+and independent follower convergence. Existing outbound cases use the same
+relay mode with one transaction. Relay unit tests cover companions, early error
+and empty rejection in addition to the existing hold/drop/DA barriers.

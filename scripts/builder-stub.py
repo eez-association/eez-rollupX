@@ -305,18 +305,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # forwarding; the Beacon fixture exposes canonical receipts only.
                 for raw in txs:
                     self._capture_blob(raw)
-                single = (self.test_control_dir and os.path.exists(
-                    os.path.join(self.test_control_dir, "single-transaction.json")))
-                # The controlled-consensus native fixture uses a standard EL
-                # Engine API. Keep the same proof/hold/Beacon barriers, but use
-                # the existing single-transaction relay semantics on that EL.
-                if single and len(txs) != 1:
-                    resp = json.dumps({"jsonrpc": "2.0", "id": body.get("id"),
-                        "error": {"code": -32602, "message": "controlled native relay requires exactly one transaction"}}).encode()
-                else:
-                    forwarded = {"jsonrpc": "2.0", "id": body.get("id"),
-                        "method": "eth_sendRawTransaction", "params": txs} if single else body
-                    resp = urllib.request.urlopen(
+                controlled = (self.test_control_dir and os.path.exists(
+                    os.path.join(self.test_control_dir, "raw-transactions.json")))
+                # Engine-controlled fixtures use the real EL pool, without a
+                # bundle endpoint. Forward in order and stop on the first error;
+                # acceptance is non-atomic and does not guarantee block order.
+                # Tests must set fees and verify actual inclusion/order/effects.
+                requests = [{"jsonrpc": "2.0", "id": body.get("id"),
+                    "method": "eth_sendRawTransaction", "params": [raw]}
+                    for raw in txs] if controlled else [body]
+                resp = json.dumps({"jsonrpc": "2.0", "id": body.get("id"),
+                    "error": {"code": -32602, "message": "empty controlled bundle"}}).encode()
+                for forwarded in requests:
+                    reply = urllib.request.urlopen(
                         urllib.request.Request(
                             self.upstream,
                             data=json.dumps(forwarded).encode(),
@@ -324,6 +325,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         ),
                         timeout=10,
                     ).read()
+                    if "error" in json.loads(reply):
+                        resp = reply
+                        break
+                    # The postBatch is first; preserve its acknowledgement.
+                    if forwarded is requests[0]:
+                        resp = reply
             elif len(txs) != 1:
                 resp = json.dumps({
                     "jsonrpc": "2.0",

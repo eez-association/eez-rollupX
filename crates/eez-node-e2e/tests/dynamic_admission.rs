@@ -1556,16 +1556,17 @@ async fn late_original_after_multiple_replacements_retains_users_and_follower_pa
     next_slot_replacement(true, 4).await;
 }
 
-/// Delay the canonical reader, not L1 execution: the native miner includes the
-/// original inbound bundle while Composer still owns a speculative replacement.
+/// Hold a real L1 payload until a replacement owns the inbound source, then
+/// import the original and verify exact receipts, effects and follower replay.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn delayed_inbound_original_reports_the_batch_that_actually_settled() {
-    let world = eez_testkit::setup_cross_chain_with_profile_and_rpc_faults(
-        NativeL1Profile::GnosisPrague,
-        &env(),
-    )
-    .await
-    .unwrap();
+    let mut config = env();
+    config.extend([
+        ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "2".into()),
+        ("EEZ_PROOF_TIME_MS", "1000".into()),
+        ("EEZ_SUBMISSION_SLACK_MS", "1500".into()),
+    ]);
+    let mut world = setup_cross_chain_with_l1_reorg(&config).await.unwrap();
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let composer = ProviderBuilder::new().connect_http(world.l1_xchain().parse().unwrap());
     let follower = NodeHandle::start(
@@ -1576,6 +1577,17 @@ async fn delayed_inbound_original_reports_the_batch_that_actually_settled() {
         },
         &world.partial_follower_env(),
     )
+    .await
+    .unwrap();
+    let idle = world.node.signal_cursor().unwrap();
+    wait_for(TIMEOUT, || async {
+        Ok(world
+            .node
+            .signals_since(idle)?
+            .iter()
+            .any(|e| e.name == "eez.composer.slot.plan" && e.fields["prepare"] == false)
+            .then_some(()))
+    })
     .await
     .unwrap();
     world.hold_next_bundle().unwrap();
@@ -1595,7 +1607,15 @@ async fn delayed_inbound_original_reports_the_batch_that_actually_settled() {
     let held = wait_for(TIMEOUT, || async { world.held_bundle() })
         .await
         .unwrap();
-    world.fail_rpc_methods(&["eth_getBlockByNumber"]).unwrap();
+    assert_eq!(held["params"][0]["txs"].as_array().unwrap().len(), 2);
+    let target_timestamp = held["params"][0]["minTimestamp"].as_u64().unwrap();
+    world
+        .l1_reorg_control
+        .as_mut()
+        .unwrap()
+        .delay_slot(target_timestamp)
+        .await
+        .unwrap();
     let original: serde_json::Value = composer
         .client()
         .request("eez_getCrossChainTransaction", (source,))
@@ -1607,12 +1627,6 @@ async fn delayed_inbound_original_reports_the_batch_that_actually_settled() {
         .parse::<alloy_primitives::B256>()
         .unwrap();
     world.release_bundle(&held).unwrap();
-    let source_receipt = wait_for(TIMEOUT, || async {
-        Ok(l1.get_transaction_receipt(source).await?)
-    })
-    .await
-    .unwrap();
-    assert!(source_receipt.status());
     wait_for(Duration::from_secs(30), || async {
         let status: serde_json::Value = composer
             .client()
@@ -1634,7 +1648,20 @@ async fn delayed_inbound_original_reports_the_batch_that_actually_settled() {
             world.settlement_diagnostics()
         )
     });
-    world.fail_rpc_methods(&[]).unwrap();
+    world
+        .l1_reorg_control
+        .as_mut()
+        .unwrap()
+        .release_delayed_slot()
+        .await
+        .unwrap();
+    let source_receipt = wait_for(TIMEOUT, || async {
+        Ok(l1.get_transaction_receipt(source).await?)
+    })
+    .await
+    .unwrap();
+    assert!(source_receipt.status());
+
     let settled = wait_for(TIMEOUT, || async {
         let status: serde_json::Value = composer
             .client()
