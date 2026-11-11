@@ -16,7 +16,7 @@ pins, comparison range or candidate list, relevant scope, known exclusions, and
 expected output. Resolve moving branch names to SHAs and report any coverage gaps.
 
 Unless the task specifies otherwise, review `eez-association/eez-rollup0` into
-`eez-association/eez-rollupX`: pin both current `main` tips and their protocol gitlinks,
+`eez-association/eez-rollupX`: pin both freshly fetched remote `main` tips and their protocol gitlinks,
 then review source commits since their merge base and unresolved source issues at
 a recorded cutoff. Record these baselines and scope before reviewing; keep them fixed.
 The default is read-only; no issue is required.
