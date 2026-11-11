@@ -1055,7 +1055,14 @@ async fn nested_quote_roundtrip(
         };
         assert!(post.status());
         let estimated_gas = quote["estimate"]["l1Gas"].as_u64().unwrap();
-        if observation["l1"]["companion_count"] == 0 {
+        if exercise == QuoteExercise::BlobBacklog {
+            // The predecessor changes L1 storage before this post. The original
+            // quote must cover settlement, but need not predict that cheaper state.
+            assert!(
+                estimated_gas >= post.gas_used,
+                "backlog quote underpriced settlement"
+            );
+        } else if observation["l1"]["companion_count"] == 0 {
             assert!(
                 estimated_gas.abs_diff(post.gas_used) <= 1_000,
                 "the fee must price executed settlement, not admission reserves: quote={estimated_gas}, receipt={}",
@@ -1097,6 +1104,17 @@ async fn nested_quote_roundtrip(
         checked_post = true;
     }
     assert!(checked_post, "independent canonical post receipt required");
+    if exercise == QuoteExercise::BlobBacklog {
+        assert!(
+            world
+                .node
+                .signals_since(0)
+                .unwrap()
+                .iter()
+                .any(|signal| signal.name == "eez.composer.settlement.predecessor"),
+            "backlog must exercise historical predecessor settlement"
+        );
+    }
     if let Ok(dir) = std::env::var("EEZ_TEST_LOG_DIR") {
         std::fs::write(
             std::path::Path::new(&dir).join(if margin.is_some() && legacy {
