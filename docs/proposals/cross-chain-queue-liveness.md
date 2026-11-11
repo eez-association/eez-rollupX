@@ -200,6 +200,19 @@ The enabled policy's existing source-condition handling is the compatibility
 boundary for the new structured error. Keep disabled-policy behavior explicitly
 covered; do not broaden legacy error semantics incidentally.
 
+Direct target sessions resolve their caller through the configured manager's
+`computeCrossChainProxyAddress` view. Only a successful execution with a canonical
+single-address ABI return can authorize the target call. A manager revert, halt,
+or malformed reply is `Unavailable`; there is no fallback caller. State-provider
+failures during lookup or target execution retain their typed `Provider` error.
+Both cases use the slot-wide abort/recovery path without charging user attempts.
+Other EVM execution errors retain their existing classification.
+
+This is a Composer-only simulation correction. It changes no wire format,
+validation identity, contract, stored data, or follower replay. Composers can be
+upgraded independently; no migration or coordinated signer upgrade is required.
+Rolling back restores the unsafe lookup behavior but requires no data rollback.
+
 Continue using the two canonical execution phases: outbound pairs first, then
 inbound deliveries. A withdrawal cannot spend escrow supplied by an inbound
 transaction later in the same physical bundle. Let that deposit settle, then

@@ -8,6 +8,7 @@
 //! Also hosts the reth helper [`disable_checks`].
 
 use alloy_primitives::{Address, Bytes, U256};
+use alloy_sol_types::SolCall;
 
 use eez_evm::EezEvmConfig;
 use eez_evm_inspector::{OverlayChannelHandle, SessionInspectorFactory};
@@ -21,10 +22,12 @@ use revm::{DatabaseCommit, Inspector};
 use eez_protocol::{
     CallMode, CompositionBuilder, ExecutionOutcome, ExecutionRequest, ExecutorError,
     ExecutorErrorKind, ExecutorResult, RollupId, TargetExecutionSession,
+    abi::computeCrossChainProxyAddressCall,
 };
 
 use super::provider::ChainProvider;
 use super::reset_frame_caller_nonce;
+use super::slot::transact_err;
 use crate::composer::gas_trace;
 
 /// Gas cap for simulated direct target calls; exhaustion is returned as an
@@ -167,12 +170,7 @@ impl LocalExecutionSession {
         &mut self,
         source_address: Address,
         source_rollup: RollupId,
-    ) -> Option<Address> {
-        alloy_sol_types::sol! {
-            function computeCrossChainProxyAddress(address originalAddress, uint64 originalRollupId) external view returns (address);
-        }
-        use alloy_sol_types::SolCall;
-
+    ) -> ExecutorResult<Address> {
         let calldata = computeCrossChainProxyAddressCall {
             originalAddress: source_address,
             originalRollupId: source_rollup.0,
@@ -192,11 +190,29 @@ impl LocalExecutionSession {
             let mut evm = self
                 .evm_config
                 .evm_with_env(&mut self.state, self.evm_env.clone());
-            evm.transact(tx_env).ok()?
+            evm.transact(tx_env).map_err(transact_err)?
         };
 
-        let output = result.result.output()?;
-        (output.len() >= 32).then(|| Address::from_slice(&output[12..32]))
+        let revm::context::result::ExecutionResult::Success { output, .. } = result.result else {
+            return Err(ExecutorErrorKind::Unavailable(format!(
+                "computeCrossChainProxyAddress did not succeed on manager {}",
+                self.manager_address
+            ))
+            .into());
+        };
+        let output = output.into_data();
+        // Revert bytes and noncanonical addresses must never select a caller.
+        let malformed = || {
+            ExecutorErrorKind::Unavailable(format!(
+                "manager {} returned malformed computeCrossChainProxyAddress output",
+                self.manager_address
+            ))
+        };
+        if output.len() != 32 {
+            return Err(malformed().into());
+        }
+        computeCrossChainProxyAddressCall::abi_decode_returns_validate(&output)
+            .map_err(|_| malformed().into())
     }
 
     /// Uninspected direct-call path. Executes the call and restores the
@@ -209,7 +225,8 @@ impl LocalExecutionSession {
         source_address: &Address,
         source_rollup: RollupId,
     ) -> ExecutorResult<eez_protocol::ExecutionOutcome> {
-        let tx_env = self.build_tx_env(destination, calldata, value, source_address, source_rollup);
+        let tx_env =
+            self.build_tx_env(destination, calldata, value, source_address, source_rollup)?;
         let caller = tx_env.caller;
         let (return_data, gas_used, success, mut changes) = {
             let inspector = crate::composer::quote_trace::inspect(
@@ -226,7 +243,7 @@ impl LocalExecutionSession {
             );
             // Ordinary execution previously bypassed the inspection handler.
             evm.set_inspector_enabled(tracing);
-            let result = evm.transact_funded_call(tx_env).map_err(evm_err)?;
+            let result = evm.transact_funded_call(tx_env).map_err(transact_err)?;
             (
                 result.result.output().cloned().unwrap_or_default(),
                 result.result.tx_gas_used(),
@@ -253,7 +270,8 @@ impl LocalExecutionSession {
         source_address: &Address,
         source_rollup: RollupId,
     ) -> ExecutorResult<eez_protocol::ExecutionOutcome> {
-        let tx_env = self.build_tx_env(destination, calldata, value, source_address, source_rollup);
+        let tx_env =
+            self.build_tx_env(destination, calldata, value, source_address, source_rollup)?;
         let caller = tx_env.caller;
         let (return_data, gas_used, success, mut changes, inspector_error) = {
             let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
@@ -268,7 +286,7 @@ impl LocalExecutionSession {
                 self.evm_env.clone(),
                 traced,
             );
-            let result = evm.transact_funded_call(tx_env).map_err(evm_err)?;
+            let result = evm.transact_funded_call(tx_env).map_err(transact_err)?;
             let output = result.result.output().cloned().unwrap_or_default();
             let gas_used = result.result.tx_gas_used();
             let success = result.result.is_success();
@@ -300,7 +318,7 @@ impl LocalExecutionSession {
             &req.value,
             &req.source_address,
             req.source_rollup_id,
-        );
+        )?;
         if dispatcher.executing_static_read_callback() {
             self.require_deployed_callback_proxy(tx_env.caller)?;
         }
@@ -319,7 +337,7 @@ impl LocalExecutionSession {
                     self.evm_env.clone(),
                     traced,
                 );
-                let result = evm.transact(tx_env).map_err(evm_err)?;
+                let result = evm.transact(tx_env).map_err(transact_err)?;
                 let output = result.result.output().cloned().unwrap_or_default();
                 let gas_used = result.result.tx_gas_used();
                 let success = result.result.is_success();
@@ -339,7 +357,7 @@ impl LocalExecutionSession {
                     self.evm_env.clone(),
                     traced,
                 );
-                let result = evm.transact(tx_env).map_err(evm_err)?;
+                let result = evm.transact(tx_env).map_err(transact_err)?;
                 (
                     result.result.output().cloned().unwrap_or_default(),
                     result.result.tx_gas_used(),
@@ -416,10 +434,8 @@ impl LocalExecutionSession {
         value: &U256,
         source_address: &Address,
         source_rollup: RollupId,
-    ) -> revm::context::TxEnv {
-        let caller = self
-            .compute_proxy_address(*source_address, source_rollup)
-            .unwrap_or(Address::ZERO);
+    ) -> ExecutorResult<revm::context::TxEnv> {
+        let caller = self.compute_proxy_address(*source_address, source_rollup)?;
 
         tracing::trace!(
             dest = %destination,
@@ -430,7 +446,7 @@ impl LocalExecutionSession {
             calldata_len = calldata.len(),
             "executing direct call on target chain");
 
-        revm::context::TxEnv {
+        Ok(revm::context::TxEnv {
             caller,
             gas_limit: DIRECT_CALL_GAS_LIMIT,
             kind: alloy_primitives::TxKind::Call(*destination),
@@ -438,7 +454,7 @@ impl LocalExecutionSession {
             value: *value,
             chain_id: Some(self.chain_id),
             ..Default::default()
-        }
+        })
     }
 }
 

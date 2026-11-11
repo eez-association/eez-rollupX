@@ -59,6 +59,8 @@ serde_json.workspace  = true
 either.workspace      = true
 
 [dev-dependencies]
+# Trie types required by the fault-injecting StateProvider test fixture.
+reth-trie-common.workspace = true
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 # MockEthProvider: an in-memory StateProviderFactory for the prefix-state
 # equivalence test (no datadir, no engine API).

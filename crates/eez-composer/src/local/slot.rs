@@ -80,7 +80,7 @@ fn encoding_err(msg: impl Into<String>) -> ExecutorError {
 /// of the transaction (`Evm` ⇒ poison); a database read failure is the backing
 /// store being unreachable, which `Provider` marks transient so the slot aborts
 /// and retries instead of evicting a sound tx.
-fn transact_err(e: EVMError<EvmDatabaseError<ProviderError>>) -> ExecutorError {
+pub(super) fn transact_err(e: EVMError<EvmDatabaseError<ProviderError>>) -> ExecutorError {
     match e {
         EVMError::Database(db) => provider_err(db),
         other => evm_err(other),
