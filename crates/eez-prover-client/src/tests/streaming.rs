@@ -730,7 +730,11 @@ async fn assert_response_decode_limit(field: &str) {
                 "{field}/{size}: {message:.160}"
             );
             assert!(
-                message.contains("message length too large"),
+                message.contains("decoded message length too large"),
+                "{field}/{size}: {message:.160}"
+            );
+            assert!(
+                message.contains("the limit is: 65536 bytes"),
                 "{field}/{size}: {message:.160}"
             );
         } else if field == "proof" {

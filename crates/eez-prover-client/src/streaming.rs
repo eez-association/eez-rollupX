@@ -11,8 +11,6 @@ use eez_prover::{BlockWitness, ProverError, ProverResult, RetryableProverError};
 use tonic::{Code, Status};
 
 const MAX_IN_FLIGHT: usize = 8;
-// Leave room for rejection diagnostics without allocating witness-sized replies.
-const MAX_STREAMING_RESPONSE_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct StreamAnchor {
@@ -250,7 +248,7 @@ impl RemoteProver {
         let connection = self.connection().await?;
         let mut client = StreamingProverClient::new(connection.channel.clone())
             .max_encoding_message_size(connection.capabilities.max_message_bytes as usize)
-            .max_decoding_message_size(MAX_STREAMING_RESPONSE_BYTES);
+            .max_decoding_message_size(eez_control_rpc::MAX_STREAMING_RESPONSE_BYTES);
         let request_id = state.next_id();
         let expected_session = state.session.as_ref().map(|session| session.id.clone());
         let initial = ClientFrame {

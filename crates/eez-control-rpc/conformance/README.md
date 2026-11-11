@@ -145,6 +145,8 @@ message in `protobuf_hex`, without the gRPC prefix. The first client event opens
 its numbered transport. `half_close` ends input; `disconnect` drops the RPC;
 `eof` requires closure without another response. RPC errors compare numeric gRPC
 codes, including tonic's `OUT_OF_RANGE` for the transport size boundary.
+The replayer enforces Composer's 64 KiB decode ceiling on every complete server
+frame, including rejection diagnostics, independently of witness-upload limits.
 
 Session IDs normalize to distinct 32-byte tokens. The replayer binds them to
 actual Ready responses, checks increasing epochs and isolation, and preserves
