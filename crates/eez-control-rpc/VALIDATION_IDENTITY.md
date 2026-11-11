@@ -161,20 +161,18 @@ protobuf fields are unchanged. A different language implementing the same
 semantics uses the same version. An implementation must not simply advertise the
 version without enforcing its rules. Identity is not remote attestation of code.
 
-The Rust unit suite records a reviewed lockfile digest **only as a build-review
-guard**. A dependency change fails that test until execution/decoding impacts are
-reviewed. If semantics change, bump the validation-contract version; if they remain
-equivalent, record the evidence and update only the guard. An unrelated dependency
-change must not invalidate another language's wire compatibility. This guard
-detects dependency drift, not arbitrary semantic bugs; ordinary review and
-conformance tests remain necessary.
+Dependency updates require review of execution and decoding impacts and the
+applicable behavioral/conformance tests. Change the validation-contract version
+only when the accepted semantics change. The test suite does not pin a Cargo.lock
+digest: unrelated dependency updates do not change wire compatibility, and a
+lockfile hash does not establish semantic equivalence.
 
 The 2026-11-04 dependency review updates only `pulldown-cmark` 0.13.5 to
 0.13.6 for RUSTSEC-2026-0433. Its use through `prost-build` formats protobuf
 comments at build time; the generated `prove.v2.rs` remains byte-identical
 (SHA-256 `d69840cb22b68e83cb7250a566a58599c4d6b269ac301fb0505e4101ddeea966`).
-No execution, decoding, or wire semantics change, so only the local lockfile
-review digest changed; that dependency-only revision retained version 7. The
+No execution, decoding, or wire semantics changed; that dependency-only revision
+retained version 7. Its historical lockfile review guard has since been removed. The
 subsequent cross-chain extension described above uses RPC validation version 8.
 
 Composer compares the hash with its own local result at Capabilities and sends

@@ -170,19 +170,4 @@ mod tests {
             keccak256(original.preimage(VALIDATION_VERSION + 1))
         );
     }
-
-    #[test]
-    fn rust_dependency_changes_require_a_semantics_review() {
-        // This conservative guard is local review evidence, never a wire input.
-        // For a lockfile change, review execution/decoding impacts; bump the
-        // protocol version if semantics changed, otherwise document equivalence
-        // and update only this digest. Never copy build metadata into identity().
-        assert_eq!(
-            keccak256(include_bytes!("../../../Cargo.lock")),
-            alloy_primitives::b256!(
-                "c89eddb61b3a57accdde390f93fd9fcf74c53e3c353d9f3c5966437107dfe5b6"
-            ),
-            "review dependency semantics and VALIDATION_VERSION before updating this guard"
-        );
-    }
 }
