@@ -42,6 +42,7 @@ Hand off a short, self-contained summary and a traceable inventory: examined ran
 source links, dispositions, rollupX evidence, remaining work, and existing issues or
 next steps. Related commits may be grouped, but account for every scoped commit
 and issue. Include all referenced findings; link detailed evidence when needed.
+Evidence links must be accessible to the recipient.
 Distinguish missing behavior, missing validation, and decisions requiring human input.
 Separate source inspection from tests actually run. If unfinished, mark the review
 partial and state what remains unexamined. Review completion does not mean the
