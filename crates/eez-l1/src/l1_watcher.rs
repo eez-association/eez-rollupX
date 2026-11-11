@@ -1400,6 +1400,173 @@ mod tests {
         assert_eq!(state.tip(), Some((50_000, replacement_hash)));
     }
 
+    #[tokio::test]
+    async fn incomplete_outcome_metadata_preserves_watcher_progress() {
+        use alloy_primitives::U256;
+        use alloy_sol_types::SolEvent;
+        use eez_protocol::abi::{L2ExecutionPerformed, L2TxSkipped};
+
+        for path in ["extension", "catchup", "walkback", "reorg"] {
+            for (event, fields) in [
+                (
+                    "L2ExecutionPerformed",
+                    &[
+                        "blockNumber",
+                        "blockHash",
+                        "transactionHash",
+                        "transactionIndex",
+                        "logIndex",
+                    ][..],
+                ),
+                ("L2TxSkipped", &["blockHash", "transactionHash"][..]),
+            ] {
+                for field in fields {
+                    let (watcher, mut rx) = test_watcher();
+                    let replies = Asserter::new();
+                    let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
+                    let ancestor = B256::with_last_byte(9);
+                    let tip = B256::with_last_byte(10);
+                    let next = B256::with_last_byte(11);
+                    let latest = B256::with_last_byte(12);
+                    let boundary = B256::with_last_byte(13);
+                    let mut state = WatcherState::new(3);
+                    state.push_canonical(9, ancestor);
+                    state.push_canonical(10, tip);
+                    let data = if event == "L2ExecutionPerformed" {
+                        L2ExecutionPerformed {
+                            rollupId: 1,
+                            newRoot: B256::ZERO,
+                            etherBalance: U256::ZERO,
+                        }
+                        .encode_log_data()
+                    } else {
+                        L2TxSkipped {
+                            transientIdx: U256::ZERO,
+                            revertData: vec![1].into(),
+                        }
+                        .encode_log_data()
+                    };
+                    let valid = serde_json::to_value(alloy_rpc_types_eth::Log {
+                        inner: alloy_primitives::Log {
+                            address: alloy_primitives::Address::ZERO,
+                            data,
+                        },
+                        block_hash: Some(next),
+                        block_number: Some(11),
+                        transaction_hash: Some(B256::with_last_byte(20)),
+                        transaction_index: Some(0),
+                        log_index: Some(0),
+                        ..Default::default()
+                    })
+                    .unwrap();
+                    let mut incomplete = valid.clone();
+                    incomplete[*field] = serde_json::Value::Null;
+                    let error_field = match *field {
+                        "blockNumber" => "block_number",
+                        "blockHash" => "block_hash",
+                        "transactionHash" => "tx_hash",
+                        "transactionIndex" => "transaction_index",
+                        "logIndex" => "log_index",
+                        _ => unreachable!(),
+                    };
+                    // Two failed observations followed by complete metadata. The
+                    // actual scanner must reject the field, not a transport stub.
+                    for tick in 1..=3 {
+                        match path {
+                            "extension" => replies.push_success(&mock_block(11, next, tip, 100)),
+                            "catchup" => {
+                                replies.push_success(&mock_block(200_000, latest, next, 5_000));
+                                replies.push_success(&mock_block(10, tip, ancestor, 10));
+                                replies.push_success(&mock_block(100_010, boundary, next, 3_000));
+                            }
+                            "walkback" => {
+                                replies.push_success(&mock_block(12, latest, next, 120));
+                                replies.push_success(&mock_block(11, next, tip, 110));
+                            }
+                            "reorg" => {
+                                replies.push_success(&mock_block(11, latest, next, 110));
+                                replies.push_success(&mock_block(10, next, ancestor, 100));
+                            }
+                            _ => unreachable!(),
+                        }
+                        replies.push_success(&serde_json::json!([]));
+                        replies.push_success(&serde_json::json!([if tick < 3 {
+                            &incomplete
+                        } else {
+                            &valid
+                        }]));
+                        if tick == 3 && matches!(path, "walkback" | "reorg") {
+                            let height = if path == "reorg" { 11 } else { 12 };
+                            replies.push_success(&mock_block(height, latest, next, 120));
+                            replies.push_success(&mock_block(
+                                height - 1,
+                                next,
+                                if path == "reorg" { ancestor } else { tip },
+                                110,
+                            ));
+                        }
+                        let result = watcher.poll_cycle(&provider, &mut state, tick, false).await;
+                        if tick < 3 {
+                            let error = result
+                                .expect_err("incomplete outcome must reach scanner rejection");
+                            assert!(
+                                matches!(error, L1Error::Provider(ref reason)
+                                if reason == &format!("{event} log missing {error_field}")),
+                                "{path}: {error}"
+                            );
+                            assert!(!error.is_terminal());
+                            let retained = if path == "reorg" {
+                                (9, ancestor)
+                            } else {
+                                (10, tip)
+                            };
+                            assert_eq!(state.tip(), Some(retained), "{path}/{event}/{field}");
+                            // A detected reorg may retract the old tip before scanning;
+                            // it must never publish replacement heads or completion.
+                            if path == "reorg" && tick == 1 {
+                                assert!(matches!(
+                                    rx.try_recv().unwrap(),
+                                    L1Event::Reorg {
+                                        common_ancestor_number: 9,
+                                        ..
+                                    }
+                                ));
+                            }
+                            assert!(rx.try_recv().is_err(), "incomplete scan leaked progress");
+                        } else {
+                            result.unwrap();
+                            let expected = match path {
+                                "extension" => (11, next),
+                                "catchup" => (100_010, boundary),
+                                "walkback" => (12, latest),
+                                "reorg" => (11, latest),
+                                _ => unreachable!(),
+                            };
+                            assert_eq!(state.tip(), Some(expected));
+                            let mut completed = 0;
+                            while let Ok(event) = rx.try_recv() {
+                                match event {
+                                    L1Event::NewHead { .. } => {}
+                                    L1Event::ScanComplete {
+                                        block_number,
+                                        block_hash,
+                                    } => {
+                                        assert_eq!((block_number, block_hash), expected);
+                                        completed += 1;
+                                    }
+                                    other => panic!(
+                                        "unexpected event after restored metadata: {other:?}"
+                                    ),
+                                }
+                            }
+                            assert_eq!(completed, 1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// A failed chunk scan advances nothing: ring tip unchanged, zero
     /// events emitted. The next tick retries the same range for free.
     #[tokio::test]

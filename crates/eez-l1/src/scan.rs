@@ -1206,6 +1206,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn foreign_outcomes_require_attribution_only_when_rollup_is_unknown() {
+        for field in ["block_hash", "tx_hash"] {
+            for skipped in [false, true] {
+                let replies = Asserter::new();
+                let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
+                let mut foreign = settled_root_log(
+                    2,
+                    B256::ZERO,
+                    42,
+                    B256::repeat_byte(42),
+                    B256::repeat_byte(43),
+                    0,
+                    0,
+                );
+                if skipped {
+                    foreign.inner.data = eez_protocol::abi::L2TxSkipped {
+                        transientIdx: U256::ZERO,
+                        revertData: Bytes::from_static(&[1]),
+                    }
+                    .encode_log_data();
+                }
+                let valid = foreign.clone();
+                if field == "block_hash" {
+                    foreign.block_hash = None;
+                } else {
+                    foreign.transaction_hash = None;
+                }
+                replies.push_success(&serde_json::json!([]));
+                replies.push_success(&vec![foreign]);
+                let result = scan_batch_logs_range(&provider, Address::ZERO, 1, 42, 42).await;
+                if skipped {
+                    assert!(matches!(result, Err(L1Error::Provider(ref reason))
+                        if reason == &format!("L2TxSkipped log missing {field}")));
+                } else {
+                    assert!(
+                        result.unwrap().is_empty(),
+                        "foreign performed log is filtered before metadata checks"
+                    );
+                }
+                replies.push_success(&serde_json::json!([]));
+                replies.push_success(&vec![valid]);
+                assert!(
+                    scan_batch_logs_range(&provider, Address::ZERO, 1, 42, 42)
+                        .await
+                        .unwrap()
+                        .is_empty()
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn settlement_metadata_orders_same_transaction_roots() {
         let replies = Asserter::new();
         let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());

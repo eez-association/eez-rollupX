@@ -172,7 +172,7 @@ async fn incomplete_settlement_log_retains_ownership_and_replays() {
     delayed_settlement_history(true).await;
 }
 
-async fn delayed_settlement_history(omit_log_index: bool) {
+async fn delayed_settlement_history(incomplete_metadata: bool) {
     use eez_testkit::{IValue, NativeL1Profile, onchain_nonce, sign_and_send, wait_for};
 
     let mut env = policy_env(Vec::new(), "interval");
@@ -218,7 +218,7 @@ async fn delayed_settlement_history(omit_log_index: bool) {
         .await
         .unwrap();
     assert!(!before_status["ownerGeneration"].is_null());
-    if omit_log_index {
+    if incomplete_metadata {
         world
             .omit_rpc_log_field(Some((
                 eez_protocol::abi::L2ExecutionPerformed::SIGNATURE_HASH,
@@ -235,16 +235,58 @@ async fn delayed_settlement_history(omit_log_index: bool) {
     .await
     .unwrap();
     assert!(posted.status());
-    if omit_log_index {
-        wait_for(TIMEOUT, || async {
-            Ok((world
-                .node
-                .log_count_matching(&["L2ExecutionPerformed log missing log_index"])?
-                >= 2)
-                .then_some(()))
-        })
-        .await
-        .expect("canonical scanner must retry incomplete log metadata");
+    if incomplete_metadata {
+        // Keep the same submitted owner while every required performed-log field
+        // is unavailable in turn. Count distinct watcher polls, not text matches
+        // from unrelated components or repeated lines from the same tick.
+        for (field, error_field) in [
+            ("logIndex", "log_index"),
+            ("blockNumber", "block_number"),
+            ("blockHash", "block_hash"),
+            ("transactionHash", "tx_hash"),
+            ("transactionIndex", "transaction_index"),
+        ] {
+            let cursor = std::fs::read_to_string(&world.node.log_path).unwrap().len();
+            world
+                .omit_rpc_log_field(Some((
+                    eez_protocol::abi::L2ExecutionPerformed::SIGNATURE_HASH,
+                    field,
+                )))
+                .unwrap();
+            let expected =
+                format!("L1 provider error: L2ExecutionPerformed log missing {error_field}");
+            wait_for(TIMEOUT, || async {
+                let contents = std::fs::read_to_string(&world.node.log_path)?;
+                let ticks = contents[cursor..]
+                    .lines()
+                    .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                    .filter(|line| {
+                        line["target"] == "eez_l1::l1_watcher"
+                            && line["fields"]["message"]
+                                == "L1 poll cycle failed; will retry next tick"
+                            && line["fields"]["error"] == expected
+                    })
+                    .filter_map(|line| line["fields"]["tick"].as_u64())
+                    .collect::<std::collections::BTreeSet<_>>();
+                let status: serde_json::Value = front
+                    .client()
+                    .request("eez_getCrossChainTransaction", (source,))
+                    .await?;
+                assert_eq!(status["ownerGeneration"], before_status["ownerGeneration"]);
+                assert_eq!(status["ownership"]["state"], "awaiting_evidence");
+                assert!(
+                    !world
+                        .node
+                        .signals_since(0)?
+                        .iter()
+                        .any(|event| event.name == "eez.composer.settlement.reconciled"
+                            && event.fields["post_batch_hash"] == serde_json::json!(post))
+                );
+                Ok((ticks.len() >= 2).then_some(()))
+            })
+            .await
+            .expect("distinct watcher polls must reject the unavailable field");
+        }
     }
     let posting_block = l1
         .get_block_by_number(posted.block_number.unwrap().into())
@@ -307,11 +349,11 @@ async fn delayed_settlement_history(omit_log_index: bool) {
             .iter()
             .any(|event| event.name == "eez.composer.settlement.reconciled"
                 && event.fields["post_batch_hash"] == serde_json::json!(post)),
-        "incomplete observation cannot reach retry charging"
+        "no settlement reconciliation while observation is incomplete"
     );
     // Settlement observation no longer selects randomness. These already
     // executed descendants must keep their exact block hashes after acceptance.
-    if omit_log_index {
+    if incomplete_metadata {
         world.omit_rpc_log_field(None).unwrap();
     } else {
         world.fail_rpc_methods(&[]).unwrap();
