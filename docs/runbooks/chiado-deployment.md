@@ -494,7 +494,9 @@ error bodies and arbitrary nested error text, which can echo credentials.
 Composer-generated front transport errors return HTTP 502 with `upstream request
 failed`; ordinary upstream RPC responses are still forwarded transparently.
 Check the named operation and status against the endpoint configuration locally;
-do not paste credential-bearing URLs into shared logs or issues.
+do not paste credential-bearing URLs into shared logs or issues. Third-party
+HTTP/RPC wire DEBUG or TRACE logging may include raw payloads; this redaction
+does not sanitize those dependency logs.
 
 This diagnostic-only change does not alter endpoint selection, authentication,
 queue ownership, protocol encoding or stored data. No migration or coordinated

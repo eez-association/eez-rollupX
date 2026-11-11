@@ -1630,7 +1630,7 @@ impl Inner {
                                 name: "eez.submitter.observe.head_read_failed",
                                 Level::WARN,
                                 tx_hash = %tx_hash,
-                                error = %err,
+                                error = %rpc_error(&err),
                                 "head read failed during bundle observation; retrying",
                             ),
                         },
@@ -1640,7 +1640,7 @@ impl Inner {
                     name: "eez.submitter.observe.receipt_read_failed",
                     Level::WARN,
                     tx_hash = %tx_hash,
-                    error = %err,
+                    error = %rpc_error(&err),
                     "receipt read failed during bundle observation; retrying",
                 ),
             }
@@ -2140,7 +2140,7 @@ async fn pinned_slot_check<P: Provider>(
                 Level::WARN,
                 tx_hash = %tx_hash,
                 target_block = target.block,
-                error = %err,
+                error = %rpc_error(&err),
                 "pinned block read failed during bundle observation; retrying",
             );
             PinnedVerdict::Pending
@@ -2181,6 +2181,60 @@ mod tests {
         SubmissionTiming, SubmissionWindowState, TargetPreparation, bundle_request, pinned_verdict,
         prepare_submission_target, submission_window_bounds, submission_window_state,
     };
+
+    #[derive(Clone, Default)]
+    struct CapturedLogs(std::sync::Arc<std::sync::Mutex<String>>);
+
+    impl tracing::field::Visit for CapturedLogs {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            use std::fmt::Write;
+            write!(self.0.lock().unwrap(), " {field}={value:?}").unwrap();
+        }
+    }
+
+    impl tracing::Subscriber for CapturedLogs {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, attrs: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            attrs.record(&mut self.clone());
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, values: &tracing::span::Record<'_>) {
+            values.record(&mut self.clone());
+        }
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            event.record(&mut self.clone());
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    #[tokio::test]
+    async fn pinned_observation_redacts_remote_errors_and_stays_pending() {
+        use tracing::instrument::WithSubscriber as _;
+        let replies = alloy_transport::mock::Asserter::new();
+        replies.push_failure(serde_json::from_value(serde_json::json!({"code":-32603,"message":"sentinel-credential","data":{"url":"https://user:sentinel-password@example.test/sentinel-path?key=sentinel-query"}})).unwrap());
+        let provider = alloy_provider::ProviderBuilder::default().connect_mocked_client(replies);
+        let logs = CapturedLogs::default();
+        let verdict = super::pinned_slot_check(
+            &provider,
+            PreparedTarget {
+                block: 1,
+                timestamp: PIN,
+                expected_parent_hash: None,
+            },
+            B256::ZERO,
+        )
+        .with_subscriber(logs.clone())
+        .await;
+        assert_eq!(verdict, PinnedVerdict::Pending);
+        let logs = logs.0.lock().unwrap();
+        assert!(logs.contains("pinned block read failed"), "{logs}");
+        assert!(logs.contains("-32603"), "{logs}");
+        assert!(!logs.contains("sentinel-"), "{logs}");
+    }
 
     const PIN: u64 = 1_700_000_012;
 

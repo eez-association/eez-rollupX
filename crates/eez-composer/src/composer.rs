@@ -7842,7 +7842,12 @@ where
             .get_transaction_count(poster)
             .pending()
             .await
-            .map_err(|error| format!("get_transaction_count({poster}): {error}"))?;
+            .map_err(|error| {
+                format!(
+                    "get_transaction_count({poster}): {}",
+                    eez_l1::diagnostics::rpc_error(&error)
+                )
+            })?;
         // A timeout does not cancel the original postBatch. Reuse its nonce
         // for the replacement so both cannot execute on the same L1 branch,
         // even if a relay has exposed the first transaction to the pending pool.
