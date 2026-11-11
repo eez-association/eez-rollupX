@@ -314,42 +314,12 @@ where
     /// forwards the exact calldata is proved per attempt by final preflight,
     /// which executes the signed poster and requires the registry's effects.
     async fn validate_post_batch_target(&self) -> Result<(), PolicyError> {
-        alloy_sol_types::sol! {
-            #[sol(rpc)]
-            interface IPostBatchTarget {
-                function eez() external view returns (address);
-            }
-        }
-        let posting = &self.inner.posting;
-        let (target, registry) = (posting.post_batch_target, posting.registry);
-        if target == registry {
-            return Ok(());
-        }
-        let provider = &self.inner.cross_chain.exec_ctx.l1_provider;
-        let code = provider.get_code_at(target).await.map_err(|error| {
-            PolicyError::Unavailable(format!("EEZ_L1_POSTBATCH_TARGET {target} code: {error}"))
-        })?;
-        if code.is_empty() {
-            return Err(PolicyError::Unavailable(format!(
-                "EEZ_L1_POSTBATCH_TARGET {target} has no code"
-            )));
-        }
-        let forwarded = IPostBatchTarget::new(target, provider)
-            .eez()
-            .call()
-            .await
-            .map_err(|error| {
-                PolicyError::Unavailable(format!("EEZ_L1_POSTBATCH_TARGET {target} eez(): {error}"))
-            })?;
-        if forwarded != registry {
-            return Err(PolicyError::Config(format!(
-                "EEZ_L1_POSTBATCH_TARGET {target} forwards to {forwarded}, not registry {registry}"
-            )));
-        }
-        event!(name: "eez.composer.postbatch.target_validated", Level::INFO,
-            event_name = "eez.composer.postbatch.target_validated", %target, %registry,
-            "postBatch transactions are sent through a wrapper that forwards to the registry");
-        Ok(())
+        validate_post_batch_target_rpc(
+            &self.inner.cross_chain.exec_ctx.l1_provider,
+            self.inner.posting.post_batch_target,
+            self.inner.posting.registry,
+        )
+        .await
     }
 
     /// Run after canonical boot reconciliation and before ingress/sequencing
@@ -1138,9 +1108,79 @@ pub(super) fn semantic_overhead(
     Ok(DaOverhead { semantic_bytes })
 }
 
+async fn validate_post_batch_target_rpc(
+    provider: &alloy_provider::RootProvider,
+    target: Address,
+    registry: Address,
+) -> Result<(), PolicyError> {
+    alloy_sol_types::sol! {
+        #[sol(rpc)]
+        interface IPostBatchTarget {
+            function eez() external view returns (address);
+        }
+    }
+    if target == registry {
+        return Ok(());
+    }
+    let code = provider.get_code_at(target).await.map_err(|error| {
+        PolicyError::Unavailable(format!(
+            "EEZ_L1_POSTBATCH_TARGET {target} code: {}",
+            eez_l1::diagnostics::rpc_error(&error)
+        ))
+    })?;
+    if code.is_empty() {
+        return Err(PolicyError::Unavailable(format!(
+            "EEZ_L1_POSTBATCH_TARGET {target} has no code"
+        )));
+    }
+    let forwarded = IPostBatchTarget::new(target, provider)
+        .eez()
+        .call()
+        .await
+        .map_err(|error| {
+            PolicyError::Unavailable(format!(
+                "EEZ_L1_POSTBATCH_TARGET {target} eez(): {}",
+                super::contract_error(&error)
+            ))
+        })?;
+    if forwarded != registry {
+        return Err(PolicyError::Config(format!(
+            "EEZ_L1_POSTBATCH_TARGET {target} forwards to {forwarded}, not registry {registry}"
+        )));
+    }
+    event!(name: "eez.composer.postbatch.target_validated", Level::INFO,
+            event_name = "eez.composer.postbatch.target_validated", %target, %registry,
+            "postBatch transactions are sent through a wrapper that forwards to the registry");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn wrapper_validation_redacts_remote_failures() {
+        for contract in [false, true] {
+            let replies = alloy_provider::mock::Asserter::new();
+            if contract {
+                replies.push_success(&alloy_primitives::Bytes::from_static(&[0x60]));
+            }
+            replies.push_failure(serde_json::from_value(serde_json::json!({"code":-32603,"message":"sentinel-password","data":"https://sentinel-user@example.test/sentinel-path?key=sentinel-query"})).unwrap());
+            let provider =
+                alloy_provider::ProviderBuilder::default().connect_mocked_client(replies);
+            let error = validate_post_batch_target_rpc(
+                &provider,
+                Address::repeat_byte(1),
+                Address::repeat_byte(2),
+            )
+            .await
+            .unwrap_err();
+            assert!(matches!(error, PolicyError::Unavailable(_)));
+            let text = format!("{error:?}");
+            assert!(text.contains("-32603"), "{text}");
+            assert!(!text.contains("sentinel-"), "{text}");
+        }
+    }
 
     #[test]
     fn telemetry_deadline_is_conditional_and_uses_the_canonical_anchor() {

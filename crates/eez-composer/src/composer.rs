@@ -1304,13 +1304,33 @@ async fn read_rollup_escrow(
         .map_err(|error| format!("EEZ_REGISTRY_ADDRESS: {error}"))?
         .parse::<Address>()
         .map_err(|error| format!("parse EEZ_REGISTRY_ADDRESS: {error}"))?;
-    IEEZReader::new(eez, provider)
+    read_anchored_escrow(provider, eez, rid, anchor)
+        .await
+        .map_err(|error| format!("read rollup {rid} escrow: {error}"))
+}
+
+// Contract errors may carry remote bodies or revert data. Retain only typed
+// transport metadata, including for the fee-quote DEBUG diagnostic.
+fn contract_error(error: &alloy_contract::Error) -> String {
+    match error {
+        alloy_contract::Error::TransportError(error) => eez_l1::diagnostics::rpc_error(error),
+        _ => "contract response validation failed".into(),
+    }
+}
+
+async fn read_anchored_escrow(
+    provider: &alloy_provider::RootProvider,
+    registry: Address,
+    rid: u64,
+    anchor: B256,
+) -> Result<U256, String> {
+    IEEZReader::new(registry, provider)
         .rollups(rid)
         .block(anchor.into())
         .call()
         .await
         .map(|rollup| rollup.etherBalance)
-        .map_err(|_| format!("read rollup {rid} escrow failed"))
+        .map_err(|error| contract_error(&error))
 }
 
 /// The diagnostic recorded for a simulation-poisoned root: the simulation's

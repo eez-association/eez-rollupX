@@ -728,3 +728,58 @@ fn outbound_quote_blob_budget_keeps_exact_fit_and_zero_limit() {
     );
     assert!(outbound_da_estimate(100, 100, Address::ZERO, 0).is_err());
 }
+
+#[derive(Clone, Default)]
+struct CapturedLogs(std::sync::Arc<std::sync::Mutex<String>>);
+
+impl tracing::field::Visit for CapturedLogs {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        use std::fmt::Write;
+        write!(self.0.lock().unwrap(), " {field}={value:?}").unwrap();
+    }
+}
+
+impl tracing::Subscriber for CapturedLogs {
+    fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+        true
+    }
+    fn new_span(&self, attrs: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        attrs.record(&mut self.clone());
+        tracing::span::Id::from_u64(1)
+    }
+    fn record(&self, _: &tracing::span::Id, values: &tracing::span::Record<'_>) {
+        values.record(&mut self.clone());
+    }
+    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+    fn event(&self, event: &tracing::Event<'_>) {
+        event.record(&mut self.clone());
+    }
+    fn enter(&self, _: &tracing::span::Id) {}
+    fn exit(&self, _: &tracing::span::Id) {}
+}
+
+#[tokio::test]
+async fn escrow_quote_redacts_remote_failures() {
+    use tracing::instrument::WithSubscriber as _;
+    let replies = alloy_provider::mock::Asserter::new();
+    replies.push_failure(serde_json::from_value(serde_json::json!({"code":-32603,"message":"sentinel-password","data":"https://sentinel-user@example.test/sentinel-path?key=sentinel-query"})).unwrap());
+    let provider = alloy_provider::ProviderBuilder::default().connect_mocked_client(replies);
+    let logs = CapturedLogs::default();
+    let error = async {
+        super::super::super::read_anchored_escrow(
+            &provider,
+            Address::ZERO,
+            1,
+            alloy_primitives::B256::ZERO,
+        )
+        .await
+        .map_err(|e| unavailable("L1 escrow", e))
+        .unwrap_err()
+    }
+    .with_subscriber(logs.clone())
+    .await;
+    assert!(matches!(error, FeeQuoteError::Unavailable("L1 escrow")));
+    let logs = logs.0.lock().unwrap();
+    assert!(logs.contains("-32603"), "{logs}");
+    assert!(!logs.contains("sentinel-"), "{logs}");
+}
