@@ -29,6 +29,12 @@ def text(value, path):
     require(isinstance(value, str) and value.strip(), f"{path}: expected nonempty text")
 
 
+def single_line(value, path):
+    text(value, path)
+    require("\n" not in value and "\r" not in value and "<!--" not in value,
+            f"{path}: expected a single line without HTML comments")
+
+
 def array(value, path, nonempty=False):
     require(isinstance(value, list), f"{path}: expected an array")
     require(not nonempty or value, f"{path}: must not be empty")
@@ -37,7 +43,7 @@ def array(value, path, nonempty=False):
 def strings(value, path, nonempty=False):
     array(value, path, nonempty)
     for item in value:
-        text(item, path)
+        single_line(item, path)
     require(len(value) == len(set(value)), f"{path}: duplicate entries")
 
 
@@ -71,7 +77,7 @@ def evidence(value, path, baselines, source_required=False):
     for index, entry in enumerate(value):
         where = f"{path}[{index}]"
         obj(entry, {"label", "url"}, where)
-        text(entry["label"], where + ".label")
+        single_line(entry["label"], where + ".label")
         text(entry["url"], where + ".url")
         url = urlsplit(entry["url"])
         match = re.fullmatch(r"/([\w.-]+/[\w.-]+)/blob/([0-9a-f]{40})/(.+)", url.path, re.ASCII)
@@ -106,7 +112,7 @@ def validate_manifest(manifest):
     for finding in manifest["findings"]:
         obj(finding, {"id", "title", "origin"}, "manifest.finding")
         identifier(finding["id"], "finding.id")
-        text(finding["title"], "finding.title")
+        single_line(finding["title"], "finding.title")
         require(finding["origin"] in ("source", "target"), "finding.origin: use source or target")
         require(finding["id"] not in ids, f"duplicate finding {finding['id']}")
         ids.add(finding["id"])
@@ -117,8 +123,13 @@ def digest(manifest):
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def validate(manifest, handoff):
+def validate(manifest, handoff, expected_sha256=None):
     validate_manifest(manifest)
+    if expected_sha256 is not None:
+        require(isinstance(expected_sha256, str) and re.fullmatch(r"[0-9a-fA-F]{64}", expected_sha256),
+                "expected SHA-256: supply the 64-digit digest recorded with the original review")
+        require(digest(manifest) == expected_sha256.lower(),
+                "manifest does not match the independently supplied expected SHA-256")
     obj(handoff, {"manifest_sha256", "resolutions", "drafts"}, "handoff")
     require(handoff["manifest_sha256"] == digest(manifest),
             "manifest_sha256: frozen inputs changed or this handoff belongs to another review")
@@ -147,7 +158,7 @@ def validate(manifest, handoff):
             for did in resolution["drafts"]:
                 routes.setdefault(did, []).append(fid)
         else:
-            text(resolution["reason"], f"{fid}.reason")
+            single_line(resolution["reason"], f"{fid}.reason")
             evidence(resolution["evidence"], f"{fid}.evidence", baselines,
                      findings[fid]["origin"] == "source")
             if action == "existing_issue":
@@ -172,7 +183,7 @@ def validate(manifest, handoff):
         require(did not in drafts, f"duplicate draft {did}")
         require(did in routes, f"{did}: draft is not linked to any manifest finding")
         drafts[did] = draft
-        text(draft["title"], f"{did}.title")
+        single_line(draft["title"], f"{did}.title")
         text(draft["summary"], f"{did}.summary")
         evidence(draft["evidence"], f"{did}.evidence", baselines,
                  any(findings[fid]["origin"] == "source" for fid in routes[did]))
@@ -191,7 +202,7 @@ def validate(manifest, handoff):
         for field, choices in (("priority", ("P0", "P1", "P2", "P3")), ("effort", ("S", "M", "L", "Unknown"))):
             obj(draft[field], {"value", "reason"}, f"{did}.{field}")
             require(draft[field]["value"] in choices, f"{did}.{field}.value: invalid option")
-            text(draft[field]["reason"], f"{did}.{field}.reason")
+            single_line(draft[field]["reason"], f"{did}.{field}.reason")
     require(set(routes) == set(drafts), f"unknown draft references: {sorted(set(routes) - set(drafts))}")
     for did, draft in drafts.items():
         for dependency in draft["dependencies"]:
@@ -219,8 +230,15 @@ def link(label, url):
     return f"[{label}](<{url}>)"
 
 
-def render(manifest, handoff):
-    validate(manifest, handoff)
+def evidence_link(entry, baselines):
+    frozen_paths = tuple(f"/{baselines[side]['repository']}/blob/{baselines[side]['commit']}/"
+                         for side in ("source", "target"))
+    suffix = "" if urlsplit(entry["url"]).path.startswith(frozen_paths) else " (not frozen baseline)"
+    return link(entry["label"], entry["url"]) + suffix
+
+
+def render(manifest, handoff, expected_sha256=None):
+    validate(manifest, handoff, expected_sha256)
     lines = ["# Backport review handoff", "", "Drafts for approval. Structural validation is not technical verification.",
              "", f"Manifest SHA-256: `{digest(manifest)}`", "", "## Frozen scope", "", manifest["scope"], ""]
     for side in ("source", "target"):
@@ -229,21 +247,21 @@ def render(manifest, handoff):
     lines += [f"- Merge base: `{manifest['baselines']['merge_base']}`.", "", "## Finding coverage", ""]
     titles = {f["id"]: f["title"] for f in manifest["findings"]}
     def add_evidence(entries):
-        lines.extend(f"- {link(e['label'], e['url'])}" for e in entries)
+        lines.extend(f"- {evidence_link(e, manifest['baselines'])}" for e in entries)
     for resolution in handoff["resolutions"]:
         fid = resolution["finding"]
         if resolution["action"] == "drafts":
             outcome = "Drafts: " + ", ".join(resolution["drafts"])
         else:
             destination = link("Existing issue", resolution["issue"]) if resolution["action"] == "existing_issue" else "No action"
-            refs = ", ".join(link(e["label"], e["url"]) for e in resolution["evidence"])
+            refs = ", ".join(evidence_link(e, manifest["baselines"]) for e in resolution["evidence"])
             outcome = f"{destination}: {resolution['reason']} Evidence: {refs}"
         lines += [f"- **{fid} — {titles[fid]}:** {outcome}"]
     lines.append("")
     for heading, drafts in (
         ("New issue drafts", [d for d in handoff["drafts"] if d["issue"] is None and d["kind"] != "decision"]),
-        ("Additive issue updates", [d for d in handoff["drafts"] if d["issue"] is not None]),
-        ("Human decisions", [d for d in handoff["drafts"] if d["issue"] is None and d["kind"] == "decision"]),
+        ("Additive issue updates", [d for d in handoff["drafts"] if d["issue"] is not None and d["kind"] != "decision"]),
+        ("Human decisions", [d for d in handoff["drafts"] if d["kind"] == "decision"]),
     ):
         if not drafts:
             continue
@@ -295,11 +313,14 @@ def main():
     parser.add_argument("command", choices=("init", "check", "render"))
     parser.add_argument("manifest", type=Path)
     parser.add_argument("handoff", type=Path)
+    parser.add_argument("--expect-sha256", metavar="HEX",
+                        help="independently recorded manifest digest for check/render")
     args = parser.parse_args()
     try:
         manifest = load(args.manifest)
         validate_manifest(manifest)
         if args.command == "init":
+            require(args.expect_sha256 is None, "--expect-sha256 applies to check/render, not init")
             handoff = {"manifest_sha256": digest(manifest),
                        "resolutions": [{"finding": f["id"], "action": "unresolved"} for f in manifest["findings"]],
                        "drafts": []}
@@ -310,9 +331,9 @@ def main():
         else:
             handoff = load(args.handoff)
             if args.command == "render":
-                print(render(manifest, handoff), end="")
+                print(render(manifest, handoff, args.expect_sha256), end="")
             else:
-                validate(manifest, handoff)
+                validate(manifest, handoff, args.expect_sha256)
                 print("Handoff structure valid; evidence truth and scope preservation still require judgment.")
     except (ValueError, OSError, RecursionError) as error:
         print(f"Invalid handoff: {error}", file=sys.stderr)

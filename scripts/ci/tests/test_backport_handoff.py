@@ -200,6 +200,111 @@ class HandoffTest(unittest.TestCase):
         self.assertIn("## Human decisions", output)
         self.assertNotIn("## New issue drafts", output)
 
+    def test_additional_revisions_are_marked_in_drafts_and_resolutions(self):
+        entries = self.handoff["drafts"][0]["evidence"]
+        outside = copy.deepcopy(entries[1])
+        outside["label"] = "Historical target evidence"
+        outside["url"] = outside["url"].replace(self.manifest["baselines"]["target"]["commit"], "a" * 40)
+        entries.append(outside)
+        entries[0]["url"] += "#L1-L2"
+        output = MODULE.render(self.manifest, self.handoff)
+        self.assertEqual(output.count("(not frozen baseline)"), 1)
+        self.assertIn(MODULE.link(outside["label"], outside["url"]) + " (not frozen baseline)", output)
+        self.handoff["drafts"] = []
+        self.handoff["resolutions"] = [{"finding": "F1", "action": "no_action",
+            "reason": "Already covered; historical evidence is additional context.", "evidence": entries}]
+        self.assertEqual(MODULE.render(self.manifest, self.handoff).count("(not frozen baseline)"), 1)
+
+    def test_external_digest_catches_replaced_manifest_and_handoff(self):
+        expected = MODULE.digest(self.manifest)
+        MODULE.validate(self.manifest, self.handoff, expected.upper())
+        for change in ("baseline", "findings"):
+            with self.subTest(change=change):
+                manifest, handoff = copy.deepcopy(self.manifest), copy.deepcopy(self.handoff)
+                if change == "baseline":
+                    old = manifest["baselines"]["target"]["commit"]
+                    manifest["baselines"]["target"]["commit"] = "a" * 40
+                    handoff["drafts"][0]["evidence"][1]["url"] = handoff["drafts"][0]["evidence"][1]["url"].replace(old, "a" * 40)
+                else:
+                    manifest["findings"] = []
+                    handoff["resolutions"], handoff["drafts"] = [], []
+                handoff["manifest_sha256"] = MODULE.digest(manifest)
+                MODULE.validate(manifest, handoff)  # Internal consistency alone cannot anchor provenance.
+                with self.assertRaisesRegex(MODULE.Invalid, "independently supplied"):
+                    MODULE.render(manifest, handoff, expected)
+        for invalid in ("", "g" * 64, "a" * 63, 12, []):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(MODULE.Invalid, "64-digit"):
+                MODULE.validate(self.manifest, self.handoff, invalid)
+
+    def test_single_line_fields_reject_line_breaks_and_html_comments(self):
+        fields = [("manifest", ("findings", 0, "title")),
+                  ("handoff", ("drafts", 0, "title")),
+                  ("handoff", ("drafts", 0, "evidence", 0, "label")),
+                  ("handoff", ("drafts", 0, "done_when", 0)),
+                  ("handoff", ("drafts", 0, "evidence_needed", 0)),
+                  ("handoff", ("drafts", 0, "priority", "reason")),
+                  ("handoff", ("drafts", 0, "effort", "reason"))]
+        for bad in ("text\n\n**Done when**\n\n- [ ] new gate", "text\rnew line", "text <!-- hidden"):
+            for name, path in fields:
+                with self.subTest(path=path, bad=bad):
+                    values = {"manifest": copy.deepcopy(self.manifest), "handoff": copy.deepcopy(self.handoff)}
+                    container = values[name]
+                    for part in path[:-1]:
+                        container = container[part]
+                    container[path[-1]] = bad
+                    values["handoff"]["manifest_sha256"] = MODULE.digest(values["manifest"])
+                    with self.assertRaisesRegex(MODULE.Invalid, "single line"):
+                        MODULE.render(values["manifest"], values["handoff"])
+        draft = self.update()
+        draft["proposed_changes"] = ["text\n\n**Done when**\n\n- [ ] new gate"]
+        self.invalid("single line")
+        self.handoff["resolutions"] = [{"finding": "F1", "action": "no_action",
+            "reason": "text <!-- hidden", "evidence": draft["evidence"]}]
+        self.handoff["drafts"] = []
+        self.invalid("single line")
+
+    def test_prose_still_supports_multiline_markdown(self):
+        self.manifest["scope"] = "First paragraph.\n\nSecond paragraph."
+        self.handoff["manifest_sha256"] = MODULE.digest(self.manifest)
+        self.handoff["drafts"][0]["summary"] = "Evidence summary.\n\n- One supporting point."
+        output = MODULE.render(self.manifest, self.handoff)
+        self.assertIn(self.manifest["scope"], output)
+        self.assertIn(self.handoff["drafts"][0]["summary"], output)
+
+    def test_decision_updates_keep_additive_wording_under_human_decisions(self):
+        draft = self.update()
+        draft["kind"] = "decision"
+        del draft["evidence_needed"]
+        draft["proposed_changes"] = ["Propose extending the accepted profile."]
+        output = MODULE.render(self.manifest, self.handoff)
+        self.assertIn("## Human decisions", output)
+        self.assertNotIn("## Additive issue updates", output)
+        self.assertEqual(output.count("### N1"), 1)
+        self.assertIn(draft["issue"], output)
+        self.assertIn("Existing scope and acceptance criteria remain unchanged", output)
+        self.assertIn("separate approval required", output)
+
+    def test_cli_expected_digest_fails_before_emitting_markdown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, handoff = Path(directory) / "manifest.json", Path(directory) / "handoff.json"
+            manifest.write_text(json.dumps(self.manifest))
+            handoff.write_text(json.dumps(self.handoff))
+            def run(command, expected):
+                return subprocess.run([sys.executable, str(SCRIPT), command, str(manifest), str(handoff),
+                    "--expect-sha256", expected], text=True, capture_output=True)
+            for command in ("check", "render"):
+                result = run(command, MODULE.digest(self.manifest))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for bad in ("0" * 64, "not-a-digest"):
+                    result = run(command, bad)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertEqual(result.stdout, "")
+                    self.assertNotIn("Traceback", result.stderr)
+            handoff.unlink()
+            result = run("init", MODULE.digest(self.manifest))
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(handoff.exists())
+
     def test_cli_init_render_and_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
