@@ -30,7 +30,8 @@ decisions, exact revisions, and limitations in the issue or a linked repo docume
 do not rely on chat history or machine-local files.
 
 When closing, summarize the outcome and verification, including remaining limits.
-Follow CONTRIBUTING.md for research, cancellation, and board status handling.
+Follow the owning repo's CONTRIBUTING.md for research, cancellation, and board
+status handling.
 
 ## Write for humans
 

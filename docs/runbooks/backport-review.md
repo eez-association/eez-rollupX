@@ -6,7 +6,12 @@ This is a standing procedure, not evidence that a particular backport is validat
 
 ## 1. Define the review
 
-The review issue records the source and target repos, exact revisions and protocol
+Track code-specific backport reviews in rollupX. For a read-only task without an
+issue, use the task brief. If scope or decisions are private, provide an authorized
+summary in the reviewing agent's task and flag inaccessible evidence. Do not copy
+confidential context into public issues.
+
+The review issue or task records source and target repos, exact revisions and protocol
 pins, comparison range or candidate list, relevant scope, known exclusions, and
 expected output. Resolve moving branch names to SHAs. If the range is unspecified,
 state the range you examined and any coverage gaps; do not claim a complete audit.
@@ -20,7 +25,8 @@ to guess. A review-only task does not authorize implementation or issue creation
 ## 2. Assess candidates
 
 1. Build an inventory from the scoped source commits, PRs, and issues. Include
-   follow-up fixes and reversions. Search rollupX issues, PRs, and prior audits first.
+   follow-up fixes and reversions. Search open and closed rollupX issues and PRs,
+   including rejected proposals, and prior audits first.
 2. For each candidate, trace the behavior through current rollupX callers and tests.
    Different commit hashes or code alone do not prove a missing backport; an equivalent
    implementation may already exist.
@@ -28,23 +34,24 @@ to guess. A review-only task does not authorize implementation or issue creation
    deliberately removed behavior or treat an upstream feature as an accepted requirement.
 4. Record one disposition: **already covered**, **partially covered**, **missing and
    relevant**, **intentionally different**, or **uncertain**. Cite evidence; intentional
-   differences need an accepted decision, otherwise use uncertain.
+   differences need an accepted proposal, AGENTS.md invariant, or explicit maintainer
+   decision in a linked issue/PR. Otherwise use uncertain and state whether technical
+   evidence or a human decision is missing.
 
-Report a compact table: source link, disposition, rollupX evidence, remaining work,
-and existing issue or next step. Link detailed evidence from an audit when needed.
+Record the examined range and a compact table on the review issue: source link,
+disposition, rollupX evidence, remaining work, and existing issue or next step.
+For a read-only task, return the report for a maintainer to post. Link detailed
+evidence from an audit when needed.
 Separate source inspection from tests actually run. The review is complete when the
 scoped inventory has dispositions and coverage gaps are explicit, not when every
 candidate has been implemented.
 
 ## 3. Track and implement selected work
 
-Link existing issues. When issue creation is authorized, create one issue per
+Link existing issues. When issue creation is authorized, create one rollupX issue per
 actionable gap with impact, source evidence, dependencies, and completion criteria;
 use [Writing issues](../issue-guidelines.md). Propose Priority and Effort for human
 confirmation under [CONTRIBUTING.md](../../CONTRIBUTING.md#issues-and-triage).
-
-Use a parent only when several outcomes need coordination. Its review sub-issue
-can close with findings while required implementation sub-issues remain open.
 
 For implementation authorized by the task:
 
@@ -52,8 +59,6 @@ For implementation authorized by the task:
   preserve its accepted invariants and avoid unrelated dependency or protocol changes.
 - Keep source PR/commit references in the resulting PR, including adaptations and
   omitted parts. A clean cherry-pick is not proof of compatibility.
-- Follow [the applicable validation checks](../../AGENTS.md#build-and-validate).
-  For a bug, reproduce before the fix and repeat the check afterward where possible.
-  Report unrun checks and limits; do not claim deployment from passing local tests.
+- Follow [the validation checks](../../AGENTS.md#build-and-validate) and
+  [evidence requirements](../../AGENTS.md#evidence-and-completion).
 - Close the implementation issue only when its completion criteria are verified.
-  Update affected specifications and instructions with the behavior change.

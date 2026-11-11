@@ -24,6 +24,13 @@ same values; do not create duplicate Project fields. Ready also requires a
 human decision, an assignee, and completion criteria. Reporters may leave estimates
 unset; AI suggestions need a reason and human confirmation before setting values.
 
+Close completed work as completed. For research, record findings, remaining
+unknowns, and when to revisit; an inconclusive result can complete the agreed
+investigation. Close cancelled work as not planned with a reason. Board handling
+is maintainer-only: set Done for verified completion, archive cancelled work, and
+keep blocked work at its current stage with `blocked` and a next action. Closing
+an issue does not automatically set Done.
+
 ## Backports
 
 For any backport review or implementation, follow the
