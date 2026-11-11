@@ -55,14 +55,18 @@ partial and state what remains unexamined. Review completion does not mean the
 findings are implemented.
 
 For each actionable gap, include a new-issue draft or proposed update to an existing
-issue, following [Writing issues](../issue-guidelines.md). Include pinned source and
-target evidence links and proposed Priority/Effort with brief reasons, for human
+issue, following [Writing issues](../issue-guidelines.md). Return drafts as Markdown
+with clickable, revision-pinned source and target evidence links and line anchors
+where applicable. Include proposed Priority/Effort with brief reasons, for human
 confirmation under [CONTRIBUTING.md](../../CONTRIBUTING.md#issues-and-triage).
 Include completion criteria and any dependencies in each draft; for investigations,
 specify the evidence needed to answer the question.
 Verify code claims before recommending implementation; if evidence is insufficient,
 draft a focused investigation instead. List needed human decisions separately.
 Do not create or update issues without authorization.
+
+Before handoff, check that each draft stands alone, referenced issues are linked,
+and completion criteria, dependencies, and proposed estimates are included.
 
 For a read-only task, return the report to the requester; otherwise post it on the
 review issue.
