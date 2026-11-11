@@ -54,6 +54,14 @@ Separate source inspection from tests actually run. If unfinished, mark the revi
 partial and state what remains unexamined. Review completion does not mean the
 findings are implemented.
 
+For each actionable gap, include a new-issue draft or proposed update to an existing
+issue, following [Writing issues](../issue-guidelines.md). Include pinned source and
+target evidence links and proposed Priority/Effort with brief reasons, for human
+confirmation under [CONTRIBUTING.md](../../CONTRIBUTING.md#issues-and-triage).
+Verify code claims before recommending implementation; if evidence is insufficient,
+draft a focused investigation instead. List needed human decisions separately.
+Do not create or update issues without authorization.
+
 For a read-only task, return the report to the requester; otherwise post it on the
 review issue.
 
@@ -61,8 +69,7 @@ review issue.
 
 Link existing issues. When issue creation is authorized, create one rollupX issue per
 actionable gap with impact, source evidence, dependencies, and completion criteria;
-use [Writing issues](../issue-guidelines.md). Propose Priority and Effort for human
-confirmation under [CONTRIBUTING.md](../../CONTRIBUTING.md#issues-and-triage).
+use [Writing issues](../issue-guidelines.md).
 
 For implementation authorized by the task:
 
