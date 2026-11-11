@@ -2,6 +2,7 @@
 //! independent follower replay. No quoted bytes are submitted before signing.
 
 mod calldata;
+mod local_retry;
 mod mixed;
 mod poster_funding;
 pub(super) mod replay_validation;
