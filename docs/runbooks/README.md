@@ -1,10 +1,11 @@
 # Runbooks
 
-Repeatable operational procedures for humans and agents. Start here before
-reconstructing a process from scripts, old logs, or an earlier conversation.
+Repeatable review and operational procedures for humans and agents. Start here
+before reconstructing a process from scripts, old logs, or an earlier conversation.
 
 | Task | Procedure | Verification status |
 | --- | --- | --- |
+| Review and implement backports from rollup0 or another source | [Backport review and implementation](backport-review.md) | Procedure only; each review records its own baseline and evidence |
 | Retire homelab CI, transfer ownership, and publish source/packages | [Public release](public-release.md) | Preparation PR; hosted execution and administrative cutover require verification |
 | New Chiado rollup: minimal command sequence | [Chiado quick start](chiado-quickstart.md) | Published-image procedure; fresh-host rehearsal pending |
 | Add or replace a Composer on a Chiado L2 created with the offline profile | [Existing-rollup Composer](chiado-existing-rollup.md) | Source reviewed; live replay/restore rehearsal pending |

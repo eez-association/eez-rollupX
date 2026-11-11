@@ -7,7 +7,8 @@ area. Review this fork and its pinned `eez-core-protocol` revision; upstream
 
 ## Issues and triage
 
-Search existing issues, then use the bug or task template.
+Search existing issues, then use the bug or task template and follow
+[Writing issues](docs/issue-guidelines.md) for structure, context, and updates.
 Templates set the type; maintainers correct it (Bug, Feature, or Task) during
 triage. Use labels only for additional context. Describe the problem,
 RollupX impact, and relevant evidence; completion criteria can wait in Backlog.
@@ -22,6 +23,11 @@ Ready. The [Project](https://github.com/orgs/eez-association/projects/1) display
 same values; do not create duplicate Project fields. Ready also requires a
 human decision, an assignee, and completion criteria. Reporters may leave estimates
 unset; AI suggestions need a reason and human confirmation before setting values.
+
+## Backports
+
+For any backport review or implementation, follow the
+[backport procedure](docs/runbooks/backport-review.md).
 
 ## Development
 

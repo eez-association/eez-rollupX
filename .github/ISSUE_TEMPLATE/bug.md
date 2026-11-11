@@ -16,3 +16,8 @@ issue fields, following CONTRIBUTING.md. Reporters may leave both unset. -->
 <!-- Include the revision, network/environment, minimal steps or request, and
 relevant sanitized output. Say if the failure has not been reproduced on current main.
 Report vulnerabilities through SECURITY.md. -->
+
+## Done when
+
+<!-- Optional in Backlog. Maintainers: define observable corrected behavior and
+regression coverage before moving to Ready. -->

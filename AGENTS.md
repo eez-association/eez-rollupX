@@ -3,8 +3,10 @@
 Run commands from the repository root unless stated otherwise. Review this fork
 and its pinned protocol revision; upstream `main` is not a substitute.
 
-For issues and board updates, follow [CONTRIBUTING.md](CONTRIBUTING.md#issues-and-triage)
-and its linked shared workflow, including human confirmation of Priority and Effort.
+For every issue or issue update, read [Writing issues](docs/issue-guidelines.md).
+Follow [CONTRIBUTING.md](CONTRIBUTING.md#issues-and-triage) for triage and board updates.
+For backport reviews or implementation, follow the
+[backport procedure](docs/runbooks/backport-review.md).
 
 ## Scope and shared resources
 
