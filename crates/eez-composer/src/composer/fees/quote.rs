@@ -1151,17 +1151,17 @@ where
                 Self::cross_chain_da_overhead(rollup_id, std::slice::from_ref(&semantic))
                     .map_err(|e| unavailable("semantic DA", e))?
                     .semantic_bytes;
-            let da_bytes = eez_blob_codec::native_stream_len(operations, semantics)
-                .map_err(|e| unavailable("native DA", e))?;
+            let da = outbound_da_estimate(
+                operations,
+                semantics,
+                self.inner.fee_recipient,
+                maximum_blobs,
+            )?;
+            let da_bytes = da.bytes;
             if da_bytes > MAX_DA_BYTES {
                 return Err(FeeQuoteError::Limit("DA bytes"));
             }
-            let blobs = da_bytes
-                .div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB)
-                .max(1);
-            if blobs > maximum_blobs {
-                return Err(FeeQuoteError::Limit("blob allowance"));
-            }
+            let blobs = da.blobs;
             let traces = &composition
                 .targets
                 .iter()
@@ -1226,7 +1226,7 @@ where
                 cap,
                 json!({"basis":"isolated_native_l2_and_l1_settlement", "proof":"metered_assumed_valid", "iterations":iteration,
                     "sourceGasUsed":gas, "nativeL2GasUsed":native_gas, "l2BaseFeePerGas":base.to_string(),
-                    "l1Gas":l1_gas, "l1SettlementReuses":settlement.reuses(), "l1TargetGas":l1_target_gas(&composition.actions), "blobs":blobs, "daBytes":da_bytes,
+                    "l1Gas":l1_gas, "l1SettlementReuses":settlement.reuses(), "l1TargetGas":l1_target_gas(&composition.actions), "blobs":blobs, "daBytes":da_bytes, "historyDeferred":da.history_deferred,
                     "l1PriorityFeePerGas":posting.quote.max_priority_fee_per_gas.to_string(),
                     "l1ExecutionPrice":posting.quote.estimated_effective_gas_price.to_string(), "l1BlobPrice":posting.quote.estimated_blob_gas_price.to_string(),
                     "l1ExecutionCost":cost.execution.to_string(), "l1BlobCost":cost.blobs.to_string(), "l1PostingCost":cost.total.to_string(),
@@ -1240,6 +1240,57 @@ where
             "fee-dependent execution did not converge in four simulations",
         ))
     }
+}
+
+/// Blob pricing for an outbound candidate; actual encoding/admission remains authoritative.
+pub(in crate::composer) struct OutboundDaEstimate {
+    /// Complete unsplit range, including ordinary history.
+    pub bytes: usize,
+    pub blobs: usize,
+    pub history_deferred: bool,
+}
+
+pub(in crate::composer) fn outbound_da_estimate(
+    operations: usize,
+    semantics: usize,
+    beneficiary: Address,
+    maximum_blobs: usize,
+) -> Result<OutboundDaEstimate, FeeQuoteError> {
+    let terminal = PayloadSizer::run(&BlockRun {
+        blocks: 1,
+        beneficiary,
+        extra_data: eez_driver::BUILDER_EXTRA_DATA,
+        transactions: &[],
+    })
+    .and_then(|size| size.encoded_len())
+    .map_err(|e| unavailable("terminal sizing", e))?;
+    let bytes = eez_blob_codec::native_stream_len(operations, semantics)
+        .map_err(|e| unavailable("native DA", e))?;
+    let terminal_bytes = eez_blob_codec::native_stream_len(terminal, semantics)
+        .map_err(|e| unavailable("terminal DA", e))?;
+    if terminal_bytes
+        .div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB)
+        .max(1)
+        > maximum_blobs
+    {
+        return Err(FeeQuoteError::Limit("blob allowance"));
+    }
+    let required = bytes.div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB).max(1);
+    let history_deferred = required > maximum_blobs;
+    // Posting retains the group and settles a historical predecessor first.
+    // Reserve the full allowed post, rather than guessing the residual history
+    // or pricing an impossible oversized transaction. This sizes fees only;
+    // canonical history, encoded payloads and final admission are unchanged.
+    let blobs = if history_deferred {
+        maximum_blobs
+    } else {
+        required
+    };
+    Ok(OutboundDaEstimate {
+        bytes,
+        blobs,
+        history_deferred,
+    })
 }
 
 /// Head advancement alone is harmless for an advisory quote. A consumed source

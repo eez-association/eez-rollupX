@@ -671,3 +671,36 @@ fn history_sizing_matches_encoding_and_refuses_unreconciled_native_blocks() {
         ))
     ));
 }
+
+#[test]
+fn outbound_quote_blob_backlog_reserves_a_full_post() {
+    let capacity = eez_blob_codec::DATA_BYTES_PER_BLOB;
+    let result = outbound_da_estimate(capacity * 2, 512, Address::ZERO, 1).unwrap();
+    assert!(result.history_deferred);
+    assert_eq!(result.blobs, 1);
+    assert!(result.bytes > capacity * 2);
+}
+
+#[test]
+fn outbound_quote_individually_oversized_group_is_not_deferred() {
+    let capacity = eez_blob_codec::DATA_BYTES_PER_BLOB;
+    for history in [0, capacity * 2] {
+        assert!(matches!(
+            outbound_da_estimate(history, capacity, Address::ZERO, 1),
+            Err(FeeQuoteError::Limit("blob allowance"))
+        ));
+    }
+}
+
+#[test]
+fn outbound_quote_blob_budget_keeps_exact_fit_and_zero_limit() {
+    let operations = 100;
+    let overhead = eez_blob_codec::native_stream_len(operations, 0).unwrap();
+    let capacity = eez_blob_codec::DATA_BYTES_PER_BLOB;
+    let exact = outbound_da_estimate(operations, capacity - overhead, Address::ZERO, 1).unwrap();
+    assert_eq!(
+        (exact.bytes, exact.blobs, exact.history_deferred),
+        (capacity, 1, false)
+    );
+    assert!(outbound_da_estimate(100, 100, Address::ZERO, 0).is_err());
+}

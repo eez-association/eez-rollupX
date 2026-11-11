@@ -75,11 +75,17 @@ async fn simplified_one_percent_eip1559_payment_settles_below_twenty_percent_quo
     nested_quote_roundtrip(true, false, true, Some(100), QuoteExercise::Normal).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn backlog_quote_is_admitted_drains_history_and_replays() {
+    nested_quote_roundtrip(true, false, true, None, QuoteExercise::BlobBacklog).await;
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum QuoteExercise {
     Normal,
     CaughtRevert,
     MarketShift,
+    BlobBacklog,
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -331,6 +337,9 @@ async fn nested_quote_roundtrip(
             ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "2000000000".into()),
         ]);
     }
+    if exercise == QuoteExercise::BlobBacklog {
+        settings.push(("EEZ_MAX_BLOBS_PER_BATCH", "1".into()));
+    }
     let world = setup_cross_chain_with_env(&settings).await.unwrap();
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
@@ -346,6 +355,32 @@ async fn nested_quote_roundtrip(
         deploy_nested_setter_outer(&world.l2_rpc(), TARGET_DEPLOYER, world.l2_chain_id, inner)
             .await
             .unwrap();
+    if exercise == QuoteExercise::BlobBacklog {
+        // Ordinary admission can spread these over Sync intervals, but the long
+        // settlement cadence retains more than one blob of canonical history.
+        for _ in 0..3 {
+            let hash = sign_and_send(
+                &world.l2_rpc(),
+                TARGET_DEPLOYER,
+                world.l2_chain_id,
+                onchain_nonce(&world.l2_rpc(), TARGET_DEPLOYER)
+                    .await
+                    .unwrap(),
+                Some(Address::repeat_byte(0x93)),
+                U256::ZERO,
+                vec![0x5a; 60_000],
+                3_000_000,
+            )
+            .await
+            .unwrap();
+            let receipt = wait_for(TIMEOUT, || async {
+                Ok(l2.get_transaction_receipt(hash).await?)
+            })
+            .await
+            .unwrap();
+            assert!(receipt.status());
+        }
+    }
     let signer: PrivateKeySigner = OUTBOUND_USER.parse().unwrap();
     let nonce = onchain_nonce(&world.l2_rpc(), OUTBOUND_USER).await.unwrap();
     let target_before = l2_value(&world.l1_rpc(), world.outbound_value)
@@ -415,6 +450,19 @@ async fn nested_quote_roundtrip(
                     && detailed["diagnostics"]["recoveryMode"] == "enforced_tariff",
                 "tariff mode must be diagnostic only: {detailed}"
             );
+            if exercise == QuoteExercise::BlobBacklog {
+                let estimate = &detailed["diagnostics"]["options"][0]["estimate"];
+                anyhow::ensure!(
+                    estimate["historyDeferred"] == true,
+                    "test must reach backlog-induced capacity: {detailed}"
+                );
+                anyhow::ensure!(
+                    estimate["daBytes"].as_u64().unwrap()
+                        > eez_blob_codec::DATA_BYTES_PER_BLOB as u64,
+                    "history unexpectedly settled before quoting"
+                );
+                anyhow::ensure!(estimate["blobs"] == 1, "must reserve a full allowed post");
+            }
             let options = detailed["options"].as_array().unwrap();
             anyhow::ensure!(options.len() == 2, "missing fee variants: {detailed}");
             for (i, ty) in ["0x0", "0x2"].iter().enumerate() {

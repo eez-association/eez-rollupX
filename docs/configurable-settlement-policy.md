@@ -1318,6 +1318,32 @@ or pending ownership change. This Composer-only correction changes no protocol,
 signer wire, genesis, database or follower replay. Mixed versions retain the same
 successful schema; old Composer versions retain the nonce/snapshot bug.
 
+For L2-origin quotes, accumulated ordinary history may exceed one posting's blob
+allowance even when the candidate's complete cross-chain group fits. In this case
+the quote reserves the full target/operator blob allowance for the candidate's
+post; it does not charge for an impossible oversized single post. Signed quote
+checks and tariff admission use the same calculation. Actual posting retains the
+candidate and drains its historical predecessor through the existing path before
+settling the group. Quotes never advance the canonical settlement cursor.
+
+The detailed estimate adds `historyDeferred: true` in this case. `daBytes` still
+reports the complete unsplit history-plus-candidate size; `blobs` is the reserved
+count for one eventual candidate post, so the two need not describe one encoded
+payload when history is deferred. When history fits, `historyDeferred` is false
+and the existing exact size/count calculation is unchanged. The compact response
+is unchanged. The reservation may exceed the final post's actual blob count.
+
+A candidate whose complete terminal group alone exceeds the allowance still
+returns `quote_limit` with `blob allowance`; it must never be made quotable by
+omitting semantic data. Bounded history scanning, DA work limits, fee-dependent
+execution and final native validation still apply. A quote does not reserve a
+future target or guarantee admission after state or prices change. Ordinary
+history settlement remains governed by its existing funding/subsidy policy.
+This Composer-only change requires no signer/follower, protocol, genesis or storage
+migration. Older Composer fronts can still reject these backlog requests; update
+the Composer serving quotes and signed admission together. Rollback restores the
+older rejection behavior without changing retained chain data.
+
 `gas` is optional. Its explicit value is preserved and must fit 21,000..16,777,216
 as well as native transaction/block capacity. When absent, the existing internal
 cross-chain estimator discovers and verifies it, including nested calls. The

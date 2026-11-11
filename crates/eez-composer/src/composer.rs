@@ -4116,10 +4116,16 @@ where
                                 Self::cross_chain_da_overhead(rollup_id, &prefix_semantics)
                                     .map_err(|e| e.to_string())?
                                     .semantic_bytes;
-                            let bytes =
-                                eez_blob_codec::native_stream_len(operations, semantic_bytes)
-                                    .map_err(|e| e.to_string())?;
-                            let blobs = bytes.div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB).max(1);
+                            let maximum_blobs =
+                                self.remaining_posting_blob_allowance(bundle_target, 0)?;
+                            let blobs = fees::quote::outbound_da_estimate(
+                                operations,
+                                semantic_bytes,
+                                suggested_fee_recipient,
+                                maximum_blobs,
+                            )
+                            .map_err(|e| e.to_string())?
+                            .blobs;
                             let mut prefix_entries = outbound_entries.clone();
                             prefix_entries.extend(l1_entries.iter().cloned());
                             let mut prefix_traces = outbound_entry_traces.clone();

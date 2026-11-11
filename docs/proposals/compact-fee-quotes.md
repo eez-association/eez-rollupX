@@ -322,3 +322,33 @@ adds an opt-in refund path and uses `quotes_disabled` while it is unconfigured.
 Enable it only after qualifying the native-blob bundle, selected payer, payout
 deductions, recipient and canonical receipt on the receiving builder route.
 Requested refunds and the poster's own tip are not external revenue.
+
+## Outbound quote backlog correction (2026-11-11)
+
+Status: implementation authorized; validation pending.
+
+A quote currently sizes unsettled ordinary history and the terminal cross-chain
+group as one post. It rejects backlog overflow even though actual posting can
+retain the group and settle a historical prefix first. Signed tariff admission
+also prices that combined range, so both paths must agree.
+
+Use one outbound DA estimate for quoting and tariff admission. Check the complete
+terminal semantic group with its empty terminal operations first; an individually
+unpostable group still fails. If only ordinary history exceeds the posting cap,
+reserve the full permitted blob count for the candidate's eventual post. Retain
+the full unsplit byte count in diagnostics and mark history deferral explicitly.
+This is a conservative fee reservation, not a truncated payload or a claim that
+history has settled. Keep bounded history reading and the existing final native
+validation, historical-predecessor scheduling and ownership unchanged.
+
+No future L1 state/target is invented; quotes remain advisory. Draining ordinary
+history follows the existing settlement/subsidy policy. A receipt, quote or fee
+reservation never establishes canonical settlement. An unconditional cap without
+a terminal-size check would incorrectly accept oversized individual groups.
+
+Acceptance: backlog quote succeeds and signed submission settles after history
+drains, with independent follower replay; oversized individual groups fail with
+and without backlog; exact fits retain existing pricing; malformed/zero limits
+and independent work limits remain failures. No signer, protocol, genesis or
+storage changes; older Composers still reject these backlog quotes, so upgrade
+the Composer providing both quotes and submission checks together.
