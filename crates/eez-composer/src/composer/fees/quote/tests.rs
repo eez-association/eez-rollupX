@@ -675,20 +675,44 @@ fn history_sizing_matches_encoding_and_refuses_unreconciled_native_blocks() {
 #[test]
 fn outbound_quote_blob_backlog_reserves_a_full_post() {
     let capacity = eez_blob_codec::DATA_BYTES_PER_BLOB;
-    let result = outbound_da_estimate(capacity * 2, 512, Address::ZERO, 1).unwrap();
-    assert!(result.history_deferred);
-    assert_eq!(result.blobs, 1);
-    assert!(result.bytes > capacity * 2);
+    for maximum in [1, 2] {
+        let operations = capacity * (maximum + 1);
+        let result = outbound_da_estimate(operations, 512, Address::ZERO, maximum).unwrap();
+        assert!(result.history_deferred);
+        assert_eq!(result.blobs, maximum);
+        assert!(result.bytes > operations);
+    }
+    let small = outbound_da_estimate(100, 512, Address::ZERO, 2).unwrap();
+    assert_eq!((small.blobs, small.history_deferred), (1, false));
 }
 
 #[test]
 fn outbound_quote_individually_oversized_group_is_not_deferred() {
     let capacity = eez_blob_codec::DATA_BYTES_PER_BLOB;
-    for history in [0, capacity * 2] {
-        assert!(matches!(
-            outbound_da_estimate(history, capacity, Address::ZERO, 1),
-            Err(FeeQuoteError::Limit("blob allowance"))
-        ));
+    let beneficiary = Address::repeat_byte(0x42);
+    let terminal = eez_payload_codec::v0::encode_current(&[BlockRun {
+        blocks: 1,
+        beneficiary,
+        extra_data: eez_driver::BUILDER_EXTRA_DATA,
+        transactions: &[],
+    }])
+    .unwrap()
+    .len();
+    let overhead = eez_blob_codec::native_stream_len(terminal, 0).unwrap();
+    for maximum in [1, 2] {
+        let semantics = maximum * capacity - overhead;
+        for operations in [terminal, capacity * (maximum + 1)] {
+            let exact = outbound_da_estimate(operations, semantics, beneficiary, maximum).unwrap();
+            assert_eq!(exact.blobs, maximum);
+            assert_eq!(exact.history_deferred, operations != terminal);
+            if operations == terminal {
+                assert_eq!(exact.bytes, maximum * capacity);
+            }
+            assert!(matches!(
+                outbound_da_estimate(operations, semantics + 1, beneficiary, maximum),
+                Err(FeeQuoteError::Limit("blob allowance"))
+            ));
+        }
     }
 }
 
