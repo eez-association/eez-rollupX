@@ -7,8 +7,9 @@ area. Review this fork and its pinned `eez-core-protocol` revision; upstream
 
 ## Issues and triage
 
-Search existing issues, then use the bug or task template. Set the issue type to
-Bug, Feature, or Task; use labels only for additional context. Describe the problem,
+Search existing issues, then use the bug or task template.
+Templates set the type; maintainers correct it (Bug, Feature, or Task) during
+triage. Use labels only for additional context. Describe the problem,
 RollupX impact, and relevant evidence; completion criteria can wait in Backlog.
 The [PM repo](https://github.com/eez-association/eez-rollupx-pm) and shared board are
 private to the organization. External contributors open issues here; maintainers
