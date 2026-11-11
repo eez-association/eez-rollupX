@@ -10,10 +10,12 @@ area. Review this fork and its pinned `eez-core-protocol` revision; upstream
 Search existing issues, then use the bug or task template. Set the issue type to
 Bug, Feature, or Task; use labels only for additional context. Describe the problem,
 RollupX impact, and relevant evidence; completion criteria can wait in Backlog.
-Use [eez-rollupx-pm](https://github.com/eez-association/eez-rollupx-pm) for cross-repo
-coordination and non-code work.
+The [PM repo](https://github.com/eez-association/eez-rollupx-pm) and shared board are
+private to the organization. External contributors open issues here; maintainers
+handle internal coordination. During triage, maintainers manually add issues we
+track to the board.
 
-Follow the [shared workflow and Priority/Effort rules](https://github.com/eez-association/eez-rollupx-pm/blob/main/CONTRIBUTING.md#priority-and-effort).
+Maintainers follow the [shared workflow and Priority/Effort rules](https://github.com/eez-association/eez-rollupx-pm/blob/main/CONTRIBUTING.md#organize-work).
 Maintainers set the shared issue fields Priority after triage and Effort before
 Ready. The [Project](https://github.com/orgs/eez-association/projects/1) displays these
 same values; do not create duplicate Project fields. Ready also requires a

@@ -14,4 +14,4 @@ issue fields, following CONTRIBUTING.md. Reporters may leave both unset. -->
 ## Done when
 
 <!-- Optional in Backlog. Define observable completion criteria; timebox research
-when useful. Link the parent PM issue if this is part of cross-repo work. -->
+when useful. Maintainers: link the parent PM issue for cross-repo work. -->
