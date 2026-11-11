@@ -69,7 +69,10 @@ async fn inbound_local_revert_retry_settles_once_and_replays() {
         );
     }
     wait_for(TIMEOUT, || async {
-        Ok((l2_value(&follower.l2_rpc_url(), world.value_l2).await? == U256::from(6)).then_some(()))
+        Ok(
+            (l2_value(&follower.l2_rpc_url(), world.value_l2).await? == U256::from(6))
+                .then_some(()),
+        )
     })
     .await
     .unwrap();
