@@ -1,11 +1,11 @@
 ---
 name: Bug report
 about: Report incorrect behavior with reproducible evidence.
-labels: bug
+type: Bug
 ---
 
 <!-- Maintainers: set Priority after triage and Effort before Ready in the shared
-Project, following CONTRIBUTING.md. Reporters may leave both unset. -->
+issue fields, following CONTRIBUTING.md. Reporters may leave both unset. -->
 
 ## Problem and impact
 

@@ -1,10 +1,11 @@
 ---
 name: Task or investigation
 about: Propose code work or investigate a repository-specific question.
+type: Task
 ---
 
 <!-- Maintainers: set Priority after triage and Effort before Ready in the shared
-Project, following CONTRIBUTING.md. Reporters may leave both unset. -->
+issue fields, following CONTRIBUTING.md. Reporters may leave both unset. -->
 
 ## What and why
 
