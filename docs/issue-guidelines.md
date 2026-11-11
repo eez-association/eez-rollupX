@@ -24,6 +24,9 @@ complete. A review's completion does not mean its implementation findings are fi
 
 ## Updates and handoff
 
+Updates preserve existing scope and acceptance criteria unless they explicitly
+propose a change for approval.
+
 Post meaningful findings, decisions, blockers, or changed next steps. State what
 remains and link evidence. Before another person or agent takes over, put relevant
 decisions, exact revisions, and limitations in the issue or a linked repo document;
