@@ -364,7 +364,8 @@ PERMISSION_DENIED without disclosing a cursor.
 | Active streams / retained sessions | 8 / 8 per daemon; evict only detached sessions, oldest first |
 | Session blocks, bytes, witness items | Configured `MAX_REQUEST_*`; defaults 65,536 / 512 MiB / 1,000,000; L1 headers count as witness items and bytes |
 | L1 evidence | At most 131,072 headers per session, further limited by its witness-item quota; each raw header is at most 2,048 bytes |
-| Incoming message | Configured decode ceiling; default 256 MiB |
+| Incoming message | Configured signer decode ceiling; default 256 MiB |
+| Server frame | Client decodes at most 64 KiB of protobuf payload, including proof or rejection diagnostics; independent of witness upload limits |
 | Pending frames | At most block limit + 1, twice the byte limit and one witness-item limit per stream |
 | Response channel / client pipeline | 8 frames / at most 8 outstanding operations, draining both directions |
 | Expensive work | One shared validation worker; finalizations acquire the shared final-proof permit |
