@@ -30,7 +30,7 @@ use revm::{
     Database, Inspector,
     context::Journal,
     context_interface::{Cfg as _, ContextTr},
-    interpreter::{CallInputs, CallOutcome, CallScheme},
+    interpreter::{CallInputs, CallOutcome, CallScheme, InstructionResult},
 };
 use tracing::{Level, event};
 
@@ -833,8 +833,11 @@ pub(super) struct EffectInspector {
     rollup_id: u64,
     proxy_slot: u8,
     expected: Vec<ObservedCall>,
-    frames: Vec<Option<usize>>,
+    frames: Vec<(Option<usize>, usize)>,
     observed: Vec<Option<ObservedCall>>,
+    reverted: Vec<bool>,
+    transaction_ends: Vec<usize>,
+    reuse_inbound_retries: bool,
 }
 
 impl EffectInspector {
@@ -897,16 +900,49 @@ impl EffectInspector {
             expected,
             frames: Vec::new(),
             observed: Vec::new(),
+            reverted: Vec::new(),
+            transaction_ends: Vec::new(),
+            reuse_inbound_retries: source_rollup == 0,
         })
     }
 
     pub(super) fn verify(self) -> Result<(), PostingError> {
-        let observed: Vec<_> = self.observed.into_iter().flatten().collect();
-        if observed != self.expected {
+        if self.observed.iter().flatten().eq(self.expected.iter()) {
+            return Ok(());
+        }
+        // A shared inbound row can be read in a reverted source frame and
+        // consumed by its identical retry. Validate the discarded observation
+        // against the surviving call, including its exact result. Never fold
+        // across transactions, multi-call rollback scopes, or natural failures.
+        let mut retained: Vec<(usize, &ObservedCall)> = Vec::new();
+        for (index, call) in self.observed.iter().enumerate().rev() {
+            let Some(call) = call else { continue };
+            if self.reuse_inbound_retries
+                && self.reverted[index]
+                && call.success
+                && call.mode == CallMode::Mutable
+                && let Some((next, retry)) = retained.last()
+                && !self.reverted[*next]
+                && call == *retry
+                && !self
+                    .transaction_ends
+                    .iter()
+                    .any(|&end| end > index && end <= *next)
+            {
+                continue;
+            }
+            retained.push((index, call));
+        }
+        if !retained
+            .into_iter()
+            .rev()
+            .map(|(_, call)| call)
+            .eq(self.expected.iter())
+        {
             return Err(PostingError::Effects(format!(
                 "actual cross-chain calls/outcomes differ (expected {}, observed {})",
                 self.expected.len(),
-                observed.len()
+                self.observed.iter().flatten().count()
             )));
         }
         Ok(())
@@ -926,17 +962,30 @@ impl<DB: Database, CTX: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<CTX
             && inputs.target_address == self.registry
             && (data.starts_with(&executeCrossChainCallCall::SELECTOR)
                 || data.starts_with(&eez_protocol::abi::staticCrossChainCallCall::SELECTOR));
-        self.frames.push(recognized.then(|| {
+        let start = self.observed.len();
+        let index = recognized.then(|| {
             self.observed.push(None);
+            self.reverted.push(false);
             self.observed.len() - 1
-        }));
+        });
+        self.frames.push((index, start));
         None
     }
 
     fn call_end(&mut self, context: &mut CTX, inputs: &CallInputs, outcome: &mut CallOutcome) {
-        let Some(index) = self.frames.pop().flatten() else {
+        let Some((index, start)) = self.frames.pop() else {
             return;
         };
+        let end = self.observed.len();
+        if index.is_none() && outcome.result.result == InstructionResult::Revert {
+            // An enclosing broader rollback overrides any earlier single-call
+            // mark: that scope is outside the shared-row retry profile.
+            self.reverted[start..end].fill(end - start == 1);
+        }
+        if self.frames.is_empty() {
+            self.transaction_ends.push(end);
+        }
+        let Some(index) = index else { return };
         // The real manager has already read this slot. Inspect the journal
         // directly so observation cannot change cold/warm gas accounting.
         let key = eez_protocol::proxy_mapping_key(inputs.caller, self.proxy_slot);
@@ -1550,6 +1599,40 @@ mod tests {
             inspector.verify().is_err(),
             "one lookup cannot satisfy two expected calls"
         );
+    }
+
+    #[test]
+    fn shared_inbound_row_requires_an_identical_reverted_observation_in_the_same_transaction() {
+        let mut inspector = EffectInspector::new(REGISTRY, 1, &static_semantics()).unwrap();
+        inspector.expected[0].mode = CallMode::Mutable;
+        let call = inspector.expected[0].clone();
+        inspector.observed = vec![Some(call.clone()), Some(call.clone())];
+        inspector.reverted = vec![true, false];
+        inspector.transaction_ends = vec![2];
+        assert!(inspector.clone().verify().is_ok());
+
+        let mut historical = inspector.clone();
+        historical.expected.push(call);
+        assert!(
+            historical.verify().is_ok(),
+            "exact historical traces still match"
+        );
+
+        for variant in 0..6 {
+            let mut invalid = inspector.clone();
+            match variant {
+                0 => invalid.reverted[0] = false,
+                1 => invalid.reverted[1] = true,
+                2 => invalid.transaction_ends = vec![1, 2],
+                3 => {
+                    invalid.observed[0].as_mut().unwrap().output = Bytes::from_static(b"different")
+                }
+                4 => invalid.observed[0].as_mut().unwrap().success = false,
+                5 => invalid.reuse_inbound_retries = false,
+                _ => unreachable!(),
+            }
+            assert!(invalid.verify().is_err(), "variant {variant}");
+        }
     }
 
     #[test]
