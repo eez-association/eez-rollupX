@@ -38,13 +38,17 @@ to guess. A review-only task does not authorize implementation or issue creation
    decision in a linked issue/PR. Otherwise use uncertain and state whether technical
    evidence or a human decision is missing.
 
-Record the examined range and a compact table on the review issue: source link,
-disposition, rollupX evidence, remaining work, and existing issue or next step.
-For a read-only task, return the report for a maintainer to post. Link detailed
-evidence from an audit when needed.
-Separate source inspection from tests actually run. The review is complete when the
-scoped inventory has dispositions and coverage gaps are explicit, not when every
-candidate has been implemented.
+Hand off a short, self-contained summary and a traceable inventory: examined range,
+source links, dispositions, rollupX evidence, remaining work, and existing issues or
+next steps. Related commits may be grouped, but account for every scoped commit
+and issue. Include all referenced findings; link detailed evidence when needed.
+Distinguish missing behavior, missing validation, and decisions requiring human input.
+Separate source inspection from tests actually run. If unfinished, mark the review
+partial and state what remains unexamined. Review completion does not mean the
+findings are implemented.
+
+Post the report on the review issue; for a read-only task, return it for a maintainer
+to post.
 
 ## 3. Track and implement selected work
 
