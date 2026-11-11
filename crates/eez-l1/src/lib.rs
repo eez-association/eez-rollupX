@@ -20,6 +20,7 @@ pub use blob_source::BlobRuleSource;
 pub mod chain_config;
 pub mod config;
 pub mod derivation;
+pub mod diagnostics;
 pub mod error;
 pub mod l1_canonical_head;
 pub mod l1_head_stream;

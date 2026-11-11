@@ -11,6 +11,7 @@ use alloy_primitives::Address;
 use alloy_signer_local::PrivateKeySigner;
 use url::Url;
 
+use crate::diagnostics::endpoint_host;
 use crate::error::{L1Error, L1Result};
 
 const ENV_RPC_URL: &str = "EEZ_L1_RPC_URL";
@@ -56,8 +57,8 @@ pub struct L1ReaderConfig {
 impl std::fmt::Debug for L1ReaderConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("L1ReaderConfig")
-            .field("rpc_url", &self.rpc_url.as_str())
-            .field("beacon_url", &self.beacon_url.as_ref().map(Url::as_str))
+            .field("rpc_url", &endpoint_host(&self.rpc_url))
+            .field("beacon_url", &self.beacon_url.as_ref().map(endpoint_host))
             .field("eez", &self.eez)
             .field("rollup_id", &self.rollup_id)
             .field("deploy_block", &self.deploy_block)
@@ -123,7 +124,7 @@ impl std::fmt::Debug for SubmitterConfig {
             .field("builder_relays", &self.builder_relays)
             .field(
                 "target_rpc_url",
-                &self.target_rpc_url.as_ref().map(Url::as_str),
+                &self.target_rpc_url.as_ref().map(endpoint_host),
             )
             .field("poster", &self.poster.address())
             .field(
@@ -387,6 +388,53 @@ mod tests {
     use super::*;
 
     const SECRET: &str = "fixture-secret-token";
+
+    #[test]
+    fn url_credentials_are_redacted_from_config_and_handles() {
+        let url: Url = "http://sentinel-user:sentinel-password@localhost:8545/sentinel-path?key=sentinel-query#sentinel-fragment".parse().unwrap();
+        let reader = L1ReaderConfig {
+            rpc_url: url.clone(),
+            beacon_url: Some(url.clone()),
+            eez: Address::ZERO,
+            rollup_id: 42,
+            deploy_block: 17,
+        };
+        let submitter = SubmitterConfig {
+            reader: reader.clone(),
+            builder_relays: BuilderRelays::new(vec![url.clone()]).unwrap(),
+            target_rpc_url: Some(url.clone()),
+            poster: PrivateKeySigner::from_bytes(&alloy_primitives::B256::with_last_byte(1))
+                .unwrap(),
+            bundle_signer: None,
+            bundle_capture_dir: None,
+            bundle_submission_lead: Duration::from_millis(7500),
+        };
+        let watcher = crate::L1WatcherConfig {
+            rpc_url: url.clone(),
+            beacon_url: Some(url.clone()),
+            eez: Address::ZERO,
+            rollup_id: 42,
+            reorg_max_depth: 62,
+        };
+        for debug in [
+            format!("{reader:?}"),
+            format!("{submitter:?}"),
+            format!("{watcher:?}"),
+            format!("{:?}", crate::L1Reader::new(reader.clone())),
+            format!("{:?}", crate::L1Watcher::new(watcher.clone())),
+        ] {
+            assert!(
+                !debug.contains("sentinel-"),
+                "credential in diagnostic: {debug}"
+            );
+            assert!(debug.contains("localhost"));
+        }
+        assert_eq!(reader.rpc_url, url);
+        assert_eq!(reader.beacon_url.as_ref(), Some(&url));
+        assert_eq!(submitter.target_rpc_url.as_ref(), Some(&url));
+        assert_eq!(submitter.builder_relays.urls(), std::slice::from_ref(&url));
+        assert_eq!(watcher.rpc_url, url);
+    }
 
     fn relays(raw: &str) -> L1Result<BuilderRelays> {
         resolve_builder_relays(Ok(raw.to_owned()), false)

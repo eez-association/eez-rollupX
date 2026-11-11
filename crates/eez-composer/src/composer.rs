@@ -1310,7 +1310,7 @@ async fn read_rollup_escrow(
         .call()
         .await
         .map(|rollup| rollup.etherBalance)
-        .map_err(|error| format!("read rollup {rid} escrow: {error}"))
+        .map_err(|_| format!("read rollup {rid} escrow failed"))
 }
 
 /// The diagnostic recorded for a simulation-poisoned root: the simulation's

@@ -13,6 +13,8 @@ pub enum L1Error {
     #[error("configuration error: {0}")]
     Config(String),
     /// Anything that went wrong talking to L1 (RPC transport, JSON-RPC error).
+    /// Format remote causes with [`crate::diagnostics`]; raw errors and response
+    /// bodies can echo endpoint credentials, even without a complete URL.
     #[error("L1 provider error: {0}")]
     Provider(String),
     /// On-chain BYTES we cannot decode. Deterministic, so callers fail loudly

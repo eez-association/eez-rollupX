@@ -20,6 +20,7 @@ reth-chainspec = { workspace = true, optional = true }
 reth_gnosis = { workspace = true, optional = true }
 
 # alloy
+alloy-transport = { version = "2", default-features = false }
 alloy-consensus.workspace     = true
 alloy-eips.workspace          = true
 alloy-genesis.workspace       = true
@@ -47,7 +48,6 @@ url.workspace         = true
 [dev-dependencies]
 tempfile = "3"
 alloy-network.workspace               = true
-alloy-transport                      = { version = "2", default-features = false }
 eez-payload-codec.workspace          = true
 eez-primitives.workspace             = true
 eez-evm = { workspace = true, features = ["stateless"] }

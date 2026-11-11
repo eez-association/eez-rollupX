@@ -77,6 +77,14 @@ estimation/forwarding path without adding unbounded parallel workers.
 
 ## Compatibility and recovery
 
+Front-generated transport failures return HTTP 502 with `upstream request failed`.
+Admission and trace diagnostics retain operations and numeric error codes, but
+omit upstream error text that can expose endpoint credentials. Requests and
+ordinary upstream RPC responses retain transparent forwarding. See the
+[operator diagnostics guidance](../runbooks/chiado-deployment.md#troubleshooting).
+There is no data or protocol migration; older binaries retain their previous
+error text, and rollback restores the credential-exposure risk.
+
 Clients must move custom-method requests from regular L2/follower URLs to a
 Composer front. Standard `eth_*` and `debug_*` calls remain on their existing
 endpoints. Upgrade endpoint configuration alongside the Composer binary;
