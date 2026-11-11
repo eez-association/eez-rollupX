@@ -124,7 +124,7 @@ class ChiadoConfigTest(unittest.TestCase):
                     "EEZ_SETTLEMENT_BLOB_FULLNESS_BPS", "EEZ_L1_POSTBATCH_PRIORITY_FEE",
                     "EEZ_MAX_BLOBS_PER_BATCH"):
             self.assertIsNone(node.get(key), key)
-        self.assertEqual(services["lighthouse"]["image"], "sigp/lighthouse:v8.1.3")
+        self.assertEqual(services["lighthouse"]["image"], "sigp/lighthouse@sha256:53f9063d98c3d3a2d290207873f019ea2298cfc02f8cd58d87c33b04aab856d1")
         command = services["lighthouse"]["command"]
         self.assertIn("--semi-supernode", command)
         self.assertNotIn("--supernode", command)
