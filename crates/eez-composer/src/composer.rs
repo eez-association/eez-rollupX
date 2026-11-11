@@ -9141,7 +9141,7 @@ mod tests {
     }
 
     #[test]
-    fn manager_lookup_failures_retain_ownership_without_charging_attempts() {
+    fn manager_lookup_error_classification_and_recovery_helpers() {
         use crate::local::client::session_tests::{
             manager_lookup_errors, manager_lookup_execution_error,
         };
@@ -9149,6 +9149,7 @@ mod tests {
             let error = eez_protocol::ComposerError::from(error);
             assert!(!sim_error_is_poison(&error), "{error:?}");
             assert_eq!(source_condition(&error), None);
+            // Exercise recovery helpers directly; this does not drive scheduler fault routing.
             let pool = HeldPool::new(Default::default());
             let mut first = held(Address::repeat_byte(1), Direction::Outbound, 0, 1);
             first.attempts = 1;

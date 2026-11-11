@@ -200,13 +200,23 @@ The enabled policy's existing source-condition handling is the compatibility
 boundary for the new structured error. Keep disabled-policy behavior explicitly
 covered; do not broaden legacy error semantics incidentally.
 
-Direct target sessions resolve their caller through the configured manager's
+The `LocalExecutionSession` manager-lookup correction in
+[PR #154](https://github.com/eez-association/eez-rollupX/pull/154) is validated
+locally with unit and recursive-static process tests, including follower replay.
+It has not been validated on Chiado or deployed; the historical status at the top
+of this document does not apply to this correction. The fault-injection tests
+cover session errors, scheduler classification and recovery helpers separately,
+not fault routing through the complete scheduler.
+
+`LocalExecutionSession` resolves its caller through the configured manager's
 `computeCrossChainProxyAddress` view. Only a successful execution with a canonical
 single-address ABI return can authorize the target call. A manager revert, halt,
 or malformed reply is `Unavailable`; there is no fallback caller. State-provider
 failures during lookup or target execution retain their typed `Provider` error.
 Both cases use the slot-wide abort/recovery path without charging user attempts.
 Other EVM execution errors retain their existing classification.
+These lookup and typed-error guarantees are specific to `LocalExecutionSession`;
+the seeded `InboundL2TargetSession` and `L1TargetSession` paths are unchanged.
 
 This is a Composer-only simulation correction. It changes no wire format,
 validation identity, contract, stored data, or follower replay. Composers can be
