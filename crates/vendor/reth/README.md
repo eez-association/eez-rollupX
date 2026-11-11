@@ -92,7 +92,7 @@ release containing the fix. The backport changes shutdown ordering, not the
 database format, protocol, ABI or queue durability.
 The [portable validation identity](../../eez-control-rpc/VALIDATION_IDENTITY.md)
 does not contain Cargo.lock, source revisions or binary hashes. Lockfile changes
-require the separate build-review digest check, not a new protocol identity.
+require dependency-impact review and affected behavioral tests.
 Change the validation-contract version only when the accepted execution,
 decoding, evidence or settlement semantics change. Rebuild affected artifacts
 to include these implementation fixes; an unchanged identity is not evidence

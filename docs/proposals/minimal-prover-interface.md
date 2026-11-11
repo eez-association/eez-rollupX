@@ -29,7 +29,7 @@ branch. Its useful requirement is independent implementation of the same rules.
 | P3 | Never omit execution or deployment rules to simplify identity. | Retain canonical full L2 document digest, offline profile commitment, rollup, system/EEZL2, registry and manager. Test every component and portable JSON edge cases. |
 | P4 | Reject mismatching configuration before execution/signing. | Exact local comparison at Capabilities and every stream; service test sends missing/wrong identities before any frame. No identity learned from the remote response. |
 | P5 | Keep resource planning coherent and finite. | Existing mandatory limits, shared capability snapshot and changed-limit rejection remain; existing client capability tests. |
-| P6 | Semantics changes cannot silently reuse old execution facts. | Explicit protocol-version discipline plus a test-only Rust lockfile review guard. Changing dependencies requires review, not automatically a wire-identity change. |
+| P6 | Semantics changes cannot silently reuse old execution facts. | Explicit protocol-version discipline, dependency-impact review and behavioral/conformance tests. Dependency changes alone do not change wire identity. |
 | P7 | Configuration errors cannot evict or charge users. | Existing generic prover-error path requeues survivors unchanged. Preserve non-actionable capability errors and closed transport-retry classification. No new queue policy. |
 
 ## Design and alternatives
