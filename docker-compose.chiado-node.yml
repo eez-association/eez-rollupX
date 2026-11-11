@@ -209,7 +209,9 @@ services:
       driver: "local"
 
   lighthouse:
-    image: sigp/lighthouse:v8.1.3
+    # v8.3.3; schema 32. Back up existing data before upgrading:
+    # docs/runbooks/chiado-deployment.md#lighthouse-upgrades-and-checkpoint-boundary-pruning
+    image: sigp/lighthouse@sha256:53f9063d98c3d3a2d290207873f019ea2298cfc02f8cd58d87c33b04aab856d1
     container_name: eez-chiado-lighthouse
     network_mode: host
     restart: unless-stopped
@@ -221,9 +223,8 @@ services:
       - ${JWT_FILE:?set JWT_FILE}:/jwt/jwt.hex:ro
       # Lighthouse v8 reads discovery seeds from bootstrap_nodes.yaml here.
       - ${CHIADO_CONFIG_DIR:?set CHIADO_CONFIG_DIR}:/config-dir:ro
-    # v8.1.3's built-in Chiado profile does not activate Fulu; use the current
-    # Gnosis config. A semi-supernode reconstructs full PeerDAS blobs for the
-    # deriver. Direct TCP endpoints supplement discovery without pinning IDs.
+    # Preserve the deployment's checked-in Gnosis fork schedule.
+    # A semi-supernode reconstructs full PeerDAS blobs for the deriver. Direct TCP endpoints supplement discovery without pinning IDs.
     # Optional public ENR settings support hosts where automatic advertisement
     # cannot bootstrap. Compose splits this scalar into argv, without a shell.
     command: >-
@@ -242,6 +243,6 @@ services:
       --semi-supernode
       ${LH_ENR_ADDRESS:+--enr-address=}${LH_ENR_ADDRESS:-}
       ${LH_ENR_UDP_PORT:+--enr-udp-port=}${LH_ENR_UDP_PORT:-}
-      --libp2p-addresses=/ip4/57.131.40.177/tcp/9000,/ip4/45.79.214.176/tcp/9000,/ip4/51.210.221.124/tcp/9500,/ip4/57.129.122.18/tcp/9000,/ip4/51.210.221.124/tcp/9100,/ip4/137.74.112.3/tcp/9000,/ip4/65.109.101.48/tcp/9000
+      --boot-nodes=/ip4/57.131.40.177/tcp/9000,/ip4/45.79.214.176/tcp/9000,/ip4/51.210.221.124/tcp/9500,/ip4/57.129.122.18/tcp/9000,/ip4/51.210.221.124/tcp/9100,/ip4/137.74.112.3/tcp/9000,/ip4/65.109.101.48/tcp/9000
     logging:
       driver: "local"

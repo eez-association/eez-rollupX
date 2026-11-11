@@ -57,7 +57,7 @@ overrides, which can take precedence over `.env`. Its `COMPOSE_FILE` selects
 | Network access | Public GHCR images, Solidity compiler download, snapshot download, checkpoint source, deployment RPC, builder, and P2P peers. |
 | Deployment RPC | Synchronized Chiado execution RPC, chain ID **10200**; remains required by startup even when the embedded L1 is running |
 | Builder | One or more endpoints implementing `eth_sendBundle`, comma-separated in `EEZ_L1_BUILDER_RPC_URL`; an ordinary execution RPC is insufficient. Each bundle goes to every listed relay ([fan-out contract](../configurable-settlement-policy.md#builder-relay-fan-out)) |
-| Beacon | Packaged Lighthouse **v8.1.3**, checked-in `configs/chiado`, `--semi-supernode`, full-blob API, and `EEZ_L1_BLOB_SIDECAR_ENCODING=eip7594`; built-in Chiado config in this image leaves Fulu disabled |
+| Beacon | Packaged Lighthouse **v8.3.3**, pinned by digest, checked-in `configs/chiado`, `--semi-supernode`, full-blob API, and `EEZ_L1_BLOB_SIDECAR_ENCODING=eip7594`; preserve the deployment's custom fork schedule |
 
 ### Ports and service ownership
 
@@ -605,12 +605,53 @@ or a latest speculative L2 block does not establish settlement. Before the first
 settlement the registry commitment is `EEZ_INITIAL_BLOCK_HASH`. See the
 [correlation RPC contract](../../README.md#l1l2-settlement-correlation-rpc).
 
+### Lighthouse upgrades and checkpoint-boundary pruning
+
+Both Compose profiles pin Lighthouse v8.3.3 by digest and use `--boot-nodes` for
+supplemental TCP peers. In this release the deprecated `--libp2p-addresses` option
+is accepted but does not initiate those connections. Keep the existing custom
+network configuration, JWT, data directory and semi-supernode mode.
+
+Before upgrading an existing Beacon database, stop its only writer cleanly and
+back up the **complete** directory, including the network identity and blobs.
+Lighthouse v8.3.3 upgrades schema 28 to **32**. Do not start v8.1.3 against the
+upgraded database; rollback requires a supported migration or the full backup,
+followed by canonical catch-up and blob-availability checks. A database backup
+does not undo L1 settlements. See the
+[upstream migration notes](https://github.com/sigp/lighthouse/releases/tag/v8.3.0).
+This Lighthouse-only change does not require restarting Composer or signer.
+
+If `Blob pruning failed: BlockNotFound` names `anchor.oldest_block_parent` from
+`/lighthouse/database/info`, compare
+[upstream issue 10442](https://github.com/sigp/lighthouse/issues/10442).
+On affected checkpoint-synced Gnosis nodes, the pruning iterator runs past the
+oldest stored block and aborts before committing deletions. **Stable v8.3.3 still
+contains this bug; upgrading alone does not repair an affected database.**
+
+The [November 11 recovery record](../audits/2026-11-11-lighthouse-recovery/README.md)
+documents a manual repair tested on an isolated copy: stable schema migration,
+one offline pruning pass using the official fixed binary, then successful pruning
+and service operation with stable v8.3.3. Preserve a complete pre-repair backup,
+review the exact tool/schema compatibility, and require an isolated-copy trial
+before applying it to another database. Never run database tools alongside a live
+writer. This is not an automatic deployment step or a recommendation to run a
+development beacon service. Do not reset the database or disable pruning to hide
+the error. Prefer a stable release containing
+[fix 10454](https://github.com/sigp/lighthouse/pull/10454) when available.
+
+After an upgrade or repair, require fresh verified heads, connected peers,
+canonical rollup settlement, retrievable blobs and independent follower agreement.
+A running container or `is_syncing=false` alone is insufficient. Fresh checkpoint
+syncs may encounter the bug again until the upstream fix ships in stable.
+
 ### Discovery change — recreates Lighthouse only
 
 If the advertised ENR lacks the externally reachable endpoint, set
 `LH_ENR_ADDRESS` and `LH_ENR_UDP_PORT` in `.env` to the public address and
 mapped discovery port (default UDP **9205**). These flags do not configure NAT.
-Keep both unset for automatic advertisement when that works. Then:
+Keep both unset for automatic advertisement when that works. These settings stay
+in the operator `.env`; do not commit a server address. A DNS name is resolved at
+startup, so re-check the advertised endpoint after a public-IP change. Then:
 
 ```bash
 docker compose up -d --no-deps lighthouse
