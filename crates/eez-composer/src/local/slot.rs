@@ -385,6 +385,7 @@ impl TargetExecutionSession for L1TargetSession {
         req: ExecutionRequest,
         dispatcher: &mut CompositionBuilder,
     ) -> ExecutorResult<ExecutionOutcome> {
+        super::session::reject_manager_destination(&req, self.manager, self.chain_id)?;
         // An unfunded manager frame fails before composition can materialize
         // the rollup's exact ether delta. Treat missing physical backing as a
         // source wait; the caller still checks the per-rollup escrow before
@@ -446,6 +447,12 @@ impl TargetExecutionSession for L1TargetSession {
         inspector.top_gas_price = self.posting_origin.map(|_| self.posting_gas_price);
         let (return_data, gas_used, success, mut changes, inspector_error) = {
             let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
+            let traced = crate::composer::quote_trace::inspect(
+                traced,
+                self.chain_id,
+                "composition",
+                &tx_env,
+            );
             let mut evm = self.evm_config.evm_with_env_and_inspector(
                 &mut self.state,
                 self.evm_env.clone(),
@@ -498,11 +505,11 @@ impl TargetExecutionSession for L1TargetSession {
         Ok(Box::new(self.state.cache.clone()))
     }
 
-    fn rollback(&mut self, snapshot: SessionSnapshot) -> ExecutorResult<()> {
+    fn rollback(&mut self, snapshot: &SessionSnapshot) -> ExecutorResult<()> {
         let cache = snapshot
-            .downcast::<CacheState>()
-            .map_err(|_e| encoding_err("L1TargetSession::rollback: snapshot type mismatch"))?;
-        self.state.cache = *cache;
+            .downcast_ref::<CacheState>()
+            .ok_or_else(|| encoding_err("L1TargetSession::rollback: snapshot type mismatch"))?;
+        self.state.cache = cache.clone();
         Ok(())
     }
 }
@@ -639,6 +646,11 @@ impl TargetExecutionSession for InboundL2TargetSession {
         req: ExecutionRequest,
         dispatcher: &mut CompositionBuilder,
     ) -> ExecutorResult<ExecutionOutcome> {
+        super::session::reject_manager_destination(
+            &req,
+            self.client.manager_address(),
+            self.fork.chain_id(),
+        )?;
         let proxy = self.proxy_address(&req)?;
         let tx_env = revm::context::TxEnv {
             caller: proxy,
@@ -686,11 +698,11 @@ impl TargetExecutionSession for InboundL2TargetSession {
         Ok(Box::new(self.fork.snapshot()))
     }
 
-    fn rollback(&mut self, snapshot: SessionSnapshot) -> ExecutorResult<()> {
-        let snap = snapshot.downcast::<ForkSnapshot>().map_err(|_e| {
+    fn rollback(&mut self, snapshot: &SessionSnapshot) -> ExecutorResult<()> {
+        let snap = snapshot.downcast_ref::<ForkSnapshot>().ok_or_else(|| {
             encoding_err("InboundL2TargetSession::rollback: snapshot type mismatch")
         })?;
-        self.fork.restore(*snap);
+        self.fork.restore(snap.clone());
         Ok(())
     }
 }
@@ -747,7 +759,7 @@ mod posting_frame_tests {
         let mut inspector = SkipTopFrame::new(NoOpInspector {});
         inspector.top_caller = Some(manager);
         inspector.top_gas_price = Some(37);
-        let mut result = EezEvmConfig::new(reth_chainspec::MAINNET.clone())
+        let mut result = EezEvmConfig::for_l1_simulation(reth_chainspec::MAINNET.clone())
             .evm_with_env_and_inspector(database, env, inspector)
             .transact(TxEnv {
                 caller: poster,

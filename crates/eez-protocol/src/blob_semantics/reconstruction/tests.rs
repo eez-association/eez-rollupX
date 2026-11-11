@@ -19,7 +19,7 @@ fn action(source: u64, target: u64, marker: u8) -> ExecutedAction {
             gas_used: 0,
             success: true,
         },
-        revert_span: None,
+        revert_spans: vec![],
     }
 }
 
@@ -40,6 +40,7 @@ fn signed() -> Bytes {
 
 fn semantic(source: u64, actions: Vec<ExecutedAction>) -> SemanticTransaction {
     SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId(source),
         tx_data: signed(),
         actions,
@@ -53,7 +54,131 @@ fn decode(
 }
 
 #[test]
-fn semantic_reconstruction_retains_whole_groups_checked_inbound_and_nonce_identity() {
+fn source_positions_count_only_complete_execution_groups() {
+    let mut failed = action(0, 1, 4);
+    failed.outcome = ExecutionOutcome::Resolved {
+        return_data: vec![6],
+        gas_used: 0,
+        success: false,
+    };
+    let mut lookup = action(0, 1, 5);
+    lookup.call_mode = CallMode::Static;
+    lookup.value = U256::ZERO;
+    let delivery = action(0, 1, 6);
+    let stream = [
+        semantic(1, vec![action(1, 0, 3)]),
+        semantic(0, vec![failed, lookup, delivery.clone(), delivery]),
+    ];
+    let actions = decode(&stream).unwrap();
+    let live = LiveSourceContext::new(1, B256::repeat_byte(8)).unwrap();
+    let sources = actions.source_entries(&live).unwrap();
+    assert_eq!(
+        sources
+            .iter()
+            .map(|source| source.index())
+            .collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
+    assert_ne!(sources[1].hash(), sources[2].hash());
+    assert_eq!(sources[1], live.entry(1));
+    // Select a consumed suffix only after deriving the complete sequence.
+    // Dropping a preceding group would reset its ordinal and is not a resume.
+    let renumbered = decode(&stream[1..]).unwrap().source_entries(&live).unwrap();
+    assert_ne!(sources[1..], renumbered);
+    let mut appended = stream.to_vec();
+    appended.push(semantic(0, vec![action(0, 1, 7)]));
+    let appended = decode(&appended).unwrap().source_entries(&live).unwrap();
+    assert_eq!(&appended[..sources.len()], sources);
+}
+
+#[test]
+fn static_only_outbound_group_counts_once_but_l1_lookups_do_not() {
+    let mut out = action(1, 0, 3);
+    out.call_mode = CallMode::Static;
+    out.value = U256::ZERO;
+    let mut lookup = action(0, 1, 4);
+    lookup.call_mode = CallMode::Static;
+    lookup.value = U256::ZERO;
+    let stream = [
+        semantic(1, vec![out.clone(), out]),
+        semantic(0, vec![lookup]),
+        semantic(0, vec![action(0, 1, 5)]),
+    ];
+    let actions = decode(&stream).unwrap();
+    assert_eq!(actions.outbound().len(), 1);
+    assert_eq!(actions.outbound()[0].effects.len(), 2);
+    let live = LiveSourceContext::new(1, B256::repeat_byte(8)).unwrap();
+    assert_eq!(
+        actions
+            .source_entries(&live)
+            .unwrap()
+            .iter()
+            .map(|source| source.index())
+            .collect::<Vec<_>>(),
+        [0, 1]
+    );
+}
+
+#[test]
+fn nonexecuting_inbound_rows_do_not_shift_delivery_identity() {
+    let delivered = action(0, 1, 6);
+    let mut failed = action(0, 1, 4);
+    failed.outcome = ExecutionOutcome::Resolved {
+        return_data: vec![],
+        gas_used: 0,
+        success: false,
+    };
+    let mut lookup = action(0, 1, 5);
+    lookup.call_mode = CallMode::Static;
+    lookup.value = U256::ZERO;
+    let live = LiveSourceContext::new(1, B256::repeat_byte(8)).unwrap();
+    let plain = decode(&[semantic(0, vec![delivered.clone()])]).unwrap();
+    let with_lookups = decode(&[semantic(0, vec![failed, lookup, delivered])]).unwrap();
+    assert_eq!(
+        plain.source_entries(&live).unwrap(),
+        with_lookups.source_entries(&live).unwrap()
+    );
+    assert_eq!(with_lookups.source_entries(&live).unwrap()[0].index(), 0);
+}
+
+#[test]
+fn outbound_revert_still_occupies_a_complete_group() {
+    let mut reverted = action(1, 0, 4);
+    reverted.outcome = ExecutionOutcome::Resolved {
+        return_data: vec![],
+        gas_used: 0,
+        success: false,
+    };
+    let actions = decode(&[
+        semantic(1, vec![reverted]),
+        semantic(0, vec![action(0, 1, 6)]),
+    ])
+    .unwrap();
+    assert_eq!(actions.outbound().len(), 1);
+    assert_eq!(actions.inbound().len(), 1);
+    let live = LiveSourceContext::new(1, B256::repeat_byte(8)).unwrap();
+    assert_eq!(
+        actions.source_entries(&live).unwrap(),
+        [live.entry(0), live.entry(1)]
+    );
+}
+
+#[test]
+fn failed_foreign_root_is_not_filtered_from_the_semantic_profile() {
+    let mut failed = action(0, 42, 4);
+    failed.outcome = ExecutionOutcome::Resolved {
+        return_data: vec![],
+        gas_used: 0,
+        success: false,
+    };
+    assert!(matches!(
+        decode(&[semantic(0, vec![failed])]),
+        Err(ReconstructionError::Table("foreign action chain"))
+    ));
+}
+
+#[test]
+fn semantic_reconstruction_retains_whole_groups_checked_inbound_and_source_identity() {
     let mut callback = action(0, 1, 4);
     callback.parent_index = Some(0);
     let transactions = [
@@ -76,7 +201,6 @@ fn semantic_reconstruction_retains_whole_groups_checked_inbound_and_nonce_identi
         actions.outbound(),
         actions.inbound(),
         &cfg,
-        9,
     )
     .unwrap();
     assert_eq!(
@@ -84,11 +208,21 @@ fn semantic_reconstruction_retains_whole_groups_checked_inbound_and_nonce_identi
         3,
         "one load for the complete outbound group and two deliveries"
     );
-    for (index, pair) in pairs.iter().enumerate() {
-        let mut bytes = pair.system_tx.as_ref();
-        let tx = eez_primitives::EezTxEnvelope::decode_2718(&mut bytes).unwrap();
-        assert_eq!(tx.nonce(), 9 + index as u64);
-        assert!(bytes.is_empty());
+    let live = LiveSourceContext::new(1, B256::repeat_byte(8)).unwrap();
+    let sources = actions.source_entries(&live).unwrap();
+    assert_eq!(
+        sources
+            .iter()
+            .map(|source| source.index())
+            .collect::<Vec<_>>(),
+        [0, 1, 2]
+    );
+    for (pair, source) in pairs.iter().zip(sources) {
+        let tx = pair
+            .system_tx
+            .at_position(crate::l2::GAS_LIMIT, 0, source.hash())
+            .unwrap();
+        assert_ne!(tx.source_hash, B256::ZERO);
     }
 }
 
@@ -118,7 +252,7 @@ fn rejects_foreign_origins_destinations_order_and_noncanonical_origin_bytes() {
     );
     assert_eq!(
         decode(&[semantic(0, vec![action(0, 2, 1)])]).unwrap_err(),
-        ReconstructionError::Table("foreign destination")
+        ReconstructionError::Table("foreign action chain")
     );
     assert_eq!(
         decode(&[
@@ -140,7 +274,8 @@ fn rejects_foreign_origins_destinations_order_and_noncanonical_origin_bytes() {
     );
     tx.tx_data = eez_primitives::SystemTransaction {
         chain_id: 1,
-        nonce: 0,
+        source_hash: B256::repeat_byte(1),
+        gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
         to: eez_primitives::EEZL2_ADDRESS,
         value: U256::ZERO,
         input: Bytes::new(),
@@ -240,15 +375,53 @@ fn semantic_binding_rejects_substitution_mutations_and_unused_suffixes() {
         |b| b.staticEntries[0].returnData = Bytes::from_static(b"forged"),
         |b| b.staticEntries[0].expectedRoots[0].rollupId = 2,
         |b| b.staticEntries.push(b.staticEntries[0].clone()),
-        |b| b.immediateEntryCount += U256::from(1),
     ];
     for change in changes {
         let mut bad = batch.clone();
         change(&mut bad);
         assert!(actions.bind_settlement(&bad).is_err());
+        assert!(actions.bind_observed_settlement(&bad).is_err());
     }
     assert!(
         InboundSidecar::for_rollup(&batch.entries[2], RollupId(1)).is_err(),
         "settlement ABI is never an inbound reconstruction input"
     );
+}
+
+#[test]
+fn observed_settlement_accepts_retuned_dispatch() {
+    let mut read = action(0, 1, 3);
+    read.call_mode = CallMode::Static;
+    read.value = U256::ZERO;
+    let transactions = [
+        semantic(1, vec![action(1, 0, 1)]),
+        semantic(0, vec![action(0, 1, 2), read]),
+    ];
+    let actions = decode(&transactions).unwrap();
+    let mut batch = settlement(&transactions);
+    for immediate in [2, 3] {
+        for statics in [0, 1] {
+            batch.immediateEntryCount = U256::from(immediate);
+            batch.immediateStaticEntryCount = U256::from(statics);
+            if immediate == 2 && statics != 0 {
+                assert!(actions.bind_observed_settlement(&batch).is_err());
+            } else {
+                assert_eq!(actions.bind_observed_settlement(&batch).unwrap(), 2);
+            }
+            assert_eq!(
+                actions.bind_settlement(&batch).is_ok(),
+                immediate == 2 && statics == 0
+            );
+        }
+    }
+    for (immediate, statics) in [(0, 0), (1, 0), (4, 0), (3, 2)] {
+        batch.immediateEntryCount = U256::from(immediate);
+        batch.immediateStaticEntryCount = U256::from(statics);
+        assert!(actions.bind_observed_settlement(&batch).is_err());
+    }
+    batch.immediateEntryCount = U256::MAX;
+    assert!(actions.bind_observed_settlement(&batch).is_err());
+    batch.immediateEntryCount = U256::from(3);
+    batch.immediateStaticEntryCount = U256::MAX;
+    assert!(actions.bind_observed_settlement(&batch).is_err());
 }

@@ -1,0 +1,277 @@
+{
+  "source_commit": "319ebc2dbfdace3d5e708a2c9881cc741529aec4",
+  "synthetic_checkout": "08e163331c4935d3d4e8c1b657df87812ba50862",
+  "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "source_path": "crates/eez-node-e2e/tests/derivable_operations/multipart.rs",
+  "source_before_sha256": "00349e7ce9fb4ea75699a85b075b2f67d993b1dd4dfc0782a18c69a4c169e409",
+  "run_id": 40104687331,
+  "job_id": 120911639745,
+  "test": "derivable_operations::multipart::expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay",
+  "failure": "application missed catch-up range",
+  "assertion_line": 267,
+  "test_seconds": 18.428,
+  "original_job_log_sha256": "c484ed07ac9b993d37d2cc4009461bf1afc0562985b0cf6cea2373eadf50b229",
+  "diagnostic_artifact_id": 12565941455,
+  "diagnostic_artifact_sha256": "f87eb6fd372c131bb4181f716871d4a7f4b7ca1969b1c71026766bf325830802",
+  "node_log_sha256": "5682e7822ab17d066d92c76b6e5832c3a35ccbae4b98770e296ee14472726a55",
+  "first_block": {
+    "number": 1,
+    "timestamp": 1792854535,
+    "wall_time": "2026-10-24T15:42:16.004374Z"
+  },
+  "fixed_cutoff": {
+    "number": 2000,
+    "timestamp": 1792856534,
+    "produced_at": "2026-10-24T15:42:27.447584Z"
+  },
+  "last_logged_block": {
+    "number": 2014,
+    "timestamp": 1792856548,
+    "wall_time": "2026-10-24T15:42:28.003507Z"
+  },
+  "limits": [
+    "The failing receipt index, transaction hash and exact height were not printed. The assertion proves inclusion above 2000; the last logged produced block was 2014, which is contextual evidence rather than a receipt-derived upper bound.",
+    "CI retained 130 log files but no datadirs; the original receipt cannot be recovered from the artifact.",
+    "Failure precedes the cold-part proofs and independent follower replay.",
+    "The first directed pass used the initial correction and did not exercise a late receipt; the final directed pass uses the separately identified strengthened harness.",
+    "The optional four-day stress case was not rerun; its original CI selection remains explicitly ignored."
+  ],
+  "source_after_sha256": "364fd9834d7a10dabdb3fe6e74cd34cad48cc8bb56c03aa345806032c7db1691",
+  "change": "Use genesis age as the minimum history; fix the on-grid terminal once after all 32 sequential application receipts, covering the last receipt if catch-up already finished. Every proof, final actual-parent part and follower comparison uses this same finite terminal.",
+  "preserved_checks": [
+    "Minimum historical span and dense initial L1 chain, including the BPO transition",
+    "Strictly increasing application inclusion heights and successful receipts",
+    "At most part_blocks per cold network-denied signer, with no source RPC",
+    "First-part expired source exceeds 256 L1 blocks and getCustomData rejects it",
+    "Missing source and broken bridge reject without attestations",
+    "Historical mode for earlier parts and exactly one final actual-parent part",
+    "Canonical on-chain advancement, exact block/state/randao replay and every application record"
+  ],
+  "checks": {
+    "rustfmt_file": "passed",
+    "git_diff_check": "passed",
+    "compilation": "passed in 46.012 seconds; only eez-node-e2e recompiled",
+    "target_process_regression": "passed 1/1 in 123.27 seconds; original CI failure and first directed pass retained separately"
+  },
+  "repeated_in_original_ci_run": false,
+  "source_initial_correction_sha256": "367819f18e2e92a59012308ad20093bcdd06a18eafb435d1942c4d05695cce57",
+  "deterministic_regression": "Before submitting the final application, wait for latest >= minimum history height; require its successful receipt strictly beyond that height, then fix the terminal once. The preceding 31 applications still run during catch-up; production is never paused.",
+  "initial_correction_run": {
+    "source_sha256": "367819f18e2e92a59012308ad20093bcdd06a18eafb435d1942c4d05695cce57",
+    "executable_sha256": "8d4eccbd533d398c5a09c695dcdcf7ee828b685e1e593085ddbee2a5dac98dc6",
+    "build": {
+      "elapsed_seconds": 44.013,
+      "exit_code": 0,
+      "cargo_build_jobs": 1,
+      "minimum_mem_available_bytes": 16012242944,
+      "stdout_sha256": "59825640b233ed983fe0331476438726fbc6a4cc9045cb200deebab22a351214",
+      "stderr_sha256": "c0c99d273b60a4dae28acd89eb7de780bcd989edd69549a6d84c0ce10fb42dd2"
+    },
+    "result": {
+      "started_utc": "2026-10-24T16:16:49.514516+00:00",
+      "finished_utc": "2026-10-24T16:18:42.545847+00:00",
+      "elapsed_seconds": 113.031,
+      "exit_code": 0,
+      "runtime_source": "08e163331c4935d3d4e8c1b657df87812ba50862",
+      "production_bin_sha256": {
+        "eez-composer": "3e76308c0c9017b23c6dcb10ac29d0b78fdd2c5abe7a3a857778f2256df825fd",
+        "eez-follower": "a3e01ef1f53aeea2d2084a7b2467496d2e071fc9db1820b1068ebeebadf6350f",
+        "eez-proof-signer": "f00afb27148cc64711db5592aa7cbe2f67c884ae5f33abd70a9b95986ca357ff",
+        "eez-genesis-state-root": "971e5f617d860d3b50d04b9c821dea67b1f6830af7e9a3dacc3a130a44f53a6b",
+        "eez-genesis-block-hash": "443681ad4c1726241c3510fec436104e110a047c8bf5755907de62c56cd99e98",
+        "e2e-causal-verify": "fef7c1afb25b626cca3e44196e2db6d5934b984bc04325897c2596f4ff13da7b",
+        "verify_blob_evidence": "e7e3ddab13bc6d1829ae39e9eb9d85a72a72f7fffc0a9966a04bfa6c4a910489"
+      },
+      "signer_outgoing_network": "denied",
+      "log_sha256": "bfe0846a1ed5221de6b8b1f32f52ee5d7fb58e1375eb7c9328223630896cc1ac"
+    },
+    "test_result": {
+      "passed": 1,
+      "failed": 0,
+      "filtered": 178,
+      "seconds": 112.11
+    },
+    "checkpoints": [
+      {
+        "application_blocks": [
+          1,
+          11,
+          51,
+          119,
+          191,
+          229,
+          276,
+          346,
+          406,
+          458,
+          553,
+          596,
+          634,
+          677,
+          731,
+          816,
+          821,
+          856,
+          923,
+          994,
+          1082,
+          1136,
+          1189,
+          1203,
+          1258,
+          1306,
+          1408,
+          1509,
+          1546,
+          1641,
+          1681,
+          1759
+        ],
+        "checkpoint": "offline_catchup_range",
+        "minimum_history_seconds": 2000,
+        "terminal_number": 2000,
+        "terminal_timestamp": 1792858614
+      },
+      {
+        "actual_parent_parts": 1,
+        "checkpoint": "offline_catchup_complete",
+        "elapsed_seconds": 2000,
+        "first_part_terminal_source_age": 304,
+        "historical_parts": 3,
+        "imported_l1_headers": 401,
+        "l1_rule_change_timestamp": 1792857609,
+        "l2_blocks": 2000,
+        "l2_hash": "0xaec404bf4b2e2b17f5f79270a095f8f896bac491a8c975a2c93253487365804d",
+        "l2_state_root": "0xc0d67c366377fcc2e9963e5941ff886f2bf11493185a988aa807b93ee0a5629f",
+        "minimum_history_seconds": 2000,
+        "ordinary_transactions": 32,
+        "parts": 4,
+        "wall_ms": 111984
+      }
+    ],
+    "limit": "Selected terminal 2000, last application 1759; did not exercise extension beyond the original fixed terminal.",
+    "local_only_evidence": "artifacts/pr-readiness/multipart-terminal/final/",
+    "harness_profile": {
+      "opt_level": "1",
+      "debuginfo": "line-tables-only",
+      "debug_assertions": true,
+      "overflow_checks": true,
+      "test": true
+    }
+  },
+  "final_directed_run": {
+    "source_sha256": "364fd9834d7a10dabdb3fe6e74cd34cad48cc8bb56c03aa345806032c7db1691",
+    "executable_sha256": "756ac2e23ef6858e27740176c9f02c354bb8a3d54e43001a3b4822658385e397",
+    "build": {
+      "elapsed_seconds": 46.012,
+      "exit_code": 0,
+      "cargo_build_jobs": 1,
+      "minimum_mem_available_bytes": 15457615872,
+      "stdout_sha256": "4776e9c7450090cf8ee54913cdce525dca38f3eb172337f247c8e0fbd346776b",
+      "stderr_sha256": "aa944fdca657e27b8b52238ddbad86b72e9c46a81cfb402bcb105f6008c16c9c"
+    },
+    "packages_recompiled": [
+      "eez-node-e2e::node_e2e"
+    ],
+    "build_command": "cargo +1.95.0 test --locked --offline -p eez-node-e2e --test node_e2e --no-run --message-format=json; one job, LLVM 22, private /tmp via bwrap, memory guard",
+    "result": {
+      "started_utc": "2026-10-24T16:21:33.209937+00:00",
+      "finished_utc": "2026-10-24T16:23:37.245087+00:00",
+      "elapsed_seconds": 124.035,
+      "exit_code": 0,
+      "minimum_mem_available_bytes": 14426304512,
+      "runtime_source": "08e163331c4935d3d4e8c1b657df87812ba50862",
+      "production_bin_sha256": {
+        "eez-composer": "3e76308c0c9017b23c6dcb10ac29d0b78fdd2c5abe7a3a857778f2256df825fd",
+        "eez-follower": "a3e01ef1f53aeea2d2084a7b2467496d2e071fc9db1820b1068ebeebadf6350f",
+        "eez-proof-signer": "f00afb27148cc64711db5592aa7cbe2f67c884ae5f33abd70a9b95986ca357ff",
+        "eez-genesis-state-root": "971e5f617d860d3b50d04b9c821dea67b1f6830af7e9a3dacc3a130a44f53a6b",
+        "eez-genesis-block-hash": "443681ad4c1726241c3510fec436104e110a047c8bf5755907de62c56cd99e98",
+        "e2e-causal-verify": "fef7c1afb25b626cca3e44196e2db6d5934b984bc04325897c2596f4ff13da7b",
+        "verify_blob_evidence": "e7e3ddab13bc6d1829ae39e9eb9d85a72a72f7fffc0a9966a04bfa6c4a910489"
+      },
+      "signer_outgoing_network": "denied",
+      "log_sha256": "948ceba5383c0105dad04e7c167f68414a90198a6cec212ce2644a0e3fcd7f6c"
+    },
+    "test_command": "<retained node_e2e-multipart> --exact derivable_operations::multipart::expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay --nocapture --test-threads=1; private /tmp via bwrap; verified CI runtime",
+    "test_result": {
+      "passed": 1,
+      "failed": 0,
+      "filtered": 178,
+      "seconds": 123.27
+    },
+    "checkpoints": [
+      {
+        "application_blocks": [
+          1,
+          14,
+          91,
+          138,
+          224,
+          278,
+          336,
+          391,
+          472,
+          544,
+          606,
+          661,
+          724,
+          737,
+          793,
+          841,
+          851,
+          878,
+          951,
+          1016,
+          1062,
+          1126,
+          1133,
+          1194,
+          1241,
+          1316,
+          1378,
+          1427,
+          1471,
+          1566,
+          1619,
+          2008
+        ],
+        "checkpoint": "offline_catchup_range",
+        "minimum_history_seconds": 2000,
+        "terminal_number": 2010,
+        "terminal_timestamp": 1792858908
+      },
+      {
+        "actual_parent_parts": 1,
+        "checkpoint": "offline_catchup_complete",
+        "elapsed_seconds": 2010,
+        "first_part_terminal_source_age": 304,
+        "historical_parts": 4,
+        "imported_l1_headers": 403,
+        "l1_rule_change_timestamp": 1792857893,
+        "l2_blocks": 2010,
+        "l2_hash": "0xe75120c290fc3cbbcb07d07f17ada0eda012807703a349c83e31941566a10daf",
+        "l2_state_root": "0xc3a838b5d05aa67dd421c40e8b6c413e87dd0329fb40c42ff40dd08102380298",
+        "minimum_history_seconds": 2000,
+        "ordinary_transactions": 32,
+        "parts": 5,
+        "wall_ms": 123133
+      }
+    ],
+    "coverage": "The last receipt exceeds the original height 2000; every application is included in the single fixed terminal 2010 and independently replayed. Four historical proofs and one actual-parent proof use fresh network-denied signers, each capped at 500 blocks.",
+    "local_only_evidence": "artifacts/pr-readiness/multipart-terminal/forced-late/",
+    "harness_profile": {
+      "opt_level": "1",
+      "debuginfo": "line-tables-only",
+      "debug_assertions": true,
+      "overflow_checks": true,
+      "test": true
+    }
+  },
+  "failed_receipt_observed_context": {
+    "minimum_inclusion_height": 2001,
+    "last_logged_production_height": 2014,
+    "exact_inclusion_height": null,
+    "upper_bound_verified_from_receipt": false
+  }
+}

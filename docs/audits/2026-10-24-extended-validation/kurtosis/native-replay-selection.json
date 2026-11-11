@@ -1,0 +1,40 @@
+{
+  "scope": "Audit receipt selection only, not protocol execution. Live final collection/replay pending.",
+  "collector_sha256": "8700a3e53ad8cd81961f85691fe1e4c1f9a0df336fa5bddc05f0df75cb104b58",
+  "checks": [
+    {
+      "source": "a50c326d",
+      "type": "0x76",
+      "selected": false,
+      "passed": true
+    },
+    {
+      "source": "28049ff7",
+      "type": "0x45",
+      "selected": true,
+      "passed": true
+    },
+    {
+      "source": "a50c326d",
+      "type": "0x2",
+      "selected": true,
+      "passed": true
+    },
+    {
+      "source": "28049ff7",
+      "type": "0x2",
+      "selected": true,
+      "passed": true
+    },
+    {
+      "source": "a50c326d",
+      "type": "0x45",
+      "wrong_profile_rejected": true
+    },
+    {
+      "source": "28049ff7",
+      "type": "0x76",
+      "wrong_profile_rejected": true
+    }
+  ]
+}

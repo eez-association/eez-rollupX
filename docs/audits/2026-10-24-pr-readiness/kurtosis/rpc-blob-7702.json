@@ -1,0 +1,76 @@
+{
+  "snapshot": "R03 release; dependency-feature cleanup pending remote CI",
+  "blob_smoke": {
+    "first_attempt": {
+      "phase": "blob-rpc-corrected",
+      "exit_code": 126,
+      "seconds": 430,
+      "failure": "jq summary E2BIG for151752byte batches argument; protocol assertions completed before summary assembly",
+      "input_batches": 37
+    },
+    "readonly_resume": {
+      "phase": "blob-summary-readonly",
+      "verified": true,
+      "broadcasts": 0,
+      "same_original_transactions": true,
+      "same_original_batch_objects": true,
+      "summary_sha256": "a1b311453acfb8cfa4999a1e71d8b568e838242823e524b50738f0c64ae06ca7",
+      "contract": {
+        "address": "0x121525a50836042846362faab126168b998d1cf2",
+        "deployment_tx": "0x7bbe61b65f051d219d85775c7d49b64c3daed53cf0c85ffc6764f95567ae23ee",
+        "increment_tx": "0x5dd8f2f3f91ecbb7d13d568f77274ae51d804d6defaaf956355e2bfc62391ea4",
+        "add_41_tx": "0x53a08710a5fe7cbd97d15ce2cdb992d7834b687cdaa46a8a6a0f04f2a6152c9a",
+        "value_at_safe": 42
+      },
+      "settlement": {
+        "safe_l2_block": 4950,
+        "safe_l2_block_hash": "0xd0de81611a411a7e6d4f5ea10520ddb6110b35674edc3c1d9b9adb8f06971bc5",
+        "l1_registry_commitment": "0xd0de81611a411a7e6d4f5ea10520ddb6110b35674edc3c1d9b9adb8f06971bc5"
+      },
+      "correlation_checks": 3
+    }
+  },
+  "ordinary_7702": {
+    "verified": true,
+    "seconds": 54,
+    "scope": "ordinary delegated execution only; no cross-chain trigger",
+    "authority": "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF",
+    "sponsor": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+    "delegation_target": "0x5F1e91d509cFEB544809B0749284DEB25C3a113a",
+    "target_runtime_sha256": "55bbf2dc887b05405031f6a0e8dea1bcfcc9ef410741758578eed30a22b840a8",
+    "safe_number": 4902,
+    "safe_hash": "0x71ebe74a01697f32a4f76f1bf2a64b895d39875877cfdf7d7fd5f0b17daf8a29",
+    "raw_evidence_sha256": "abd2fbabf678b2ca1aed8e716d6ceb3cfb9b705f1aa8e630ad052bcff5517589",
+    "transactions": [
+      {
+        "label": "delegation-and-execution",
+        "transaction": "0x1fdc879a4c1723df9163c59312a73c4f2f406cb0b5e86213afff78b2ee0e9df6",
+        "sponsor_cost": "3426200",
+        "block_basefee_vault_credit": "3357676",
+        "authority_nonce": 1,
+        "authority_storage": 77,
+        "authority_code": "0xef01005f1e91d509cfeb544809b0749284deb25c3a113a"
+      },
+      {
+        "label": "persistent-delegated-execution",
+        "transaction": "0x6d4bc09f9be324dc7bd88ebb65b7ee78baaf2a58f9359d36facdf1576b9ab39f",
+        "sponsor_cost": "1314950",
+        "block_basefee_vault_credit": "1288651",
+        "authority_nonce": 1,
+        "authority_storage": 78,
+        "authority_code": "0xef01005f1e91d509cfeb544809b0749284deb25c3a113a"
+      },
+      {
+        "label": "revocation",
+        "transaction": "0x8ba8db4371466807f148f4da49c05aa2377e6172432bfff0cafa760a8c2e369c",
+        "sponsor_cost": "1840000",
+        "block_basefee_vault_credit": "1803200",
+        "authority_nonce": 2,
+        "authority_storage": 78,
+        "authority_code": "0x"
+      }
+    ],
+    "fresh_follower_replay": false
+  },
+  "evidence_location": "artifacts/pr-readiness/kurtosis/ (local only)"
+}

@@ -1,0 +1,79 @@
+packages:
+    Finished `test` profile [optimized + debuginfo] target(s) in 2m 43s
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.22s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.10s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 231 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.81s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+process-separated:
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 33s
+    Finished `dev` profile [optimized + debuginfo] target(s) in 1m 16s
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 190 filtered out; finished in 900.94s
+
+manager-process:
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 15s
+    Finished `dev` profile [optimized + debuginfo] target(s) in 1m 12s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 204 filtered out; finished in 108.06s
+
+signer-testkit:
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 12s
+test service::tests::derivation::captured::manager_destination_is_rejected_by_independent_signer_before_signing ... ok
+test settlement::tests::post_batch::manager_destination_checks_all_l1_arrays_against_runtime_proxy ... ok
+test result: ok. 340 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 2.41s
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+evidence-test-final:
+    Finished `test` profile [optimized + debuginfo] target(s) in 50.05s
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+clippy-complete:
+    Finished `dev` profile [optimized + debuginfo] target(s) in 51.28s
+
+signer-check:
+    Finished `dev` profile [optimized + debuginfo] target(s) in 34.20s
+
+signer-clippy:
+    Finished `dev` profile [optimized + debuginfo] target(s) in 9.53s
+
+signer-doc:
+    Finished `dev` profile [optimized + debuginfo] target(s) in 4.81s
+
+contract-separated:
+Ran 3 tests for test/NestedContractCreation.t.sol:NestedContractCreationTest
+Ran 1 test for test/CallHashVectors.t.sol:CallHashVectorsTest
+Ran 1 test for test/TopLevelStaticEpoch.t.sol:TopLevelStaticEpochTest
+Ran 1 test for test/RollingHashVectors.t.sol:RollingHashVectorsTest
+Ran 2 tests for test/DeploymentSmoke.t.sol:DeploymentSmokeTest
+Ran 1 test for test/SetterWrapper.t.sol:SetterWrapperTest
+Ran 3 tests for test/ECDSAProofSystem.t.sol:ECDSAProofSystemTest
+Ran 2 tests for test/L1StorageProofEip1186.t.sol:L1StorageProofEip1186Test
+Ran 13 tests for test/L1BlockhashContract.t.sol:L1BlockhashContractTest
+Ran 8 tests for test/PublicInputsHashVectors.t.sol:PublicInputsHashVectorsTest
+Ran 8 tests for test/ProtocolGroupFunding.t.sol:ProtocolGroupFundingTest
+Ran 4 tests for test/EEZPostBatcher.t.sol:EEZPostBatcherTest
+Ran 18 tests for test/FeeVault.t.sol:FeeVaultTest
+Ran 10 tests for test/CrossChainProxyPolicy.t.sol:CrossChainProxyPolicyTest
+Ran 6 tests for test/RollupContext.t.sol:RollupContextTest
+Ran 8 tests for test/L1StorageProof.t.sol:L1StorageProofTest
+Ran 64 tests for test/PostBatchGasPins.t.sol:PostBatchGasPinsTest
+Ran 17 test suites in 1.44s (9.82s CPU time): 153 tests passed, 0 failed, 0 skipped (153 total tests)
+
+expressiveness:
+Ran 4 tests for test/EEZExpressiveness.t.sol:EEZExpressivenessL1Test
+Ran 7 tests for test/EEZExpressiveness.t.sol:EEZExpressivenessL2Test
+Ran 2 test suites in 18.53ms (20.02ms CPU time): 11 tests passed, 0 failed, 0 skipped (11 total tests)

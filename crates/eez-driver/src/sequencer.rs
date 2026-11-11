@@ -1,35 +1,19 @@
-//! Engine-API consumer that advances the chain on a 2s cadence aligned to
-//! wall-clock time, with **greedy backfill** of any timestamp slots that
-//! were missed due to a reorg or downtime.
+//! Produce ordinary blocks on the configured local time grid, with bounded
+//! backfill after downtime or a reorg. A separate owned worker prepares
+//! L1-triggered conditional candidates and settlement; waiting for that work
+//! never occupies the ordinary clock. The loop also refreshes forkchoice.
 //!
-//! [`Sequencer::run`] is the long-running loop. Each iteration handles one
-//! of:
-//!
-//! 1. A scheduler tick. `Sequencer::advance` runs in a loop, producing
-//!    blocks at deterministic `parent.timestamp() + BLOCK_TIME_SECS`
-//!    slots until the chain catches up to the tick's wall-clock target.
-//!    Most ticks produce a single block (the chain is on cadence); after
-//!    a reorg or a stall, the same tick may produce several filler
-//!    blocks to backfill the slots that passed during the rewind.
-//! 2. A slower FCU-refresh timer, used to keep reth's engine view alive
-//!    during quiet periods.
-//!
-//! The Sequencer does **not** keep a local mirror of the canonical head.
-//! Every iteration of `advance` reads the current head from the
-//! [`BlockCommitterHandle::last_header`] — the actor is the single source
-//! of truth, updated synchronously inside every Sequence + Derive command.
-//! This is what fixes the race where the Deriver-driven canonical change
-//! was visible to the actor immediately, but the Sequencer's own mirror
-//! lagged behind reth's `CanonStateNotification` broadcast — producing
-//! "invalid payload attributes" errors when the Sequencer issued FCU+attrs
-//! based on a stale parent.
+//! Every attempt reads its current parent from
+//! [`BlockCommitterHandle::last_header`]. Sequence and Derive update that head
+//! synchronously, and commits fence the exact parent so a delayed candidate
+//! cannot overwrite a newer block or a reconciled branch.
 
 use core::fmt;
 use std::{sync::Arc, time::Duration};
 
 use alloy_primitives::{Address, B256};
+use eez_primitives::engine::EezPayloadAttributes as EthPayloadAttributes;
 use reth_chainspec::{EthChainSpec, EthereumHardforks};
-use reth_ethereum_engine_primitives::EthPayloadAttributes;
 use reth_payload_primitives::{BuiltPayload, PayloadTypes};
 use reth_primitives_traits::{
     AlloyBlockHeader, HeaderTy, NodePrimitives, SealedHeader, SealedHeaderFor,
@@ -50,9 +34,8 @@ use crate::timing::{RollupTiming, SlotComposition};
 /// miner uses.
 const FCU_REFRESH: Duration = Duration::from_secs(1);
 
-/// Max speculative gap the Sequencer can run ahead of L1-confirmed
-/// cursor. Pauses beyond this so reth's state-retention
-/// window keeps recent ancestors alive for the Deriver's replay.
+/// Maximum speculative gap for preparing conditional cross-chain candidates.
+/// Ordinary block production continues independently of this bound.
 pub const DEFAULT_MAX_SPECULATIVE_DEPTH: u64 = 64;
 
 /// Reconciliation can replace the parent or its authenticated execution seed
@@ -67,21 +50,38 @@ fn log_stale_candidate(phase: &str) {
     );
 }
 
-// The cross-chain composer owns its remaining pipeline estimate. The scheduler
-// rejects only an expired target; ordinary-only posting retains its prior gate.
-fn sync_slot_too_late(
-    timing: RollupTiming,
-    cross_chain: bool,
-    timestamp: u64,
-    now_ms: u64,
-) -> bool {
+// Composer owns the remaining pipeline estimate. The scheduler only rejects an
+// expired target; all admission and proof work shares its submission deadline.
+fn sync_slot_too_late(timing: RollupTiming, timestamp: u64, now_ms: u64) -> bool {
     let slack_ms = u64::try_from(timing.submission_slack().as_millis()).unwrap_or(u64::MAX);
     let deadline_ms = timestamp.saturating_mul(1000).saturating_sub(slack_ms);
-    if cross_chain {
-        now_ms >= deadline_ms
-    } else {
-        let proof_ms = u64::try_from(timing.proof_time().as_millis()).unwrap_or(u64::MAX);
-        now_ms.saturating_add(proof_ms) > deadline_ms
+    now_ms >= deadline_ms
+}
+
+/// One volatile cutoff decision. The expected tip is advanced only by this
+/// sequencer's successful commits; a branch substitution invalidates the plan.
+#[derive(Debug, Clone, Copy)]
+struct SlotDecision {
+    target: u64,
+    l1_parent: eez_l1::L1BlockRef,
+    generation: u64,
+    tip: B256,
+    /// Only a successful not-due hint suppresses posting at its boundary.
+    /// Errors/late recovery retain the existing Empty policy opportunity.
+    skip_post: bool,
+}
+
+impl SlotDecision {
+    fn matches(
+        self,
+        target: u64,
+        tip: B256,
+        snapshot: eez_l1::l1_canonical_head::PolicyAnchorSnapshot,
+    ) -> bool {
+        self.target == target
+            && self.tip == tip
+            && self.generation == snapshot.generation
+            && snapshot.through == Some(self.l1_parent)
     }
 }
 
@@ -92,24 +92,87 @@ mod tests {
     use std::sync::Mutex;
 
     #[test]
-    fn late_cross_chain_entry_uses_shared_deadline_and_preserves_ordinary_gate() {
-        let timing = RollupTiming::new(5000, 1000, 450, 450);
-        assert!(!sync_slot_too_late(timing, false, 10, 9100));
-        assert!(sync_slot_too_late(timing, false, 10, 9101));
-        assert!(!sync_slot_too_late(timing, true, 10, 9101));
-        assert!(!sync_slot_too_late(timing, true, 10, 9549));
-        assert!(sync_slot_too_late(timing, true, 10, 9550));
-        assert!(sync_slot_too_late(timing, true, 10, 9551));
+    fn all_settlement_uses_one_absolute_submission_deadline() {
+        let timing = RollupTiming::new(5000, 1000, 450, 450, 4);
+        assert!(!sync_slot_too_late(timing, 10, 9100));
+        assert!(!sync_slot_too_late(timing, 10, 9101));
+        assert!(!sync_slot_too_late(timing, 10, 9549));
+        assert!(sync_slot_too_late(timing, 10, 9550));
+        assert!(sync_slot_too_late(timing, 10, 9551));
     }
 
+    #[derive(Default)]
     struct PolicyComposer {
         result: &'static str,
         calls: Arc<Mutex<Vec<SyncSlotMode>>>,
+        prepare: Arc<std::sync::atomic::AtomicBool>,
+        plans: Arc<Mutex<Vec<u64>>>,
+        first_plan: Option<Arc<tokio::sync::Barrier>>,
+        first_block: Option<Arc<tokio::sync::Barrier>>,
+        block_waited: std::sync::atomic::AtomicBool,
     }
 
     #[async_trait::async_trait]
     impl SyncSlotComposer for PolicyComposer {
+        async fn recover_failed(&self, _: u64) {
+            if self.result == "recover-pending" {
+                struct Active(Arc<std::sync::atomic::AtomicBool>);
+                impl Drop for Active {
+                    fn drop(&mut self) {
+                        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }
+                self.prepare
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                let _active = Active(self.prepare.clone());
+                std::future::pending::<()>().await;
+            }
+        }
+
+        async fn should_prepare(
+            &self,
+            _: u64,
+            parent: ParentContext,
+            _: u64,
+            _: u64,
+            _: eez_l1::L1BlockRef,
+        ) -> Result<bool, String> {
+            let first = {
+                let mut plans = self.plans.lock().unwrap();
+                plans.push(parent.header.number());
+                plans.len() == 1
+            };
+            if first && let Some(barrier) = &self.first_plan {
+                barrier.wait().await;
+                barrier.wait().await;
+            }
+            if self.result == "plan-pending" {
+                return std::future::pending().await;
+            }
+            if self.result == "plan-error" {
+                return Err("canonical planning evidence unavailable".into());
+            }
+            Ok(self.prepare.load(std::sync::atomic::Ordering::SeqCst))
+        }
+
         fn set_sequencing_target(&self, _: u64, _: u64) {}
+
+        async fn block_attributes(
+            &self,
+            _: u64,
+            _: ParentContext,
+            attributes: eez_primitives::engine::EezPayloadAttributes,
+        ) -> Result<eez_primitives::engine::EezPayloadAttributes, String> {
+            if let Some(barrier) = &self.first_block
+                && !self
+                    .block_waited
+                    .swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                barrier.wait().await;
+                barrier.wait().await;
+            }
+            Ok(attributes)
+        }
 
         fn ordinary_block_da_limit(
             &self,
@@ -134,7 +197,8 @@ mod tests {
         ) -> SyncSlotOutcome {
             assert_eq!(target.is_some(), mode == SyncSlotMode::Steady);
             self.calls.lock().unwrap().push(mode);
-            if self.result == "end" {
+            if self.result == "end" || (self.result == "end-steady" && mode == SyncSlotMode::Steady)
+            {
                 return SyncSlotOutcome::EndTick;
             }
             let header = SealedHeader::seal_slow(alloy_consensus::Header {
@@ -154,6 +218,11 @@ mod tests {
                 ..Default::default()
             });
             SyncSlotOutcome::Built(Box::new(SyncSlotBlock {
+                l1_origin_hash: alloy_consensus::Header {
+                    timestamp: parent.header.timestamp - parent.header.number - 5,
+                    ..Default::default()
+                }
+                .hash_slow(),
                 payload: alloy_rpc_types_engine::ExecutionData::from_block_unchecked(
                     header.hash(),
                     &alloy_consensus::Block::<alloy_consensus::TxEnvelope>::new(
@@ -176,7 +245,7 @@ mod tests {
                     .as_secs()
                     + 3600;
                 let timestamp = if mode == SyncSlotMode::Empty {
-                    5
+                    15
                 } else {
                     future
                 };
@@ -185,27 +254,46 @@ mod tests {
                     timestamp: timestamp - 1,
                     ..Default::default()
                 });
-                let l1_head = test_seed_head(&parent);
+                let l1_head = test_history_head(&parent).await;
                 let (committer, commands) = crate::block_committer::test_committer(parent);
                 let calls = Arc::new(Mutex::new(Vec::new()));
                 let composer: SyncSlotComposerHandle = Arc::new(PolicyComposer {
                     result,
                     calls: Arc::clone(&calls),
+                    ..Default::default()
                 });
                 let (_, receiver) = mpsc::channel(1);
                 let mut sequencer = Sequencer::composer(
                     EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
                     committer.clone(),
                     receiver,
-                    RollupTiming::new(5000, 1000, 1000, 100),
+                    RollupTiming::new(5000, 1000, 1000, 100, 3),
                     1,
                     composer,
                     0,
                     Arc::clone(&l1_head),
                 );
                 let target = 5;
+                let l1_parent = eez_l1::L1BlockRef {
+                    number: 1,
+                    hash: B256::repeat_byte(1),
+                };
+                l1_head.mark_scanned(
+                    l1_parent,
+                    eez_l1::L2Endpoint {
+                        number: 0,
+                        hash: B256::ZERO,
+                    },
+                );
+                sequencer.slot_decision = Some(SlotDecision {
+                    target,
+                    l1_parent,
+                    generation: l1_head.policy_anchor_snapshot().generation,
+                    tip: committer.last_header().hash(),
+                    skip_post: false,
+                });
                 sequencer
-                    .advance_sync_slot(target, timestamp, 1)
+                    .produce_slot_suffix(target, timestamp, 1)
                     .await
                     .unwrap();
                 let commands = commands.lock().unwrap();
@@ -230,22 +318,312 @@ mod tests {
             }
         }
     }
-    fn test_seed_head(parent: &alloy_consensus::Header) -> Arc<eez_l1::L1CanonicalHead> {
+    #[tokio::test]
+    async fn ordinary_clock_crosses_missing_slots_and_speculative_cap_without_l1_context() {
+        let parent = SealedHeader::seal_slow(alloy_consensus::Header {
+            timestamp: 1000,
+            ..Default::default()
+        });
+        let (committer, commands) = crate::block_committer::test_committer(parent);
+        let (_, receiver) = mpsc::channel(1);
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut sequencer = Sequencer::composer(
+            EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
+            committer.clone(),
+            receiver,
+            RollupTiming::new(5000, 1000, 100, 100, 2),
+            1,
+            Arc::new(PolicyComposer {
+                result: "plan-error",
+                calls: calls.clone(),
+                ..Default::default()
+            }),
+            4,
+            Arc::new(eez_l1::L1CanonicalHead::default()),
+        );
+        for second in 1..=100 {
+            sequencer
+                .advance_ordinary_at((1000 + second) * 1000)
+                .await
+                .unwrap();
+            assert_eq!(
+                committer.last_header().number(),
+                second,
+                "cadence at {second}"
+            );
+        }
+        assert_eq!(commands.lock().unwrap().len(), 100);
+        assert!(
+            calls.lock().unwrap().is_empty(),
+            "ordinary clock cannot invoke settlement"
+        );
+        sequencer.advance_ordinary_at(1_100_999).await.unwrap();
+        assert_eq!(
+            committer.last_header().number(),
+            100,
+            "no future block on the ordinary clock"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn closed_source_and_stalled_preparation_do_not_stop_local_ticks_and_worker_is_owned() {
+        use std::sync::atomic::Ordering;
+        let now = crate::slot::now_unix_millis() / 1000;
+        let parent = SealedHeader::seal_slow(alloy_consensus::Header {
+            // Target 105 is now + 2: still usable and past its preparation trigger.
+            timestamp: now - 103,
+            ..Default::default()
+        });
+        let (committer, _) = crate::block_committer::test_committer(parent);
+        let (sender, receiver) = mpsc::channel(1);
+        let composer = Arc::new(PolicyComposer {
+            result: "recover-pending",
+            ..Default::default()
+        });
+        let sequencer = Sequencer::composer(
+            EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
+            committer.clone(),
+            receiver,
+            RollupTiming::new(5000, 1000, 100, 100, 2),
+            1,
+            composer.clone(),
+            4,
+            Arc::new(eez_l1::L1CanonicalHead::default()),
+        );
+        sender
+            .send(SlotEvent::SyncSlot {
+                block_height: 105,
+                timestamp: now + 2,
+                l1_head: 1,
+                l1_hash: B256::ZERO,
+            })
+            .await
+            .unwrap();
+        drop(sender);
+        let task = tokio::spawn(sequencer.run());
+        for _ in 0..100 {
+            if composer.prepare.load(Ordering::SeqCst) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            composer.prepare.load(Ordering::SeqCst),
+            "controlled preparation stall reached"
+        );
+        for _ in 0..4 {
+            tokio::time::advance(Duration::from_secs(1)).await;
+            for _ in 0..500 {
+                tokio::task::yield_now().await;
+            }
+        }
+        assert!(
+            committer.last_header().number() >= 100,
+            "closed source and blocked worker must not freeze the clock"
+        );
+        assert!(!task.is_finished());
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        for _ in 0..100 {
+            if !composer.prepare.load(Ordering::SeqCst) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            !composer.prepare.load(Ordering::SeqCst),
+            "worker is cancelled with its owner"
+        );
+    }
+
+    #[tokio::test]
+    async fn preparation_waits_for_grid_cutoff_and_stale_decisions_cannot_rewrite_local_progress() {
+        let now = crate::slot::now_unix_millis() / 1000;
+        let parent = SealedHeader::seal_slow(alloy_consensus::Header {
+            number: 1,
+            timestamp: now - 1,
+            ..Default::default()
+        });
+        let head = test_history_head(&parent).await;
+        let l1 = eez_l1::L1BlockRef {
+            number: 7,
+            hash: B256::repeat_byte(7),
+        };
+        head.mark_scanned(
+            l1,
+            eez_l1::L2Endpoint {
+                number: 0,
+                hash: B256::ZERO,
+            },
+        );
+        let (committer, _) = crate::block_committer::test_committer(parent);
+        let (_, receiver) = mpsc::channel(1);
+        let composer = Arc::new(PolicyComposer {
+            result: "empty",
+            ..Default::default()
+        });
+        let mut sequencer = Sequencer::composer(
+            EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
+            committer.clone(),
+            receiver,
+            RollupTiming::new(5000, 1000, 100, 100, 2).with_start_delay_ms(500),
+            1,
+            composer.clone(),
+            0,
+            head.clone(),
+        );
+        sequencer
+            .advance_position_slot_at(5, now + 3, l1, now * 1000 + 499)
+            .await
+            .unwrap();
+        assert!(composer.plans.lock().unwrap().is_empty());
+        sequencer.advance_ordinary_at(now * 1000).await.unwrap();
+        assert_eq!(committer.last_header().number(), 2);
+        sequencer
+            .advance_position_slot_at(5, now + 3, l1, now * 1000 + 500)
+            .await
+            .unwrap();
+        assert_eq!(*composer.plans.lock().unwrap(), vec![2]);
+        // A no-work decision leaves the independent ordinary clock free.
+        sequencer
+            .advance_ordinary_at((now + 3) * 1000)
+            .await
+            .unwrap();
+        assert_eq!(committer.last_header().number(), 5);
+        let prior = committer.last_header().hash();
+        head.invalidate_scan();
+        sequencer
+            .advance_position_slot_at(5, now + 3, l1, (now + 3) * 1000)
+            .await
+            .unwrap();
+        assert_eq!(committer.last_header().hash(), prior);
+        assert!(composer.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn preparation_retries_changed_context_without_changing_the_l1_target() {
+        for change in [
+            "ordinary_parent",
+            "scan_generation",
+            "l1_parent",
+            "future_parent",
+            "future_generation",
+        ] {
+            let now = crate::slot::now_unix_millis() / 1000;
+            let parent = SealedHeader::seal_slow(alloy_consensus::Header {
+                number: 2,
+                timestamp: now - 1,
+                ..Default::default()
+            });
+            let head = test_history_head(&parent).await;
+            let l1 = eez_l1::L1BlockRef {
+                number: 7,
+                hash: B256::repeat_byte(7),
+            };
+            let endpoint = eez_l1::L2Endpoint {
+                number: 0,
+                hash: B256::ZERO,
+            };
+            head.mark_scanned(l1, endpoint);
+            let (committer, _) = crate::block_committer::test_committer(parent);
+            let (_, receiver) = mpsc::channel(1);
+            let barrier = Arc::new(tokio::sync::Barrier::new(2));
+            let composer = Arc::new(PolicyComposer {
+                first_plan: (!change.starts_with("future_")).then(|| Arc::clone(&barrier)),
+                first_block: change.starts_with("future_").then(|| Arc::clone(&barrier)),
+                ..Default::default()
+            });
+            composer
+                .prepare
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            let mut sequencer = Sequencer::composer(
+                EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
+                committer.clone(),
+                receiver,
+                RollupTiming::new(5000, 1000, 100, 100, 2),
+                1,
+                composer.clone(),
+                0,
+                head.clone(),
+            );
+            let mut worker = sequencer.preparation_worker();
+            let task =
+                tokio::spawn(async move { worker.advance_position_slot(5, now + 2, l1).await });
+            tokio::time::timeout(Duration::from_secs(1), barrier.wait())
+                .await
+                .expect("preparation reached the controlled race");
+            match change {
+                "ordinary_parent" | "future_parent" => {
+                    sequencer.advance_ordinary_at(now * 1000).await.unwrap();
+                }
+                "scan_generation" | "future_generation" => head.mark_scanned(l1, endpoint),
+                "l1_parent" => head.mark_scanned(
+                    eez_l1::L1BlockRef {
+                        hash: B256::repeat_byte(8),
+                        ..l1
+                    },
+                    endpoint,
+                ),
+                _ => unreachable!(),
+            }
+            barrier.wait().await;
+            tokio::time::timeout(Duration::from_secs(1), task)
+                .await
+                .expect("bounded preparation worker")
+                .unwrap()
+                .unwrap();
+            let plans = composer.plans.lock().unwrap();
+            if change == "l1_parent" {
+                assert_eq!(*plans, [2]);
+                assert!(composer.calls.lock().unwrap().is_empty());
+                assert_eq!(committer.last_header().number(), 2);
+            } else {
+                assert_eq!(
+                    *plans,
+                    [2, if change == "scan_generation" { 2 } else { 3 }],
+                    "{change}"
+                );
+                assert_eq!(
+                    *composer.calls.lock().unwrap(),
+                    [SyncSlotMode::Steady],
+                    "{change}"
+                );
+                assert_eq!(committer.last_header().number(), 5);
+                assert_eq!(committer.last_header().timestamp(), now + 2);
+            }
+        }
+    }
+
+    async fn test_history_head(parent: &alloy_consensus::Header) -> Arc<eez_l1::L1CanonicalHead> {
         use eez_protocol::l2::{DerivationConfig, GenesisL1Reference, Schedule};
         let timestamp = parent.timestamp.checked_sub(parent.number).unwrap();
         let genesis = alloy_consensus::Header {
             timestamp,
             ..Default::default()
         };
+        let reference = alloy_consensus::Header {
+            timestamp: timestamp - 5,
+            ..Default::default()
+        };
+        let endpoint = alloy_consensus::Header {
+            number: 1,
+            parent_hash: reference.hash_slow(),
+            timestamp: parent.timestamp + 1_000_000,
+            ..Default::default()
+        };
         let schedule = Schedule::new(
             DerivationConfig {
+                fee_collector: alloy_primitives::address!(
+                    "f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+                ),
+                history_update_offset: 0,
                 block_interval_seconds: 1,
                 sync_interval_blocks: 5,
                 l1_reference: GenesisL1Reference {
                     chain_id: 1337,
                     number: 0,
-                    hash: B256::repeat_byte(1),
-                    timestamp,
+                    hash: reference.hash_slow(),
+                    timestamp: reference.timestamp,
                     prev_randao: B256::ZERO,
                 },
             },
@@ -253,7 +631,54 @@ mod tests {
         )
         .unwrap();
         let head = Arc::new(eez_l1::L1CanonicalHead::default());
-        head.restore_derivation(eez_l1::derivation::SeedHistory::new(schedule));
+        head.initialize_history(schedule);
+        let replies = alloy_provider::mock::Asserter::new();
+        let block = |header: alloy_consensus::Header| alloy_rpc_types_eth::Block::<
+            alloy_rpc_types_eth::Transaction,
+        > {
+            header: alloy_rpc_types_eth::Header {
+                hash: header.hash_slow(),
+                inner: header,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let reference = block(reference);
+        let endpoint = block(endpoint);
+        replies.push_success(&alloy_primitives::U64::from(1337));
+        replies.push_success(&reference);
+        let source = eez_l1::derivation::DerivationSource::authenticate(
+            alloy_provider::ProviderBuilder::new().connect_mocked_client(replies.clone()),
+            schedule,
+        )
+        .await
+        .unwrap();
+        // Endpoint read, binary search, contiguous acquisition, canonical recheck.
+        for value in [&reference, &reference, &endpoint, &endpoint] {
+            replies.push_success(value);
+        }
+        head.publish_history(
+            source
+                .prepare_history(
+                    0,
+                    eez_l1::L1BlockRef {
+                        number: endpoint.header.number,
+                        hash: endpoint.header.hash,
+                    },
+                    eez_protocol::l1_history::HeaderRules {
+                        london_block: None,
+                        shanghai_time: None,
+                        cancun_time: None,
+                        prague_time: None,
+                        unsupported_time: None,
+                    },
+                    None,
+                )
+                .await
+                .unwrap(),
+            head.policy_anchor_snapshot().generation,
+        )
+        .unwrap();
         head
     }
 
@@ -267,7 +692,7 @@ mod tests {
                         timestamp: 100,
                         ..Default::default()
                     });
-                    let l1_head = test_seed_head(&parent);
+                    let l1_head = test_history_head(&parent).await;
                     let (committer, commands) = crate::block_committer::test_committer(parent);
                     let calls = Arc::new(Mutex::new(Vec::new()));
                     let (_, receiver) = mpsc::channel(1);
@@ -275,11 +700,18 @@ mod tests {
                         EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
                         committer.clone(),
                         receiver,
-                        RollupTiming::new(u32::try_from(k * 1000).unwrap(), 1000, 1000, 100),
+                        RollupTiming::new(
+                            u32::try_from(k * 1000).unwrap(),
+                            1000,
+                            1000,
+                            100,
+                            u32::try_from(k - 2).unwrap(),
+                        ),
                         1,
                         Arc::new(PolicyComposer {
                             result,
                             calls: calls.clone(),
+                            ..Default::default()
                         }),
                         0,
                         Arc::clone(&l1_head),
@@ -340,13 +772,17 @@ mod tests {
                         timestamp: timestamp - (target - start) + u64::from(case == "misaligned"),
                         ..Default::default()
                     });
-                    let l1_head = test_seed_head(&parent);
+                    let l1_head = test_history_head(&parent).await;
                     let (committer, commands) = crate::block_committer::test_committer(parent);
                     let calls = Arc::new(Mutex::new(Vec::new()));
                     let (_, receiver) = mpsc::channel(1);
-                    let timing =
-                        RollupTiming::new(u32::try_from(k * 1000).unwrap(), 1000, 500, 700)
-                            .with_preparation_time_ms(500);
+                    let timing = RollupTiming::new(
+                        u32::try_from(k * 1000).unwrap(),
+                        1000,
+                        500,
+                        700,
+                        u32::try_from(k - 2).unwrap(),
+                    );
                     let mut sequencer = Sequencer::composer(
                         EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
                         committer.clone(),
@@ -356,12 +792,31 @@ mod tests {
                         Arc::new(PolicyComposer {
                             result: "empty",
                             calls: Arc::clone(&calls),
+                            ..Default::default()
                         }),
                         u64::from(case == "speculative_cap"),
                         Arc::clone(&l1_head),
                     );
+                    let l1_parent = eez_l1::L1BlockRef {
+                        number: 100,
+                        hash: B256::repeat_byte(1),
+                    };
+                    l1_head.mark_scanned(
+                        l1_parent,
+                        eez_l1::L2Endpoint {
+                            number: 0,
+                            hash: B256::ZERO,
+                        },
+                    );
+                    sequencer.slot_decision = Some(SlotDecision {
+                        target,
+                        l1_parent,
+                        generation: l1_head.policy_anchor_snapshot().generation,
+                        tip: committer.last_header().hash(),
+                        skip_post: false,
+                    });
                     sequencer
-                        .advance_sync_slot(target, timestamp, 100)
+                        .produce_slot_suffix(target, timestamp, 100)
                         .await
                         .unwrap();
                     let calls = calls.lock().unwrap();
@@ -406,8 +861,8 @@ mod tests {
     }
 }
 
-/// Builds payload attributes from captured, parent-derived time and RANDAO.
-/// The sequencer obtains both together from authenticated canonical history.
+/// Builds base payload attributes on the immutable time grid. The Composer
+/// freezes the recorded history transaction and its RANDAO before sequencing.
 #[derive(Debug, Clone)]
 pub struct EthAttributesBuilder<ChainSpec> {
     chain_spec: Arc<ChainSpec>,
@@ -439,7 +894,7 @@ where
     /// Build with the exact checked position; never clamp or normalize time.
     #[must_use]
     pub fn build(&self, timestamp: u64, prev_randao: B256) -> EthPayloadAttributes {
-        EthPayloadAttributes {
+        reth_ethereum_engine_primitives::EthPayloadAttributes {
             timestamp,
             prev_randao,
             suggested_fee_recipient: self.suggested_fee_recipient,
@@ -455,6 +910,7 @@ where
             slot_number: None,
             target_gas_limit: None,
         }
+        .into()
     }
 }
 
@@ -467,7 +923,7 @@ where
     T: PayloadTypes<PayloadAttributes = EthPayloadAttributes>,
 {
     attributes: EthAttributesBuilder<ChainSpec>,
-    schedule_rx: mpsc::Receiver<SlotEvent>,
+    schedule_rx: Option<mpsc::Receiver<SlotEvent>>,
     committer: BlockCommitterHandle<T>,
     /// Per-rollup timing (L1/L2 cadence, proof window, slack). Used to
     /// compute per-trigger Live/Future/Sync block composition and per-
@@ -480,6 +936,7 @@ where
     /// Consecutive Sync blocks skipped for off-grid drift. A skip self-heals
     /// next trigger; a run of them is a stall and must be loud (invariant 7).
     off_grid_skips: u32,
+    slot_decision: Option<SlotDecision>,
 }
 
 impl<T, ChainSpec> fmt::Debug for Sequencer<T, ChainSpec>
@@ -529,7 +986,7 @@ where
     ) -> Self {
         Self {
             attributes,
-            schedule_rx,
+            schedule_rx: Some(schedule_rx),
             committer,
             timing,
             rollup_id,
@@ -537,46 +994,149 @@ where
             max_speculative_depth,
             l1_head,
             off_grid_skips: 0,
+            slot_decision: None,
         }
     }
 
-    /// Runs the sequencer loop until cancellation. Errors during advance
-    /// are logged and the loop continues; channel-closed = Scheduler
-    /// task exited, Sequencer exits cleanly.
+    /// Local block time is independent of settlement. One owned preparation
+    /// worker may run ahead for a live candidate; ordinary ticks never await it.
+    /// Shared commit operations still fence the exact parent under reconciliation.
     pub async fn run(mut self) {
-        let mut fcu_interval = tokio::time::interval(FCU_REFRESH);
+        let mut schedule = self
+            .schedule_rx
+            .take()
+            .expect("run owns the schedule receiver");
+        let mut schedule_open = true;
+        let mut workers = tokio::task::JoinSet::new();
+        let mut pending = None;
+        let mut fcu = tokio::time::interval(FCU_REFRESH);
+        let mut clock = tokio::time::interval_at(
+            tokio::time::Instant::now()
+                + crate::slot::next_grid_tick_delay(
+                    crate::slot::now_unix_millis(),
+                    self.committer.last_header().timestamp(),
+                    self.timing,
+                ),
+            self.timing.l2_block_time(),
+        );
+        clock.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
-                maybe_event = self.schedule_rx.recv() => {
-                    let Some(event) = maybe_event else {
-                        event!(
-                            name: "eez.sequencer.schedule_rx.closed",
-                            Level::ERROR,
-                            "schedule channel closed; sequencer task exiting",
-                        );
-                        break;
-                    };
-                    if let Err(err) = self.advance(event).await {
-                        event!(
-                            name: "eez.sequencer.advance.failed",
-                            Level::ERROR,
-                            error = %err,
-                            "advance failed: {{error}}",
-                        );
+                event = schedule.recv(), if schedule_open => {
+                    match event {
+                        Some(event @ SlotEvent::SyncSlot { .. }) => pending = Some(event),
+                        None => {
+                            schedule_open = false;
+                            event!(Level::WARN, "L1 scheduler closed; local block production continues");
+                        }
                     }
                 }
-                _ = fcu_interval.tick() => {
-                    if let Err(err) = self.committer.refresh_forkchoice().await {
-                        event!(
-                            name: "eez.sequencer.fcu.failed",
-                            Level::WARN,
-                            error = %err,
-                            "forkchoice refresh failed: {{error}}",
-                        );
+                result = workers.join_next(), if !workers.is_empty() => {
+                    if let Some(Err(error)) = result { event!(Level::ERROR, %error, "settlement preparation worker failed"); }
+                }
+                _ = clock.tick() => {
+                    if let Err(error) = self.advance_ordinary_at(crate::slot::now_unix_millis()).await {
+                        event!(Level::ERROR, %error, "ordinary block production failed");
+                    }
+                }
+                _ = fcu.tick() => {
+                    if let Err(error) = self.committer.refresh_forkchoice().await {
+                        event!(Level::WARN, %error, "forkchoice refresh failed");
                     }
                 }
             }
+            if workers.is_empty()
+                && let Some(event) = pending.take()
+            {
+                let mut worker = self.preparation_worker();
+                workers.spawn(async move {
+                    if let Err(error) = worker.advance(event).await {
+                        event!(Level::WARN, %error, "settlement opportunity deferred");
+                    }
+                    let head = crate::ParentContext {
+                        header: worker.committer.last_header(),
+                    };
+                    if let Err(error) = worker
+                        .composer
+                        .settle_retained(worker.rollup_id, head)
+                        .await
+                    {
+                        event!(Level::WARN, %error, "retained ordinary settlement deferred");
+                    }
+                });
+            }
         }
+    }
+
+    /// An isolated scheduling decision with shared, single-owner settlement and
+    /// commit handles. It owns no event receiver and cannot start another worker.
+    fn preparation_worker(&self) -> Self {
+        Self {
+            attributes: EthAttributesBuilder {
+                chain_spec: Arc::clone(&self.attributes.chain_spec),
+                suggested_fee_recipient: self.attributes.suggested_fee_recipient,
+            },
+            schedule_rx: None,
+            committer: self.committer.clone(),
+            timing: self.timing,
+            rollup_id: self.rollup_id,
+            composer: Arc::clone(&self.composer),
+            max_speculative_depth: self.max_speculative_depth,
+            l1_head: Arc::clone(&self.l1_head),
+            off_grid_skips: 0,
+            slot_decision: None,
+        }
+    }
+
+    /// Produce due ordinary blocks using only local state and prepared evidence.
+    /// Proof deadlines, same-parent replacements and unsettled depth do not gate it.
+    async fn advance_ordinary_at(&mut self, now_ms: u64) -> DriverResult<()> {
+        let k = u64::from(self.timing.k());
+        for _ in 0..crate::MAX_BLOCKS_PER_CATCHUP {
+            let parent = self.committer.last_header();
+            let next = parent
+                .number()
+                .checked_add(1)
+                .ok_or_else(|| DriverError::provider("L2 height overflow"))?;
+            let timestamp = parent
+                .timestamp()
+                .checked_add(self.timing.l2_block_time().as_secs())
+                .ok_or_else(|| DriverError::provider("L2 timestamp overflow"))?;
+            if timestamp > now_ms / 1000 {
+                break;
+            }
+            let boundary = next
+                .checked_add((k - next % k) % k)
+                .ok_or_else(|| DriverError::provider("L2 boundary overflow"))?;
+            self.composer
+                .set_sequencing_target(self.rollup_id, boundary);
+            let mut attributes = self.attributes.build(timestamp, parent.mix_hash);
+            attributes.no_tx_pool = next == boundary;
+            let attributes = self
+                .composer
+                .block_attributes(
+                    self.rollup_id,
+                    crate::ParentContext {
+                        header: parent.clone(),
+                    },
+                    attributes,
+                )
+                .await
+                .map_err(DriverError::provider)?;
+            match self
+                .committer
+                .commit_sequenced(parent.hash(), || Ok(attributes))
+                .await
+            {
+                Ok(outcome) => event!(name: "eez.sequencer.block.produced", Level::INFO,
+                    slot.kind = if next == boundary { "sync" } else { "live" },
+                    block.number = outcome.header.number(), block.hash = %outcome.header.hash(),
+                    block.timestamp = outcome.header.timestamp(), "produced ordinary block"),
+                Err(error) if error.is_stale_candidate() => break,
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
     }
 
     /// Dispatch on slot event variant.
@@ -586,69 +1146,26 @@ where
                 block_height,
                 timestamp,
                 l1_head,
+                l1_hash,
             } => {
-                self.advance_sync_slot(block_height, timestamp, l1_head)
-                    .await
-            }
-            SlotEvent::LiveTick {
-                sync_slot_block_height,
-            } => {
-                self.advance_anchored_live_tick(sync_slot_block_height)
-                    .await
+                self.advance_position_slot(
+                    block_height,
+                    timestamp,
+                    eez_l1::L1BlockRef {
+                        number: l1_head,
+                        hash: l1_hash,
+                    },
+                )
+                .await
             }
         }
     }
 
-    /// L1-anchored wall-clock tick handler: commit exactly ONE Live
-    /// block, and only while the head is below the live region of the
-    /// next sync slot (`sync_slot_block_height - future_count - 1`).
-    /// The Future + Sync reserve belongs to the anchor trigger
-    /// ([`Self::advance_sync_slot`]); ticks no-op once the live region
-    /// is full, so they can't outrun the anchor.
-    async fn advance_anchored_live_tick(
-        &mut self,
-        sync_slot_block_height: u64,
-    ) -> DriverResult<()> {
-        let rollup_id = self.rollup_id;
-        let composer = Arc::clone(&self.composer);
-        // Before the head read: a mid-slot verdict would otherwise wait K
-        // blocks, and recovery can reorg + substitute under us.
-        composer.recover_failed(rollup_id).await;
-        let last_header = self.committer.last_header();
-        let head = last_header.number();
-        // Reserve = Future blocks + the Sync block itself. Mirrors
-        // `live_region_end` in `RollupTiming::per_trigger_composition`.
-        let reserve = u64::from(self.timing.future_count()) + 1;
-        let live_region_end = sync_slot_block_height.saturating_sub(reserve);
-        if head >= live_region_end {
-            // Live region full (steady state between anchor fire and
-            // the next L1 head). Future + Sync come from the anchor.
-            return Ok(());
-        }
-        if self.speculative_limit_paused(head) {
-            return Ok(());
-        }
-        match self
-            .commit_one(SlotKind::Live, &last_header, sync_slot_block_height)
-            .await
-        {
-            Ok(()) => Ok(()),
-            Err(err) if err.is_stale_candidate() => {
-                log_stale_candidate("live_tick");
-                Ok(())
-            }
-            Err(err) => Err(err),
-        }
-    }
-
-    /// True if the bundle (ready at ~`now + proof_time`) can't reach the
-    /// relay by `sync_slot_timestamp − submission_slack`, i.e. it would miss
-    /// the immediate next L1 slot. Steady state has headroom; fires only on
-    /// a late trigger, where the slot is deferred.
+    /// The slot cannot be submitted once its absolute relay deadline expires.
+    /// Composer separately admits actual preparation/proof work before that cutoff.
     fn sync_block_misses_l1_slot(&self, sync_slot_timestamp: u64) -> bool {
         sync_slot_too_late(
             self.timing,
-            self.composer.has_cross_chain_work(self.rollup_id),
             sync_slot_timestamp,
             crate::slot::now_unix_millis(),
         )
@@ -668,10 +1185,206 @@ where
         }
     }
 
-    /// L1-anchored handler: read current head, compute the per-trigger
-    /// Live/Future/Sync split via
-    /// [`RollupTiming::per_trigger_composition`], produce accordingly.
-    async fn advance_sync_slot(
+    /// Position mode decides only after a committed cutoff prefix. The ordinary
+    /// clock can advance while planning runs; refresh that snapshot within the
+    /// same target window instead of losing its sole scheduling event.
+    async fn advance_position_slot(
+        &mut self,
+        target: u64,
+        timestamp: u64,
+        l1_parent: eez_l1::L1BlockRef,
+    ) -> DriverResult<()> {
+        let started = tokio::time::Instant::now();
+        let started_ms = crate::slot::now_unix_millis();
+        let deadline_ms = timestamp
+            .saturating_mul(1000)
+            .saturating_sub(self.timing.submission_slack().as_millis() as u64);
+        let remaining = Duration::from_millis(deadline_ms.saturating_sub(started_ms));
+        // A target has at most k parent advances. Also cap repeated canonical
+        // generation changes, and never renew the original monotonic window.
+        for _ in 0..self.timing.k() {
+            if started.elapsed() >= remaining {
+                break;
+            }
+            let now_ms =
+                crate::slot::now_unix_millis().max(started_ms.saturating_add(
+                    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                ));
+            if sync_slot_too_late(self.timing, timestamp, now_ms) {
+                break;
+            }
+            match self
+                .advance_position_slot_at(target, timestamp, l1_parent, now_ms)
+                .await
+            {
+                Err(error) if error.is_stale_candidate() => {
+                    event!(name: "eez.sequencer.slot.plan_stale", Level::DEBUG,
+                        event_name = "eez.sequencer.slot.plan_stale", target, timestamp,
+                        "refreshing stale planning context within the original target window");
+                    tokio::task::yield_now().await;
+                }
+                result => return result,
+            }
+        }
+        Ok(())
+    }
+
+    async fn advance_position_slot_at(
+        &mut self,
+        target: u64,
+        timestamp: u64,
+        l1_parent: eez_l1::L1BlockRef,
+        now_ms: u64,
+    ) -> DriverResult<()> {
+        // Delay is anchored to the immutable grid, never to when P finishes.
+        // Normal ticks remain free to commit P before this instant. In
+        // particular, do not query queued work or freeze a decision early.
+        let trigger_ms = timestamp.saturating_mul(1000).saturating_sub(
+            self.timing
+                .l1_block_time()
+                .saturating_sub(self.timing.proof_window_open())
+                .as_millis() as u64,
+        );
+        if now_ms < trigger_ms {
+            return Ok(());
+        }
+        let composer = Arc::clone(&self.composer);
+        composer.recover_failed(self.rollup_id).await;
+        let l1_target = l1_parent
+            .number
+            .checked_add(1)
+            .ok_or_else(|| DriverError::provider("L1 target overflow"))?;
+        composer
+            .prepare_next_slot(self.rollup_id, l1_target, timestamp)
+            .await;
+        let snapshot = self.l1_head.policy_anchor_snapshot();
+        if snapshot.through != Some(l1_parent) {
+            log_stale_candidate("position.target");
+            return Ok(());
+        }
+        let parent = self.committer.last_header();
+        if parent.number() >= target
+            || self
+                .slot_decision
+                .is_some_and(|d| d.matches(target, parent.hash(), snapshot))
+        {
+            return Ok(());
+        }
+        // A replacement trigger can arrive before ticks finish the previous
+        // interval. Retain its authenticated non-posting checkpoint through
+        // catch-up; normal appends advance its tip until that boundary commits.
+        if !self.slot_decision.is_some_and(|decision| {
+            decision.target < target
+                && parent.number() < decision.target
+                && decision.matches(decision.target, parent.hash(), snapshot)
+        }) {
+            self.slot_decision = None;
+        }
+        let cutoff = target.saturating_sub(u64::from(self.timing.future_count()) + 1);
+        for _ in 0..crate::MAX_BLOCKS_PER_CATCHUP {
+            let parent = self.committer.last_header();
+            if parent.number() >= cutoff {
+                break;
+            }
+            if parent
+                .timestamp()
+                .saturating_add(self.timing.l2_block_time().as_secs())
+                > now_ms / 1000
+                || (parent.number() >= target.saturating_sub(u64::from(self.timing.k()))
+                    && self.speculative_limit_paused(parent.number()))
+            {
+                return Ok(());
+            }
+            self.commit_one(SlotKind::Live, &parent, target).await?;
+        }
+        let parent = self.committer.last_header();
+        if parent.number() < cutoff || parent.number() >= target {
+            return Ok(());
+        }
+        let expected_timestamp = (target - parent.number())
+            .checked_mul(self.timing.l2_block_time().as_secs())
+            .and_then(|offset| parent.timestamp().checked_add(offset));
+        if expected_timestamp != Some(timestamp) {
+            log_stale_candidate("position.cutoff");
+            return Ok(());
+        }
+        if !self.l1_head.generation_is(snapshot.generation) {
+            return Err(DriverError::stale_context(parent.hash()));
+        }
+        let deadline_ms = timestamp
+            .saturating_mul(1000)
+            .saturating_sub(self.timing.submission_slack().as_millis() as u64);
+        let planner_now_ms = now_ms.max(crate::slot::now_unix_millis());
+        let remaining = Duration::from_millis(deadline_ms.saturating_sub(planner_now_ms))
+            .saturating_sub(composer.post_proof_reserve());
+        // A delayed cutoff must not occupy the sequencer through the next
+        // ordinary tick. After late entry, use the next *future* grid tick:
+        // an already-missed tick does not cancel the recovery opportunity.
+        let planning_wait = remaining.min(crate::slot::next_grid_tick_delay(
+            planner_now_ms,
+            parent.timestamp(),
+            self.timing,
+        ));
+        let (prepare, skip_post) = if remaining.is_zero() {
+            (false, false)
+        } else {
+            match tokio::time::timeout(
+                planning_wait,
+                composer.should_prepare(
+                    self.rollup_id,
+                    crate::ParentContext {
+                        header: parent.clone(),
+                    },
+                    target,
+                    timestamp,
+                    l1_parent,
+                ),
+            )
+            .await
+            {
+                Ok(Ok(prepare)) => (prepare, !prepare),
+                Ok(Err(error)) => {
+                    event!(Level::WARN, %error, target, "preparation hint unavailable; preserving paced recovery path");
+                    (false, false)
+                }
+                Err(_) => {
+                    event!(name: "eez.sequencer.slot.plan_timeout", Level::WARN,
+                        event_name = "eez.sequencer.slot.plan_timeout", target,
+                        wait_ms = planning_wait.as_millis() as u64,
+                        "preparation hint timed out; resuming paced blocks with boundary recovery");
+                    (false, false)
+                }
+            }
+        };
+        if !self.l1_head.generation_is(snapshot.generation)
+            || self.committer.last_header().hash() != parent.hash()
+        {
+            return Err(DriverError::stale_context(parent.hash()));
+        }
+        self.slot_decision = Some(SlotDecision {
+            target,
+            l1_parent,
+            generation: snapshot.generation,
+            tip: parent.hash(),
+            skip_post,
+        });
+        event!(name: "eez.sequencer.slot.decision", Level::INFO,
+            event_name = "eez.sequencer.slot.decision", target, timestamp, prepare,
+            cutoff_hash = %parent.hash(), generation = snapshot.generation, skip_post,
+            "slot cutoff decided; late work cannot change an ordinary decision");
+        let reserve_ms =
+            u64::try_from(composer.post_proof_reserve().as_millis()).unwrap_or(u64::MAX);
+        if prepare
+            && crate::slot::now_unix_millis().saturating_add(reserve_ms) < deadline_ms
+            && !self.sync_block_misses_l1_slot(timestamp)
+        {
+            self.produce_slot_suffix(target, timestamp, l1_parent.number)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn produce_slot_suffix(
         &mut self,
         sync_slot_block_height: u64,
         sync_slot_timestamp: u64,
@@ -679,12 +1392,6 @@ where
     ) -> DriverResult<()> {
         let rollup_id = self.rollup_id;
         let composer = Arc::clone(&self.composer);
-        // Before the composition: a pending verdict would seed the whole burst
-        // on a doomed head, for compose_sync_slot to reorg away at its end.
-        composer.recover_failed(rollup_id).await;
-        composer
-            .prepare_next_slot(rollup_id, l1_head + 1, sync_slot_timestamp)
-            .await;
         let head = self.committer.last_header().number();
         // Catchup ignores the speculative cap (a steady-state bound): a
         // dropped pb heals by recomposing next trigger, which freezing to
@@ -719,6 +1426,7 @@ where
                 // produce that many Live blocks then the terminal Sync.
                 for _ in 0..live {
                     let last_header = self.committer.last_header();
+                    self.check_position_context(sync_slot_block_height, last_header.hash())?;
                     // Once the burst reaches this target's Future region, use
                     // the ordinary slot layout even though older intervals had
                     // to be rebuilt first. Intermediate Sync boundaries remain
@@ -732,35 +1440,27 @@ where
                     } else {
                         SlotKind::Live
                     };
-                    match self
-                        .commit_one(kind, &last_header, sync_slot_block_height)
-                        .await
-                    {
-                        Ok(()) => {}
-                        Err(err) if err.is_stale_candidate() => {
-                            log_stale_candidate("catchup.live");
-                            return Ok(());
-                        }
-                        Err(err) => return Err(err),
-                    }
+                    self.commit_one(kind, &last_header, sync_slot_block_height)
+                        .await?;
                 }
 
                 // A capped/past terminal remains structural-only. If catch-up
                 // reached the actual future target, recheck its timestamp and
                 // deadline now: beginning the tick behind must not cost another
                 // otherwise eligible L1 opportunity.
-                if terminal != Some(self.committer.last_header().number() + 1) {
+                let last_header = self.committer.last_header();
+                self.check_position_context(sync_slot_block_height, last_header.hash())?;
+                if terminal != Some(last_header.number() + 1) {
                     event!(
                         name: "eez.sequencer.sync_slot.off_grid_skipped",
                         Level::WARN,
-                        head_now = self.committer.last_header().number(),
+                        head_now = last_header.number(),
                         terminal = ?terminal,
                         "head moved during the burst; skipping the Sync block rather than placing it off-grid",
                     );
                     self.note_off_grid_skip();
                     return Ok(());
                 }
-                let last_header = self.committer.last_header();
                 let sync_ts = last_header
                     .timestamp()
                     .saturating_add(self.timing.l2_block_time().as_secs());
@@ -797,39 +1497,27 @@ where
             SlotComposition::Slot { live, future } => {
                 for _ in 0..live {
                     let last_header = self.committer.last_header();
+                    self.check_position_context(sync_slot_block_height, last_header.hash())?;
                     if self.speculative_limit_paused(last_header.number()) {
                         return Ok(()); // Defer Future + Sync to next trigger.
                     }
-                    match self
-                        .commit_one(SlotKind::Live, &last_header, sync_slot_block_height)
-                        .await
-                    {
-                        Ok(()) => {}
-                        Err(err) if err.is_stale_candidate() => {
-                            log_stale_candidate("slot.live");
-                            return Ok(());
-                        }
-                        Err(err) => return Err(err),
-                    }
+                    self.commit_one(SlotKind::Live, &last_header, sync_slot_block_height)
+                        .await?;
                 }
                 for _ in 0..future {
                     let last_header = self.committer.last_header();
+                    self.check_position_context(sync_slot_block_height, last_header.hash())?;
                     if self.speculative_limit_paused(last_header.number()) {
                         return Ok(()); // Defer remaining Future + Sync to next trigger.
                     }
-                    match self
-                        .commit_one(SlotKind::Future, &last_header, sync_slot_block_height)
-                        .await
-                    {
-                        Ok(()) => {}
-                        Err(err) if err.is_stale_candidate() => {
-                            log_stale_candidate("slot.future");
-                            return Ok(());
-                        }
-                        Err(err) => return Err(err),
-                    }
+                    // No proof has been dispatched yet. Let the owner replan
+                    // if the ordinary clock won this commit; prebuilt Sync
+                    // failures below retain the already-submitted attempt.
+                    self.commit_one(SlotKind::Future, &last_header, sync_slot_block_height)
+                        .await?;
                 }
                 let last_header = self.committer.last_header();
+                self.check_position_context(sync_slot_block_height, last_header.hash())?;
                 if self.speculative_limit_paused(last_header.number()) {
                     return Ok(()); // Defer the Sync (postBatch terminal) to next trigger.
                 }
@@ -960,11 +1648,23 @@ where
         if current_head != built_parent {
             return Err(DriverError::stale_parent(built_parent, current_head));
         }
-        let (timestamp, seed) = self
+        let schedule = self
             .l1_head
-            .next_block_context(&self.committer.last_header())
+            .derivation_schedule()
             .map_err(DriverError::provider)?;
-        if built.header.timestamp != timestamp || built.header.mix_hash != seed {
+        let (_, timestamp) = schedule
+            .next(&self.committer.last_header())
+            .map_err(DriverError::provider)?;
+        let snapshot = self
+            .l1_head
+            .prepared_history()
+            .ok_or_else(|| DriverError::stale_context(built_parent))?;
+        let origin = snapshot.chain();
+        let origin = origin
+            .by_hash(built.l1_origin_hash)
+            .map_err(DriverError::provider)?;
+        if built.header.timestamp != timestamp || built.header.mix_hash != origin.header().mix_hash
+        {
             return Err(DriverError::stale_context(built_parent));
         }
         let block_number = built.header.number();
@@ -977,6 +1677,7 @@ where
             .commit_derived(built.payload, built.header, true)
             .await?;
 
+        self.advance_decision_tip(built_parent, block_hash);
         event!(
             name: "eez.sequencer.block.produced",
             Level::INFO,
@@ -1011,6 +1712,19 @@ where
         {
             // Catch-up may span several Sync intervals. Each intermediate grid
             // boundary must remain an admissible historical settlement endpoint.
+            let mode = if self.slot_decision.is_some_and(|decision| {
+                decision.skip_post
+                    && parent.number().checked_add(1) == Some(decision.target)
+                    && decision.matches(
+                        decision.target,
+                        parent.hash(),
+                        self.l1_head.policy_anchor_snapshot(),
+                    )
+            }) {
+                SyncSlotMode::Ordinary
+            } else {
+                SyncSlotMode::Empty
+            };
             let outcome = self
                 .composer
                 .compose_sync_slot(
@@ -1020,7 +1734,7 @@ where
                     },
                     next_ts,
                     None,
-                    SyncSlotMode::Empty,
+                    mode,
                 )
                 .await;
             return match outcome {
@@ -1032,19 +1746,26 @@ where
                 )),
             };
         }
+        let attributes = self
+            .composer
+            .block_attributes(
+                self.rollup_id,
+                crate::ParentContext {
+                    header: parent.clone(),
+                },
+                self.attributes.build(next_ts, parent.mix_hash),
+            )
+            .await
+            .map_err(DriverError::provider)?;
         let outcome = self
             .committer
-            .commit_sequenced(parent_hash, || {
-                let (timestamp, seed) = self
-                    .l1_head
-                    .next_block_context(parent)
-                    .map_err(DriverError::provider)?;
-                Ok(self.attributes.build(timestamp, seed))
-            })
+            .commit_sequenced(parent_hash, || Ok(attributes))
             .await?;
         let timestamp = outcome.header.timestamp();
         let block_number = outcome.header.number();
         let block_hash = outcome.header.hash();
+
+        self.advance_decision_tip(parent_hash, block_hash);
 
         event!(
             name: "eez.sequencer.block.produced",
@@ -1056,5 +1777,28 @@ where
             "produced block {block_number} hash={block_hash} ts={timestamp} kind={kind}",
         );
         Ok(())
+    }
+
+    fn check_position_context(&self, target: u64, tip: B256) -> DriverResult<()> {
+        // Only this worker's commits advance its decision tip. A concurrent
+        // ordinary commit or canonical-generation change requires a fresh plan
+        // before continuing the suffix, even when no commit itself raced.
+        if self.slot_decision.is_some_and(|decision| {
+            decision.matches(target, tip, self.l1_head.policy_anchor_snapshot())
+        }) {
+            Ok(())
+        } else {
+            Err(DriverError::stale_context(tip))
+        }
+    }
+
+    fn advance_decision_tip(&mut self, parent: B256, hash: B256) {
+        if let Some(decision) = &mut self.slot_decision {
+            if decision.tip == parent && self.l1_head.generation_is(decision.generation) {
+                decision.tip = hash;
+            } else {
+                self.slot_decision = None;
+            }
+        }
     }
 }

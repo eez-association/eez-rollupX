@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, Bytes};
 use eez_evm::EezEvmConfig;
 use eez_primitives::EezTxEnvelope as TransactionSigned;
 use reth_evm::{ConfigureEvm, Evm as _};
@@ -35,6 +35,7 @@ use super::session::LocalExecutionSession;
 pub(crate) struct SourceSimulation {
     pub success: bool,
     pub gas_used: u64,
+    pub output: Bytes,
 }
 
 /// Discriminates how this client operates within the composition.
@@ -81,6 +82,7 @@ pub struct LocalChainClient {
     /// Bidirectional cache channel used to propagate in-flight state through
     /// nested dispatches that re-enter this rollup.
     overlay_channel: OverlayChannelHandle,
+    session_context: Option<(alloy_primitives::B256, reth_evm::EvmEnv)>,
 }
 
 impl std::fmt::Debug for LocalChainClient {
@@ -138,6 +140,7 @@ impl LocalChainClient {
             role: Role::Entry { dispatch_address },
             dialect,
             overlay_channel: new_overlay_channel(),
+            session_context: None,
         })
     }
 
@@ -170,6 +173,7 @@ impl LocalChainClient {
             role: Role::Entry { dispatch_address },
             dialect,
             overlay_channel: new_overlay_channel(),
+            session_context: None,
         })
     }
 
@@ -208,6 +212,7 @@ impl LocalChainClient {
             role: Role::Entry { dispatch_address },
             dialect,
             overlay_channel: Arc::clone(&shared_with.overlay_channel),
+            session_context: None,
         })
     }
 
@@ -235,6 +240,7 @@ impl LocalChainClient {
             role: Role::Follower { dispatch_address },
             dialect,
             overlay_channel: new_overlay_channel(),
+            session_context: None,
         })
     }
 
@@ -300,6 +306,30 @@ impl LocalChainClient {
             .map(|result| result.success)
     }
 
+    /// Independent channels are required for concurrent wallet estimates: the
+    /// provider is shared, but in-flight composition overlays must never be.
+    pub(crate) fn isolated(
+        &self,
+        hash: alloy_primitives::B256,
+        env: reth_evm::EvmEnv,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            provider: self.provider.clone(),
+            rollup_id: self.rollup_id,
+            role: match &self.role {
+                Role::Entry { dispatch_address } => Role::Entry {
+                    dispatch_address: *dispatch_address,
+                },
+                Role::Follower { dispatch_address } => Role::Follower {
+                    dispatch_address: *dispatch_address,
+                },
+            },
+            dialect: self.dialect,
+            overlay_channel: new_overlay_channel(),
+            session_context: Some((hash, env)),
+        })
+    }
+
     /// Shared source-simulation body: decode, build the tx env, run under the
     /// session inspector, commit.
     pub(crate) fn simulate_source_tx_on_with_retries(
@@ -337,17 +367,53 @@ impl LocalChainClient {
         let recovered = reth_primitives_traits::Recovered::new_unchecked(tx, signer);
         let tx_env = self.provider.evm_config.tx_env(&recovered);
 
+        self.simulate_source_env_on(
+            tx_env,
+            dispatcher,
+            state,
+            evm_env,
+            retry_unavailable_conditions,
+        )
+    }
+
+    /// Execute a normalized unsigned call using the same composition inspector
+    /// as signed admission. The caller owns a disposable, pinned state.
+    pub(crate) fn simulate_source_env_on(
+        &self,
+        tx_env: revm::context::TxEnv,
+        dispatcher: &mut CompositionBuilder,
+        state: &mut State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>,
+        evm_env: reth_evm::EvmEnvFor<EezEvmConfig>,
+        retry_unavailable_conditions: bool,
+    ) -> ExecutorResult<SourceSimulation> {
+        if !matches!(self.role, Role::Entry { .. }) {
+            return Err(ExecutorErrorKind::Unavailable(
+                "source simulation requires entry role".into(),
+            )
+            .into());
+        }
         // The source-simulation inspector dispatches every detected proxy CALL
         // through the composition builder, which records calls in preorder.
         // Attach the cache channel around each downstream dispatch.
         let mut inspector = self.inspector_factory().build(dispatcher);
         let traced = gas_trace::maybe_trace(&mut inspector, evm_env.cfg_env.chain_id);
+        let traced = crate::composer::quote_trace::inspect(
+            traced,
+            evm_env.cfg_env.chain_id,
+            "composition",
+            &tx_env,
+        );
         let mut evm =
             self.provider
                 .evm_config
                 .evm_with_env_and_inspector(&mut *state, evm_env, traced);
-        let (gas_used, success, changes) = match evm.transact(tx_env) {
-            Ok(r) => (r.result.tx_gas_used(), r.result.is_success(), Some(r.state)),
+        let (gas_used, success, output, changes) = match evm.transact(tx_env) {
+            Ok(r) => (
+                r.result.tx_gas_used(),
+                r.result.is_success(),
+                r.result.output().cloned().unwrap_or_default(),
+                Some(r.state),
+            ),
             // The backing store is unreachable — that is the slot's problem, not
             // the tx's, so it must not degrade into an empty composition (which
             // the drain reads as poison and evicts on).
@@ -386,11 +452,11 @@ impl LocalChainClient {
             // revert — no calls, so the drain evicts — but named for what it is.
             Err(EVMError::Transaction(e)) => {
                 tracing::warn!(%e, "source tx rejected at validation; it records no cross-chain call");
-                (0, false, None)
+                (0, false, Bytes::new(), None)
             }
             Err(e) => {
                 tracing::warn!(%e, "source sim reverted");
-                (0, false, None)
+                (0, false, Bytes::new(), None)
             }
         };
         drop(evm);
@@ -406,7 +472,11 @@ impl LocalChainClient {
         }
 
         tracing::info!(gas_used, success, "source simulation complete");
-        Ok(SourceSimulation { success, gas_used })
+        Ok(SourceSimulation {
+            success,
+            gas_used,
+            output,
+        })
     }
 }
 
@@ -435,6 +505,7 @@ impl ChainClient for LocalChainClient {
             inspector_factory,
             preloaded_cache,
             self.overlay_channel.clone(),
+            self.session_context.clone(),
         )?;
         Ok(Box::new(session))
     }
@@ -446,7 +517,7 @@ mod tests {
     use alloy_consensus::{Header, TxLegacy};
     use alloy_eips::eip2718::Encodable2718;
     use alloy_network::TxSignerSync;
-    use alloy_primitives::{B256, Bytes, TxKind, U256, address, bytes};
+    use alloy_primitives::{B256, TxKind, U256, address, bytes};
     use alloy_signer_local::PrivateKeySigner;
     use reth_chainspec::ChainSpecBuilder;
     use reth_provider::test_utils::{ExtendedAccount, MockEthProvider};
@@ -532,6 +603,52 @@ mod tests {
         assert!(!source_status(&client, signed_tx(REVERTER)));
     }
 
+    #[test]
+    fn quote_call_trace_preserves_source_execution_and_restores_scope() {
+        use crate::composer::quote_trace;
+        use serde_json::json;
+        for (to, success) in [(RECIPIENT, true), (REVERTER, false)] {
+            let run = |traced: bool| {
+                let client = fixture();
+                let slot = L1SlotState::open(&client).unwrap();
+                let (mut state, mut env) = slot.fork_state(&client).unwrap();
+                // The generic fixture is pre-Byzantium; enable REVERT so this
+                // comparison exercises revert bytes rather than InvalidFE.
+                env.cfg_env
+                    .set_spec_and_mainnet_gas_params(revm::primitives::hardfork::SpecId::BYZANTIUM);
+                let mut builder = CompositionBuilder::new(RollupId::MAINNET, Default::default());
+                let scope = traced.then(|| quote_trace::Scope::begin(json!({}), json!({})));
+                quote_trace::phase(0, "gas_estimation");
+                let result = client
+                    .simulate_source_tx_on_with_retries(
+                        signed_tx(to),
+                        &mut builder,
+                        &mut state,
+                        env,
+                        false,
+                    )
+                    .unwrap();
+                let trace = scope.map(quote_trace::Scope::finish);
+                let account = revm::Database::basic(&mut state, signer().address()).unwrap();
+                (
+                    (result.success, result.gas_used, result.output, account),
+                    trace,
+                )
+            };
+            let plain = run(false);
+            let traced = run(true);
+            assert_eq!(plain.0, traced.0, "tracing changed receipt or sender state");
+            assert_eq!(traced.0.0, success);
+            let trace = traced.1.unwrap();
+            assert_eq!(trace["runs"][0]["complete"], true);
+            assert_eq!(trace["runs"][0]["frames"][0]["to"], json!(to));
+            assert_eq!(
+                trace["runs"][0]["frames"][0]["status"],
+                if success { "success" } else { "revert" }
+            );
+            assert!(run(false).1.is_none());
+        }
+    }
     #[test]
     fn source_planning_gas_reports_execution_instead_of_the_signed_limit() {
         let client = fixture();
@@ -859,5 +976,12 @@ mod tests {
         }
         assert!(simulate(funded, 1, true, RECIPIENT).unwrap().success);
         assert!(!simulate(funded, 1, true, REVERTER).unwrap().success);
+        let error = simulate(U256::from(123), 1, true, RECIPIENT).unwrap_err();
+        let balance = crate::SourceBalanceError::from_executor(1, &error).unwrap();
+        assert_eq!(balance.available, U256::from(123));
+        // EVM validation reserves the signed limit, not the 21,000 gas that
+        // this transfer would consume if it were affordable.
+        assert_eq!(balance.required, U256::from(100_000));
+        assert_eq!(balance.chain_id, 1);
     }
 }

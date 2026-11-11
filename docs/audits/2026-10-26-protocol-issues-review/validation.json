@@ -1,0 +1,318 @@
+{
+  "date": "2026-10-26",
+  "kind": "combined source/design review and focused baseline tests",
+  "source": {
+    "repository": "https://github.com/eez-association/eez-rollupX",
+    "commit": "6c3106fb482bb323eefa8898a0bd922fc7520480",
+    "branch": "codex/fee-vault-upgradeable",
+    "pull_request": "https://github.com/eez-association/eez-rollupX/pull/103",
+    "pr_base_branch": "codex/mixed-direction-fees",
+    "pr_base_commit": "641e768f2e6605f7563c808a00937d374e98e8fb",
+    "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "source_clean": true,
+    "protocol_clean": true,
+    "validation_worktree": "artifacts/fee-vault-upgradeable-20261026",
+    "review_branch": "codex/review-protocol-issues-104-108",
+    "review_worktree": "artifacts/protocol-issues-review-20261026"
+  },
+  "draft": {
+    "repository": "https://github.com/eez-association/specs-draft",
+    "commit": "2c6d346bea0b3736f7453c35174291495694d1fc",
+    "related_issues_read": [
+      5,
+      6
+    ]
+  },
+  "equivalence_checks": {
+    "issue_baseline": "c1dafa6113425fce74bdba8c32ae8b0d7a7ba5ae",
+    "unchanged_paths": [
+      "crates/eez-evm/src/block.rs",
+      "crates/eez-evm/src/evm.rs",
+      "crates/eez-evm/src/history.rs",
+      "crates/eez-protocol/src/native_source.rs",
+      "crates/eez-protocol/src/system_tx.rs",
+      "crates/eez-protocol/src/blob_semantics/reconstruction.rs",
+      "crates/eez-proof-signer/src/validate/stateless.rs"
+    ],
+    "draft_issue_core_reference": "143d87e62cade98bfc122d612638dcaaf1c85633",
+    "core_reference_distance_commits": 20,
+    "core_files_identical_to_pin": [
+      "src/L2/EEZL2.sol",
+      "src/base/EEZBase.sol",
+      "docs/CORE_PROTOCOL_SPEC.md",
+      "docs/EXECUTION_ENTRY_SPEC.md"
+    ]
+  },
+  "issues": [
+    {
+      "html_url": "https://github.com/eez-association/eez-rollupX/issues/104",
+      "title": "Make L1 history selection deterministic and evaluate a pre-execution system call",
+      "state": "closed",
+      "state_reason": "not_planned",
+      "updated_at": "2026-10-26T22:02:58Z",
+      "comments": 3,
+      "body_sha256": "24274b8de97fc513d48b13edd480f0e7bac13167532a3bbe5dcf42cfab9e819e",
+      "comment_revisions": [
+        {
+          "url": "https://github.com/eez-association/eez-rollupX/issues/104#issuecomment-6427173742",
+          "updated_at": "2026-10-26T20:58:43Z",
+          "body_sha256": "6e2ba83a9d65225faaa90286be1535888b0fc7a460446aa70fea59b65901f88d"
+        },
+        {
+          "url": "https://github.com/eez-association/eez-rollupX/issues/104#issuecomment-6427222005",
+          "updated_at": "2026-10-26T21:01:11Z",
+          "body_sha256": "44a802ea4bfdebf6365eb67e127cad7cd8b637cebc8b263ec516f1e514059e03"
+        },
+        {
+          "url": "https://github.com/eez-association/eez-rollupX/issues/104#issuecomment-6428395532",
+          "updated_at": "2026-10-26T22:02:56Z",
+          "body_sha256": "a4a73ad9d9d4423e33d6d9db82a25dbbcd2aebac3c91ae050f2d8534e6d93a56"
+        }
+      ]
+    },
+    {
+      "html_url": "https://github.com/eez-association/eez-rollupX/issues/105",
+      "title": "Evaluate protocol balance cleanup after complete cross-chain groups",
+      "state": "open",
+      "state_reason": null,
+      "updated_at": "2026-10-26T20:51:11Z",
+      "comments": 0,
+      "body_sha256": "ac9055de67ff5734ea6fb1d766474b75401f4da99dd469e68af682c197e164b5",
+      "comment_revisions": []
+    },
+    {
+      "html_url": "https://github.com/eez-association/eez-rollupX/issues/107",
+      "title": "Recent L1 block-hash lookup can revert",
+      "state": "open",
+      "state_reason": null,
+      "updated_at": "2026-10-26T21:31:08Z",
+      "comments": 0,
+      "body_sha256": "3c86d8991031cb0161da17bb6c07306a6dcc3330ac5ef4f632ca73d94a0f7739",
+      "comment_revisions": []
+    },
+    {
+      "html_url": "https://github.com/eez-association/eez-rollupX/issues/108",
+      "title": "Introduce a dedicated optional L1-history transaction type without sourceHash",
+      "state": "open",
+      "state_reason": null,
+      "updated_at": "2026-10-26T22:02:14Z",
+      "comments": 0,
+      "body_sha256": "9bcf5593a9531f81c9186999a19136b41245c33480bacf7db099551d2d23c57d",
+      "comment_revisions": []
+    },
+    {
+      "html_url": "https://github.com/eez-association/specs-draft/issues/7",
+      "title": "Consider binding sourceHash to the final L2 rolling hash",
+      "state": "open",
+      "state_reason": null,
+      "updated_at": "2026-10-26T21:11:50Z",
+      "comments": 1,
+      "body_sha256": "ffaf0146f951ddbd776d115bd52b5a437e0da1ae8a53deec1d495d9e1eb95266",
+      "comment_revisions": [
+        {
+          "url": "https://github.com/eez-association/specs-draft/issues/7#issuecomment-6427431390",
+          "updated_at": "2026-10-26T21:11:50Z",
+          "body_sha256": "f0a8f51c9bf4baa90beba313ad9c08f8b612f04c865ea3e3c9c82952f2617e20"
+        }
+      ]
+    }
+  ],
+  "snapshot": {
+    "path": "artifacts/combined-issues-review/issue-snapshots.json",
+    "sha256": "5939aaf044923094d1d144ef05a390631cb1eb0b49032b893ff137470749628f",
+    "availability": "local-only; full issue/comment snapshots are not committed"
+  },
+  "toolchain": {
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "forge": [
+      "forge Version: 1.7.1",
+      "Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8",
+      "Build Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)",
+      "Build Profile: dist"
+    ],
+    "solc": "0.8.34 (core test compile log)"
+  },
+  "rust_environment": {
+    "LLVM_SYS_221_PREFIX": "/usr/lib/llvm-22",
+    "PATH_prefix": "/usr/lib/llvm-22/bin",
+    "CARGO_BUILD_JOBS": "1",
+    "TMPDIR": "<validation_worktree>/artifacts/combined-issues-review-20261026/tmp"
+  },
+  "executables": [
+    {
+      "path": "target/debug/deps/eez_protocol-c8c12458cb926609",
+      "bytes": 32496112,
+      "sha256": "1b106ca9043508556cd1cc06552cb544293fc2a93c3fbfed36c5adaeafcd510b"
+    },
+    {
+      "path": "target/debug/deps/eez_evm-f8b32d8a3fbab56a",
+      "bytes": 36208464,
+      "sha256": "fa1b72728963e910e020ac75034f9d3319ddcbb2ed26506cb8935d9d9d7f4744"
+    },
+    {
+      "path": "forge (PATH)",
+      "bytes": 84666760,
+      "sha256": "4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c"
+    }
+  ],
+  "checks": [
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-protocol --lib native_source::",
+      "exit_code": 0,
+      "passed": 2,
+      "failed": 0,
+      "ignored_or_skipped_selected": 0,
+      "filtered": 206,
+      "tests": [
+        "native_source::tests::independent_cross_chain_source_vectors",
+        "native_source::tests::independent_history_source_vectors"
+      ],
+      "result_lines": [
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 206 filtered out; finished in 0.00s"
+      ],
+      "log": "artifacts/combined-issues-review-20261026/native-source-tests.log",
+      "log_sha256": "3f8cd6fa79c1da9594c0a4aaabc27826d5ff55a13b649f6cf93bdc5c6f94194d",
+      "log_availability": "local-only; not committed"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-protocol --lib blob_semantics::reconstruction::tests::",
+      "exit_code": 0,
+      "passed": 6,
+      "failed": 0,
+      "ignored_or_skipped_selected": 0,
+      "filtered": 202,
+      "tests": [
+        "blob_semantics::reconstruction::tests::failed_foreign_root_is_not_filtered_from_the_semantic_profile",
+        "blob_semantics::reconstruction::tests::failed_inbound_and_static_lookups_do_not_become_native_deliveries",
+        "blob_semantics::reconstruction::tests::rejects_foreign_origins_destinations_order_and_noncanonical_origin_bytes",
+        "blob_semantics::reconstruction::tests::source_positions_count_original_brackets_and_failed_static_roots",
+        "blob_semantics::reconstruction::tests::semantic_binding_rejects_substitution_mutations_and_unused_suffixes",
+        "blob_semantics::reconstruction::tests::semantic_reconstruction_retains_whole_groups_checked_inbound_and_source_identity"
+      ],
+      "result_lines": [
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 202 filtered out; finished in 0.00s"
+      ],
+      "log": "artifacts/combined-issues-review-20261026/reconstruction-tests.log",
+      "log_sha256": "90dc9ea7a17f92c03f5c587c8377dbb1b68fd39807a389c035695274dc1e7574",
+      "log_availability": "local-only; not committed"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-evm --lib",
+      "exit_code": 0,
+      "passed": 37,
+      "failed": 0,
+      "ignored_or_skipped_selected": 0,
+      "filtered": 0,
+      "tests": [
+        "tests::block_admission_rejects_unsupported_native_selectors",
+        "evm::tests::funded_simulation_rejects_invalid_context_and_clears_credit_on_errors",
+        "evm::tests::collector_overflow_rejects_and_l1_simulation_keeps_ethereum_distribution",
+        "evm::tests::native_never_checks_or_increments_the_account_nonce_and_ordinary_still_does",
+        "evm::tests::funded_simulation_preserves_proxy_funds_returns_and_rollback_without_fees",
+        "evm::tests::unsigned_zero_price_simulation_does_not_create_collector_funds",
+        "evm::tests::collector_credit_is_visible_to_the_next_transaction_without_running_its_code",
+        "evm::tests::collector_receives_final_base_fee_for_success_revert_halt_refund_and_floor",
+        "evm::tests::collector_credit_follows_same_transaction_selfdestruct_cleanup",
+        "evm::tests::native_caller_is_empty_during_execution_when_its_nonce_and_balance_are_zero",
+        "history::tests::maximum_import_fits_native_budget_and_invisible_imports_are_rejected",
+        "profile::tests::same_genesis_has_explicit_l2_fee_rules_without_changing_l1",
+        "tests::issue35_fixed_fields_are_enforced_on_block_and_engine_execution",
+        "tests::failed_validation_and_uncommitted_execution_do_not_leak_minted_value",
+        "tests::native_execution_rejects_noncanonical_gas_fields_without_mutating_state",
+        "tests::ordinary_transactions_still_pay_fees_and_outbound_eth_stays_at_the_system_address",
+        "tests::mint_overflow_does_not_poison_the_next_execution",
+        "tests::production_base_genesis_allocates_no_eth_and_keeps_required_predeploys",
+        "profile::tests::incompatible_supplied_genesis_is_rejected_not_repaired",
+        "tests::l2_rejects_beacon_withdrawals_during_construction_import_and_engine_replay",
+        "tests::schedule_cache_preserves_profile_errors_and_l1_simulation",
+        "tests::l2_block_and_engine_replay_reject_blobs_but_l1_simulation_still_executes_them",
+        "tests::native_gasprice_is_zero_in_nested_calls_including_reimbursement_and_positive_price_guards",
+        "tests::native_raw_environment_rejects_non_wire_fields_and_forged_recovery",
+        "tests::inspection_and_normal_execution_apply_identical_mint_and_rollback_rules",
+        "tests::native_budget_below_intrinsic_gas_invalidates_the_block",
+        "block::tests::rollup_blocks_do_not_touch_zero_or_absent_protocol_accounts",
+        "tests::native_mints_without_prefunding_and_rolls_back_failed_calls_after_burning_prior_system_eth",
+        "history::tests::conflicting_import_reverts_without_committing_any_history_prefix",
+        "block::tests::issue35_empty_l2_blocks_write_history_without_beacon_or_request_side_effects",
+        "block::tests::rollup_blocks_burn_protocol_balances_before_execution_and_l1_simulation_keeps_them",
+        "tests::native_budget_is_the_remaining_block_gas_after_ordinary_transactions",
+        "tests::native_execution_retains_chain_and_exact_block_gas_validation",
+        "history::tests::repeat_is_valid_after_late_headers_arrive_and_advancement_resumes_at_next_update",
+        "history::tests::wrong_runtime_state_and_missing_evidence_reject_before_import",
+        "history::tests::recorded_import_precedes_applications_and_meters_gas_receipts_without_a_nonce",
+        "history::tests::missing_duplicate_misplaced_malformed_and_wrong_randao_updates_reject"
+      ],
+      "result_lines": [
+        "test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s"
+      ],
+      "log": "artifacts/combined-issues-review-20261026/evm-tests.log",
+      "log_sha256": "2eb0e7d4efd83c1a3e800eee07e08aeef8af46224b7fbd27838f80a1d333998c",
+      "log_availability": "local-only; not committed"
+    },
+    {
+      "command": "forge test --root contracts --match-contract L1BlockHashCollectorTest -vv",
+      "exit_code": 0,
+      "passed": 8,
+      "failed": 0,
+      "ignored_or_skipped_selected": 0,
+      "filtered": null,
+      "tests": [
+        "testCatchUpCollectsEveryImportedBlockOnce()",
+        "testCoveredMissingHashRevertsWithoutAdvancing()",
+        "testInvalidCurrentStateIsNotTreatedAsWaiting()",
+        "testIssue107UnguardedSecondPollRevertsButGuardedPollWaits()",
+        "testMalformedCurrentAbiRevertsWithoutAdvancing()",
+        "testStartMustBeInsideTheImportedRange()",
+        "testUint64EndpointExhaustionDoesNotWrapCursor()",
+        "testWaitsThroughEmptyImportAndResumesAfterScheduledImport()"
+      ],
+      "result_lines": [
+        "Suite result: ok. 8 passed; 0 failed; 0 skipped; finished in 5.63ms (6.14ms CPU time)"
+      ],
+      "log": "artifacts/combined-issues-review-20261026/collector-tests.log",
+      "log_sha256": "28e03ba0cf9247da55b32baa79c60f1d64e5f4b74400dc7705dfad7b120d9d0b",
+      "log_availability": "local-only; not committed"
+    },
+    {
+      "command": "forge test --root eez-core-protocol --match-contract EEZL2TableReuseTest --no-match-path 'script/*' --no-match-test 'test_Doc_OriginalValue_SeedInSetup|test_PostCost_Incremental'",
+      "exit_code": 0,
+      "passed": 8,
+      "failed": 0,
+      "ignored_or_skipped_selected": 0,
+      "filtered": null,
+      "tests": [
+        "test_EmptyReplacementCostDoesNotGrowWithPreviousTableSize()",
+        "test_EmptyReplacementRetainsStorageAndFundingButDisablesBothTables()",
+        "test_FailedHashValidationRestoresTablesCursorBlockAndBalances()",
+        "test_ReplacementInNextBlockRefreshesGateAndHidesRetainedRows()",
+        "test_ReplacementInSameBlockHidesRetainedRows()",
+        "test_ReusedSlotsReplaceAllNestedDataAndShortenBytes()",
+        "test_SuccessfulIncomingReplacementLeavesOnlyItsFollowupRowsActive()",
+        "test_TerminalIncomingRevertRestoresTablesCursorBlockAndBalances()"
+      ],
+      "result_lines": [
+        "Suite result: ok. 8 passed; 0 failed; 0 skipped; finished in 2.99ms (7.00ms CPU time)"
+      ],
+      "log": "artifacts/combined-issues-review-20261026/core-table-tests.log",
+      "log_sha256": "ea772a0bbd0154784e660dec566a2f846d01c89426d5c1eacd63b9d0d3a5f150",
+      "log_availability": "local-only; not committed"
+    }
+  ],
+  "total_selected_passed": 61,
+  "limits": [
+    "No production implementation changes; only isolated review documentation.",
+    "Tests exercise existing baseline/reference behavior, not the unimplemented optional-history, group-cleanup or source-identity proposals.",
+    "No new process E2E, live network interaction, independent signer replay, deployment, full workspace checks or CI rerun.",
+    "Core script paths and the two named exclusions were excluded; all other unmatched core suites are also outside this review coverage.",
+    "Source-level final-L2-rollingHash coverage analysis is not a reproduced proof bypass.",
+    "Prior #107 incident evidence is referenced in the existing polling audit; no new live measurements.",
+    "Generated files, deployed collector and operator checkout were not changed; no GitHub comments were posted."
+  ],
+  "corrections": [
+    {
+      "date": "2026-10-27",
+      "description": "Corrected the two core Solidity paths to src/L2/EEZL2.sol and src/base/EEZBase.sol. Explicitly verified that all four objects exist at both revisions and repeated the comparison; they remain identical. The original path-only git diff did not establish existence."
+    }
+  ]
+}

@@ -1,0 +1,164 @@
+{
+  "source_url": "https://www.relayscan.io/overview?t=7d",
+  "source_published_at_utc": "2026-10-10T09:26:35Z",
+  "source_latest_slot": 15400031,
+  "source_window": "7d",
+  "scope": "global builder table, observed delivered MEV-Boost blocks; not all Ethereum blocks or inclusion probabilities",
+  "attribution": "source builder extra_data labels; independently authenticating builder public keys and canonical block hashes was not performed",
+  "observed_blocks": 46023,
+  "source_html_sha256": "e4f66bfa9422f7e29194bb16a9c3a28f188d503b020b0c17891ca414fdaf2bf5",
+  "source_extracted_table_sha256": "4aead28f0d1fdbf959342b1bf5099bc675068fc8395d8bd50b4418fbf8bb103e",
+  "rows": [
+    {
+      "builder_label": "Titan (titanbuilder.xyz)",
+      "blocks": 24115,
+      "reported_percent": 52.4,
+      "computed_percent": 52.397714
+    },
+    {
+      "builder_label": "Quasar (quasar.win)",
+      "blocks": 9753,
+      "reported_percent": 21.19,
+      "computed_percent": 21.191578
+    },
+    {
+      "builder_label": "BuilderNet",
+      "blocks": 7455,
+      "reported_percent": 16.2,
+      "computed_percent": 16.198423
+    },
+    {
+      "builder_label": "Eureka (eurekabuilder.xyz)",
+      "blocks": 2105,
+      "reported_percent": 4.57,
+      "computed_percent": 4.5738
+    },
+    {
+      "builder_label": "bombora.build",
+      "blocks": 1456,
+      "reported_percent": 3.16,
+      "computed_percent": 3.163636
+    },
+    {
+      "builder_label": "Builder+ www.btcs.com/builder",
+      "blocks": 688,
+      "reported_percent": 1.49,
+      "computed_percent": 1.494905
+    },
+    {
+      "builder_label": "bobTheBuilder.xyz",
+      "blocks": 249,
+      "reported_percent": 0.54,
+      "computed_percent": 0.541034
+    },
+    {
+      "builder_label": "builder.ultrasound.money",
+      "blocks": 107,
+      "reported_percent": 0.23,
+      "computed_percent": 0.232492
+    },
+    {
+      "builder_label": "beaverbuild.org",
+      "blocks": 50,
+      "reported_percent": 0.11,
+      "computed_percent": 0.108641
+    },
+    {
+      "builder_label": "ethgas-realtime-rpc",
+      "blocks": 25,
+      "reported_percent": 0.05,
+      "computed_percent": 0.054321
+    },
+    {
+      "builder_label": "Powered by bloXroute",
+      "blocks": 11,
+      "reported_percent": 0.02,
+      "computed_percent": 0.023901
+    },
+    {
+      "builder_label": "(blank)",
+      "blocks": 4,
+      "reported_percent": 0.01,
+      "computed_percent": 0.008691
+    },
+    {
+      "builder_label": "boba-builder.com",
+      "blocks": 2,
+      "reported_percent": 0.0,
+      "computed_percent": 0.004346
+    },
+    {
+      "builder_label": "bananabuild.org",
+      "blocks": 2,
+      "reported_percent": 0.0,
+      "computed_percent": 0.004346
+    },
+    {
+      "builder_label": "Zund (zundbuilder.com)",
+      "blocks": 1,
+      "reported_percent": 0.0,
+      "computed_percent": 0.002173
+    }
+  ],
+  "candidate_coverage": {
+    "titan_quasar_sponsorship_candidates": {
+      "builder_labels": [
+        "Titan (titanbuilder.xyz)",
+        "Quasar (quasar.win)"
+      ],
+      "blocks": 33868,
+      "percent": 73.589292
+    },
+    "eureka_bombora_pooled_refund_candidates": {
+      "builder_labels": [
+        "Eureka (eurekabuilder.xyz)",
+        "bombora.build"
+      ],
+      "blocks": 3561,
+      "percent": 7.737436
+    },
+    "combined_sponsorship_and_pooled_candidates": {
+      "builder_labels": [
+        "Titan (titanbuilder.xyz)",
+        "Quasar (quasar.win)",
+        "Eureka (eurekabuilder.xyz)",
+        "bombora.build"
+      ],
+      "blocks": 37429,
+      "percent": 81.326728
+    },
+    "top_three_standard_bundle_candidates": {
+      "builder_labels": [
+        "Titan (titanbuilder.xyz)",
+        "Quasar (quasar.win)",
+        "BuilderNet"
+      ],
+      "blocks": 41323,
+      "percent": 89.787715
+    },
+    "top_five_standard_bundle_candidates": {
+      "builder_labels": [
+        "Titan (titanbuilder.xyz)",
+        "Quasar (quasar.win)",
+        "BuilderNet",
+        "Eureka (eurekabuilder.xyz)",
+        "bombora.build"
+      ],
+      "blocks": 44884,
+      "percent": 97.52515
+    },
+    "top_six_standard_bundle_candidates": {
+      "builder_labels": [
+        "Titan (titanbuilder.xyz)",
+        "Quasar (quasar.win)",
+        "BuilderNet",
+        "Eureka (eurekabuilder.xyz)",
+        "bombora.build",
+        "Builder+ www.btcs.com/builder"
+      ],
+      "blocks": 45572,
+      "percent": 99.020055
+    }
+  },
+  "qualification_status": "documentation only; no live workload or payouts tested"
+}

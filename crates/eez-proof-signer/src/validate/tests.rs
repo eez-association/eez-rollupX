@@ -307,12 +307,7 @@ fn normalizes_validated_output_for_settlement() {
     }
     let validator = Validator::stub(vec![Ok(output)]);
 
-    let validated = validator
-        .validate_window(
-            AdmittedBlocks::for_test(window),
-            &CancellationToken::default(),
-        )
-        .unwrap();
+    let validated = validator.validate(&window).unwrap();
 
     assert_eq!(validated.window_pre_block_hash(), B256::ZERO);
     assert_eq!(validated.settling_pre_block_hash(), B256::repeat_byte(0x06));
@@ -336,12 +331,7 @@ fn uses_the_parent_hash_for_both_pre_commitments_in_one_block() {
     output.blocks[0].post_state_root = B256::repeat_byte(0x11);
     let validator = Validator::stub(vec![Ok(output)]);
 
-    let validated = validator
-        .validate_window(
-            AdmittedBlocks::for_test(window),
-            &CancellationToken::default(),
-        )
-        .unwrap();
+    let validated = validator.validate(&window).unwrap();
 
     assert_eq!(
         validated.settling_pre_block_hash(),

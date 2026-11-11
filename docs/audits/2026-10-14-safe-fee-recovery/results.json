@@ -1,0 +1,187 @@
+{
+  "runtime_base": "99ced2f28536c98891e701cb60ccc37a826c9188",
+  "shipping_source": "a7fee49d04be78a01220a85d37042489ba082e35",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "fixture_version": "Safe 1.4.1",
+  "test_source_sha256": "ba0e23ced76a0476d4014abbfce1ce0dc9be2d6f4f9e5e19f7349d3dc8223073",
+  "fixture_sha256": "8589a718042ea968480571d9fa3b1f5c5260b205e14a2d93c357b6dbe06b857b",
+  "final_process_result": {
+    "passed": 3,
+    "failed": 0,
+    "ignored": 0,
+    "filtered_out": 140,
+    "seconds": 219.53
+  },
+  "initial_run": {
+    "passed": 1,
+    "failed": 0,
+    "seconds": 108.86
+  },
+  "expanded_run_without_debug": {
+    "passed": 2,
+    "failed": 1,
+    "seconds": 258.11,
+    "failure": "Ordinary factory call timed out because the fixture disabled debug_traceCall; ingress failed closed. Corrected with EEZ_TEST_L2_DEBUG_RPC=true."
+  },
+  "negative_cases_per_outbound_profile": [
+    "zero tip",
+    "using gas limit instead of charged gas",
+    "insufficient effective fee after cap clipping",
+    "costlier initializer with original cheaper fee fields"
+  ],
+  "negative_error": {
+    "code": -32003,
+    "data.code": "l2_tip_underfunded",
+    "queue_owned": false,
+    "nonce_consumed": false,
+    "target_deployed": false
+  },
+  "beneficiary_balance_asserted": true,
+  "independent_follower_replay": true,
+  "live_safe_deployment": false,
+  "new_kurtosis_run": false,
+  "pricing": {
+    "l1_per_l2_numerator": "1",
+    "l1_per_l2_denominator": "1",
+    "risk_bps": 2000,
+    "proving": "0",
+    "operations": "0",
+    "treasury": "0",
+    "profit_bps": 0,
+    "realized_l1_revenue_qualified": false
+  },
+  "outbound_samples": {
+    "EthereumOsaka": [
+      {
+        "l1Cost": "892330919520057",
+        "l1GasUsed": 684913,
+        "l2GasUsed": 92504,
+        "paidL2Tip": "1966833555711592",
+        "post": "0xed39fc16a66cceeae36f606428fa507eeb02dca12c54ea99e517e6a8d2228b88",
+        "requiredL2Tip": "1070797103424069",
+        "safeAddresses": [
+          "0x89852f7bb8f8435576e75983699540b6d2626160"
+        ],
+        "source": "0xcb44c1576a8ea6381d1ce3506ef9db7cff57a39b118fad1c75cc3dc5b153ed7f",
+        "sourceBlock": 50,
+        "sourceBlockHash": "0x6ab55edb544c93b20cfec5116d9d93bd3024013bf9d2e2e661739985c0cef59a",
+        "quotedL2Tip": "1966833555633903",
+        "quotedL1Gas": 1258044,
+        "quotedNativeL2Gas": 201794
+      },
+      {
+        "l1Cost": "1584291213020888",
+        "l1GasUsed": 1250728,
+        "l2GasUsed": 130042,
+        "paidL2Tip": "3312420738095502",
+        "post": "0xb434caef6afa086ec8a04f883f6dd7173fcdcf5521531655e5a4521f997bb164",
+        "requiredL2Tip": "1901149455625066",
+        "safeAddresses": [
+          "0xab8ee67a077e6a75cb27cc3b10e33aec00f6c4c7",
+          "0x659f432108e82e555c9a98c147f31dcfeb679a8d",
+          "0x42b7bf85a6fb846f3f33982baa99152fddc1a708",
+          "0x7c736f547d67e1d0eea242eb580223839dfe8edd",
+          "0x91fa8d683a3a67196f016fc88b395ba011464231"
+        ],
+        "source": "0x60a2332a6325c702b815fb4ab68cc8a6e6d66789d6d66d1159b86b1992ab4800",
+        "sourceBlock": 55,
+        "sourceBlockHash": "0xbc597f45064e34b194dfc5fcbfb520fb34a6f4cc0c24313b9929a923b9480b0d",
+        "quotedL2Tip": "3312420738014757",
+        "quotedL1Gas": 2179175,
+        "quotedNativeL2Gas": 71693
+      }
+    ],
+    "GnosisPrague": [
+      {
+        "l1Cost": "1023509506919871",
+        "l1GasUsed": 684913,
+        "l2GasUsed": 92504,
+        "paidL2Tip": "2124354890695448",
+        "post": "0xfde94fbe149fca00dddd444af7d4f70c2c94161e598c7bbf3f996f5dfaa2eee1",
+        "requiredL2Tip": "1228211408303846",
+        "safeAddresses": [
+          "0x89852f7bb8f8435576e75983699540b6d2626160"
+        ],
+        "source": "0x30032d6bdbfe501acadbd9b2df66256b8ff51de369f2dedb50fe38feddfb651e",
+        "sourceBlock": 50,
+        "sourceBlockHash": "0xf90a602984f570177e7c205a66d0e9558ad8e43f0332fdb2078366e5ef974736",
+        "quotedL2Tip": "2124354890664658",
+        "quotedL1Gas": 1258044,
+        "quotedNativeL2Gas": 201794
+      },
+      {
+        "l1Cost": "1715555632389704",
+        "l1GasUsed": 1250728,
+        "l2GasUsed": 130042,
+        "paidL2Tip": "3470109446744270",
+        "post": "0x4bc309b8a29fcfb3a7baeb2412fb2e2c11db48c87be89dca8a98049dc0a5ec3f",
+        "requiredL2Tip": "2058666758867645",
+        "safeAddresses": [
+          "0xab8ee67a077e6a75cb27cc3b10e33aec00f6c4c7",
+          "0x659f432108e82e555c9a98c147f31dcfeb679a8d",
+          "0x42b7bf85a6fb846f3f33982baa99152fddc1a708",
+          "0x7c736f547d67e1d0eea242eb580223839dfe8edd",
+          "0x91fa8d683a3a67196f016fc88b395ba011464231"
+        ],
+        "source": "0x06ea511fb499efeefe0743330e0994713d999391f16b5a4353315cf53bf81a17",
+        "sourceBlock": 55,
+        "sourceBlockHash": "0x0a2154815440ec5c7d3d71a7e79b36edbd14a41e0f7b7b56e974fb73289381e6",
+        "quotedL2Tip": "3470109446685930",
+        "quotedL1Gas": 2179175,
+        "quotedNativeL2Gas": 71693
+      }
+    ]
+  },
+  "binary_sha256": {
+    "eez-composer": "ea3bce3879f82a0ee18cf397b5f4a31dc8377daa30ecf912ede66f80c6d82779",
+    "eez-follower": "7799c40c246c550ed74ab96f8b1d07ed76b83905b77e18ebb1a4283787001128",
+    "eez-proof-signer": "991d0cd4bd0680cdf0f6bf2a290cec7fd9272f7351204bf611fd0fec440c2609",
+    "node_e2e-2d1c048865c782ec": "c328a0c878f8bfedcc812d56bc80d5a75a9fdb503a35546bbaa4529fe8d64451",
+    "eez_composer-65499dbc016705c8": "0f087d14019dbdf38c7b0b168c32e127dc6df321600def7bf9c90d2f3cc62327"
+  },
+  "artifacts_local_only": "artifacts/l2-fee-integration-20261014/safe-review/",
+  "ordinary_l2_sample": {
+    "outboundQueueOwned": false,
+    "paidL2Tip": "0",
+    "safe": "0xdd11a2127f0f68565c613e4c4f2473e047a3d7e4",
+    "settlementRecoveryEnforced": false,
+    "source": "0x33951837638712cd1db112207cae6575c768757bee6a245e86b6ada7599d767b",
+    "receipt": {
+      "transactionHash": "0x33951837638712cd1db112207cae6575c768757bee6a245e86b6ada7599d767b",
+      "blockHash": "0x2d1be6c8bc64e37de43fd6f0f6db37e13716e20e4bdb7ee864781aefb11b8528",
+      "blockNumber": "0x67",
+      "status": "0x1",
+      "gasUsed": "0x39bb0",
+      "effectiveGasPrice": "0x7842cc4"
+    }
+  },
+  "static_checks": {
+    "format": "passed",
+    "workspace_clippy_all_targets": "passed",
+    "git_diff_check": "passed",
+    "new_document_relative_links": "passed",
+    "document_shell_examples_bash_n": "passed"
+  },
+  "fee_unit_result": {
+    "passed": 21,
+    "failed": 0,
+    "ignored": 0,
+    "filtered_out": 321
+  },
+  "ci_tooling_result": {
+    "discovered": 370,
+    "passed": 363,
+    "failed": 0,
+    "skipped": 7,
+    "seconds": 235.551,
+    "skip_reasons": [
+      "'opt-in real data-only Docker image'",
+      "'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+      "'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+      "'set EEZ_TEST_NATIVE_ARCHIVE=1 for real tiny-workspace relocation'",
+      "'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+      "'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+      "'requires Gitleaks (installed by CI)'"
+    ]
+  }
+}

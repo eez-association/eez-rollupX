@@ -80,17 +80,19 @@ pub trait TargetExecutionSession: Send {
     /// Implementations may fail while capturing their checkpoint state.
     fn checkpoint(&mut self) -> ExecutorResult<SessionSnapshot>;
 
-    /// Apply a checkpoint produced by this session.
+    /// Restore a checkpoint produced by this session without consuming it.
+    /// Nested source-frame rollbacks can reuse the same anchor after local
+    /// execution resumes, so restoration must not mutate the checkpoint.
     ///
     /// # Errors
     ///
     /// Returns [`ExecutorErrorKind::Encoding`](crate::error::ExecutorErrorKind::Encoding)
     /// when the snapshot has the wrong concrete type for this session.
-    fn rollback(&mut self, snapshot: SessionSnapshot) -> ExecutorResult<()>;
+    fn rollback(&mut self, snapshot: &SessionSnapshot) -> ExecutorResult<()>;
 }
 
 /// Opaque checkpoint returned by [`TargetExecutionSession::checkpoint`] and
-/// consumed by [`TargetExecutionSession::rollback`].
+/// retained across calls to [`TargetExecutionSession::rollback`].
 pub type SessionSnapshot = Box<dyn std::any::Any + Send>;
 
 /// Uniform chain-client interface every registered rollup satisfies.

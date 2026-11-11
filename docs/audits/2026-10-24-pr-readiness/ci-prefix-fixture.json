@@ -1,0 +1,148 @@
+{
+  "date": "2026-10-24",
+  "source_head": "0e34a326536befc31ee62a92647bfc3dca9ddee2",
+  "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "original_ci_failure": {
+    "run_id": 40098162224,
+    "job_id": 120884663004,
+    "synthetic_checkout": "bfe39419af4414b03dc375561ac2ef0e340f4caa",
+    "log_sha256": "745e5eb83c4584290a5a898faed0ac0adb5312d82eb2658450fb5c695a7adfee",
+    "selected": 30,
+    "passed": 28,
+    "failed": 2,
+    "error": "genesis reference is after bootstrap cutoff",
+    "location": "crates/eez-l1/examples/verify_blob_evidence/prefixes.rs:228"
+  },
+  "cause": {
+    "reference_timestamp": 1687223762,
+    "old_genesis_timestamp": 1687223762,
+    "old_effective_bootstrap_cutoff": 1687223758,
+    "old_storage_calendar": {
+      "next_cutoff": 12,
+      "interval": 12,
+      "delay": 6
+    },
+    "corrected_genesis_timestamp": 1687223766,
+    "corrected_bootstrap_cutoff": 1687223762,
+    "corrected_storage_calendar": {
+      "next_cutoff": 1687223766,
+      "interval": 4,
+      "delay": 3
+    }
+  },
+  "change_scope": "cfg(test) in the blob-evidence example only; production, runtime, genesis fixture, lockfile, features and archive guard unchanged",
+  "changed_source": {
+    "crates/eez-l1/examples/verify_blob_evidence/prefixes.rs": {
+      "before": "db21f7c901c48a7f9dc8f815be0ea31e755313c540852a4172148f6b5b26e6b8",
+      "after": "e6d0c87d2724d9b8d45929b506549a82b099ef2d11297b20ec72fb90cbfdb384"
+    }
+  },
+  "unchanged_source_hashes": {
+    "Cargo.toml": "d8924819e605fd92d486e4c7bfc5e711831de81e0ea41e789a9d29b2931a2bdd",
+    "Cargo.lock": "aa8b6ba7699104a5923775aa94cff71a71c7f9ecbfc11d874359704819f32058",
+    "crates/eez-l1/Cargo.toml": "1a04a4ce99ca9da2b2b9711c6f9b95375f315adcfb9e7374136625c54ecfee60",
+    "crates/eez-evm/src/profile.rs": "e547084bc155324dda392305b037890a3da539baa41abaff6e4837bf490cad33",
+    "crates/eez-protocol/src/l2/derivation.rs": "fdf07ebbf7ef9e68ae03a4dd6d4faba1d7b1e24061d0407c62f0a6ddebf506b0",
+    "genesis.json": "89ce9464197f532a9d0ab19751dcffe9890c6ffed23d921adde6c8a29144d577"
+  },
+  "command": [
+    "cargo",
+    "+1.95.0",
+    "test",
+    "--locked",
+    "--offline",
+    "-p",
+    "eez-l1",
+    "--example",
+    "verify_blob_evidence",
+    "--message-format=json",
+    "--",
+    "--test-threads=1"
+  ],
+  "environment": {
+    "CARGO_BUILD_JOBS": "1",
+    "LLVM_SYS_221_PREFIX": "/usr/lib/llvm-22",
+    "private_tmp": "bwrap bind of task-owned temporary directory to /tmp",
+    "start_minimum_gib": 12,
+    "cancel_below_gib": 5
+  },
+  "before": {
+    "finished_at": "2026-10-24T14:14:39.354979+00:00",
+    "exit_code": 101,
+    "elapsed_seconds": 66.012,
+    "minimum_available_gib": 15.55,
+    "cancelled_by_guard": false,
+    "binary": {
+      "path": "artifacts/pr-readiness/ci-prefix-fixture/verify_blob_evidence-before",
+      "sha256": "2713a38277d3e6d87a314bfbf4f4379ba2f24f8d80cba6cb06b6d474ea6ffef5",
+      "size": 37530640,
+      "source_sha256": "db21f7c901c48a7f9dc8f815be0ea31e755313c540852a4172148f6b5b26e6b8",
+      "compilation_profile": {
+        "opt_level": "1",
+        "debuginfo": "line-tables-only",
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "selected_tests": 12,
+      "passed": 10,
+      "failed": 2,
+      "ignored": 0
+    }
+  },
+  "after": {
+    "finished_at": "2026-10-24T14:16:40.887492+00:00",
+    "exit_code": 0,
+    "elapsed_seconds": 6.002,
+    "minimum_available_gib": 15.857,
+    "cancelled_by_guard": false,
+    "binary": {
+      "path": "artifacts/pr-readiness/ci-prefix-fixture/verify_blob_evidence-after",
+      "sha256": "cd7de57381e99921952c78c2cf680898e1f271c5b27d47a177dbceec9f625f0d",
+      "size": 37563248,
+      "source_sha256": "e6d0c87d2724d9b8d45929b506549a82b099ef2d11297b20ec72fb90cbfdb384",
+      "compilation_profile": {
+        "opt_level": "1",
+        "debuginfo": "line-tables-only",
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      },
+      "selected_tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "local_only_evidence": "artifacts/pr-readiness/ci-prefix-fixture/",
+  "evidence_sha256": {
+    "fixture.patch": "418b33601c42fed29ecd3f1b0c21635bd3fa2c8e936194836c6f9136d884142f",
+    "before-invocation.json": "7c49bd4ce58a98ea3a15897528d722277620540a785c7d2aff091ddb81fe3c87",
+    "before-binary.json": "f24eb3dbed7b2ad3743030d2585f2ef57a74f5b66da32098f04c1bf7e31818de",
+    "after-invocation.json": "57cf60d93f1caabd367541b25a1e5b84b4d5167e79b5fc41b4149c5e34eaf44c",
+    "after-result.json": "a7b6ca62e18f8806f537a81bcde72ba1428bfa280757eb9e4e07e128ba31b8ca",
+    "after.stdout.log": "9018db3565897619dee3dfdf6a84b59ee2a809852c0990446d2ba42199cad242",
+    "before.stderr.log": "42382f42944c6eb7552cd70030e6f52a9e07c9fac3b29a26c33754df026b3844",
+    "after.stderr.log": "611e076e83ad4275e91c9d988b9ba2ea71d53202fb114259f1bd71adaf84577b",
+    "after-binary.json": "c53d74411b31ee165abca2a8bc4f7406cde205bd1f35a959acf3eeee11946136",
+    "before-result.json": "73b40f87764626efc8002f668a0fbfa0c9ca7a5c11ad7fd162e0c7f40aac8144",
+    "before.stdout.log": "dd22b40a5d63d66829ebc6bb3d4000b2308894fc55d5931c523a021a8d29d49b"
+  },
+  "regressions": [
+    "Preserve exact supplied genesis, first child timestamp, slot phase, four-second cadence, bootstrap cutoff and three-second installation delay.",
+    "Reject reference after bootstrap cutoff and preserve prior rejection cases.",
+    "Reject incorrect nextCutoff, interval and delay storage before config/hash checks; never normalize."
+  ],
+  "review": "Independent static review by static_lookup_oracle confirmed fixture and error-path specificity; root also reviewed the contract.",
+  "limits": [
+    "The local check is a debug example target, not a corrected remote release producer.",
+    "Earlier cargo test --workspace and the CI lib/bin unit lane did not execute example unit tests; their passes did not cover this fixture.",
+    "The failed CI run remains failed, with runtime/test payload publication and downstream native/Kurtosis lanes skipped."
+  ],
+  "production_prefix_sha256": "1ea7f604246b7514931f3b51a97f4765753791a01510dc826e026aa79da79100",
+  "static_checks": {
+    "cargo_fmt_all_check": "passed",
+    "git_diff_check": "passed",
+    "production_prefix_byte_identical": true
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "schema_version": 5,
+  "protocol_commit": "a24126890dec791d82845f754f9bc55d8373fde2",
+  "targets": [
+    "nestedStaticLocalWriteL1",
+    "nestedStaticLocalWriteL2"
+  ],
+  "execution": {
+    "runner": "network-parallel",
+    "max_parallel": 2,
+    "suite_timeout_seconds": 2400,
+    "phases": [
+      {
+        "phase": "parallel",
+        "scenarios": [
+          "nestedStaticLocalWriteL1",
+          "nestedStaticLocalWriteL2"
+        ],
+        "exit_code": 0,
+        "seconds": 138.68,
+        "results": [
+          [
+            "nestedStaticLocalWriteL1",
+            "PASS"
+          ],
+          [
+            "nestedStaticLocalWriteL2",
+            "PASS"
+          ]
+        ]
+      }
+    ]
+  },
+  "suite": {
+    "discovered": 64,
+    "eligible": 64,
+    "selected": 2,
+    "excluded_from_all": [],
+    "complete": false
+  },
+  "accounting": {
+    "valid": true,
+    "missing": [],
+    "duplicates": [],
+    "unexpected": []
+  },
+  "upstream_exit_status": 0,
+  "evidence_complete": true,
+  "causal_coverage": {
+    "complete": true,
+    "missing": [],
+    "paired": [
+      "nestedStaticLocalWriteL1",
+      "nestedStaticLocalWriteL2"
+    ],
+    "no_destination_required": []
+  },
+  "semantic_blob_coverage": {
+    "complete": true,
+    "missing": [],
+    "authenticated": [
+      "nestedStaticLocalWriteL1",
+      "nestedStaticLocalWriteL2"
+    ]
+  },
+  "passed": [
+    "nestedStaticLocalWriteL1",
+    "nestedStaticLocalWriteL2"
+  ],
+  "failed": [],
+  "skipped": [],
+  "evidence_files": {
+    "nestedStaticLocalWriteL1": {
+      "path": "artifacts/pr123-kurtosis-static/protocol-e2e/evidence/nestedStaticLocalWriteL1.json",
+      "sha256": "d6826f98a6495bb09468ed12de0a129bcd1455341d5df58a1594ec920c379d03"
+    },
+    "nestedStaticLocalWriteL2": {
+      "path": "artifacts/pr123-kurtosis-static/protocol-e2e/evidence/nestedStaticLocalWriteL2.json",
+      "sha256": "7dc0d9605d369dc50134029d8095f900391cc73053fc0e0dafa9a12179183377"
+    }
+  }
+}

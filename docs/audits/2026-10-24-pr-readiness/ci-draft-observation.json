@@ -1,0 +1,187 @@
+{
+  "observed_at": "2026-10-24T12:18:05.082241+00:00",
+  "run_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40092563758",
+  "lock_sha256": "aa8b6ba7699104a5923775aa94cff71a71c7f9ecbfc11d874359704819f32058",
+  "run_status_at_observation": "in_progress",
+  "jobs": [
+    {
+      "name": "Lint",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/eez-association/eez-rollupX/actions/runs/40092563758/job/120868076695"
+    },
+    {
+      "name": "Quote trace viewer",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/eez-association/eez-rollupX/actions/runs/40092563758/job/120868076800"
+    },
+    {
+      "name": "Build runtime artifacts / build",
+      "status": "in_progress",
+      "conclusion": "",
+      "url": "https://github.com/eez-association/eez-rollupX/actions/runs/40092563758/job/120868076808"
+    },
+    {
+      "name": "Debug Unit Tests",
+      "status": "in_progress",
+      "conclusion": "",
+      "url": "https://github.com/eez-association/eez-rollupX/actions/runs/40092563758/job/120868076950"
+    }
+  ],
+  "lint_steps": [
+    {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Install pinned secret scanner",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Scan fetched Git history including merge diffs",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Prepare hosted runner disk",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Initialize Cargo target directory",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Rust source cache",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Run ./.github/actions/compiler-cache",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Install system dependencies",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Install LLVM 22 for upstream Reth",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Format",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Install dependency audit tools",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Check dependency policy",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "name": "Check known vulnerabilities",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "name": "Install Foundry",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "name": "Install pinned Docker Compose for configuration checks",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "name": "Test CI scripts",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "name": "Validate settlement policy configuration propagation",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "name": "Clippy",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "name": "Cargo failure diagnostics",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Upload build measurements",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Post Rust source cache",
+      "status": "completed",
+      "conclusion": "skipped"
+    },
+    {
+      "name": "Post Run actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "lint_log": {
+    "path": "artifacts/pr-readiness/ci-lint-40092563758.log",
+    "sha256": "7076c7a8fd1954f23dd7d838ea1a0b1eb837b8af01a8572a2c3b7190f993e03c",
+    "availability": "local-only"
+  },
+  "dependency_failure": {
+    "advisories": [
+      "RUSTSEC-2026-0387",
+      "RUSTSEC-2026-0386"
+    ],
+    "bans": "passed",
+    "sources": "passed",
+    "not_waived": true
+  },
+  "limits": [
+    "Snapshot of an in-progress run; later job outcomes are not inferred.",
+    "Checks skipped after dependency policy failure are not successful coverage.",
+    "CI secret-history scan and Rust format passed on the synthetic PR merge checkout. Its Git tree equals the recorded PR head; commit identities remain distinct."
+  ],
+  "pr_head_commit": "d1838526480b89651f759d34e27bfbcfca43fb55",
+  "checkout_commit": "83a3af601a5828f8d5814f1e6baa0c76bcfec972",
+  "checkout_tree": "45839f78a7ba6f654a94862ca536fd0eb88e54ce",
+  "checkout_parents": [
+    "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+    "d1838526480b89651f759d34e27bfbcfca43fb55"
+  ],
+  "pr_head_tree": "45839f78a7ba6f654a94862ca536fd0eb88e54ce",
+  "checkout_tree_equals_pr_head": true
+}

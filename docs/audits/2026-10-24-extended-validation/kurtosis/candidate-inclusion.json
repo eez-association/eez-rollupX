@@ -1,0 +1,67 @@
+{
+  "runtime_source": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+  "node_log_sha256": "89a6d3cbd209140d24bac830a6231d32f22a84cb4cd5cc1402db54d592463bf7",
+  "scope": "Elapsed wall-clock time from the sole RPC send to the first Canonical chain committed event with the exact final canonical receipt block hash. This is local inclusion observation, not L1 settlement.",
+  "phases": {
+    "mixed": {
+      "local_inclusion_seconds": {
+        "count": 3890,
+        "min": 0.010055065155029297,
+        "p50": 2.235650897026062,
+        "p95": 7.445368051528931,
+        "max": 8.460639953613281,
+        "mean": 3.0958715215133825
+      },
+      "missing_count": 0,
+      "negative": []
+    },
+    "pipeline": {
+      "local_inclusion_seconds": {
+        "count": 4561,
+        "min": 0.009595870971679688,
+        "p50": 1.4251630306243896,
+        "p95": 6.891354084014893,
+        "max": 7.991642951965332,
+        "mean": 2.1725168124648255
+      },
+      "missing_count": 0,
+      "negative": []
+    },
+    "signer_pause": {
+      "local_inclusion_seconds": {
+        "count": 24,
+        "min": 0.5351498126983643,
+        "p50": 1.5407190322875977,
+        "p95": 5.53683614730835,
+        "max": 5.5371620655059814,
+        "mean": 2.370386073986689
+      },
+      "missing_count": 0,
+      "negative": []
+    },
+    "delayed_l1": {
+      "local_inclusion_seconds": {
+        "count": 24,
+        "min": 0.369736909866333,
+        "p50": 1.374743938446045,
+        "p95": 6.375580072402954,
+        "max": 6.37627100944519,
+        "mean": 2.1250299413998923
+      },
+      "missing_count": 0,
+      "negative": []
+    },
+    "missed_l1": {
+      "local_inclusion_seconds": {
+        "count": 24,
+        "min": 0.5329132080078125,
+        "p50": 1.534406065940857,
+        "p95": 5.532371997833252,
+        "max": 5.533328056335449,
+        "mean": 1.8671088417371113
+      },
+      "missing_count": 0,
+      "negative": []
+    }
+  }
+}

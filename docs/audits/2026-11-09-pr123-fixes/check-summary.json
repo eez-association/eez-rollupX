@@ -1,0 +1,209 @@
+{
+  "code_commit": "62d6a1ed53cd2041158c43bac3d01c49a39d1583",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "checks": [
+    {
+      "name": "affected-packages",
+      "exit_code": 0,
+      "passed": 1242,
+      "ignored_or_skipped": 6,
+      "log": "/tmp/pr123-fix-reviewed-packages.log",
+      "availability": "local only",
+      "sha256": "17693abe7d894376232285a47738a59d904a0a8af016dcb3e878e126b9433d1d"
+    },
+    {
+      "name": "final-composer",
+      "exit_code": 0,
+      "passed": 425,
+      "ignored_or_skipped": 1,
+      "log": "/tmp/pr123-fix-quote-alignment.log",
+      "availability": "local only",
+      "sha256": "1aed0f678defabd16218dd73e6bc8385d51b1340d9c76ea3b6994008f75cc8c3"
+    },
+    {
+      "name": "node-unit",
+      "exit_code": 0,
+      "passed": 98,
+      "ignored_or_skipped": 0,
+      "log": "/tmp/pr123-fix-node-unit.log",
+      "availability": "local only",
+      "sha256": "cfc36be1bd93b3af076270c9ba54ab6cf18628ed780f81463e4372908b78c1f3"
+    },
+    {
+      "name": "sdk",
+      "exit_code": 0,
+      "passed": 7,
+      "ignored_or_skipped": 0,
+      "log": "/tmp/pr123-fix-sdk.log",
+      "availability": "local only",
+      "sha256": "aea6b61ca369a9f9d666bc1475b3fedfb752da231600c21ed82cfd51cbad0deb"
+    },
+    {
+      "name": "integration-solidity",
+      "exit_code": 0,
+      "passed": 153,
+      "ignored_or_skipped": 0,
+      "log": "/tmp/pr123-fix-forge-tests.log",
+      "availability": "local only",
+      "sha256": "80de0761f28e27437ed4f04cebbc2603712f74017d016799302847689ffd971a"
+    },
+    {
+      "name": "core-solidity",
+      "exit_code": 0,
+      "passed": 778,
+      "ignored_or_skipped": 3,
+      "log": "/tmp/pr123-fix-core-tests.log",
+      "availability": "local only",
+      "sha256": "cc009e3a67423c4ee3597a2b927de6f8fd992643910e4de60b6e078c66802081"
+    },
+    {
+      "name": "protocol-anvil",
+      "exit_code": 0,
+      "passed": 64,
+      "ignored_or_skipped": 0,
+      "log": "/tmp/pr123-fix-protocol-anvil.log",
+      "availability": "local only",
+      "sha256": "d7343c5cb0c9a446412f3e0696bfc2e2708beb5b0e00a1e79564884912907cff"
+    },
+    {
+      "name": "workspace-clippy",
+      "exit_code": 0,
+      "passed": null,
+      "ignored_or_skipped": null,
+      "log": "/tmp/pr123-fix-final-clippy.log",
+      "availability": "local only",
+      "sha256": "51364b2ff70247e6253ea6d98801eaabb17d1971858a37eb33fd3cff97e5b69b"
+    },
+    {
+      "name": "signer-rustdoc",
+      "exit_code": 0,
+      "passed": null,
+      "ignored_or_skipped": null,
+      "log": "/tmp/pr123-fix-signer-doc.log",
+      "availability": "local only",
+      "sha256": "bd113a2473b062d825babfc98dbb42f2ec0dd18da24782b34cf9498a2bfc2e7d"
+    },
+    {
+      "name": "broad-cross-chain-earlier-candidate",
+      "exit_code": 0,
+      "passed": 56,
+      "ignored_or_skipped": 1,
+      "log": "/tmp/pr123-fix-cross-chain-final.log",
+      "availability": "local only",
+      "sha256": "d6c2c6a54cee6bf10c88f84efd13c5bc1067189bb7f1128886f32da38041d70f",
+      "source": "d620a6df plus initial-clippy.patch for runtime build; test harness built before this style-only cleanup"
+    },
+    {
+      "name": "cargo-deny",
+      "exit_code": 0,
+      "log": "/tmp/pr123-fix-cargo-deny.log",
+      "availability": "local only",
+      "sha256": "a0a0bd7abf9dc98825a35a18f777e487de221ed7d8ff8949e665527082a59c1a"
+    },
+    {
+      "name": "cargo-audit",
+      "exit_code": 0,
+      "log": "/tmp/pr123-fix-cargo-audit.log",
+      "availability": "local only",
+      "sha256": "b8a9da642fa2892827088961e9883c2814589d3a2794ae3eb832d6ab4bd39ec5",
+      "allowed_warnings": 20,
+      "advisories": [
+        "RUSTSEC-2023-0089",
+        "RUSTSEC-2025-0141",
+        "RUSTSEC-2024-0388",
+        "RUSTSEC-2025-0119",
+        "RUSTSEC-2024-0436",
+        "RUSTSEC-2026-0441",
+        "RUSTSEC-2026-0173",
+        "RUSTSEC-2026-0253",
+        "RUSTSEC-2026-0402",
+        "RUSTSEC-2026-0396",
+        "RUSTSEC-2026-0401",
+        "RUSTSEC-2026-0400",
+        "RUSTSEC-2026-0397",
+        "RUSTSEC-2026-0404",
+        "RUSTSEC-2026-0395",
+        "RUSTSEC-2026-0399",
+        "RUSTSEC-2026-0405",
+        "RUSTSEC-2026-0406"
+      ],
+      "warning_crates": [
+        "atomic-polyfill",
+        "bincode",
+        "chacha20",
+        "derivative",
+        "lru",
+        "number_prefix",
+        "paste",
+        "pin-utils",
+        "proc-macro-error2",
+        "spin",
+        "zstd-safe"
+      ]
+    },
+    {
+      "name": "secret-scan-corrections",
+      "exit_code": 0,
+      "scanner": "gitleaks 8.30.1 (CI checksum verified)",
+      "log": "/tmp/pr123-gitleaks-fixes.log",
+      "availability": "local only",
+      "sha256": "b6cd8d445cd2c7f2436f9c687a66a8bceeab37f3320ecc9746e158915783c28d"
+    },
+    {
+      "name": "secret-scan-original-review",
+      "exit_code": 0,
+      "scanner": "gitleaks 8.30.1 (CI checksum verified)",
+      "log": "/tmp/pr123-gitleaks-review.log",
+      "availability": "local only",
+      "sha256": "d3a4dc0ebb8263f1e57178692b5d221e845af70a6c42633bf8ba1b0202162418"
+    },
+    {
+      "name": "secret-scan-corrective-history",
+      "exit_code": 0,
+      "scanner": "gitleaks 8.30.1 (CI checksum verified)",
+      "log": "/tmp/pr123-gitleaks-commits.log",
+      "availability": "local only",
+      "sha256": "2c89398db73d3ee952e9a490ed827ec4f0593c265d89ec26c1cab96191d04733"
+    },
+    {
+      "name": "final-source-process-selection",
+      "source": "62d6a1ed53cd2041158c43bac3d01c49a39d1583",
+      "exit_code": 0,
+      "passed": 28,
+      "ignored_or_skipped": 0,
+      "filtered_out": 172,
+      "log": "/tmp/pr123-fix-reviewed-process.log",
+      "availability": "local only",
+      "sha256": "2ebcfb86888a3a1dff11952f8e6a4f2244d8dd7cedf9d43efd2c5263bf6ff0a5"
+    }
+  ],
+  "process_validation": "28 final-source tests passed; 56 earlier-candidate cross-chain tests passed separately",
+  "core_exclusions": [
+    "script/*",
+    "test_Doc_OriginalValue_SeedInSetup|test_PostCost_Incremental"
+  ],
+  "retry_matrix": {
+    "baseline_accepted": 860,
+    "corrected_accepted": 822,
+    "shared_exact_bytes": 558,
+    "baseline_only_outcome_mismatch": 302,
+    "changed_shared_bytes": 0
+  },
+  "limitations": [
+    "Package counts overlap with focused final checks; do not sum them as unique coverage.",
+    "Contract scenarios do not qualify the complete node network.",
+    "Full release CI and live Kurtosis qualification not run locally."
+  ],
+  "initial_executable_sha256": {
+    "target/debug/eez-composer": "c85b606533b68cbaaca0b4ade2851a8743bc879faa9e59e83c0dafa5fa9d1d0f",
+    "target/debug/eez-follower": "8b582b4f78923f88b072c7a6ddd337f159d2e4ab5994128b347efe775cfe5a83",
+    "target/debug/eez-proof-signer": "97d8b486319fa4270ecac938a9aaaef06a08475c7343e30b7f94bcc38c068412",
+    "target/debug/deps/node_e2e-cef37d16ac2c3435": "a8e087f368120d2ac036563dd26b3c1fdb7faf8736c2bf40acea5db9829b2348"
+  },
+  "final_executable_sha256": {
+    "target/debug/eez-composer": "478c3d9644bf5ad52e6f6b43a38c841e7d0ceea63baa989467fc9576467a4ea8",
+    "target/debug/eez-follower": "eba1137fcdfae3c57403567dd504170ce30cf991119265672d2b204c05b837c7",
+    "target/debug/eez-proof-signer": "0a23632ec4cf66568048b08a1afd594d7b85c34ca6a07fa4c9cc9150d6488edc",
+    "target/debug/deps/node_e2e-cef37d16ac2c3435": "d80123da5759a3bf7fb84f9ec1ae3d7852f65464a72a0348a53a947d19f0d07d"
+  }
+}

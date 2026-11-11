@@ -336,6 +336,7 @@ impl Projection {
                 }
                 let depth = ancestors.len();
                 if depth > 3
+                    || action.revert_spans.len() > 1
                     || action.call_mode != CallMode::Mutable
                     || !action.value.is_zero()
                     || action.data.len() > 256
@@ -353,7 +354,8 @@ impl Projection {
                         action.source_address == call.sourceAddress
                             && action.target_address == call.targetAddress
                             && action.data == call.data
-                            && action.revert_span.unwrap_or(0) == u32::from(call.revertNextNCalls)
+                            && action.revert_spans.first().copied().unwrap_or(0)
+                                == u32::from(call.revertNextNCalls)
                     })?;
                     calls.swap_remove(call_index);
                     if !matches!(&action.outcome, ExecutionOutcome::Resolved { success: true, return_data, .. }
@@ -364,7 +366,7 @@ impl Projection {
                 } else {
                     if action.source_rollup_id != RollupId::MAINNET
                         || action.target_rollup_id.0 != self.rollup_id
-                        || action.revert_span.is_some()
+                        || !action.revert_spans.is_empty()
                     {
                         return None;
                     }
@@ -604,7 +606,7 @@ impl Projection {
             if (action.target_rollup_id == RollupId::MAINNET) != (depth % 2 == 0) {
                 return false;
             }
-            if action.revert_span.is_some()
+            if !action.revert_spans.is_empty()
                 || action.call_mode != CallMode::Mutable
                 || !action.value.is_zero()
                 || action.data.len() > 256
@@ -652,7 +654,7 @@ impl Projection {
         }
         let call = &entry.l2ToL1Calls[0];
         action.parent_index.is_none()
-            && action.revert_span.is_none()
+            && action.revert_spans.is_empty()
             && action.call_mode == CallMode::Mutable
             && action.source_rollup_id.0 == call.sourceRollupId
             && action.source_address == call.sourceAddress
@@ -810,7 +812,8 @@ impl Projection {
             || batch.immediateEntryCount.is_zero()
             || batch.blobIndices.len() > 64
             || !batch.staticEntries.is_empty()
-            || !batch.expectedRootPerRollup.is_empty()
+            || !matches!(batch.expectedRootPerRollup.as_slice(), [pin]
+                if pin.rollupId == self.rollup_id && !pin.root.is_zero())
             || !batch.immediateStaticEntryCount.is_zero()
             || batch.proofSystems.len() != 1
             || batch.rollupIdsWithProofSystems.len() != 1
@@ -956,7 +959,7 @@ mod tests {
                 gas_used: 100_000,
                 success: true,
             },
-            revert_span: None,
+            revert_spans: vec![],
         };
         let entry = ExecutionEntrySol {
             proxyEntryHash: B256::ZERO,
@@ -986,6 +989,11 @@ mod tests {
 
     fn batch(entries: Vec<ExecutionEntrySol>, immediates: usize) -> eez_protocol::EvmBatch {
         eez_protocol::EvmBatch {
+            expectedRootPerRollup: vec![eez_protocol::abi::ExpectedRootPerRollupSol {
+                rollupId: 1,
+                root: B256::repeat_byte(1),
+            }],
+            blockNumber: u64::MAX,
             entries,
             immediateEntryCount: U256::from(immediates),
             proofSystems: vec![Address::repeat_byte(4)],
@@ -995,6 +1003,29 @@ mod tests {
             }],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn offline_root_pin_preserves_incremental_and_final_gas_agreement() {
+        let mut projection = model(0);
+        projection.deferred_slots[0] = true;
+        let entry = deferred();
+        let cost = projection.cost(std::slice::from_ref(&entry), 0, false, None);
+        assert!(cost.entry_discount > 0);
+        let mut budget = PostBatchGasBudget::new(10_000_000);
+        budget.use_projection(projection.initial_gas());
+        assert!(budget.try_accept(cost));
+        projection.accept_deferred(std::slice::from_ref(&entry));
+        let mut final_batch = batch(vec![anchor(), entry], 1);
+        final_batch.expectedRootPerRollup = vec![eez_protocol::abi::ExpectedRootPerRollupSol {
+            rollupId: 1,
+            root: B256::repeat_byte(1),
+        }];
+        assert_eq!(
+            projection.batch_gas(&final_batch, cost.calldata_gas, 0),
+            budget.projected,
+            "the mandatory offline root pin must not discard admitted entry evidence"
+        );
     }
 
     #[test]
@@ -1191,7 +1222,7 @@ mod tests {
         assert_eq!(p.entry_gas(&entry, true, key), EXISTING_PROXY_ENTRY_GAS);
         let changes: [fn(&mut ExecutedAction); 8] = [
             |a| a.parent_index = Some(0),
-            |a| a.revert_span = Some(1),
+            |a| a.revert_spans = vec![1],
             |a| a.target_rollup_id = RollupId(1),
             |a| a.call_mode = CallMode::Static,
             |a| a.source_address = Address::ZERO,
@@ -1325,7 +1356,7 @@ mod tests {
             },
             |a: &mut Vec<ExecutedAction>| a[2].data = Bytes::new(),
             |a: &mut Vec<ExecutedAction>| a[1].parent_index = Some(2),
-            |a: &mut Vec<ExecutedAction>| a[2].revert_span = Some(1),
+            |a: &mut Vec<ExecutedAction>| a[2].revert_spans = vec![1],
             |a: &mut Vec<ExecutedAction>| {
                 a[2].outcome = ExecutionOutcome::Resolved {
                     success: false,
@@ -1458,7 +1489,7 @@ mod tests {
         let p = model(0);
         let b = batch(vec![anchor(), deferred()], 1);
         let conservative = projected_postbatch_gas(2, 100, 200);
-        let changes: [fn(&mut eez_protocol::EvmBatch); 7] = [
+        let changes: [fn(&mut eez_protocol::EvmBatch); 11] = [
             |b| b.blobIndices = vec![U256::ZERO; 65],
             |b| b.proofSystems.push(Address::ZERO),
             |b| b.staticEntries.push(Default::default()),
@@ -1466,6 +1497,13 @@ mod tests {
             |b| b.entries[0].success = false,
             |b| b.entries[0].rootUpdates.clear(),
             |b| b.immediateEntryCount = U256::ZERO,
+            |b| b.expectedRootPerRollup.clear(),
+            |b| b.expectedRootPerRollup[0].rollupId = 2,
+            |b| b.expectedRootPerRollup[0].root = B256::ZERO,
+            |b| {
+                b.expectedRootPerRollup
+                    .push(b.expectedRootPerRollup[0].clone())
+            },
         ];
         for change in changes {
             let mut other = b.clone();
@@ -1624,10 +1662,10 @@ mod tests {
         entry.proxyEntryHash = B256::repeat_byte(8);
         entry.l2ToL1Calls[0].revertNextNCalls = 1;
         callback.parent_index = Some(0);
-        callback.revert_span = Some(1);
+        callback.revert_spans = vec![1];
         let mut root = callback.clone();
         root.parent_index = None;
-        root.revert_span = None;
+        root.revert_spans = vec![];
         root.source_rollup_id = RollupId::MAINNET;
         root.target_rollup_id = RollupId(1);
         root.outcome = ExecutionOutcome::Resolved {
@@ -1645,7 +1683,7 @@ mod tests {
         };
         let mut leaf = callback.clone();
         leaf.parent_index = Some(2);
-        leaf.revert_span = None;
+        leaf.revert_spans = vec![];
         let mut call = entry.l2ToL1Calls[0].clone();
         call.revertNextNCalls = 0;
         entry.expectedL1ToL2Calls.push(ExpectedL1ToL2CallSol {
@@ -1694,7 +1732,7 @@ mod tests {
             match change {
                 0 => invalid[3].parent_index = Some(3),
                 1 => invalid[2].target_rollup_id = RollupId(2),
-                2 => invalid[1].revert_span = None,
+                2 => invalid[1].revert_spans = vec![],
                 3 => invalid[2].outcome = ExecutionOutcome::Pending,
                 4 => invalid[3].data = vec![1; 257].into(),
                 _ => invalid[3].call_mode = CallMode::Static,

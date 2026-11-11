@@ -82,7 +82,8 @@ impl BeaconBlobSource {
     }
 
     /// Populate every batch's authenticated operations payload from its
-    /// mandatory native blobs.
+    /// mandatory native blobs. The scanner excludes posts whose registry event
+    /// does not verify our rollup; those may use a different DA profile.
     pub(crate) async fn hydrate_scanned_batches(
         &self,
         provider: &impl Provider,
@@ -193,8 +194,8 @@ impl BeaconBlobSource {
                     scanned.tx_hash
                 ))
             })?;
-            let semantic_transactions = eez_protocol::blob_semantics::decode_semantic_transactions(
-                &native.semantic_messages,
+            let semantic_transactions = eez_protocol::blob_semantics::decode_native_semantics(
+                &native,
             )
             .map_err(|error| {
                 L1Error::Decode(format!(
@@ -640,7 +641,15 @@ mod tests {
     #[tokio::test]
     async fn hydration_ignores_unrelated_non_eez_blob_in_same_slot() {
         let rollup_id = 7;
-        let expected_payload = Bytes::from_static(b"real derivation payload");
+        let expected_payload = Bytes::from(
+            eez_payload_codec::v0::encode_current(&[eez_payload_codec::v0::BlockRun {
+                blocks: 1,
+                beneficiary: alloy_primitives::Address::ZERO,
+                extra_data: &[],
+                transactions: &[],
+            }])
+            .unwrap(),
+        );
         let messages = vec![
             eez_blob_codec::Message::InitiateCrossChainTransaction {
                 chain_id: 0,

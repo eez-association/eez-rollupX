@@ -1,0 +1,215 @@
+{
+  "base_commit": "3e23955dc477c9e675364776f118b1cecda75774",
+  "branch": "codex/l1-history-offline-proving",
+  "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "source_snapshot": {
+    "local_path": "artifacts/pr-readiness/final-fixtures/source-freeze.json",
+    "sha256": "51dfc52e03c1e5a39cd29fad4d325ed748840fef8c3f1d340cdbf3c223496b53",
+    "files": 514,
+    "deviation": {
+      "file": "crates/eez-control-rpc/Cargo.toml",
+      "initial_sha256": "ae9cd9a131b6f76dc5547c6d32b90a1e580c23141c4b0da23c0fbb1a28e173af",
+      "current_sha256": "f5d3a32921d640ab7b4f8abcf98f721c084e3c36f5572ee61806b7ec1b4df196",
+      "reason": "Parent corrected an obsolete comment to describe the single prove.v2 schema; no TOML values changed. Initial source snapshot remains unchanged."
+    }
+  },
+  "runtime_sha256": "0e8a8f4671d83bd3416500fb606b73b1208083b9c1eece16085bf52eddde4bb1",
+  "base_e2e_state_root": "0x76df720c92bb7bf7ff3a42031b3af51b9a2db7d91abf2da3a810ca00a89273bf",
+  "selected_captures": [
+    {
+      "fixture": "native-offline-bidirectional",
+      "scenario": "bidirectional",
+      "blocks": 200,
+      "entries": [
+        {
+          "destination": 1,
+          "l1_to_l2": 0,
+          "l2_to_l1": 0,
+          "success": true
+        },
+        {
+          "destination": 1,
+          "l1_to_l2": 0,
+          "l2_to_l1": 1,
+          "success": true
+        },
+        {
+          "destination": 1,
+          "l1_to_l2": 0,
+          "l2_to_l1": 0,
+          "success": true
+        }
+      ],
+      "file": "bda7e319d5b3b8bd30daea948249a8cff50c01248755be8023f0ee31faac5f83.v2.protobuf",
+      "from": 1,
+      "operations_bytes": 10918,
+      "ordinary_transactions": 46,
+      "static_entries": 0,
+      "to": 200,
+      "request_sha256": "63415a07f867d707e24cdf0ab1b9e62d8ee9307a739f116bba842e9821464461",
+      "public_inputs_hash": "6e773d053de9f25676c70dd2a15526fa31e3f1f6c46d5835e067df5e02abae5d",
+      "response_sha256": "41cd95da057dfb3a95c75d7f2bd461bf0687f38a567752cd0071a52dffc50613"
+    },
+    {
+      "fixture": "native-osaka-lookup",
+      "scenario": "lookup",
+      "blocks": 210,
+      "entries": [
+        {
+          "destination": 1,
+          "l1_to_l2": 0,
+          "l2_to_l1": 0,
+          "success": true
+        },
+        {
+          "destination": 1,
+          "l1_to_l2": 0,
+          "l2_to_l1": 0,
+          "success": false
+        }
+      ],
+      "file": "55a6204d7f4cb9d7f7fac7a4650be1f896f477f2f8cc7af75cf822502d5e30f0.v2.protobuf",
+      "from": 1,
+      "operations_bytes": 13007,
+      "ordinary_transactions": 51,
+      "static_entries": 0,
+      "to": 210,
+      "request_sha256": "30b13e020288611a66b52d5bcd6246f55b083e8e61010933743aab26b1c1fa17",
+      "public_inputs_hash": "81f11dd7d4de606c1b66d78370fc406c82f78326335fdd96206a6d74173802f6",
+      "response_sha256": "04a3092b383242caecd8235c93a5c806c099a9960ae947e32731843c1f592993"
+    },
+    {
+      "fixture": "native-osaka-changing-static",
+      "scenario": "static",
+      "blocks": 30,
+      "entries": [
+        {
+          "destination": 1,
+          "l1_to_l2": 0,
+          "l2_to_l1": 0,
+          "success": true
+        },
+        {
+          "destination": 1,
+          "l1_to_l2": 0,
+          "l2_to_l1": 5,
+          "success": true
+        }
+      ],
+      "file": "66bdbee9cb2cb9187def4f60e8dafc9638ddd5af6dba2f19a7e4b8630c0851d8.v2.protobuf",
+      "from": 1,
+      "operations_bytes": 5133,
+      "ordinary_transactions": 12,
+      "static_entries": 0,
+      "to": 30,
+      "request_sha256": "1eeb7329dacf3fc432573bff019f5a644e43eccb3a24fa39b56c774d0efd4e49",
+      "public_inputs_hash": "67998f2b8a765479bee81001e5772b2a76c4a51aeccfb963fd7138af384ac363",
+      "response_sha256": "e952e405316aa7bfb35fd1df3a83516e152bae141f6500439bb2e34d7204390f"
+    }
+  ],
+  "process_results": {
+    "bidirectional": {
+      "test": "cross_chain::minimal_bidirectional_cross_chain_smoke",
+      "result": "passed",
+      "selected": 1,
+      "ignored": 0,
+      "network_denied": true,
+      "log_sha256": "6e640661dd5befb47d766c1a2df0734d0cd9ba643e0377ef56d85f1d0bfb47ca",
+      "requests": [
+        "bda7e319d5b3b8bd30daea948249a8cff50c01248755be8023f0ee31faac5f83.v2.protobuf"
+      ]
+    },
+    "lookup": {
+      "test": "cross_chain::inbound_reverting_destination_preserves_caught_result_without_destination_writes",
+      "result": "passed",
+      "selected": 1,
+      "ignored": 0,
+      "network_denied": true,
+      "log_sha256": "d0ed731c26947a487369fb4dffeefc5b4111919bb67cc6fdef0a31632b2e0365",
+      "requests": [
+        "189ee6db952e19c758c664ba6c6666a587584464b8f846436927aff4124da374.v2.protobuf",
+        "55a6204d7f4cb9d7f7fac7a4650be1f896f477f2f8cc7af75cf822502d5e30f0.v2.protobuf",
+        "91457567a703ccbbb21a554bfaaa51dd06339a517889f4ac81521c59d8ce0823.v2.protobuf",
+        "d109add608cb8ae32922290879328f9da0ece50d48f7f0c53e73ad3d534d8c53.v2.protobuf"
+      ]
+    },
+    "static": {
+      "test": "cross_chain::outbound_changing_static_reads_and_write_settle_and_replay",
+      "result": "passed",
+      "selected": 1,
+      "ignored": 0,
+      "network_denied": true,
+      "execution": "direct retained source executables, no Cargo invocation",
+      "log_sha256": "da7899a693a12bd2ef33286931587d2b1da0f9036309fa91c84415ffe9928315",
+      "requests": [
+        "66bdbee9cb2cb9187def4f60e8dafc9638ddd5af6dba2f19a7e4b8630c0851d8.v2.protobuf"
+      ]
+    }
+  },
+  "process_executables": {
+    "bidirectional": {
+      "target/debug/deps/node_e2e-969bf1dbfc9e03d4": "f012c3f6d9957afaff9633589e491fce238f4ed602ec0e4191c75fe8f172991f",
+      "target/debug/eez-proof-signer": "2e8bafcd0c8efcde1f572900bfff200432c7ac16a26a0df4765bda875890bb2f"
+    },
+    "lookup": {
+      "target/debug/deps/node_e2e-969bf1dbfc9e03d4": "f012c3f6d9957afaff9633589e491fce238f4ed602ec0e4191c75fe8f172991f",
+      "target/debug/eez-proof-signer": "2e8bafcd0c8efcde1f572900bfff200432c7ac16a26a0df4765bda875890bb2f",
+      "target/debug/eez-composer": "f613f0a2e9c0562ef505b9a241212f966d6fc5b0553f2489298afda16179e100",
+      "target/debug/eez-follower": "48507de679a2671cd9850eaaf959e8a51538f287342524f62994b46c63649e6f"
+    },
+    "static": {
+      "artifacts/pr-readiness/runtime-bin/node_e2e-final": "f012c3f6d9957afaff9633589e491fce238f4ed602ec0e4191c75fe8f172991f",
+      "artifacts/pr-readiness/runtime-bin/eez-proof-signer-final": "2e8bafcd0c8efcde1f572900bfff200432c7ac16a26a0df4765bda875890bb2f",
+      "artifacts/pr-readiness/runtime-bin/final-source/eez-composer": "f613f0a2e9c0562ef505b9a241212f966d6fc5b0553f2489298afda16179e100",
+      "artifacts/pr-readiness/runtime-bin/final-source/eez-follower": "48507de679a2671cd9850eaaf959e8a51538f287342524f62994b46c63649e6f"
+    }
+  },
+  "executable_limit": "The first process recorded test/signer hashes; composer/follower wrappers were not hashed before the second link. Lookup and static record all four executables. Static reused retained, verified local source builds, not shipping images.",
+  "corpus": {
+    "manifest_path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/manifest.json",
+    "manifest_sha256": "a144beb2e85ef6e7b0bdd64668bd74fd2f5790b4f6fb21ef58901b30ee5723e9",
+    "cases": 29,
+    "expected_proofs": 24,
+    "source_digests_verified": 169,
+    "proof_counts_unchanged": true,
+    "control_checks_unchanged_excluding_block_stream": true,
+    "differing_cases": []
+  },
+  "initial_failure": {
+    "cause": "copy2 preserved an mtime older than the test executable; Cargo retained the previous include_str genesis",
+    "old_genesis_sha256": "1511cce1f57b10d15a8db28bcfd0b248f9380dff45c8aa78fb36abb503de495c",
+    "new_genesis_sha256": "5c16616de4de7ea92c8931195bddca3ceacf4edd311b98285db0ce11d8241148",
+    "old_genesis_found_in_executable": true,
+    "new_genesis_found_in_executable": false,
+    "stale_executable_sha256": "6e40f1f84c513b20551f80ea7c90efe84241139a869642c3e08c0ec20bffc420",
+    "stale_executable_retained": "artifacts/pr-readiness/final-fixtures/signer-tests-stale-include",
+    "initial_suite_log_sha256": "8ef565d1b4e6e3843985d581d26e362c58c66ad627c917c9d1af28bd501f57a1"
+  },
+  "rebuilt_suite": {
+    "rebuilt_executable_sha256": "57b568da74a4525cc09fc54e724ce27083ee01055127e3f929a1046620dcda3f",
+    "rebuilt_executable_retained": "artifacts/pr-readiness/final-fixtures/signer-tests-final",
+    "old_genesis_found_in_executable": false,
+    "new_genesis_found_in_executable": true,
+    "suite": "320 passed, 0 failed, 2 ignored utilities",
+    "threads": 2,
+    "suite_log_sha256": "9691886d432c34deee01bc88eaa6b4bed5adc7d5042ea53d03aec8f21c1942f0"
+  },
+  "local_logs_sha256": {
+    "artifacts/pr-readiness/final-fixtures/capture-bidirectional.log": "6e640661dd5befb47d766c1a2df0734d0cd9ba643e0377ef56d85f1d0bfb47ca",
+    "artifacts/pr-readiness/final-fixtures/capture-lookup.log": "d0ed731c26947a487369fb4dffeefc5b4111919bb67cc6fdef0a31632b2e0365",
+    "artifacts/pr-readiness/final-fixtures/capture-static.log": "da7899a693a12bd2ef33286931587d2b1da0f9036309fa91c84415ffe9928315",
+    "artifacts/pr-readiness/final-fixtures/inventory-bidirectional.log": "7707800cf2fff3c30b40d973441c28e543088c3a2d497a3560357c01c71bf8b1",
+    "artifacts/pr-readiness/final-fixtures/inventory-lookup.log": "aeff6e72a2194985a62f1f649b681d1b7d9999bee7ad6152b118553dc44448f0",
+    "artifacts/pr-readiness/final-fixtures/inventory-static.log": "92ff13f87730c2aa697c290e4146fed7ac42be5872f92909ca1764c5866ee9a2",
+    "artifacts/pr-readiness/final-fixtures/vector-generation.log": "b2c07d78a20b4be99ebecbe3bc4eb99db02ea72b5a63bd7667a19102da2e327c",
+    "artifacts/pr-readiness/final-fixtures/vector-generation-rebuilt.log": "7eb58066a8fe8b473e10a8aea98890cafe5ec1003cc77a98951aa1a5e7ac5673",
+    "artifacts/pr-readiness/final-fixtures/vector-check-final.log": "73a2cb93772fd532e22005ecd61c22035395d290df17042d4a2376539412a426",
+    "artifacts/pr-readiness/final-fixtures/signer-suite.log": "8ef565d1b4e6e3843985d581d26e362c58c66ad627c917c9d1af28bd501f57a1",
+    "artifacts/pr-readiness/final-fixtures/signer-suite-rebuilt.log": "9691886d432c34deee01bc88eaa6b4bed5adc7d5042ea53d03aec8f21c1942f0"
+  },
+  "limits": [
+    "Logs, datadirs, the complete initial source snapshot and retained executables are ignored local-only artifacts.",
+    "The committed native fixtures and conformance manifest are portable.",
+    "This record does not certify the separate full process suite, live Kurtosis track, CI shipping build or an external Nethermind implementation."
+  ]
+}

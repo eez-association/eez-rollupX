@@ -1,0 +1,388 @@
+{
+  "baselineCommit": "09934699357fc8da2c5bf80c9554edff1d1df3bf",
+  "profile": "normal development (opt-level 1); frozen runtime binaries",
+  "workload": "serial L2->L1->L2->L1 quotes; two formats, estimated/supplied gas, trace off/on",
+  "roundOrder": [
+    "baseline_1",
+    "candidate_1",
+    "candidate_2",
+    "baseline_2"
+  ],
+  "samplesPerCombinationPerRuntime": 10,
+  "notes": [
+    "No concurrent owned compiler or second process suite while timing.",
+    "Second candidate run is the isolated benchmark fixture within the serial native suite.",
+    "Same harness within each round; benchmark test source unchanged at baseline/candidate.",
+    "Local shared-host measurements are not production latency or throughput; ranges overlap."
+  ],
+  "rawSamples": {
+    "baseline_1": {
+      "localArtifact": "baseline-logs/quote-samples.json",
+      "sha256": "759d06e7a705046fd931482aff78eb6c3b50cf57169b96c329dc77c6d856e3f6"
+    },
+    "candidate_1": {
+      "localArtifact": "candidate-logs/quote-samples.json",
+      "sha256": "42acf99cdcc2023b658a00f924f66aff1448d14d30285f4fc65717e94f14f609"
+    },
+    "candidate_2": {
+      "localArtifact": "regression-logs/quote-samples.json",
+      "sha256": "cd0c02002062a3fca28393f6fbb6e8861bbc41a234ef6e20b3f2169e99069950"
+    },
+    "baseline_2": {
+      "localArtifact": "baseline-repeat-logs/quote-samples.json",
+      "sha256": "445ff67089a5974b239925ec97c45ed6fcdf5c35e2a1857cede4efedd3680e4c"
+    }
+  },
+  "runtimes": {
+    "baseline": {
+      "eez-composer": "1f13aed6d7ae4adc96bd26a7657572d52c1b1b3f53b872e1aa8c2faf31e39a72",
+      "eez-follower": "675dbd32ff98a771be024ad3802c08b6e2b9a4f7317acadb7ab918ed5e6dbeb0",
+      "eez-proof-signer": "69d885e0e149d8859158fa78f0fb2c5a04af68b7ef2eab26c7d3ce490f16a169",
+      "node-e2e": "6e61fc4bcb5611b9be2df062f5a7c1df05fa84efd707a963b3d5ba534eddbfff"
+    },
+    "candidate": {
+      "eez-composer": "73b5287e94655c22628fd89a8beedcb65013797cd92332e13d809b4e80a9728d",
+      "eez-follower": "675dbd32ff98a771be024ad3802c08b6e2b9a4f7317acadb7ab918ed5e6dbeb0",
+      "eez-proof-signer": "69d885e0e149d8859158fa78f0fb2c5a04af68b7ef2eab26c7d3ce490f16a169",
+      "node-e2e": "d7c0a650c0400f727c1e3dcaa67c3da3428140c6d0d3e3881ca1bd5d0810df55"
+    }
+  },
+  "combinations": [
+    {
+      "type": "0x0",
+      "suppliedGas": false,
+      "trace": false,
+      "roundMediansMs": {
+        "baseline_1": 12.31,
+        "candidate_1": 10.853,
+        "candidate_2": 8.391,
+        "baseline_2": 10.903
+      },
+      "baseline": {
+        "medianMs": 12.042,
+        "minimumMs": 10.432,
+        "maximumMs": 30.431,
+        "sampleCount": 10,
+        "runs": [
+          null
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "candidate": {
+        "medianMs": 9.09,
+        "minimumMs": 8.095,
+        "maximumMs": 19.407,
+        "sampleCount": 10,
+        "runs": [
+          null
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "medianReductionPercent": 24.5
+    },
+    {
+      "type": "0x0",
+      "suppliedGas": false,
+      "trace": true,
+      "roundMediansMs": {
+        "baseline_1": 17.09,
+        "candidate_1": 15.106,
+        "candidate_2": 11.692,
+        "baseline_2": 15.489
+      },
+      "baseline": {
+        "medianMs": 15.95,
+        "minimumMs": 12.14,
+        "maximumMs": 22.439,
+        "sampleCount": 10,
+        "runs": [
+          16
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "candidate": {
+        "medianMs": 12.405,
+        "minimumMs": 10.038,
+        "maximumMs": 27.252,
+        "sampleCount": 10,
+        "runs": [
+          14
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "medianReductionPercent": 22.2
+    },
+    {
+      "type": "0x0",
+      "suppliedGas": true,
+      "trace": false,
+      "roundMediansMs": {
+        "baseline_1": 10.494,
+        "candidate_1": 7.07,
+        "candidate_2": 6.886,
+        "baseline_2": 7.801
+      },
+      "baseline": {
+        "medianMs": 9.028,
+        "minimumMs": 6.969,
+        "maximumMs": 14.817,
+        "sampleCount": 10,
+        "runs": [
+          null
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "candidate": {
+        "medianMs": 6.986,
+        "minimumMs": 6.435,
+        "maximumMs": 9.999,
+        "sampleCount": 10,
+        "runs": [
+          null
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "medianReductionPercent": 22.6
+    },
+    {
+      "type": "0x0",
+      "suppliedGas": true,
+      "trace": true,
+      "roundMediansMs": {
+        "baseline_1": 13.586,
+        "candidate_1": 9.471,
+        "candidate_2": 9.072,
+        "baseline_2": 10.228
+      },
+      "baseline": {
+        "medianMs": 12.051,
+        "minimumMs": 9.316,
+        "maximumMs": 18.895,
+        "sampleCount": 10,
+        "runs": [
+          10
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "candidate": {
+        "medianMs": 9.14,
+        "minimumMs": 8.104,
+        "maximumMs": 11.045,
+        "sampleCount": 10,
+        "runs": [
+          8
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "medianReductionPercent": 24.2
+    },
+    {
+      "type": "0x2",
+      "suppliedGas": false,
+      "trace": false,
+      "roundMediansMs": {
+        "baseline_1": 10.794,
+        "candidate_1": 9.038,
+        "candidate_2": 8.036,
+        "baseline_2": 9.118
+      },
+      "baseline": {
+        "medianMs": 9.919,
+        "minimumMs": 8.86,
+        "maximumMs": 17.031,
+        "sampleCount": 10,
+        "runs": [
+          null
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "candidate": {
+        "medianMs": 8.668,
+        "minimumMs": 7.707,
+        "maximumMs": 14.584,
+        "sampleCount": 10,
+        "runs": [
+          null
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "medianReductionPercent": 12.6
+    },
+    {
+      "type": "0x2",
+      "suppliedGas": false,
+      "trace": true,
+      "roundMediansMs": {
+        "baseline_1": 16.203,
+        "candidate_1": 12.535,
+        "candidate_2": 10.92,
+        "baseline_2": 12.944
+      },
+      "baseline": {
+        "medianMs": 13.865,
+        "minimumMs": 11.818,
+        "maximumMs": 22.678,
+        "sampleCount": 10,
+        "runs": [
+          16
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "candidate": {
+        "medianMs": 11.436,
+        "minimumMs": 10.687,
+        "maximumMs": 17.648,
+        "sampleCount": 10,
+        "runs": [
+          14
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "medianReductionPercent": 17.5
+    },
+    {
+      "type": "0x2",
+      "suppliedGas": true,
+      "trace": false,
+      "roundMediansMs": {
+        "baseline_1": 9.353,
+        "candidate_1": 6.785,
+        "candidate_2": 6.982,
+        "baseline_2": 7.618
+      },
+      "baseline": {
+        "medianMs": 8.125,
+        "minimumMs": 7.284,
+        "maximumMs": 13.32,
+        "sampleCount": 10,
+        "runs": [
+          null
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "candidate": {
+        "medianMs": 6.808,
+        "minimumMs": 6.361,
+        "maximumMs": 7.331,
+        "sampleCount": 10,
+        "runs": [
+          null
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "medianReductionPercent": 16.2
+    },
+    {
+      "type": "0x2",
+      "suppliedGas": true,
+      "trace": true,
+      "roundMediansMs": {
+        "baseline_1": 12.282,
+        "candidate_1": 8.483,
+        "candidate_2": 8.965,
+        "baseline_2": 9.864
+      },
+      "baseline": {
+        "medianMs": 11.346,
+        "minimumMs": 9.131,
+        "maximumMs": 18.65,
+        "sampleCount": 10,
+        "runs": [
+          10
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "candidate": {
+        "medianMs": 8.846,
+        "minimumMs": 8.181,
+        "maximumMs": 13.863,
+        "sampleCount": 10,
+        "runs": [
+          8
+        ],
+        "sourceGas": [
+          183149
+        ],
+        "l1Gas": [
+          276380
+        ]
+      },
+      "medianReductionPercent": 22.0
+    }
+  ]
+}

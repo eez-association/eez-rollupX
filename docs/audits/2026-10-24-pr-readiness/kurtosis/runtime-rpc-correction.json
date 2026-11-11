@@ -1,0 +1,363 @@
+{
+  "status": "Shipping build, package identity, same-container installation and focused live RPC regression passed; extensive protocol/replay follow-up remains pending.",
+  "checkout_commit": "d1838526480b89651f759d34e27bfbcfca43fb55",
+  "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "source_manifest_sha256": "847cbe5ca1e62bece7003996d49aa067f2a1c57b63259465de0df8094b5a504d",
+  "build": {
+    "exit_code": 0,
+    "seconds": 2482.783203601837,
+    "profile": "release",
+    "cargo_jobs": 1,
+    "cpu_affinity": [
+      0
+    ],
+    "flags_unchanged": true,
+    "minimum_available_memory_bytes": 9502892032,
+    "log_sha256": "0fdb8734f4f4710d58c10ed8200857fd2ac74d30875ba5f92b907c611d095957",
+    "process_samples": {
+      "1300246": {
+        "comm": "sh",
+        "max_rss_kib": 1748,
+        "max_hwm_kib": 1748,
+        "affinities": [
+          "0-21"
+        ]
+      },
+      "1300271": {
+        "comm": "cargo",
+        "max_rss_kib": 223384,
+        "max_hwm_kib": 223384,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1300420": {
+        "comm": "rustc",
+        "max_rss_kib": 4779872,
+        "max_hwm_kib": 4810844,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1335552": {
+        "comm": "rustc",
+        "max_rss_kib": 2989596,
+        "max_hwm_kib": 3061888,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1348784": {
+        "comm": "rustc",
+        "max_rss_kib": 1359612,
+        "max_hwm_kib": 1368344,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1397500": {
+        "comm": "cc",
+        "max_rss_kib": 4164,
+        "max_hwm_kib": 4164,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1397519": {
+        "comm": "collect2",
+        "max_rss_kib": 2796,
+        "max_hwm_kib": 2796,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1397520": {
+        "comm": "ld.mold",
+        "max_rss_kib": 10388,
+        "max_hwm_kib": 10388,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1397527": {
+        "comm": "ld.mold",
+        "max_rss_kib": 953004,
+        "max_hwm_kib": 953004,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1397581": {
+        "comm": "rustc",
+        "max_rss_kib": 863284,
+        "max_hwm_kib": 924852,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1409718": {
+        "comm": "cc",
+        "max_rss_kib": 4288,
+        "max_hwm_kib": 4288,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1409719": {
+        "comm": "collect2",
+        "max_rss_kib": 2840,
+        "max_hwm_kib": 2840,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1409720": {
+        "comm": "ld.mold",
+        "max_rss_kib": 10392,
+        "max_hwm_kib": 10392,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1409739": {
+        "comm": "ld.mold",
+        "max_rss_kib": 525956,
+        "max_hwm_kib": 525956,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1409761": {
+        "comm": "rustc",
+        "max_rss_kib": 560992,
+        "max_hwm_kib": 618796,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1418058": {
+        "comm": "cc",
+        "max_rss_kib": 4356,
+        "max_hwm_kib": 4356,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1418059": {
+        "comm": "collect2",
+        "max_rss_kib": 2928,
+        "max_hwm_kib": 2928,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1418060": {
+        "comm": "ld.mold",
+        "max_rss_kib": 10436,
+        "max_hwm_kib": 10436,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1418061": {
+        "comm": "ld.mold",
+        "max_rss_kib": 500820,
+        "max_hwm_kib": 500820,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1418111": {
+        "comm": "rustc",
+        "max_rss_kib": 2144044,
+        "max_hwm_kib": 2150684,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1465453": {
+        "comm": "cc",
+        "max_rss_kib": 4184,
+        "max_hwm_kib": 4184,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1465454": {
+        "comm": "collect2",
+        "max_rss_kib": 2912,
+        "max_hwm_kib": 2912,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1465455": {
+        "comm": "ld.mold",
+        "max_rss_kib": 10152,
+        "max_hwm_kib": 10152,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1465458": {
+        "comm": "ld.mold",
+        "max_rss_kib": 1345972,
+        "max_hwm_kib": 1445216,
+        "affinities": [
+          "0"
+        ]
+      },
+      "1465518": {
+        "comm": "rustc",
+        "max_rss_kib": 262168,
+        "max_hwm_kib": 266216,
+        "affinities": [
+          "0"
+        ]
+      }
+    },
+    "auxiliary_monitor_note": "First read-only PID monitor ended with SIGTERM; cause not established. Main build guard remained alive, owned/waited on Docker, and completed exit0. A second PID monitor retained a separate segment."
+  },
+  "shipping_image_id": "sha256:b7f736c7ae69a3ff440228a2a1aa0228f39bb2869268aaac66d18d22ab0a96c2",
+  "packaged_node_image_id": "sha256:4cab7cbd1f2ebf17ab3a27ef4b734910974a4abb02850a529db00422b7c759ca",
+  "binaries": {
+    "eez-composer": {
+      "sha256": "f7856516e8111fa20e1b8b036c2228d86515c4114501cf563684b5e04d725602",
+      "bytes": 196394968,
+      "baseline_sha256": "8588ed98bd8b2e2219a21707bc2bad8a5d57ae3a4520d482606cecf644bea315",
+      "changed": true
+    },
+    "eez-follower": {
+      "sha256": "365a51a80244c205e1e15925f4fb778695eea50153a58cf0c03ad5881ac802d5",
+      "bytes": 160625432,
+      "baseline_sha256": "cbb17b45bc904a323d946f620a973189540c3da6ea2fb857c71499e4447353ce",
+      "changed": true
+    },
+    "eez-proof-signer": {
+      "sha256": "49cb9f259ddde79427a4197eb91f4e1b70dc3b756f3a247fdf4adebccfccf50a",
+      "bytes": 17499480,
+      "baseline_sha256": "49cb9f259ddde79427a4197eb91f4e1b70dc3b756f3a247fdf4adebccfccf50a",
+      "changed": false
+    },
+    "eez-genesis-state-root": {
+      "sha256": "8ad1d585961a8fcaca77ceef579344802fc9cf56eb2815df0458f87f4acc4ba6",
+      "bytes": 925944,
+      "baseline_sha256": "768f34aa7a1c47e19f6dd883efac6072a373be8a7823f5fb6a9a82c1ed896165",
+      "changed": true
+    },
+    "eez-genesis-block-hash": {
+      "sha256": "2d2620663d1ff1d96347f6afc3c172e15a0f02e46061ec853b0c8a96101dd78f",
+      "bytes": 3316016,
+      "baseline_sha256": "f4b0ab7f61495df6c1b86b001552fa3ab2c529c159bf328de29661507700997c",
+      "changed": true
+    },
+    "e2e-causal-verify": {
+      "sha256": "7833f22492f6fb99487b6e7556307f471cb09363838cf940134bd7bc242e739a",
+      "bytes": 833656,
+      "baseline_sha256": "7833f22492f6fb99487b6e7556307f471cb09363838cf940134bd7bc242e739a",
+      "changed": false
+    },
+    "verify_blob_evidence": {
+      "sha256": "eab594596d172ea907d6fab71c921e7fbbe68bb1203613cc4274b287e15d396d",
+      "bytes": 9755768,
+      "baseline_sha256": "eab594596d172ea907d6fab71c921e7fbbe68bb1203613cc4274b287e15d396d",
+      "changed": false
+    }
+  },
+  "deployment": {
+    "container": "a56d567d59b186a48af93c471a1e357e3eb8fba24585a06ad160af52286546d1",
+    "enclave_uuid": "78c4b5eee3a844b99f4864b33c0d0643",
+    "started_at": "2026-10-24T12:59:01.827435042Z",
+    "original_container_image_id": "sha256:446ff3ba0fdd06a8bde319b8ff71ea9a02a3ad53727ab0ef4aaa2826b647300b",
+    "identity_note": "Original container/image metadata retained; actual runtime role bytes replaced from verified shipping bundle. This is not deployment of an immutable final image.",
+    "signer_restarted": false,
+    "genesis_changed": false,
+    "old_commitment_preserved": true,
+    "old_endpoints": {
+      "engine": 32863,
+      "l2_rpc": 32864,
+      "l2_front": 32865,
+      "l1_front": 32866
+    },
+    "actual_port_bindings": {
+      "18551/tcp": [
+        {
+          "HostIp": "0.0.0.0",
+          "HostPort": "32869"
+        },
+        {
+          "HostIp": "::",
+          "HostPort": "32869"
+        }
+      ],
+      "18688/tcp": [
+        {
+          "HostIp": "0.0.0.0",
+          "HostPort": "32870"
+        },
+        {
+          "HostIp": "::",
+          "HostPort": "32870"
+        }
+      ],
+      "18998/tcp": [
+        {
+          "HostIp": "0.0.0.0",
+          "HostPort": "32871"
+        },
+        {
+          "HostIp": "::",
+          "HostPort": "32871"
+        }
+      ],
+      "18999/tcp": [
+        {
+          "HostIp": "0.0.0.0",
+          "HostPort": "32872"
+        },
+        {
+          "HostIp": "::",
+          "HostPort": "32872"
+        }
+      ]
+    },
+    "first_new_l2_block": {
+      "number": "0x8e3",
+      "hash": "0xaff9fb1bfea20e46cf06476aa287683c14af82fa03137a3c3ba98fc724537145",
+      "parentHash": "0x062219eabf9527ddf9e6b9fe0f319686f79091a7aedd3b254d53af072051249b",
+      "timestamp": "0x6adc9c93",
+      "stateRoot": "0x08c021babf6d0e5d4fd9f91665e02f5051340269af665f521afba4fce28b9fda"
+    },
+    "readiness_probe_failure": "Probe used formerly assigned dynamic host port32864. Container started successfully and Docker/Kurtosis assigned new ports; no second restart or installation."
+  },
+  "rpc_regression": {
+    "baseline": "Same Counter initcode as the initial pending-RPC failure.",
+    "samples": 60,
+    "stable_cutoff_samples": 10,
+    "distinct_cutoff_parents": [
+      4322,
+      4328,
+      4334,
+      4340,
+      4346
+    ],
+    "verified": true,
+    "gas": 106328,
+    "eoa_gas": 21000,
+    "methods": [
+      "eth_estimateGas default/latest/pending",
+      "eth_call pending",
+      "eth_createAccessList pending"
+    ],
+    "artifact_sha256": "4aab1e74040dcbf159d26c864ef4e64990e2d80592216fb7c7cf5809e805bcc9"
+  },
+  "helpers": {
+    "positive_output_comparisons": 9,
+    "mismatched_profile_rejections": 2,
+    "genesis_mutated": false,
+    "artifact_sha256": "fda60d21246a711e1b3f70eea2e1cd0698d16a4e0d778fabe6ffb3ff0ab64dde",
+    "initial_audit_error": "Production genesis was initially paired with private L1 profile7331; baseline helper rejected before candidate invocation. Correct inputs compared next; both helpers also independently reject the bad pair."
+  },
+  "local_only_evidence": "artifacts/pr-readiness/kurtosis/; raw snapshots, logs and all complete build/source manifests are ignored and unavailable from another checkout.",
+  "shipping_feature_limit": "CI separately detected that the combined bin/example selection may inherit Tokio test-util through a development dependency, making its archive feature graph differ. Root/reviewer are investigating. These hashes identify the live semantic snapshot; they do not establish final clean shipping-feature compliance."
+}

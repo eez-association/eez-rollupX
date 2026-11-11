@@ -1,0 +1,291 @@
+diff --git a/crates/engine/tree/src/chain.rs b/crates/engine/tree/src/chain.rs
+--- a/crates/engine/tree/src/chain.rs
++++ b/crates/engine/tree/src/chain.rs
+@@ -227,9 +227,10 @@ pub enum FromOrchestrator {
+     BackfillSyncStarted,
+     /// Gracefully terminate the engine service.
+     ///
+-    /// When this variant is received, the engine will persist all remaining in-memory blocks
+-    /// to disk before shutting down. Once persistence is complete, a signal is sent through
+-    /// the oneshot channel to notify the caller.
++    /// Attempts to persist all remaining in-memory blocks, then drops the engine to release its
++    /// resources and shut down and join the persistence and txpool prewarming workers. The oneshot
++    /// signals completion only after cleanup, even if persistence failed, so the caller can
++    /// proceed with shutdown without racing these workers.
+     Terminate {
+         /// Channel to signal termination completion.
+         tx: tokio::sync::oneshot::Sender<()>,
+diff --git a/crates/engine/tree/src/tree/mod.rs b/crates/engine/tree/src/tree/mod.rs
+--- a/crates/engine/tree/src/tree/mod.rs
++++ b/crates/engine/tree/src/tree/mod.rs
+@@ -573,7 +573,19 @@ where
+                 LoopEvent::EngineMessage(msg) => {
+                     debug!(target: "engine::tree", %msg, "received new engine message");
+                     match self.on_engine_message(msg) {
+-                        Ok(ops::ControlFlow::Break(())) => return,
++                        Ok(ops::ControlFlow::Break(tx)) => {
++                            if let Err(err) = self.persist_until_complete() {
++                                error!(target: "engine::tree", %err, "Termination failed");
++                            }
++                            // Finishing persistence does not stop the additional tasks owned by
++                            // the engine. Drop their owners to shut down and join the persistence
++                            // service and txpool prewarmer before acknowledging shutdown, even if
++                            // persistence failed. Otherwise the caller could tear down the process
++                            // while those tasks are still running.
++                            drop(self);
++                            let _ = tx.send(());
++                            return
++                        }
+                         Ok(ops::ControlFlow::Continue(())) => {}
+                         Err(fatal) => {
+                             error!(target: "engine::tree", %fatal, "insert block fatal error");
+@@ -1460,20 +1472,6 @@ where
+         Ok(())
+     }
+ 
+-    /// Finishes termination by persisting all remaining blocks and signaling completion.
+-    ///
+-    /// This blocks until all persistence is complete. Always signals completion,
+-    /// even if an error occurs.
+-    fn finish_termination(
+-        &mut self,
+-        pending_termination: oneshot::Sender<()>,
+-    ) -> Result<(), AdvancePersistenceError> {
+-        trace!(target: "engine::tree", "finishing termination, persisting remaining blocks");
+-        let result = self.persist_until_complete();
+-        let _ = pending_termination.send(());
+-        result
+-    }
+-
+     /// Persists all remaining blocks until none are left.
+     fn persist_until_complete(&mut self) -> Result<(), AdvancePersistenceError> {
+         loop {
+@@ -1576,11 +1574,11 @@ where
+ 
+     /// Handles a message from the engine.
+     ///
+-    /// Returns `ControlFlow::Break(())` if the engine should terminate.
++    /// Returns the completion sender in `ControlFlow::Break` if the engine should terminate.
+     fn on_engine_message(
+         &mut self,
+         msg: FromEngine<EngineApiRequest<T, N>, N::Block>,
+-    ) -> Result<ops::ControlFlow<()>, InsertBlockFatalError> {
++    ) -> Result<ops::ControlFlow<oneshot::Sender<()>>, InsertBlockFatalError> {
+         match msg {
+             FromEngine::Event(event) => match event {
+                 FromOrchestrator::BackfillSyncStarted => {
+@@ -1592,10 +1590,7 @@ where
+                 }
+                 FromOrchestrator::Terminate { tx } => {
+                     debug!(target: "engine::tree", "received terminate request");
+-                    if let Err(err) = self.finish_termination(tx) {
+-                        error!(target: "engine::tree", %err, "Termination failed");
+-                    }
+-                    return Ok(ops::ControlFlow::Break(()))
++                    return Ok(ops::ControlFlow::Break(tx))
+                 }
+             },
+             FromEngine::Request(request) => {
+diff --git a/crates/engine/tree/src/tree/tests.rs b/crates/engine/tree/src/tree/tests.rs
+--- a/crates/engine/tree/src/tree/tests.rs
++++ b/crates/engine/tree/src/tree/tests.rs
+@@ -2796,6 +2796,71 @@ mod forkchoice_updated_tests {
+         test_harness.tree.update_reorg_metrics(2, Some(NumHash::new(60, B256::random())));
+     }
+ 
++    #[test]
++    fn test_engine_termination_waits_for_cleanup() {
++        #[derive(Debug)]
++        struct CleanupSource {
++            started: crossbeam_channel::Sender<()>,
++            release: crossbeam_channel::Receiver<()>,
++        }
++
++        impl TxPoolPrewarmSource<EthPrimitives> for CleanupSource {
++            fn best_transactions(
++                &self,
++                _: B256,
++            ) -> Option<TxPoolPrewarmTransactions<EthPrimitives>> {
++                None
++            }
++        }
++
++        impl Drop for CleanupSource {
++            fn drop(&mut self) {
++                self.started.send(()).unwrap();
++                self.release.recv_timeout(Duration::from_secs(10)).unwrap();
++            }
++        }
++
++        for persistence_error in [false, true] {
++            let mut harness = TestHarness::new(MAINNET.clone());
++            if !persistence_error {
++                let genesis = harness.tree.state.tree_state.current_canonical_head;
++                harness.tree.persistence_state.last_persisted_block = genesis;
++                harness.tree.persistence_state.last_state_trie_persisted_block = genesis;
++            }
++            // Otherwise the empty provider fails to resolve the persisted genesis header.
++            let (started_tx, started_rx) = crossbeam_channel::bounded(1);
++            let (release_tx, release_rx) = crossbeam_channel::bounded(1);
++            harness.tree.payload_validator = harness
++                .tree
++                .payload_validator
++                .with_txpool_prewarming(CleanupSource { started: started_tx, release: release_rx });
++            let (tx, rx) = oneshot::channel();
++            harness.to_tree_tx.send(FromEngine::Event(FromOrchestrator::Terminate { tx })).unwrap();
++            let engine = spawn_os_thread("engine", || harness.tree.run());
++            let (done_tx, done_rx) = crossbeam_channel::bounded(1);
++            let completion = spawn_os_thread("completion", move || {
++                done_tx.send(rx.blocking_recv()).unwrap();
++            });
++
++            started_rx.recv_timeout(Duration::from_secs(10)).unwrap();
++            // Keep worker resources alive while allowing an early acknowledgement to arrive.
++            let early = done_rx.recv_timeout(Duration::from_millis(100));
++            release_tx.send(()).unwrap();
++            engine.join().unwrap();
++            completion.join().unwrap();
++
++            assert!(
++                matches!(early, Err(crossbeam_channel::RecvTimeoutError::Timeout)),
++                "termination acknowledged before cleanup (persistence_error={persistence_error})"
++            );
++            done_rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap();
++            assert!(matches!(
++                harness.action_rx.try_recv(),
++                Err(std::sync::mpsc::TryRecvError::Disconnected)
++            ));
++        }
++    }
++
+     /// Test that engine termination persists all blocks and signals completion.
+     #[test]
+     fn test_engine_termination_with_everything_persisted() {
+diff --git a/crates/engine/tree/src/tree/txpool_prewarm/mod.rs b/crates/engine/tree/src/tree/txpool_prewarm/mod.rs
+--- a/crates/engine/tree/src/tree/txpool_prewarm/mod.rs
++++ b/crates/engine/tree/src/tree/txpool_prewarm/mod.rs
+@@ -15,15 +15,22 @@ use reth_provider::{
+     StorageSettingsCache,
+ };
+ use reth_storage_overlay::OverlayStateProviderFactory;
+-use std::{fmt::Debug, sync::Arc};
++use std::{fmt::Debug, sync::Arc, thread::JoinHandle};
+ 
+-/// Coordinates a long-lived worker and the latest completed immutable snapshot.
++/// Owns the txpool prewarming worker and its latest completed immutable snapshot.
++///
++/// Dropping this handle disconnects the command channel, telling the worker to exit, then joins
++/// its thread to wait for resource cleanup. Cancellation is cooperative: an active warming batch
++/// may finish before the worker observes disconnection. The runtime shutdown signal cannot
++/// interrupt the synchronous worker loop, so its owner must drop this handle to stop it.
+ pub(crate) struct Handle<N, P, Evm>
+ where
+     N: NodePrimitives,
+     Evm: ConfigureEvm<Primitives = N>,
+ {
+     control: Arc<Control<Job<N, P, Evm>>>,
++    /// Must follow `control`: the command channel must disconnect before the join can complete.
++    _worker: WorkerGuard,
+ }
+ 
+ impl<N, P, Evm> Debug for Handle<N, P, Evm>
+@@ -59,10 +66,12 @@ where
+     ) -> Self {
+         let (control, commands) = Control::new();
+         let publication = control.publication();
+-        runtime.spawn_critical_os_thread("txpool-prewarm", "txpool prewarm worker", async move {
+-            worker::Worker::new(commands, publication, source, evm_config).run()
+-        });
+-        Self { control }
++        let worker = runtime.spawn_critical_os_thread(
++            "txpool-prewarm",
++            "txpool prewarm worker",
++            async move { worker::Worker::new(commands, publication, source, evm_config).run() },
++        );
++        Self { control, _worker: WorkerGuard(Some(worker)) }
+     }
+ 
+     /// Pauses speculative work.
+@@ -121,6 +130,17 @@ pub trait Source<N: NodePrimitives>: Send + Sync + Debug {
+     fn best_transactions(&self, parent_hash: B256) -> Option<Transactions<N>>;
+ }
+ 
++/// Waits for worker resources to be released before engine shutdown completes.
++struct WorkerGuard(Option<JoinHandle<()>>);
++
++impl Drop for WorkerGuard {
++    fn drop(&mut self) {
++        if let Some(worker) = self.0.take() {
++            let _ = worker.join();
++        }
++    }
++}
++
+ /// A request to warm txpool transactions against one fully validated parent state.
+ struct Job<N: NodePrimitives, P, Evm: ConfigureEvm<Primitives = N>> {
+     evm_env: EvmEnvFor<Evm>,
+diff --git a/crates/ethereum/node/tests/e2e/eth.rs b/crates/ethereum/node/tests/e2e/eth.rs
+--- a/crates/ethereum/node/tests/e2e/eth.rs
++++ b/crates/ethereum/node/tests/e2e/eth.rs
+@@ -125,6 +125,40 @@ async fn test_engine_graceful_shutdown() -> eyre::Result<()> {
+     Ok(())
+ }
+ 
++#[tokio::test]
++async fn test_engine_shutdown_exits_cleanly() -> eyre::Result<()> {
++    for explicit_shutdown in [true, false] {
++        let runtime = Runtime::test();
++        let NodeHandle { node, node_exit_future } = NodeBuilder::new(
++            NodeConfig::test()
++                .with_chain(test_chain_spec(EthereumHardfork::Cancun))
++                .with_unused_ports(),
++        )
++        .testing_node(runtime.clone())
++        .with_types::<EthereumNode>()
++        .with_components(EthereumNode::components())
++        .with_add_ons(EthereumAddOns::default())
++        .launch()
++        .await?;
++
++        tokio::time::timeout(std::time::Duration::from_secs(10), async {
++            let _shutdown_guard = if explicit_shutdown {
++                node.add_ons_handle
++                    .engine_shutdown
++                    .shutdown()
++                    .expect("first shutdown request")
++                    .await?;
++                None
++            } else {
++                Some(runtime.initiate_graceful_shutdown()?.await)
++            };
++            node_exit_future.await
++        })
++        .await??;
++    }
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn test_testing_build_block_v1_osaka() -> eyre::Result<()> {
+     reth_tracing::init_test_tracing();
+diff --git a/crates/node/builder/src/launch/engine.rs b/crates/node/builder/src/launch/engine.rs
+--- a/crates/node/builder/src/launch/engine.rs
++++ b/crates/node/builder/src/launch/engine.rs
+@@ -387,9 +387,16 @@ impl EngineNodeLauncher {
+                     shutdown_req = &mut shutdown_rx => {
+                         if let Ok(req) = shutdown_req {
+                             debug!(target: "reth::cli", "received engine shutdown request");
++                            // Keep our own receiver to avoid treating event-channel closure as fatal.
++                            let (done_tx, done_rx) = oneshot::channel();
+                             orchestrator.handler_mut().handler_mut().on_event(
+-                                FromOrchestrator::Terminate { tx: req.done_tx }.into()
++                                FromOrchestrator::Terminate { tx: done_tx }.into()
+                             );
++                            match done_rx.await {
++                                Ok(()) => { let _ = req.done_tx.send(()); }
++                                Err(err) => res = Err(err.into()),
++                            }
++                            break;
+                         }
+                     }
+                     _guard = &mut on_graceful_shutdown => {

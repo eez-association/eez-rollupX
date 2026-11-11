@@ -1,0 +1,104 @@
+{
+  "date": "2026-10-15",
+  "status": "local validation complete; not deployed",
+  "runtime_baseline": "728a30de7c56396abe7a764c3480829fbd3ec36b",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "dashboard_candidate": "7e10114e8690dff467eb432746b227284efd7148",
+  "source_sha256": {
+    "crates/eez-composer/src/composer/fees/quote.rs": "1bbfb86b712ece8f49f5921c027bdcbf4163fc62811e7abfb64bf526c6bb27e8",
+    "crates/eez-composer/src/composer/fees/quote/tests.rs": "7ed85f16aefcfccf59f34cf3083f5019ba7a27c788264ee616a6e401e37dded4",
+    "crates/eez-composer/src/local/build.rs": "d2257dd279bbecf1f0e66e1498736a1ab5b2976b1314459404635630df7b65e9",
+    "crates/eez-node-e2e/tests/fee_quotes.rs": "061fe71789ce6614ed223ea74e31d7d6e410ee4e6fdeb911c9432f0b20780e25",
+    "crates/eez-node/src/fee_quotes.rs": "ac3f5d1f3a1d41b9c588a9582889c4a31daf3f984a2ef16acf3d9626b21d105b",
+    "crates/eez-node/src/ingress.rs": "d91509c07d9245e081e669d91ea9f9253f83fc98469b926c21ad0a55ffd37713",
+    "sdk/l2-fees.mjs": "5952cdb973bbdc94175f98314bae2fc17821e98938952f9a0c8e2bd21608b709",
+    "sdk/l2-fees.test.mjs": "ecb765d088d0f6b54f1c6ca9c8809f6f51e0c27347c96c576ff059b0e226012c"
+  },
+  "executable_sha256": {
+    "eez-composer": "2b822db8de929d1b1dda7bad41ed855646b38170968c3b08674314b2feae8654",
+    "eez-follower": "7799c40c246c550ed74ab96f8b1d07ed76b83905b77e18ebb1a4283787001128",
+    "eez-proof-signer": "991d0cd4bd0680cdf0f6bf2a290cec7fd9272f7351204bf611fd0fec440c2609",
+    "node_e2e-2d1c048865c782ec": "4acf3bfffb3a85a25e0eb4e265a70e7a0213bf7eaac44e52d03b3b1f4c447648"
+  },
+  "local_only_log_sha256": {
+    "units-final.log": "71a7839fc1c2614962a8fd38c80d12b35d281e0df6391054d45a0b99232700af",
+    "sdk-final.log": "5a812ebdc992da4cafd988206035fe975bdcb854c1804ba65884c1f0979f9146",
+    "clippy-final.log": "b75a209d4076ec78d8010831c1c86ec4a50175ab198035aa27b9ffa8939973e4",
+    "process-1.log": "10502b5cb96440321177f2867e8a9d8c178ebc171826174e2f278117ac42ed28",
+    "process-2.log": "e2622776e787ab1410f824068a01c372a6e363b471d34e9436ded66ce834b288",
+    "process-3.log": "32b524ecb79b749cce2b44c62ed4f08e848bc625cbc3bec9d78cafc8049fe83f",
+    "clippy-e2e-final.log": "abecd9598ce05a05d7adf16221c065806703f3ce6cb3ef8982a8fc3fef7ec7cb",
+    "baseline-selected.log": "ecc48ffdc610ad1a5b39c4ed7f5dd7c9cc30fae28e6d687d7ffaa95954d66cbc",
+    "replay-before-fix.log": "f9c2a77b7fd22bb2c8b01f8a5cd76f5cbb9269482f986b381ce7f2176af4e1b5"
+  },
+  "validation": {
+    "composer_units": {
+      "passed": 343,
+      "failed": 0,
+      "ignored": 1
+    },
+    "node_units": {
+      "passed": 83,
+      "failed": 0,
+      "ignored": 0
+    },
+    "sdk": {
+      "passed": 7
+    },
+    "dashboard": {
+      "payment_tests": 2,
+      "mocked_fee_scenarios": 6,
+      "mocked_bridge_scenarios": 25,
+      "build": "passed",
+      "real_wallet_extensions": "not tested"
+    },
+    "process_1": {
+      "passed": 5,
+      "failed": 1,
+      "ignored": 0,
+      "seconds": 537.77,
+      "failure": "native quote preview excluded legacy; fixed with reproduced unit regression"
+    },
+    "process_2": {
+      "passed": 5,
+      "failed": 1,
+      "ignored": 0,
+      "seconds": 332.83,
+      "failure": "legacy test assumed fixed priority fee despite inclusion base fee change; test corrected"
+    },
+    "final_legacy_process": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 143,
+      "seconds": 117.68,
+      "test": "fee_quotes::legacy_rpc_quote_rejects_underpayment_settles_and_replays"
+    },
+    "format": "passed",
+    "workspace_clippy_all_targets": "passed",
+    "e2e_clippy_after_test_correction": "passed"
+  },
+  "final_legacy_quote": {
+    "type": "0x0",
+    "gasPrice": "0x19dfcb05a5",
+    "gas": "0x124f80",
+    "estimate": {
+      "sourceGasUsed": 116225,
+      "l2BaseFeePerGas": "125157910",
+      "grossL2Tip": "12901399094680975",
+      "requiredL2Tip": "12901399094581719",
+      "l1Gas": 1036165,
+      "l1TargetGas": 32603,
+      "l1PostingCost": "1479071938887952",
+      "requiredL1": "8600932729721146",
+      "blobs": 1,
+      "daBytes": 5525
+    }
+  },
+  "limits": [
+    "Logs/datadirs are local-only, unavailable in a fresh checkout",
+    "Five unchanged native scenarios passed in process run 2; only the corrected legacy test reran in run 3",
+    "No new Docker, Kurtosis or Chiado validation for these changes",
+    "Mocked wallets do not establish installed-extension behavior"
+  ]
+}

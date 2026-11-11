@@ -27,6 +27,7 @@ pub mod l1_reader;
 pub mod l1_watcher;
 pub mod posting_fees;
 pub mod reconciled_settlement;
+pub mod refund;
 pub mod scan;
 pub mod submitter;
 
@@ -39,7 +40,7 @@ pub use l1_canonical_head::{BatchRecord, L1CanonicalHead};
 #[doc(inline)]
 pub use l1_head_stream::{L1HeadInfo, L1HeadStream};
 #[doc(inline)]
-pub use l1_reader::{L1Reader, L1Readiness};
+pub use l1_reader::L1Reader;
 #[doc(inline)]
 pub use l1_watcher::{L1Event, L1Watcher, L1WatcherConfig};
 pub use reconciled_settlement::{

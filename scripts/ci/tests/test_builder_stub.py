@@ -122,6 +122,35 @@ class BuilderControlTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.send(bundle("0x0301"))
 
+    def test_pause_blocks_every_recomposition_until_delivery_resumes(self):
+        first, second, third = bundle("0x0301"), bundle("0x0302"), bundle("0x0303")
+        pause = self.directory / "pause-after.json"
+        pause.write_text(json.dumps({"skip": 1}))
+        self.assertIn("result", self.send(first))
+        self.assertFalse((self.directory / "paused-bundle.json").exists())
+        for request in [second, third, second]:
+            self.assertEqual(self.send(request)["error"], {
+                "code": -32000, "message": "test relay paused"})
+        self.assertEqual(self.forwarded, [first])
+        self.assertEqual(json.loads((self.directory / "paused-bundle.json").read_text()), second)
+        # The barrier affects bundle submission only, not persistence reads.
+        read = {"jsonrpc": "2.0", "id": 4, "method": "eth_blockNumber", "params": []}
+        self.assertIn("result", self.send(read))
+        pause.unlink()
+        self.assertIn("result", self.send(third))
+        self.assertEqual(self.forwarded, [first, read, third])
+
+    def test_pause_can_block_immediately_and_rejects_invalid_skip(self):
+        pause = self.directory / "pause-after.json"
+        pause.write_text(json.dumps({"skip": 0}))
+        self.assertIn("error", self.send(bundle("0x0301")))
+        self.assertEqual(self.forwarded, [])
+        for skip in [-1, "1"]:
+            with self.subTest(skip=skip):
+                pause.write_text(json.dumps({"skip": skip}))
+                with self.assertRaises(ValueError):
+                    self.send(bundle("0x0301"))
+
     def test_rpc_outage_affects_only_selected_methods_and_recovers(self):
         request = {"jsonrpc": "2.0", "id": 5,
                    "method": "eth_maxPriorityFeePerGas", "params": []}
@@ -146,8 +175,53 @@ class BuilderControlTest(unittest.TestCase):
         self.send(request)
         self.assertEqual(self.forwarded, [request])
 
+    def test_reported_head_lag_can_clear_without_affecting_exact_header_reads(self):
+        control = self.directory / "reported-head.json"
+        control.write_text("10")
+        request = {"jsonrpc": "2.0", "id": 7, "method": "eth_blockNumber", "params": []}
+        self.assertEqual(self.send(request), {"jsonrpc": "2.0", "id": 7, "result": "0xa"})
+        self.assertEqual(self.forwarded, [])
+        header = dict(request, method="eth_getBlockByNumber", params=["0xb", False])
+        self.send(header)
+        self.assertEqual(self.forwarded, [header])
+        control.write_text("null")
+        self.send(request)
+        self.assertEqual(self.forwarded[-1], request)
+
+    def test_history_pruning_preserves_raw_headers_and_inclusive_boundary(self):
+        control = self.directory / "pruned-before.json"
+        control.write_text("10")
+        for start in ("earliest", "0x0", "0x9"):
+            request = {"jsonrpc": "2.0", "id": 1, "method": "eth_getLogs",
+                       "params": [{"fromBlock": start, "toBlock": "0x20"}]}
+            self.assertEqual(self.send(request)["error"]["code"], 4444)
+            for method in ("eth_getBlockByNumber", "eth_getHeaderByNumber"):
+                request = {"jsonrpc": "2.0", "id": 1, "method": method,
+                           "params": [start, False]}
+                self.assertEqual(self.send(request)["error"]["code"], 4444)
+        self.assertEqual(self.forwarded, [])
+        for method, params in (("eth_getLogs", [{"fromBlock": "0xa"}]),
+                               ("eth_getBlockByNumber", ["0xa", False]),
+                               ("eth_getBlockByNumber", ["finalized", False]),
+                               ("eth_getHeaderByNumber", ["0xa"]),
+                               ("debug_getRawHeader", ["0x0"])):
+            request = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+            self.send(request)
+            self.assertEqual(self.forwarded[-1], request)
+        control.write_text("0")
+        request = {"jsonrpc": "2.0", "id": 1, "method": "eth_getLogs",
+                   "params": [{"fromBlock": "0x0"}]}
+        self.send(request)
+        self.assertEqual(self.forwarded[-1], request)
+
+        # With pruning disabled, even malformed params belong to the upstream
+        # RPC's validation; the fault control must not intercept them.
+        request["params"] = []
+        self.send(request)
+        self.assertEqual(self.forwarded[-1], request)
+
     def test_controlled_consensus_forwards_one_post_after_capturing_its_blob(self):
-        (self.directory / "single-transaction.json").write_text("{}")
+        (self.directory / "raw-transactions.json").write_text("{}")
         captures = self.directory / "captures"
         captures.mkdir()
         request = bundle("0x030102")
@@ -173,14 +247,31 @@ class BuilderControlTest(unittest.TestCase):
         self.send(request)
         self.assertEqual(self.forwarded, [request])
 
-    def test_controlled_consensus_never_splits_a_multi_transaction_bundle(self):
-        (self.directory / "single-transaction.json").write_text("{}")
-        reply = self.send(bundle("0x030102", "0x0203"))
-        self.assertEqual(reply["error"]["code"], -32602)
+    def test_controlled_consensus_forwards_companions_in_order(self):
+        (self.directory / "raw-transactions.json").write_text("{}")
+        self.send(bundle("0x030102", "0x0203"))
+        self.assertEqual([r["params"] for r in self.forwarded],
+                         [["0x030102"], ["0x0203"]])
+        self.assertTrue(all(r["method"] == "eth_sendRawTransaction" for r in self.forwarded))
+
+    def test_controlled_consensus_stops_after_a_companion_error(self):
+        (self.directory / "raw-transactions.json").write_text("{}")
+        def forward(raw, **kwargs):
+            reply = self.forward(raw, **kwargs)
+            if len(self.forwarded) == 2:
+                return io.BytesIO(json.dumps({"error": {"code": -32003}}).encode())
+            return reply
+        reply = self.send(bundle("0x030102", "0x0203", "0x0204"), upstream=forward)
+        self.assertEqual(reply["error"]["code"], -32003)
+        self.assertEqual(len(self.forwarded), 2)
+
+    def test_controlled_consensus_rejects_an_empty_bundle(self):
+        (self.directory / "raw-transactions.json").write_text("{}")
+        self.assertEqual(self.send(bundle())["error"]["code"], -32602)
         self.assertEqual(self.forwarded, [])
 
     def test_controlled_consensus_preserves_hold_and_drop_barriers(self):
-        (self.directory / "single-transaction.json").write_text("{}")
+        (self.directory / "raw-transactions.json").write_text("{}")
         (self.directory / "drop-next.json").write_text("{}")
         request = bundle("0x030102")
         self.send(request)

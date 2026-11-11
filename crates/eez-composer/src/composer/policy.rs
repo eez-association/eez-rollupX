@@ -122,6 +122,9 @@ pub(super) struct EnabledPolicy {
     pub config: PolicyConfig,
     pub max_blobs_per_batch: Option<u64>,
     rollups: HashMap<u64, Mutex<RollupPolicy>>,
+    /// A cancelled planning RPC must not accumulate detached ancestry workers.
+    /// Its owned permit stays with the blocking job until that job exits.
+    planning: Arc<tokio::sync::Semaphore>,
 }
 
 impl EnabledPolicy {
@@ -148,6 +151,7 @@ impl EnabledPolicy {
             config,
             max_blobs_per_batch,
             rollups: rollups.map(|id| (id, Mutex::default())).collect(),
+            planning: Arc::new(tokio::sync::Semaphore::new(1)),
         }
     }
 }
@@ -161,12 +165,190 @@ where
         + 'static,
     <L2 as TransactionsProvider>::Transaction: Encodable2718,
 {
+    pub(super) async fn plan_preparation(
+        &self,
+        rollup_id: u64,
+        parent: reth_primitives_traits::SealedHeader<alloy_consensus::Header>,
+        target_height: u64,
+        target_timestamp: u64,
+        l1_parent: eez_l1::L1BlockRef,
+    ) -> Result<bool, PolicyError> {
+        let permit = Arc::clone(&self.inner.policy.planning)
+            .try_acquire_owned()
+            .map_err(|_| {
+                PolicyError::Unavailable("previous preparation planner still running".into())
+            })?;
+        let rollup = self
+            .inner
+            .rollups
+            .get(&rollup_id)
+            .ok_or_else(|| PolicyError::Unavailable("unknown planning rollup".into()))?;
+        if rollup.optimistic.blocking_height().is_some() {
+            // Preserve the existing Empty reconciliation/settlement opportunity,
+            // without bursting merely because blocked users remain queued.
+            return Err(PolicyError::Unavailable(
+                "settlement owner still blocks preparation".into(),
+            ));
+        }
+        let (snapshot, anchor) = self.canonical_policy_anchor(rollup_id, rollup).await?;
+        if snapshot.through != Some(l1_parent) {
+            return Err(PolicyError::Unavailable(
+                "preparation target parent is not reconciled".into(),
+            ));
+        }
+        let composer = Self {
+            inner: Arc::clone(&self.inner),
+        };
+        // Database reads and ordinary encoding stay off the async executor.
+        // The sequencer owns the wait; timeout leaves at most this one worker.
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let rollup = composer
+                .inner
+                .rollups
+                .get(&rollup_id)
+                .ok_or_else(|| PolicyError::Unavailable("unknown planning rollup".into()))?;
+            let policy = &composer.inner.policy;
+            let runtime = policy
+                .rollups
+                .get(&rollup_id)
+                .ok_or_else(|| PolicyError::Unavailable("unknown policy rollup".into()))?;
+            let blocks = target_height
+                .checked_sub(anchor.endpoint.number)
+                .ok_or(PolicyError::Arithmetic("planning target below anchor"))?;
+            if target_height <= parent.number() {
+                return Err(PolicyError::Unavailable(
+                    "planning terminal already built".into(),
+                ));
+            }
+            let window_limit_due = blocks
+                .checked_add(u64::from(composer.inner.emission.timing.k()))
+                .is_none_or(|n| n > composer.inner.emission.max_blocks);
+            let target = BundleTarget::Exact {
+                block: l1_parent
+                    .number
+                    .checked_add(1)
+                    .ok_or(PolicyError::Arithmetic("planning L1 target"))?,
+                timestamp: target_timestamp,
+            };
+            let effective_blobs = composer
+                .posting_blob_allowance(target, 0)
+                .map_err(PolicyError::Unavailable)? as u64;
+            let mut runtime = runtime.lock().unwrap();
+            let (latest_pure_block, estimated_stream_bytes) =
+                if blocks <= composer.inner.emission.max_blocks {
+                    composer.update_activity_index(
+                        rollup,
+                        &mut runtime,
+                        anchor.endpoint,
+                        eez_l1::L2Endpoint {
+                            number: parent.number(),
+                            hash: parent.hash(),
+                        },
+                    )?;
+                    (
+                        runtime.activity.latest_pure(),
+                        Some(runtime.activity.estimated_stream_bytes_with_overhead(
+                            &eez_payload_codec::v0::PayloadSizer::default(),
+                            DaOverhead::default(),
+                        )?),
+                    )
+                } else {
+                    // The exact window trigger already requires preparation. Do
+                    // not scan an unbounded outage backlog just to make that hint.
+                    (None, None)
+                };
+            let reasons = runtime.state.preparation_reasons(
+                &policy.config,
+                crate::settlement_policy::SchedulingSnapshot {
+                    anchor,
+                    target_l2_number: target_height,
+                    target_l1_timestamp: target_timestamp,
+                    latest_pure_block,
+                    estimated_stream_bytes,
+                    window_limit_due,
+                    effective_blobs,
+                    usable_bytes_per_blob: eez_blob_codec::DATA_BYTES_PER_BLOB as u64,
+                },
+            )?;
+            // Occupancy is only a bounded admission opportunity, never a
+            // declaration that a group is executable or canonically consumed.
+            let queue_hint =
+                !rollup.held_pool.is_empty() && rollup.optimistic.blocking_height().is_none();
+            let prepare = !reasons.is_empty() || queue_hint || runtime.predecessor.is_some();
+            if !rollup.l1_head.generation_is(snapshot.generation)
+                || composer.inner.committer.last_header().hash() != parent.hash()
+            {
+                return Err(PolicyError::Unavailable(
+                    "preparation context changed during planning".into(),
+                ));
+            }
+            event!(name: "eez.composer.slot.plan", Level::INFO,
+                event_name = "eez.composer.slot.plan", rollup_id, target_height,
+                planned_at_ms = u64::try_from(std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis())
+                    .unwrap_or(u64::MAX),
+                target_timestamp, prepare, ?reasons, queue_hint,
+                "preparation hint; final admission and canonical settlement remain authoritative");
+            Ok(prepare)
+        })
+        .await
+        .map_err(|e| PolicyError::Unavailable(format!("preparation planner worker: {e}")))?
+    }
+
     /// Missing canonical registration/commitment evidence leaves readiness
     /// closed. The node retries through its existing boot reconciliation loop.
     pub async fn validate_settlement_policy_bootstrap(&self) -> Result<(), PolicyError> {
+        self.validate_post_batch_target().await?;
         for (&rollup_id, rollup) in &self.inner.rollups {
             self.canonical_policy_anchor(rollup_id, rollup).await?;
         }
+        Ok(())
+    }
+
+    /// A postBatch target other than the registry must be a deployed contract
+    /// whose `eez()` is this registry, so posts cannot reach another registry
+    /// or an address that would accept and drop them. Missing code is retried
+    /// like any other unavailable boot input; a different registry is a
+    /// configuration error. This checks identity only: whether the wrapper
+    /// forwards the exact calldata is proved per attempt by final preflight,
+    /// which executes the signed poster and requires the registry's effects.
+    async fn validate_post_batch_target(&self) -> Result<(), PolicyError> {
+        alloy_sol_types::sol! {
+            #[sol(rpc)]
+            interface IPostBatchTarget {
+                function eez() external view returns (address);
+            }
+        }
+        let posting = &self.inner.posting;
+        let (target, registry) = (posting.post_batch_target, posting.registry);
+        if target == registry {
+            return Ok(());
+        }
+        let provider = &self.inner.cross_chain.exec_ctx.l1_provider;
+        let code = provider.get_code_at(target).await.map_err(|error| {
+            PolicyError::Unavailable(format!("EEZ_L1_POSTBATCH_TARGET {target} code: {error}"))
+        })?;
+        if code.is_empty() {
+            return Err(PolicyError::Unavailable(format!(
+                "EEZ_L1_POSTBATCH_TARGET {target} has no code"
+            )));
+        }
+        let forwarded = IPostBatchTarget::new(target, provider)
+            .eez()
+            .call()
+            .await
+            .map_err(|error| {
+                PolicyError::Unavailable(format!("EEZ_L1_POSTBATCH_TARGET {target} eez(): {error}"))
+            })?;
+        if forwarded != registry {
+            return Err(PolicyError::Config(format!(
+                "EEZ_L1_POSTBATCH_TARGET {target} forwards to {forwarded}, not registry {registry}"
+            )));
+        }
+        event!(name: "eez.composer.postbatch.target_validated", Level::INFO,
+            event_name = "eez.composer.postbatch.target_validated", %target, %registry,
+            "postBatch transactions are sent through a wrapper that forwards to the registry");
         Ok(())
     }
 
@@ -258,25 +440,7 @@ where
         rollup_id: u64,
         transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
     ) -> Result<DaOverhead, PolicyError> {
-        let messages = transactions
-            .iter()
-            .map(eez_protocol::blob_semantics::encode_semantic_transaction)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| PolicyError::Unavailable(error.to_string()))?
-            .into_iter()
-            .flatten()
-            .collect();
-        let encoded = eez_blob_codec::encode_native_stream(rollup_id, Bytes::new(), messages)
-            .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
-        let semantic_bytes = encoded
-            .blob_portion
-            .len()
-            .checked_sub(
-                eez_blob_codec::native_stream_len(0, 0)
-                    .map_err(|error| PolicyError::Unavailable(error.to_string()))?,
-            )
-            .ok_or(PolicyError::Arithmetic("semantic stream overhead"))?;
-        Ok(DaOverhead { semantic_bytes })
+        semantic_overhead(rollup_id, transactions)
     }
 
     pub(super) fn record_final_encoding(
@@ -614,18 +778,14 @@ where
                 use alloy_eips::Decodable2718 as _;
                 use reth_primitives_traits::SignerRecoverable as _;
                 let bytes = tx.encoded_2718();
-                if bytes.first() == Some(&eez_primitives::SYSTEM_TX_TYPE) {
-                    has_system = true;
-                    break;
-                }
-                let tx = eez_primitives::EezTxEnvelope::decode_2718(&mut bytes.as_slice())
-                    .map_err(|error| {
+                let tx =
+                    eez_primitives::EezTxEnvelope::decode_2718_exact(&bytes).map_err(|error| {
                         PolicyError::Unavailable(format!("pending transaction decoding: {error}"))
                     })?;
-                if tx
-                    .recover_signer()
-                    .map_err(|error| PolicyError::Unavailable(format!("pending signer: {error}")))?
-                    == eez_primitives::SYSTEM_ADDRESS
+                if !tx.is_history()
+                    && tx.recover_signer().map_err(|error| {
+                        PolicyError::Unavailable(format!("pending signer: {error}"))
+                    })? == eez_primitives::SYSTEM_ADDRESS
                 {
                     has_system = true;
                     break;
@@ -648,8 +808,13 @@ where
                 pure_transactions: if has_system {
                     0
                 } else {
-                    u64::try_from(transactions.len())
-                        .map_err(|_| PolicyError::Arithmetic("included pure transactions"))?
+                    u64::try_from(
+                        transactions
+                            .iter()
+                            .filter(|tx| !eez_primitives::is_native_type(tx.ty()))
+                            .count(),
+                    )
+                    .map_err(|_| PolicyError::Arithmetic("included pure transactions"))?
                 },
             })
         });
@@ -945,6 +1110,32 @@ fn validate_retained_byte_segments(
         };
     }
     Ok(())
+}
+
+/// Exact native semantic encoding, shared by admission and fee estimation.
+pub(super) fn semantic_overhead(
+    rollup_id: u64,
+    transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
+) -> Result<DaOverhead, PolicyError> {
+    let messages = transactions
+        .iter()
+        .map(eez_protocol::blob_semantics::encode_semantic_transaction)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| PolicyError::Unavailable(error.to_string()))?
+        .into_iter()
+        .flatten()
+        .collect();
+    let encoded = eez_blob_codec::encode_native_stream(rollup_id, Bytes::new(), messages)
+        .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
+    let semantic_bytes = encoded
+        .blob_portion
+        .len()
+        .checked_sub(
+            eez_blob_codec::native_stream_len(0, 0)
+                .map_err(|error| PolicyError::Unavailable(error.to_string()))?,
+        )
+        .ok_or(PolicyError::Arithmetic("semantic stream overhead"))?;
+    Ok(DaOverhead { semantic_bytes })
 }
 
 #[cfg(test)]

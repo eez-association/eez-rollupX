@@ -7,6 +7,11 @@ an L2 whose L1 is a public Ethereum network, using
 selects the same network for all three services, so a Hoodi or Sepolia rehearsal
 uses the mainnet definition unchanged.
 
+The registered contracts and L2 genesis must use the
+[fresh-network offline-history profile](../proposals/l1-origin-and-offline-proving.md).
+Existing older-profile networks need their matching release; this revision
+does not provide an in-place migration.
+
 **Not covered.** Deploying or registering contracts and rendering the L2 genesis
 (`deployments.env` and `datadir/genesis.json` must already exist), explorers and
 monitoring. Registration is irreversible: rehearse it on Hoodi first.
@@ -25,11 +30,33 @@ against a synced Ethereum node; no settlement on Ethereum has been observed.
 - `lighthouse` drives that reth through the engine API on `L1_AUTH_PORT` (shared
   `JWT_FILE`) and runs as a **semi-supernode**, so the deriver can read full
   PeerDAS blobs from `127.0.0.1:6152`.
-- `eez-proof-signer` trusts the same network (`EEZ_L1_CHAIN_CONFIG=<network>`).
+- `eez-proof-signer` loads that network's local rules (`EEZ_L1_CHAIN_CONFIG=<network>`)
+  and validates complete v2 witness evidence without an L1 or L2 RPC connection.
 - The schedule is fixed by the genesis profile: 12-second L1 slots, 2-second L2
   blocks (six per slot).
 - Host networking with the Chiado profile's ports: run one packaged network per
   host.
+
+## Composer deposit limit
+
+On Ethereum mainnet (L1 chain ID 1), the Composer rejects an inbound source
+transaction whose total committed ETH deliveries to L2 exceed **0.1 ETH**
+(100000000000000000 wei). Exactly 0.1 ETH is allowed. The check uses simulated
+cross-chain deliveries, including wrapper-funded and nested calls, and sums
+all deposits in the transaction without subtracting withdrawals. Reverted
+transfers do not count. Other L1 networks and outbound transactions are unchanged.
+
+This check runs during composition, before accepting the transaction's state
+changes. Submission may initially return a hash; an oversized deposit is then
+evicted with its reason available through the existing Composer transaction
+status diagnostics. Dependent nonces follow the existing eviction behavior.
+
+This is a fixed local Composer policy, not a contract or signer rule, a per-wallet
+quota, or a total escrow cap. Multiple transactions can each deposit 0.1 ETH.
+Every active Composer must run the updated binary for consistent enforcement;
+older binaries still accept larger deposits. No contract, genesis or follower
+migration is required, and rolling back the binary removes this protection.
+Already accepted deposits are unaffected.
 
 ## Prerequisites
 
@@ -37,7 +64,8 @@ against a synced Ethereum node; no settlement on Ethereum has been observed.
 2. **L1 execution datadir.** Either:
    - a **reth** datadir already synced for the network. Stop the reth that uses
      it first: the Composer becomes its only writer. Confirm reth v2.7 can open
-     it, and that its pruning keeps history from `EEZ_REGISTRY_DEPLOY_BLOCK`; or
+     it, and that it retains the history required for
+     [recovery](#recovery-with-a-pruned-l1); or
    - an empty directory. A mainnet sync takes days, and the default (archive)
      storage needs several TB.
 
@@ -51,11 +79,18 @@ against a synced Ethereum node; no settlement on Ethereum has been observed.
    before deploying ([policy reference](../configurable-settlement-policy.md)):
    - **Price ceilings:** 10 gwei (base fee + tip) and 2 gwei (blob). A post above a ceiling waits and retries; it never pays more.
    - **Tip:** the median of recent blocks' median tips (`EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE=50`), kept within 0.05–2 gwei.
+   - **Cross-chain tip:** bundles that execute cross-chain calls on L1 bid p90 of p90 within 0.05–3.5 gwei (`EEZ_L1_POSTBATCH_CROSS_CHAIN_*`), so they more often run before same-block transactions that change the L1 state they read ([cross-chain priority](../configurable-settlement-policy.md#cross-chain-priority)).
    - **Cadence:** ordinary L2 activity settles at most every 15 minutes; an idle chain posts every 4 hours.
    - **Proof window:** `EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS=8192`, so an idle cycle needs one post.
 
    Confirm proof time for a full window and the timing budgets in the rehearsal. The
    poster balance is the only total spending limit.
+
+Cross-chain fee collection uses the shared [fee configuration](../configurable-settlement-policy.md#cross-chain-fee-configuration).
+Use matching Composer fronts and SDKs for the current 64 KiB calldata limit.
+Fee policies have no expiration; the obsolete
+`EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` setting, including an empty value, prevents
+startup. This runbook does not upgrade an older-profile deployment.
 
 ## First start
 
@@ -87,7 +122,7 @@ cast block-number --rpc-url http://127.0.0.1:18688                              
 
 **Stop conditions:**
 - **Unexpected L1 kind or chain ID:** if the embedded L1 reports a different chain ID or `kind`, stop. `EEZ_L1_CHAIN` must be exactly `mainnet`, `hoodi` or `sepolia`; any other value is a startup error.
-- **Signer refuses to start:** a `prover validation identity differs` error means the node and signer images come from different commits.
+- **Prover preflight rejects:** a `prover validation identity differs` error means the node and signer disagree on validation specification, genesis, profile or deployment identity. Match their artifacts and local configuration before retrying.
 - **Invalid builder signature:** `Invalid signature` replies from BuilderNet mean `EEZ_L1_BUNDLE_SIGNING_KEY` is missing.
 
 Bundle acceptance is not inclusion. Measure the share of settlement slots that
@@ -306,3 +341,76 @@ migration is involved.
 `docker compose down` keeps every datadir. Pending requests and retry counters
 are in memory: a restart reconciles canonical state, and clients may need to
 resubmit unsettled work.
+
+## Recovery with a pruned L1
+
+Preserve the L2 datadir, including its persistent L1/L2 correlation index. With
+a valid saved checkpoint, startup scans from its containing L1 block, not from
+`EEZ_REGISTRY_DEPLOY_BLOCK`. The checkpoint block is included: retain its receipts,
+logs and transaction bodies, subsequent history, and required native blobs.
+Older canonical headers are still needed to authenticate the genesis reference
+and restore indexed settlement history. Allow additional retention for downtime
+and reorg recovery to an earlier checkpoint; the latest L1 head is not a safe
+pruning boundary.
+
+Retained headers do not guarantee that `eth_getBlockByNumber` can serve old
+blocks: Reth also requires their bodies, and its `eth_getHeaderByNumber` follows
+the same path. On pruning error code `4444`, genesis and derivation authentication
+fall back to `debug_getRawHeader` at the same canonical height/tag. The reader
+exact-decodes the RLP, recomputes its hash, and retains the height, genesis identity
+and finality checks. The embedded profile already enables this RPC. An external
+source must expose it when block bodies have expired, or serve the full historical
+blocks. Missing/malformed raw headers still fail authentication.
+
+A fresh node, missing index, or rejected checkpoint can require history back to
+deployment. This fix does not recover already-pruned data. Increasing retention
+does not restore it either. If the selected recovery range is unavailable, use
+a history-serving source or a consistent supported backup; do not advance the
+deployment block, delete the index, or reset L2 to bypass validation. Execution
+RPC history does not replace missing Beacon blob data.
+
+Unavailable history now fails during catch-up rather than the deployment-block
+preflight. Readiness stays closed while catch-up retries; persistent RPC errors
+(including the receipt-pruning error) exhaust the existing 32-failure budget and
+exit. Repeated restarts cannot restore missing history.
+
+On restart, retained L2 blocks can reference L1 origins newer than the embedded
+L1's currently recovered head. The node keeps the embedded L1 alive and reports
+`eez.node.deriver.boot_catch_up.source_incomplete`, including the retained L2
+block, required L1 origin and available evidence tip. Readiness remains closed
+while canonical catch-up retries with backoff. Let Lighthouse and the embedded
+L1 catch up; do not reset L2 or delete its correlation index. If the reported tip
+stops advancing, inspect Lighthouse/engine connectivity and L1 sync progress.
+Reaching the required height is not by itself validation: recovery still checks
+the canonical origin hash and randomness before retaining the suffix.
+
+This retry fix does not change contracts, genesis, proof validation identity or
+database formats. It needs no data migration. An older binary can encounter the
+same fatal startup error again if its L1 source trails retained L2 history.
+
+Check startup in order:
+
+1. `L1 chain and finality ready` means preflight only, not successful recovery.
+2. `boot seeded from the persistent L1/L2 correlation index` reports the anchor
+   in `l1_block`; `starting batch scan` reports the inclusive `from_l1_block`.
+   Without a usable checkpoint, expect a scan starting at deployment.
+3. Require `spawning eez composer umbrella` (or `spawning eez deriver` for a
+   follower) after catch-up. Check advancing L2 blocks, a subsequent canonical
+   settlement and independent replay; container/RPC health alone is insufficient.
+
+Before returning to local RPC, verify address-filtered `eth_getLogs` at the
+checkpoint and availability of the full recovery range, current state and blobs.
+Preserve datadirs and the working configuration for rollback. Upgrade the signer
+as well as the Composer and followers: each authenticates historical L1 headers.
+The signer can upgrade first; the proof wire format, protocol pin, genesis and
+database format are unchanged. Older readers still fail on pruned block bodies;
+binaries predating checkpoint-based preflight also require deployment-era logs.
+Rolling back can therefore require a history-serving source again.
+
+The shared registry may contain other rollups with different DA formats. Readers
+exclude posts whose `BatchPosted.rollupIds` do not include their configured rollup
+before native-blob validation. Every post that does include it remains a queue
+replacement boundary, even without a root change. Upgrade Composer and follower
+readers together before relying on replay past a foreign blob-free post; older
+readers can halt at that transaction again. Verify recovery with a new canonical
+settlement and independent follower replay, not just an advancing speculative head.

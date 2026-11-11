@@ -59,6 +59,8 @@ eez:
   blob_sidecar_encoding: eip7594
   fee_recipient: '0x0000000000000000000000000000000000000000'
   settlement_env:
+    # K=6: P=3 leaves 6s for preparation, proof, slack and the 150ms reserve.
+    EEZ_SETTLEMENT_START_AFTER_BLOCK: "3"
     EEZ_SETTLEMENT_PURE_L2_MODE: interval
     EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS: '60000'
     EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS: '150'

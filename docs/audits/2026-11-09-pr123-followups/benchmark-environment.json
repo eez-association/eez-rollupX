@@ -1,0 +1,44 @@
+{
+  "cpu_models": [
+    "Intel(R) Core(TM) Ultra 9 185H"
+  ],
+  "allowed_cpus": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21
+  ],
+  "system": "Linux",
+  "machine": "x86_64",
+  "baseline": "8b5cafd3",
+  "candidate_baseline": "7d1fedbc",
+  "profile": "release",
+  "operator_services": "running; not paused",
+  "concurrency": 1,
+  "pinned_cpu": 0,
+  "samples": 5,
+  "sha256": {
+    "base": "f5b4f0e32dfea3d193b3387259f08fe9739e8b420283975400e30f8a34754021",
+    "candidate": "69f10b3da44c146bfa743cf5bb48612589613a597cabedb40ec4b847c502560b"
+  },
+  "candidate_protocol_source_commit": "286e32855a5b5f574ff4eb8ec38ee6e9563e35d4",
+  "candidate_note": "Measured before commit on matching protocol/benchmark sources; later fixture and documentation changes do not affect this component benchmark."
+}

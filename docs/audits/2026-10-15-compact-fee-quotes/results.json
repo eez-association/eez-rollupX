@@ -1,0 +1,165 @@
+{
+  "date": "2026-10-15",
+  "status": "local validation complete; not deployed",
+  "source": {
+    "backend_base": "4fc21ca100392daebd2852bedc345aa5fad46620",
+    "backend_implementation": "149968a373696a5f01cfb1ef8d6aae176f122a42",
+    "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+    "dashboard_base": "d2e85905864ec88de493829d763a8cfeb9a45b99",
+    "dashboard_implementation": "6cc89033064276843325af5607bb3bfd724cc44c",
+    "branch": "feat/compact-fee-quotes"
+  },
+  "executables": {
+    "profile": "local dev; profile.dev.package.eez-node.opt-level=0; CARGO_BUILD_JOBS=2",
+    "runtime_sha256": {
+      "eez-composer": "7db63e292acaa7076e39fc4938e4f8c3a38e39c19db14cb45a9bcf0a57d62bc6",
+      "eez-follower": "9d07c7ac7fb182b835986dac5b7912f5fafdc7523ca7e32082a0009cddb9aa12",
+      "eez-proof-signer": "56cb7edfaec95340a0690a46064c9827c41c8cbd62860a7fa0587799b8607545"
+    },
+    "harness_sha256": "8e86755b0db86ca9eecc9cbc09d5eda9c3bc8512163d78104ebb841483e521de",
+    "first_failing_composer_sha256": "3cc2e6c7816f7d2ddf2226a045b2c22a9b9f24820fe5ffb64259ee0495344a76",
+    "first_failing_harness_sha256": "7ac3e72bff3b75002f3f9ca6bfd617e6b6eda465b4349512cb2d7644435a3f22"
+  },
+  "checks": {
+    "composer_units": {
+      "passed": 351,
+      "failed": 0,
+      "ignored": 1,
+      "ignored_reason": "existing manual backlog timing profile",
+      "log": "composer-unit-complete.log"
+    },
+    "node_units": {
+      "passed": 86,
+      "failed": 0,
+      "ignored": 0,
+      "log": "unit-final.log"
+    },
+    "sdk": {
+      "passed": 5,
+      "log": "sdk-complete.log"
+    },
+    "contracts": {
+      "passed": 86,
+      "failed": 0,
+      "skipped": 0,
+      "log": "contracts-test-correct-root.log"
+    },
+    "dashboard_payment": {
+      "passed": 4,
+      "command": "node src/lib/fees/payment.test.mjs",
+      "log": "ui-payment-direct.log"
+    },
+    "dashboard_discovery": {
+      "passed": 27,
+      "log": "ui-discovery.log"
+    },
+    "dashboard_debugger": {
+      "passed": 78,
+      "log": "ui-debugger.log"
+    },
+    "dashboard_browser_fee_scenarios": {
+      "passed": 16,
+      "mocked": true,
+      "real_broadcasts": 0,
+      "log": "ui-browser-fees.log"
+    },
+    "dashboard_browser_bridge_scenarios": {
+      "passed": 27,
+      "mocked": true,
+      "real_broadcasts": 0,
+      "log": "ui-browser-bridge.log"
+    },
+    "dashboard_production_build": {
+      "result": "passed",
+      "warning": "existing chunk above 500 kB",
+      "log": "ui-final-build.log"
+    },
+    "workspace_clippy": {
+      "result": "passed",
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+      "log": "clippy-complete.log"
+    },
+    "rust_format": {
+      "result": "passed",
+      "command": "cargo +1.95.0 fmt --all --check"
+    },
+    "native_ordinary_boundaries": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "native-ordinary-fixed.log"
+    },
+    "native_nested_and_safe": {
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0,
+      "independent_follower_replay": true,
+      "log": "native-fees.log"
+    },
+    "kurtosis_drivers": {
+      "result": "JavaScript syntax checks only; not executed"
+    },
+    "native_wallet_estimator": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "log": "native-wallet.log"
+    },
+    "selected_native_total": {
+      "passed": 12,
+      "failed": 0,
+      "ignored": 0
+    },
+    "document_links_and_shell_syntax": {
+      "result": "passed"
+    }
+  },
+  "first_failures": [
+    {
+      "check": "native ordinary quote",
+      "log": "native-initial.log",
+      "result": "failed before native ordinary replay because protocol finalization rejects empty calls",
+      "correction": "check recorded_count before finalize in discovery and pricing",
+      "post_fix_log": "native-ordinary-fixed.log"
+    },
+    {
+      "check": "initial node units",
+      "log": "unit.log",
+      "result": "9 local socket failures under sandbox; 77 passed",
+      "post_permission_log": "node-unit-network.log",
+      "post_permission_passed": 86
+    }
+  ],
+  "evidence": {
+    "availability": "local only; raw logs/datadirs/frozen binaries are not in git",
+    "root": "artifacts/compact-fee-quotes-20261015",
+    "log_sha256": {
+      "composer-unit-complete.log": "f7627e623885919e9899bc450ea7b576ed0e91261dfb1d1a8623488f5dc8c9d6",
+      "unit-final.log": "094e830123b56c189fa813e5601990aa75b97d6d9c441bef48ac06cfc7b152b2",
+      "clippy-complete.log": "cddd1f450a47d3c7ad12cb71e8ad22682fcc44fa1a2ac5bfd54f0db573249bf1",
+      "sdk-complete.log": "412b1c2c46e9d4d31c679fe26cbeca3afe2784e7f107f6d21601947af0b7b088",
+      "contracts-test-correct-root.log": "9fdeffa1594ba70d4e41f2e08dc12e38e40a7f47024e1dbbdcf4bbd0790d94eb",
+      "contracts-fmt-correct-root.log": "1aa1e75676d75b47d5245c207efb547aa132fb7adfd788b6aabdbb879bd93731",
+      "ui-payment-direct.log": "336b52509255bb6b6f54e51464150858f3ad887b310c78fde9713586e1104d3d",
+      "ui-discovery.log": "19c768d1e8043322b85d26ac80c16b6e6a997efd4c030220091fcabfc5f6ab81",
+      "ui-debugger.log": "9ee7e3a81b2a1ddadf6ae439fae67c0c7eb6b12cbe5c381b7b83ccd65e052867",
+      "ui-final-build.log": "71f32b2241333d983a44f426fd49255f82dba6555263992d7a165110eed04dd1",
+      "ui-browser-fees.log": "ae8e8e2be6e9648f2cd88b507774ee6c97766f255e2ea227449d42d00563fc5e",
+      "ui-browser-bridge.log": "d1fbfead7ddd4a6239189eefa6ebbb9e1a1dd1517a5034401b0328adb7b4553f",
+      "native-initial.log": "03f85c382ecad6b7fdb76f841ac0a75714c7a4984617d8b7ca781767eec43167",
+      "native-ordinary-fixed.log": "ef9db73ddac1fd04c41a8e3c78f5a81e31ab94e034449a0228c5c8ee601af10e",
+      "native-fees.log": "8fd00be636a424e5c64b5f40a8d259230cfc9cd56cbcad501ce2416090142bcd",
+      "runtime-ordinary-fix-build.log": "bfeca760b670f1e1394f69325322a1aded190604ccba65d589ced88bd8ae6afa",
+      "harness-final-build.log": "a795ac58e48b48e8bcbcc546df61987fe293e13dd6c48eed99d6dba1a69df0da",
+      "native-wallet.log": "33f7e5507f122d3c854f5233ea28ad65449ee1a63853b0c98c0cd5b41bf3bbb7"
+    }
+  },
+  "not_run": [
+    "new Docker image or release build",
+    "Kurtosis topology/PBS validation",
+    "full staged protocol and stress matrix",
+    "real wallet extension tests",
+    "Falcon signature workload",
+    "live deployment"
+  ]
+}

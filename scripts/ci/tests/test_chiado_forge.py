@@ -11,7 +11,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 BRIDGE = ROOT / "scripts/chiado-forge.sh"
-TARGET = "script/e2e/shared/Verify.s.sol:VerifyL1BatchCalldata"
+TARGET = "script/e2e/scenarios/shared/Verify.s.sol:VerifyL1BatchCalldata"
 SIGNATURE = "run(bytes,address,bytes,bytes,bytes,bool)"
 
 

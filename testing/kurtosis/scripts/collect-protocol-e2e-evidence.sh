@@ -28,20 +28,39 @@ die() {
 }
 
 grep -Fq '====== Done ======' "$SCENARIO_LOG" || die "upstream completion marker is absent"
-! grep -q '^ERROR:' "$SCENARIO_LOG" || die "upstream log contains an ERROR"
+mapfile -t upstream_errors < <(grep '^ERROR:' "$SCENARIO_LOG" || true)
+refused_submissions=()
+refusal_pattern='^ERROR: submission refused \((reconciliation|quote_busy|stale_context)\) chain=([0-9]+) nonce=([0-9]+) hash=(0x[[:xdigit:]]{64}): ERROR: eth_sendRawTransaction failed$'
+for diagnostic in "${upstream_errors[@]}"; do
+    [[ "$diagnostic" =~ $refusal_pattern ]] || die "upstream log contains an unreconciled ERROR"
+    refused_submissions+=("${BASH_REMATCH[2]} ${BASH_REMATCH[3]} ${BASH_REMATCH[4]}")
+done
 case "$SCENARIO_NAME" in
-    staticCounterL2)
-        exec bash "$(dirname "$0")/verify-static-counter-l2.sh" "$SCENARIO_LOG" "$OUTPUT_JSON"
+    staticCounterL2|topLevelStaticReentrantCounterL2)
+        (( ${#refused_submissions[@]} == 0 )) || die "lookup collector cannot reconcile submission errors"
+        exec bash "$(dirname "$0")/verify-static-counter-l2.sh" "$SCENARIO_LOG" "$OUTPUT_JSON" "$SCENARIO_NAME"
         ;;
-    topLevelStaticCounter|revertCounter)
+    topLevelStaticCounter|topLevelStaticReentrantCounter|staticLocalWrite|revertCounter|catchRemoteRevertAfterCallback|staticReadCallsBackAndReadsAgain|topLevelStaticReentrantMissingProxy)
+        (( ${#refused_submissions[@]} == 0 )) || die "lookup collector cannot reconcile submission errors"
         exec bash "$(dirname "$0")/verify-l1-lookup.sh" \
             "$SCENARIO_NAME" "$SCENARIO_SOL" "$SCENARIO_LOG" "$OUTPUT_JSON"
         ;;
 esac
 grep -Fq 'PASS: posted batch calldata matches expected table' "$SCENARIO_LOG" \
     || die "posted L1 table was not field-matched"
-grep -Fq 'PASS: L2 field checks on' "$SCENARIO_LOG" \
-    || die "loaded L2 table was not field-matched"
+# Pure static loads have no mutable-entry field-check marker. Their complete
+# pool is selected immediately before the canonical user transaction, then
+# checked against the independently verified L1 host and native semantic blob.
+static_only=false
+if grep -qE 'contract ExecuteNetworkL2 ' "$SCENARIO_SOL" \
+    && grep -q '^L2 table expected: \[\]$' "$SCENARIO_LOG"; then
+    static_only=true
+fi
+if ! grep -Fq 'PASS: L2 field checks on' "$SCENARIO_LOG"; then
+    [[ "$static_only" == true ]] || die "loaded L2 table was not field-matched"
+    grep -Eq 'PASS: all 0 expected entries and static rows checked across [1-9][0-9]* L2 block' "$SCENARIO_LOG" \
+        || die "static-only upstream verification is absent"
+fi
 if ! grep -Eq 'PASS: L1 field checks on|PASS: [1-9][0-9]* settlement tx\(s\) with BatchPosted' "$SCENARIO_LOG"; then
     die "no successful L1 settlement verification was recorded"
 fi
@@ -63,19 +82,17 @@ mapfile -t user_rows < <(
 )
 (( ${#user_rows[@]} > 0 )) || die "no user transaction was reported in the summary"
 
-post_row="$(
+mapfile -t post_rows < <(
     sed -n -E 's/^L1 postBatch:[[:space:]]*(0x[[:xdigit:]]{64})[[:space:]]+\(block ([0-9]+)\).*/\1 \2/p' \
         "$SCENARIO_LOG"
-)"
-[[ "$(wc -l <<<"$post_row" | tr -d '[:space:]')" == "1" && -n "$post_row" ]] \
-    || die "expected exactly one L1 postBatch summary row"
+)
+(( ${#post_rows[@]} > 0 )) || die "no L1 postBatch summary row"
 
-load_row="$(
-    sed -n -E 's/^L2 loadTable:[[:space:]]*(0x[[:xdigit:]]{64})[[:space:]]+\(block ([0-9]+)\).*/\1 \2/p' \
+mapfile -t load_rows < <(
+    sed -n -E 's/^L2 (loadTable|system table load|delivery \(load\+execute\)):[[:space:]]*(0x[[:xdigit:]]{64})[[:space:]]+\(block ([0-9]+)\).*/\2 \3/p' \
         "$SCENARIO_LOG"
-)"
-[[ "$(wc -l <<<"$load_row" | tr -d '[:space:]')" == "1" && -n "$load_row" ]] \
-    || die "expected exactly one L2 loadTable summary row"
+)
+(( ${#load_rows[@]} > 0 )) || die "no L2 table load or delivery summary row"
 
 causal_tmp="$(mktemp -d /tmp/eez-causal-evidence.XXXXXX)"
 trap 'rm -rf "$causal_tmp"' EXIT
@@ -127,6 +144,7 @@ transaction_evidence() {
         ' >/dev/null || die "$role transaction/receipt $hash differs from the canonical block"
     # Feed every exact validated receipt to Rust, not a second RPC snapshot.
     printf '%s\n' "$receipt" >"$causal_tmp/$chain-$hash.receipt.json"
+    printf '%s\n' "$canonical_tx" >"$causal_tmp/$chain-$hash.transaction.json"
     block_number="$(cast to-dec "$block_hex")"
     tx_index="$(cast to-dec "$(jq -er '.transactionIndex' <<<"$receipt")")"
     tx_to="$(jq -er '.to' <<<"$tx")"
@@ -169,19 +187,44 @@ for row in "${user_rows[@]}"; do
 done
 user_receipts_json="$(printf '%s\n' "${user_receipts[@]}" | jq -s .)"
 
-read -r post_hash post_block <<<"$post_row"
-# The summary names only the first batch, even when the upstream runner matched
-# a multi-transaction scenario across several settlements. Retain every match,
-# then order the canonical transactions independently of the log's scan order.
+# Upstream logs a refusal before retrying the identical signed transaction.
+# Its ERROR text is not a final scenario failure when that exact trigger has
+# successful canonical inclusion. Retain the diagnostic and require all later
+# causal, table and blob checks as usual; a PASS line alone cannot reconcile it.
+for refused in "${refused_submissions[@]}"; do
+    read -r refused_chain refused_nonce refused_hash <<<"$refused"
+    jq -e --arg hash "$refused_hash" '[.[] | select(.hash == $hash)] | length == 1' \
+        <<<"$user_receipts_json" >/dev/null || die "refused transaction is not a verified scenario trigger"
+    snapshot="$causal_tmp/$trigger_chain-$refused_hash.transaction.json"
+    canonical_chain="$(cast to-dec "$(jq -er '.chainId' "$snapshot")")" \
+        || die "refused transaction has no canonical chain ID"
+    canonical_nonce="$(cast to-dec "$(jq -er '.nonce' "$snapshot")")" \
+        || die "refused transaction has no canonical nonce"
+    [[ "$canonical_chain" == "$refused_chain" && "$canonical_nonce" == "$refused_nonce" ]] \
+        || die "refused transaction chain/nonce differs from canonical inclusion"
+done
+reconciled_submissions="$(printf '%s\n' "${refused_submissions[@]}" | jq -Rsc \
+    'split("\n") | map(select(length > 0) | split(" ") | {chain_id: .[0], nonce: .[1], hash: .[2]})')"
+
+# PR 56 reports every post and names table loads/deliveries by role. Older
+# content-scan output can also list matches outside the summary. These are
+# discovery hints only; validate whole canonical transactions independently.
 mapfile -t post_hashes < <(
-    { printf '%s\n' "$post_hash";
+    { printf '%s\n' "${post_rows[@]}" | awk '{print $1}';
       sed -n -E 's/^Matched settlement tx (0x[[:xdigit:]]{64})[[:space:]]*$/\1/p' "$SCENARIO_LOG";
     } | awk '!seen[$0]++'
 )
 post_receipts=()
 for hash in "${post_hashes[@]}"; do
     expected_block=""
-    [[ "$hash" == "$post_hash" ]] && expected_block="$post_block"
+    for row in "${post_rows[@]}"; do
+        read -r post_hash post_block <<<"$row"
+        if [[ "$hash" == "$post_hash" ]]; then
+            [[ -z "$expected_block" || "$expected_block" == "$post_block" ]] \
+                || die "conflicting settlement summary blocks for $hash"
+            expected_block="$post_block"
+        fi
+    done
     evidence="$(transaction_evidence "$L1_RPC" L1 settlement "$hash" "$expected_block")"
     [[ "$(jq -r '.to | ascii_downcase' <<<"$evidence")" == "${ROLLUPS,,}" ]] \
         || die "postBatch transaction target differs from registry $ROLLUPS"
@@ -205,7 +248,7 @@ if (( ${#post_hashes[@]} > 1 )); then
         ' >/dev/null || die "settlements do not uniquely cover trigger blocks"
 fi
 
-read -r load_hash load_block <<<"$load_row"
+read -r load_hash load_block <<<"${load_rows[0]}"
 hashes_from_line() {
     local label="$1"
     sed -n "s/^${label}:[[:space:]]*//p" "$SCENARIO_LOG" \
@@ -251,7 +294,8 @@ done < <(jq -r '.[]' <<<"$l2_blocks")
 jq -s . "$causal_tmp/l2-blocks.jsonl" >"$causal_tmp/l2-blocks.json"
 selected_systems="$(python3 "$REPO/scripts/ci/select-protocol-l2-transactions.py" \
     --abi "$REPO/eez-core-protocol/out/EEZL2.sol/EEZL2.json" --manager "$MANAGER_L2" \
-    --expected "$expected_l2_json" <"$causal_tmp/l2-blocks.json")" \
+    --expected "$expected_l2_json" --users "$(jq '[.[].hash]' <<<"$user_receipts_json")" \
+    <"$causal_tmp/l2-blocks.json")" \
     || die "cannot select exact scenario table transactions from canonical L2 blocks"
 system_hashes=()
 system_receipts=()
@@ -372,6 +416,7 @@ jq -n \
     --arg log "$SCENARIO_LOG" \
     --arg log_sha256 "$log_sha256" \
     --arg upstream_table_hash "$load_hash" \
+    --slurpfile reconciled_submissions "$(json_file reconciled_submissions "$reconciled_submissions")" \
     --arg trigger_chain "$trigger_chain" \
     --slurpfile trigger_transactions "$(json_file trigger_transactions "$user_receipts_json")" \
     --slurpfile settlement_transactions "$(json_file settlement_transactions "$post_receipts_json")" \
@@ -407,5 +452,6 @@ jq -n \
                l2_calls_verified: $l2_calls_verified},
       proof_statements: $proof_statements,
       source_log: {path: $log, sha256: $log_sha256,
+                   reconciled_submissions: $reconciled_submissions[0],
                    upstream_first_table_hash: $upstream_table_hash}}' >"$tmp_output"
 mv "$tmp_output" "$OUTPUT_JSON"

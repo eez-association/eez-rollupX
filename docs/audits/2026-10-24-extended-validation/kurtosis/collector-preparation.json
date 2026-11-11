@@ -1,0 +1,43 @@
+{
+  "scope": "Local input-selection checks only; synthetic L1 controls validate selection/rejection, not live behavior. No RPC, builds, broadcasts or services.",
+  "baseline_collector_sha256": "1664637ba6a8cb097db77fe02a7303fffce4c2802846020a955301339f9bae13",
+  "candidate_collector_sha256": "cc2320942f9e3dc35103b9a06bf5c3d07c2c0d4ab0d382929f52aa4509f4e83d",
+  "portable_source": "workloads/collect-mixed.py",
+  "checks": [
+    {
+      "name": "exact original baseline inputs preserve all selected outputs",
+      "result": "PASS",
+      "receipts": 8241
+    },
+    {
+      "name": "both independent L1 controls included and terminal endpoint extended",
+      "result": "PASS",
+      "receipts": 8289
+    },
+    {
+      "name": "wrong runtime source",
+      "result": "PASS: rejected"
+    },
+    {
+      "name": "failed recovery summary",
+      "result": "PASS: rejected"
+    },
+    {
+      "name": "missing transfer",
+      "result": "PASS: rejected"
+    },
+    {
+      "name": "truncated receipt list",
+      "result": "PASS: rejected"
+    },
+    {
+      "name": "duplicate receipt between controls",
+      "result": "PASS: rejected"
+    }
+  ],
+  "count": 7,
+  "passed": 7,
+  "live_final_collector_executed": true,
+  "final_live_result": "candidate-load.json",
+  "final_live_collector_sha256": "8df68a8329d2f530176754f11724d3010ec7487425f874dcce7e788d64a47461"
+}

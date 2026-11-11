@@ -32,6 +32,7 @@ import {Rollup} from "eez-core-protocol/src/rollupContract/Rollup.sol";
 ///                              semantics to the opaque bytes32 value.
 contract RegisterRollup is Script {
     function run(address eez, address rollupContract, bytes32 initialRoot) external {
+        require(initialRoot != bytes32(0), "Zero genesis commitment");
         // The pinned protocol's `deployment/Deploy.s.sol:RegisterRollup` checks.
         require(eez.code.length != 0 && rollupContract.code.length != 0, "Contract has no code");
         require(Rollup(rollupContract).EEZContract() == eez, "Wrong registry");

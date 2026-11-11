@@ -9,21 +9,9 @@ use alloy_eips::{eip1559::BaseFeeParams, eip7685::EMPTY_REQUESTS_HASH};
 use alloy_primitives::{B64, B256};
 
 mod derivation;
-pub use derivation::{AnchorKind, DerivationConfig, GenesisL1Reference, Schedule};
-
-/// Untrusted parent provenance. The endpoint list covers every applied batch
-/// endpoint in the canonical L1 slot with the parent's timestamp, in order.
-/// A complete list is necessary even when the parent was accepted later as
-/// catch-up: a previous live variant at the same height still controls its children.
-#[derive(Debug, Clone)]
-pub struct ParentProvenance {
-    /// Exact L2 header preceding the candidate.
-    pub parent: Header,
-    /// Claimed containing L1 height; zero only for L2 genesis.
-    pub accepted_l1_number: u64,
-    /// Every accepted endpoint in the canonical L1 slot at the parent timestamp.
-    pub live_slot_endpoints: Vec<Header>,
-}
+pub use derivation::{
+    AnchorKind, DerivationConfig, GenesisL1Reference, Schedule, validate_fee_collector,
+};
 
 /// Ordinary and native transactions share this metered block budget.
 pub const GAS_LIMIT: u64 = 30_000_000;

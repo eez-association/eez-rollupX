@@ -1,0 +1,150 @@
+title = "rollupX secret scanning"
+
+[extend]
+useDefault = true
+
+# Exact public fixture values, reviewed in the 2026-10-11 readiness audit.
+# Do not exempt whole fixture paths: a new credential in those files must fail.
+[[allowlists]]
+description = "Anvil/Hardhat public accounts 0, 1 and 2"
+regexTarget = "secret"
+regexes = [
+  '''^(0x)?ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80$''',
+  '''^(0x)?59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d$''',
+  '''^(0x)?5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a$''',
+]
+
+[[allowlists]]
+description = "Historical deterministic CI identity, never an operator key"
+condition = "AND"
+paths = ['''^testing/kurtosis/''', '''^docs/audits/2026-09-26-reth-v2\.6-validation/kurtosis-args\.yaml$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?6f7d72ecb79c8bf1bd8e7c49a1c4a22741ab708f06bb19e5b5d44a6f0934a7c1$''']
+
+[[allowlists]]
+description = "Public upstream Gnosis EIP-1559 vector signing key"
+condition = "AND"
+paths = ['''^vendor/reth-gnosis/scripts/generate_eip1559_vectors\.sh$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?000038e28d32db8e509354d6b359eb58646e84bc942e3c79f470b08ebc976e1c$''']
+
+[[allowlists]]
+description = "Local Kurtosis Blockscout session-secret fixture"
+condition = "AND"
+paths = ['''^testing/kurtosis/blockscout\.star$''']
+regexTarget = "secret"
+regexes = ['''^56NtB48ear7\+wMSf0IQuWDAAazhpb31qyc7GiyspBP2vh7t5zlCsF5QDv76chXeN$''']
+
+[[allowlists]]
+description = "Blobscan API image tags mistaken for API credentials"
+condition = "AND"
+paths = ['''^testing/(kurtosis/blob-args\.yaml|explorers/compose\.yaml)$''']
+regexTarget = "secret"
+regexes = ['''^1\.40\.3-(chain7332|chiado)$''']
+
+[[allowlists]]
+description = "Public fee-policy environment variable names in configuration tests"
+condition = "AND"
+paths = ['''^scripts/ci/tests/test_chiado_config\.py$''']
+regexTarget = "secret"
+regexes = ['''^EEZ_L2_FEE_SHADOW_POLICY$''', '''^EEZ_L1_FEE_REFUND_POLICY$''']
+
+[[allowlists]]
+description = "Exact Git commit ID recorded by the transaction-reference audit"
+condition = "AND"
+paths = ['''^docs/audits/2026-10-15-transaction-references/results\.json$''']
+regexTarget = "secret"
+regexes = ['''^12fa33a7a51fdd2649fbd9107b52f1f892e4fb5c$''']
+
+[[allowlists]]
+description = "Verified SHA-256 digests of local and public fee API evidence"
+condition = "AND"
+paths = ['''^docs/audits/2026-10-15-compact-fee-quotes/deployment\.json$''']
+regexTarget = "secret"
+regexes = [
+  '''^e09b3ab8057a69663260fb5066476559dd1ed0a23e6f9ec8101a0d9e9f778b46$''',
+  '''^0dfb182e89bae1374b60e0c11d7a896e8d103bd8eb328dc741428dd3c2050ddf$''',
+]
+
+[[allowlists]]
+description = "Verified SHA-256 digest of simplified-fee API check logs"
+condition = "AND"
+paths = ['''^docs/audits/2026-10-15-simplified-fees/result\.json$''']
+regexTarget = "secret"
+regexes = ['''^e65d5eab9947fe18dc5275dfe1be9310db0fef44af222acefd85164aeffa7833$''']
+
+[[allowlists]]
+description = "Published BuilderNet relay BLS public keys in omission diagnostic tests"
+condition = "AND"
+paths = ['''^scripts/ci/tests/test_why_excluded\.py$''']
+regexTarget = "secret"
+# https://buildernet.org/docs/public-identity (verified 2026-10-22).
+regexes = [
+  '''^0x850b00e055388c1b56f137e0852bc02d8b05534e9f96dd1d11cff8cf0481b800ecc2e708cdc158cd95b7cfdaa6840ee7$''',
+  '''^0x851b00b12f73770337fbd219b439aba7bd8e770dbdea16a3b0df030d971bc0d824d470d7868e5d93355f501bfe892947$''',
+]
+
+# Public network/program commitments derived by NetworkProfile::verification_key,
+# not signing keys. See crates/eez-control-rpc/VALIDATION_IDENTITY.md.
+[[allowlists]]
+description = "Bidirectional and prefix-replay fixture verification key"
+condition = "AND"
+paths = [
+  '''^crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history(-import)?\.json$''',
+  '''^crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity\.json$''',
+]
+regexTarget = "secret"
+regexes = ['''^(0x)?b1bfe68060d84db5ca2f0398bef39ea34e3cd1cef9ecf58c73de8df4d45d186b$''']
+
+[[allowlists]]
+description = "History-observation fixture verification key"
+condition = "AND"
+paths = ['''^crates/eez-proof-signer/tests/fixtures/native-history-observations/identity\.json$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?f00e07bc501597cf26edf014bf557ed3e1b0cd89f15e1c8e39fd1e90de22138d$''']
+
+[[allowlists]]
+description = "Osaka changing-static fixture verification key"
+condition = "AND"
+paths = ['''^crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/identity\.json$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?981d974d1b830553d0f9d7c05881262e034c23f6afb2831010e326fa1bb32c75$''']
+
+[[allowlists]]
+description = "Osaka lookup fixture verification key"
+condition = "AND"
+paths = ['''^crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity\.json$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?808c11d36e6b7c4db0c94d9b6ee3443fc5d58b705342966c5e654f2f5fea9351$''']
+
+# Historical validation-contract-8 public commitments; retained for all-ref scans.
+[[allowlists]]
+description = "Version-8 Bidirectional fixture verification key"
+condition = "AND"
+paths = [
+  '''^crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity\.json$''',
+  '''^crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history(-import)?\.json$''',
+]
+regexTarget = "secret"
+regexes = ['''^(0x)?e73373cf1cfce235ba8d57d05c420bbb3ca83f363fa0d42cf1cc58bad2a9df84$''']
+
+[[allowlists]]
+description = "Version-8 History-observation fixture verification key"
+condition = "AND"
+paths = ['''^crates/eez-proof-signer/tests/fixtures/native-history-observations/identity\.json$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?9e474259de614e7e31306ace6440ab502ac282dbc8d0af9321b33b461085b342$''']
+
+[[allowlists]]
+description = "Version-8 Osaka changing-static fixture verification key"
+condition = "AND"
+paths = ['''^crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/identity\.json$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?5bec2dc8b9fd3e32ecbf5e9882204601499bb379da5ad23dffcd0d3cea231c50$''']
+
+[[allowlists]]
+description = "Version-8 Osaka lookup fixture verification key"
+condition = "AND"
+paths = ['''^crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity\.json$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?9633449b3ab10ae43da3f5616fb927a680ae793dd9e073a92e094e98b194757c$''']

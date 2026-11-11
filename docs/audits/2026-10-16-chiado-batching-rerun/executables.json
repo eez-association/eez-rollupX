@@ -1,0 +1,70 @@
+{
+  "localDevelopmentBuild": true,
+  "ciPromoted": false,
+  "source": "9697b317d84597f1a6617e803cb337d7765f1451",
+  "images": {
+    "node": {
+      "tag": "eez-node:batch-recovery-20261016",
+      "id": "sha256:b0dde445d7a3248c104cb47fa49258fcbfc629a897e0b8639fdc4412e49b4bec",
+      "revision": "9697b317d84597f1a6617e803cb337d7765f1451",
+      "executables": {
+        "eez-composer": "bf722d90a28748d00179c8996b3300967e98b4cf418034d32cc8f5ba270dc819",
+        "eez-follower": "f8e16eded15ceb7c64d3e83fd5d084cf5084945e53b48c91594a870e74c7910f",
+        "eez-genesis-state-root": "67354b6171a7eef8d75669cbe9da77e461d56044e020195061f1d0510f8f39d6",
+        "eez-genesis-block-hash": "31873e0358bdbcc057a03176aef8104edd8c2e00e1b09d470742704f5414c5c9"
+      }
+    },
+    "signer": {
+      "tag": "eez-proof-signer:batch-recovery-20261016",
+      "id": "sha256:5a6ac422b9a802b49c715568c089cf288c7d6f5e92d16d85e3839ed52a43dcf5",
+      "revision": "9697b317d84597f1a6617e803cb337d7765f1451",
+      "executables": {
+        "eez-proof-signer": "412bb907a79ca17b06497933973840701d96942fe7b1606d4aba838e21a9cc93"
+      }
+    },
+    "deploy": {
+      "tag": "eez-deploy:batch-recovery-20261016",
+      "id": "sha256:302efe325c4b7afba55cb143d3c31e1be77912e5067b08be703afb5f40e53ac5",
+      "revision": "9697b317d84597f1a6617e803cb337d7765f1451",
+      "executables": {}
+    }
+  },
+  "binaries": {
+    "eez-composer": {
+      "sha256": "bf722d90a28748d00179c8996b3300967e98b4cf418034d32cc8f5ba270dc819",
+      "image": "sha256:b0dde445d7a3248c104cb47fa49258fcbfc629a897e0b8639fdc4412e49b4bec",
+      "source": "9697b317d84597f1a6617e803cb337d7765f1451"
+    },
+    "eez-follower": {
+      "sha256": "f8e16eded15ceb7c64d3e83fd5d084cf5084945e53b48c91594a870e74c7910f",
+      "image": "sha256:b0dde445d7a3248c104cb47fa49258fcbfc629a897e0b8639fdc4412e49b4bec",
+      "source": "9697b317d84597f1a6617e803cb337d7765f1451"
+    },
+    "eez-genesis-state-root": {
+      "sha256": "67354b6171a7eef8d75669cbe9da77e461d56044e020195061f1d0510f8f39d6",
+      "image": "sha256:b0dde445d7a3248c104cb47fa49258fcbfc629a897e0b8639fdc4412e49b4bec",
+      "source": "9697b317d84597f1a6617e803cb337d7765f1451"
+    },
+    "eez-genesis-block-hash": {
+      "sha256": "31873e0358bdbcc057a03176aef8104edd8c2e00e1b09d470742704f5414c5c9",
+      "image": "sha256:b0dde445d7a3248c104cb47fa49258fcbfc629a897e0b8639fdc4412e49b4bec",
+      "source": "9697b317d84597f1a6617e803cb337d7765f1451"
+    },
+    "eez-proof-signer": {
+      "sha256": "412bb907a79ca17b06497933973840701d96942fe7b1606d4aba838e21a9cc93",
+      "image": "sha256:5a6ac422b9a802b49c715568c089cf288c7d6f5e92d16d85e3839ed52a43dcf5",
+      "source": "9697b317d84597f1a6617e803cb337d7765f1451"
+    },
+    "verify_blob_evidence": {
+      "sha256": "da99270dabdd0f2c8f3b28c5bfcdac91506149955fd40c27cdc0867b0e4b88af",
+      "source": "ce6574788682c54bdd3f9742870f5dbdbd9a4a9c",
+      "unchangedInputsAtCandidate": true
+    }
+  },
+  "processTests": {
+    "eez-composer": "9e2bf52f5af760cefc961e7ed61c4ec70863bbb5eb7f745ce24ffdceb4d6964b",
+    "eez-follower": "56a586396ea88d5ed839c9bfb4b4e99454b72fe7beb15a6fe7bd3246ae65fb29",
+    "eez-proof-signer": "32850f98375da08551d8c5c5942a64d61212c308b84c87ffafba07bbcabe22b6",
+    "node_e2e-2d1c048865c782ec": "3c47f4cd3ca71eb320fa5003e35f6db07bddf141431ac4ab12b5137bc28da217"
+  }
+}

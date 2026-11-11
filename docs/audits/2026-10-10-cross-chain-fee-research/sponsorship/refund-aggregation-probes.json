@@ -1,0 +1,72 @@
+{
+  "observed_at_utc": "2026-10-10T12:32:09.235334+00:00",
+  "scope": "Malformed empty-parameter method probes, public documentation and source metadata; no transactions, credentials or valid bundle submissions.",
+  "results": [
+    {
+      "name": "titan_mev_method",
+      "url": "https://rpc.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "mev_sendBundle",
+        "params": []
+      },
+      "http_status": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Method not found"
+        }
+      }
+    },
+    {
+      "name": "quasar_mev_method",
+      "url": "https://rpc.quasar.win",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "mev_sendBundle",
+        "params": []
+      },
+      "http_status": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Method not found"
+        }
+      }
+    },
+    {
+      "name": "quasar_mev_docs",
+      "url": "https://docs.quasar.win/api/mev_sendbundle.md",
+      "request": null,
+      "http_status": 200,
+      "bytes": 2429
+    },
+    {
+      "name": "rbuilder_tree",
+      "url": "https://api.github.com/repos/flashbots/rbuilder/git/trees/develop?recursive=1",
+      "request": null,
+      "http_status": 200,
+      "commit": "6037fa728b13bf1806e16fff2586414216f6b8fa",
+      "paths": [
+        "crates/rbuilder/src/building/order_commit.rs"
+      ]
+    }
+  ],
+  "source_inspection": {
+    "repository": "flashbots/rbuilder",
+    "revision": "6037fa728b13bf1806e16fff2586414216f6b8fa",
+    "path": "crates/rbuilder/src/building/order_commit.rs",
+    "sha256": "29611fe328c7fad4e023951626e99917c27834b5582ab7988ef3852a4866b70e",
+    "finding": "commit_bundle_no_rollback adds positive coinbase profits for transactions allowed by is_tx_refundable, then applies the configured percentage. This does not establish which transaction selections an external API admits or which revision a provider deploys.",
+    "raw_source_availability": "Public exact-revision GitHub source and local /tmp/rollupx-refund-aggregation-20261010/order_commit.rs"
+  },
+  "doc_hashes": {
+    "quasar_mev_docs_sha256": "af52b64ab0b4809606d754245881bd045089fc5456f1b4bcfbc58a4938dd2386"
+  }
+}

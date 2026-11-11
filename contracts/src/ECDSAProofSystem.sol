@@ -16,8 +16,8 @@ import {IProofSystem} from "eez-core-protocol/src/interfaces/IProofSystem.sol";
 ///
 ///         Proof shape: `abi.encodePacked(r, s, v)` — 32 + 32 + 1 = 65 bytes.
 ///
-///         `vkey = bytes32(uint256(uint160(signer)))` is the registry-membership
-///         ticket; the attester address lives on this contract's `signer()` view.
+///         The registry includes the configured network-bound verification key
+///         in `publicInputsHash`; the attester address is exposed by `signer()`.
 contract ECDSAProofSystem is IProofSystem {
     /// @notice Authorized attester. ECDSA recovery against the batch's
     ///         `publicInputsHash` must equal this value.
@@ -42,11 +42,7 @@ contract ECDSAProofSystem is IProofSystem {
     /// @dev Recovers against `publicInputsHash` (the batch binding). Returns
     ///      false on malformed proofs (wrong length, bad signature) without
     ///      reverting, so the EEZ quorum surfaces `InvalidProof` uniformly.
-    function verify(bytes calldata proof, bytes32 publicInputsHash)
-        external
-        view
-        returns (bool valid)
-    {
+    function verify(bytes calldata proof, bytes32 publicInputsHash) external view returns (bool valid) {
         if (proof.length != 65) return false;
 
         bytes32 r;

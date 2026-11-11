@@ -20,6 +20,7 @@ done
 export KURTOSIS_ENCLAVE="$ENCLAVE"
 L1_RPC_OVERRIDE="${L1_RPC:-}"
 L2_RPC_OVERRIDE="${L2_RPC:-}"
+L2_FRONT_OVERRIDE="${L2_FRONT:-}"
 
 # Kurtosis can assign a new host port when a stopped service is started again.
 # Preserve explicit caller overrides, but refresh dynamically discovered URLs at
@@ -28,6 +29,7 @@ refresh_dynamic_rpcs() {
     source "$KURTOSIS_DIR/ports.sh" >/dev/null
     L1_RPC="${L1_RPC_OVERRIDE:-$EEZ_DEVNET_L1_RPC}"
     L2_RPC="${L2_RPC_OVERRIDE:-$EEZ_DEVNET_L2_RPC}"
+    L2_FRONT="${L2_FRONT_OVERRIDE:-$EEZ_DEVNET_L2_FRONT}"
 }
 
 refresh_dynamic_rpcs
@@ -58,7 +60,7 @@ rpc_request() {
     local method="$1" params="$2"
     jq -cn --arg method "$method" --argjson params "$params" \
         '{jsonrpc:"2.0",id:1,method:$method,params:$params}' |
-        curl -fsS --max-time 10 "$L2_RPC" \
+        curl -fsS --max-time 10 "$L2_FRONT" \
             -H 'content-type: application/json' --data-binary @-
 }
 

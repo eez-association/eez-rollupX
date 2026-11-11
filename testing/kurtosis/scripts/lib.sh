@@ -3,9 +3,9 @@
 #
 # Callers must already have set: K (the testing/kurtosis dir), REPO (repo root),
 # L2 and EEZL2_ADDRESS if they use create_l2_proxy.
-# Requires cast, forge, jq, and curl in PATH.
+# Requires cast, forge, jq, and curl in PATH; quote signing also uses bc.
 
-# Priority fee every helper signs with; scripts may override before sourcing.
+# Ordinary setup/funding priority fee; cross-chain workloads request quotes.
 PRIORITY_GAS_PRICE="${PRIORITY_GAS_PRICE:-${EEZ_TEST_PRIORITY_GAS_PRICE_WEI:-1}}"
 
 load_deployment_artifact() { # <destination directory>
@@ -59,10 +59,39 @@ raw_transaction_for() { # <rpc> <hash> <scratch directory> → signed envelope
 }
 
 yaml_value() { # <key> → scalar from the kurtosis args file
+    local value
     # `-m1` not `| head -1`: head closes the pipe, grep takes SIGPIPE, and
     # pipefail then fails the whole pipeline.
-    grep -m1 -E "^[[:space:]]*$1:" "${KURTOSIS_ARGS_FILE:-$K/args.yaml}" 2>/dev/null \
-        | sed -E 's/^[^:]*:[[:space:]]*//; s/[[:space:]]*#.*$//; s/^"//; s/"$//'
+    value=$(grep -m1 -E "^[[:space:]]*$1:" "${KURTOSIS_ARGS_FILE:-$K/args.yaml}" 2>/dev/null \
+        | sed -E 's/^[^:]*:[[:space:]]*//; s/^#.*$//; s/[[:space:]]+#.*$//; s/[[:space:]]+$//') || return 1
+    # Callers read simple booleans and integers. Accept either YAML quote
+    # style, but do not turn a mismatched quote into an enabled setting.
+    case "$value" in
+        \"*\"|\'*\') value="${value:1:${#value}-2}" ;;
+    esac
+    printf '%s\n' "$value"
+}
+
+fee_collection_enabled() { # in|out; workload expectation from the selected profile
+    local name=EEZ_FEES_L1_TO_L2_ENABLED value
+    [[ "$1" != out ]] || name=EEZ_FEES_L2_TO_L1_ENABLED
+    value="${!name-}"
+    [[ -v "$name" ]] || value=$(yaml_value "$name" || true)
+    [[ "$value" == true ]]
+}
+
+expect_fee_admission_rejection() { # <front> <source RPC> <raw> <hash> <evidence path>
+    local front="$1" rpc="$2" raw="$3" hash="$4" evidence="$5" response
+    mkdir -p "$(dirname "$evidence")" || return 1
+    response=$(curl --fail -sS --max-time 15 "$front" -H 'Content-Type: application/json' \
+        --data "$(jq -nc --arg raw "$raw" '{jsonrpc:"2.0",id:1,method:"eth_sendRawTransaction",params:[$raw]}')") || return 1
+    printf '%s\n' "$response" >"$evidence" || return 1
+    jq -e '.error.code == -32003 and .error.data.code == "unsupported_transaction"' \
+        <<<"$response" >/dev/null || {
+        echo "expected execution-profile rejection at fee admission: $response" >&2; return 1;
+    }
+    [[ $(cast rpc --rpc-url "$front" eez_getCrossChainTransaction "$hash") == null ]] || return 1
+    [[ $(receipt_status "$hash" "$rpc") == missing ]] || return 1
 }
 
 retry() { # <cmd...> → stdout; survives transient RPC hiccups under load
@@ -95,6 +124,37 @@ gas_price_for() { # <rpc> → max fee in wei
     echo "$gas_price"
 }
 
+sign_fee_quoted() { # <front> <read RPC> <key> <prepared raw> <evidence path> → signed envelope
+    # Reuse the protocol runner's checked quote/signing path. It preserves the
+    # prepared nonce and payload, retains malformed responses and never falls
+    # back to node fees when a quote is rejected.
+    source "$REPO/eez-core-protocol/script/e2e/lib/network-fees.sh"
+    local front="$1" rpc="$2" key="$3" raw="$4" evidence="$5"
+    local tx plan balance sender nonce current deadline
+    tx=$(cast decode-transaction "$raw" | jq 'if type == "string" then fromjson else . end') || return 1
+    sender=$(jq -er .signer <<<"$tx") || return 1
+    nonce=$(cast to-dec "$(jq -er .nonce <<<"$tx")") || return 1
+    if [[ "$rpc" == "$L2" ]]; then
+        # L2 quotes cannot replay held predecessors or a source nonce changed
+        # by unsettled execution. Wait for its canonical settlement first.
+        deadline=$((SECONDS + ${EEZ_QUOTE_TIMEOUT:-120}))
+        while :; do
+            current=$(cast nonce "$sender" --block safe --rpc-url "$rpc") || return 1
+            (( current == nonce )) && break
+            if (( current > nonce || SECONDS >= deadline )); then
+                echo "quoted wave nonce unavailable: expected=$nonce current=$current" >&2
+                return 1
+            fi
+            sleep 1
+        done
+    fi
+    plan=$(network_fee_quote "$tx" "$front" "$rpc" "" "" "$evidence") || return 1
+    balance=$(cast balance "$sender" --rpc-url "$rpc") || return 1
+    plan=$(network_sign_quote "$plan" "$key" "$balance") || return 1
+    jq 'del(.raw)' <<<"$plan" >"$evidence" || return 1
+    jq -er .raw <<<"$plan"
+}
+
 fund() { # <rpc> <key> <to> — configurable native-token amount
     local rpc="$1" key="$2" to="$3" from nonce amount
     amount="${EEZ_TEST_FUND_AMOUNT_ETH:-10}"
@@ -122,7 +182,11 @@ forge_deploy() { # <rpc> <key> <script:contract> <sig> <args...> → echoes forg
     printf '%s\n' "$output"
 }
 
-grab_address() { grep -m1 -oE "$1=0x[0-9a-fA-F]{40}" | cut -d= -f2; }
+grab_address() {
+    # Drain the stream even after finding the address. Closing early can give
+    # forge_deploy's printf SIGPIPE and fail a successful deployment under pipefail.
+    grep -oE "$1=0x[0-9a-fA-F]{40}" | sed -n '1p' | cut -d= -f2
+}
 strip_ansi() { sed 's/\x1b\[[0-9;]*m//g'; }
 
 receipt_json() { # <hash> <rpc>
@@ -137,19 +201,33 @@ receipt_status() { # <hash> <rpc> → "1" mined-ok, "0x0" reverted, "missing" no
 }
 
 send_front() { # <front_url> <raw_tx> <expected_hash> — eth_sendRawTransaction to a front
-    # Fronts refuse submissions until the node reconciles with L1, so wait that
-    # out; any other error — or a changed hash — is fatal (invariant 7 is LOUD).
-    local front="$1" raw="$2" expected="$3" resp rc returned i
-    for ((i = 0; i < 120; i++)); do
-        resp=$(curl -sS --max-time 10 -X POST "$front" -H 'Content-Type: application/json' \
-            -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_sendRawTransaction\",\"params\":[\"$raw\"],\"id\":1}" 2>/dev/null); rc=$?
+    # A predecessor can enter composition after quoting. These explicit temporary
+    # refusals acquire no ownership, so retry identical bytes under one deadline.
+    # Tariff/profile failures need caller action; ambiguous transport failures and
+    # changed hashes remain fatal rather than reporting a submission as successful.
+    local front="$1" raw="$2" expected="$3" resp rc returned left
+    local deadline=$((SECONDS + 120))
+    while (( SECONDS < deadline )); do
+        left=$((deadline - SECONDS)); (( left <= 10 )) || left=10
+        rc=0
+        resp=$(curl -sS --max-time "$left" -X POST "$front" -H 'Content-Type: application/json' \
+            -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_sendRawTransaction\",\"params\":[\"$raw\"],\"id\":1}" 2>/dev/null) || rc=$?
         # Empty body = no answer. Without this the checks below miss and a tx
         # that was NEVER SENT reports success.
         (( rc == 0 )) && [[ -n "$resp" ]] \
             || { echo "    ✗ submit failed (curl rc=$rc, ${#resp} byte body)" >&2; return 1; }
         if grep -q '"error"' <<<"$resp"; then
-            grep -q 'starting up' <<<"$resp" \
-                || { echo "    ✗ front rejected tx: $resp" >&2; return 1; }
+            if ! grep -q 'starting up' <<<"$resp" && ! jq -e '
+                .error | .code == -32003 and (
+                    .data.code == "quote_busy" or .data.code == "stale_context" or
+                    (.data.code == "quote_unavailable" and (.data.message ==
+                        "quote unavailable: queued predecessor is entering composition" or .data.message ==
+                        "quote unavailable: settlement reconciliation pending" or .data.message ==
+                        "quote unavailable: unsettled native history requires reconciliation")))
+                ' <<<"$resp" >/dev/null 2>&1; then
+                echo "    ✗ front rejected tx: $resp" >&2; return 1
+            fi
+            echo "    retrying unchanged source $expected after temporary refusal: $resp" >&2
             sleep 1
             continue
         fi
@@ -158,7 +236,7 @@ send_front() { # <front_url> <raw_tx> <expected_hash> — eth_sendRawTransaction
             || { echo "    ✗ front changed the submitted transaction: $resp" >&2; return 1; }
         return 0
     done
-    echo "    ✗ front still starting up after 120s" >&2
+    echo "    ✗ front admission retry deadline reached after 120s" >&2
     return 1
 }
 

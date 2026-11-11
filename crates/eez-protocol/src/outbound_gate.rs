@@ -488,7 +488,10 @@ mod tests {
             success: false,
             returnData: Bytes::new(),
         });
-        assert!(verify_outbound_authorized(&[failed], &[observed(&c, 1)], 1).is_err());
+        // Callback rows are supported; this gate binds receipt authorization,
+        // while the paired-table verifier checks their execution commitments.
+        assert!(verify_outbound_authorized(&[failed.clone()], &[observed(&c, 1)], 1).is_ok());
+        assert!(verify_outbound_authorized(&[failed], &[], 1).is_err());
 
         for unsupported in [
             L2ToL1CallSol {

@@ -49,6 +49,31 @@ class EthereumConfigTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)["services"]
 
+    def test_scheduler_preserves_absence_empty_invalid_and_shell_precedence(self):
+        env_file = self.repo / ".env"
+        fixture = env_file.read_text()
+        env_file.write_text(fixture.replace("EEZ_SETTLEMENT_START_AFTER_BLOCK=3\n", ""))
+        for key in ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "EEZ_SETTLEMENT_START_DELAY_MS"):
+            for value in (None, "3", "250", "", "0", "-1", "invalid"):
+                with self.subTest(key=key, value=value):
+                    services = self.services({} if value is None else {key: value})
+                    self.assertEqual(services["eez-node"]["environment"].get(key), value)
+                    self.assertNotIn(key, services["eez-proof-signer"]["environment"])
+        env_file.write_text(fixture + "\nEEZ_SETTLEMENT_START_DELAY_MS=100\n")
+        node = self.services({"EEZ_SETTLEMENT_START_AFTER_BLOCK": "2",
+                              "EEZ_SETTLEMENT_START_DELAY_MS": "250"})["eez-node"]["environment"]
+        self.assertEqual(node["EEZ_SETTLEMENT_START_AFTER_BLOCK"], "2")
+        self.assertEqual(node["EEZ_SETTLEMENT_START_DELAY_MS"], "250")
+        self.assertIsNone(node.get("EEZ_PREPARATION_TIME_MS"))
+
+    def test_obsolete_preparation_reaches_runtime_for_rejection(self):
+        for value in (None, "1000", "", "invalid"):
+            with self.subTest(value=value):
+                overrides = {} if value is None else {"EEZ_PREPARATION_TIME_MS": value}
+                node = self.services(overrides)["eez-node"]["environment"]
+                self.assertEqual(node.get("EEZ_PREPARATION_TIME_MS"), value)
+                self.assertEqual(node["EEZ_SETTLEMENT_START_AFTER_BLOCK"], "3")
+
     def test_example_selects_mainnet_for_every_service(self):
         services = self.services()
         node = services["eez-node"]["environment"]
@@ -101,6 +126,8 @@ class EthereumConfigTest(unittest.TestCase):
             ("EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE", "50"),
             ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "50000000"),
             ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "2000000000"),
+            ("EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE", "90"),
+            ("EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE", "3500000000"),
             ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "7200"),
             ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000"),
         ):
@@ -112,8 +139,10 @@ class EthereumConfigTest(unittest.TestCase):
         self.assertGreaterEqual(int(signer["EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS"]),
                                 int(node["EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS"]))
         budget = sum(int(node[name]) for name in (
-            "EEZ_PREPARATION_TIME_MS", "EEZ_PROOF_TIME_MS", "EEZ_SUBMISSION_SLACK_MS"))
-        self.assertLessEqual(budget, (6 - 1) * 2000)
+            "EEZ_PROOF_TIME_MS", "EEZ_SUBMISSION_SLACK_MS")) + 150
+        position = int(node["EEZ_SETTLEMENT_START_AFTER_BLOCK"])
+        delay = int(node.get("EEZ_SETTLEMENT_START_DELAY_MS") or "0")
+        self.assertLess(budget, (6 - position) * 2000 - delay)
 
     def test_priority_percentile_is_absent_unless_configured(self):
         configured = (self.repo / ".env").read_text()
@@ -124,6 +153,40 @@ class EthereumConfigTest(unittest.TestCase):
         node = json.loads(result.stdout)["services"]["eez-node"]["environment"]
         # Absent keeps the runtime default (90) rather than a Compose value.
         self.assertIsNone(node.get("EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE"))
+
+    def test_cross_chain_priority_is_absent_unless_configured(self):
+        configured = (self.repo / ".env").read_text()
+        lines = (
+            "EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE=90\n",
+            "EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE=3500000000\n",
+        )
+        for line in lines:
+            self.assertIn(line, configured)
+            configured = configured.replace(line, "")
+        result = self.render(dotenv=configured)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        node = json.loads(result.stdout)["services"]["eez-node"]["environment"]
+        # Absent prices cross-chain bundles with the base settings.
+        for name in ("EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE",
+                     "EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE"):
+            self.assertIsNone(node.get(name), name)
+
+    def test_post_batch_target_reaches_the_node_only_when_configured(self):
+        configured = (self.repo / ".env").read_text()
+        self.assertIn("# EEZ_L1_POSTBATCH_TARGET=\n", configured)
+        result = self.render(dotenv=configured)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        node = json.loads(result.stdout)["services"]["eez-node"]["environment"]
+        # Absent posts directly to the registry.
+        self.assertIsNone(node.get("EEZ_L1_POSTBATCH_TARGET"))
+        target = "0x5f531064587c3e4D08145a6f564Ce06Bf33D3E84"
+        result = self.render(dotenv=configured + f"EEZ_L1_POSTBATCH_TARGET={target}\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        node = json.loads(result.stdout)["services"]["eez-node"]["environment"]
+        self.assertEqual(node.get("EEZ_L1_POSTBATCH_TARGET"), target)
+        for service in ("eez-proof-signer", "lighthouse"):
+            environment = json.loads(result.stdout)["services"][service].get("environment") or {}
+            self.assertNotIn("EEZ_L1_POSTBATCH_TARGET", environment, service)
 
     def test_required_choices_fail_when_absent_or_empty(self):
         configured = (self.repo / ".env").read_text()

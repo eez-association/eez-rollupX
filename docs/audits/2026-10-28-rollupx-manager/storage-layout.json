@@ -1,0 +1,88 @@
+{
+  "baseline": "6215df1a4395f58bb58bdb78bf4dc22f907c4169",
+  "storage": [
+    {
+      "label": "rollupId",
+      "offset": 0,
+      "slot": "0",
+      "type": "t_uint64"
+    },
+    {
+      "label": "threshold",
+      "offset": 0,
+      "slot": "1",
+      "type": "t_uint256"
+    },
+    {
+      "label": "verificationKey",
+      "offset": 0,
+      "slot": "2",
+      "type": "t_mapping(t_address,t_bytes32)"
+    },
+    {
+      "label": "l2ChainId",
+      "offset": 0,
+      "slot": "3",
+      "type": "t_uint256"
+    },
+    {
+      "label": "protocolConfigHash",
+      "offset": 0,
+      "slot": "4",
+      "type": "t_bytes32"
+    },
+    {
+      "label": "l1ConfigHash",
+      "offset": 0,
+      "slot": "5",
+      "type": "t_bytes32"
+    },
+    {
+      "label": "initialBlockHash",
+      "offset": 0,
+      "slot": "6",
+      "type": "t_bytes32"
+    },
+    {
+      "label": "ruleTimes",
+      "offset": 0,
+      "slot": "7",
+      "type": "t_array(t_uint64)dyn_storage"
+    }
+  ],
+  "types": {
+    "t_address": {
+      "encoding": "inplace",
+      "label": "address",
+      "numberOfBytes": "20"
+    },
+    "t_array(t_uint64)dyn_storage": {
+      "encoding": "dynamic_array",
+      "label": "uint64[]",
+      "numberOfBytes": "32",
+      "base": "t_uint64"
+    },
+    "t_bytes32": {
+      "encoding": "inplace",
+      "label": "bytes32",
+      "numberOfBytes": "32"
+    },
+    "t_mapping(t_address,t_bytes32)": {
+      "encoding": "mapping",
+      "key": "t_address",
+      "label": "mapping(address => bytes32)",
+      "numberOfBytes": "32",
+      "value": "t_bytes32"
+    },
+    "t_uint256": {
+      "encoding": "inplace",
+      "label": "uint256",
+      "numberOfBytes": "32"
+    },
+    "t_uint64": {
+      "encoding": "inplace",
+      "label": "uint64",
+      "numberOfBytes": "8"
+    }
+  }
+}

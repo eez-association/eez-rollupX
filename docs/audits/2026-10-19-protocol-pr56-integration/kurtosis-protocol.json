@@ -1,0 +1,443 @@
+{
+  "schema_version": 5,
+  "protocol_commit": "c4b9885aa7e1a38cae0a2f6d718c022aa96c821c",
+  "suite": {
+    "discovered": 62,
+    "eligible": 34,
+    "selected": 34,
+    "excluded_from_all": [
+      "catchNestedRevertAfterCallback",
+      "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+      "catchRemoteRevertAfterCallback",
+      "catchNestedRevertAfterCallbackL2",
+      "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+      "catchRemoteRevertAfterCallbackL2",
+      "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+      "nestedRollbackRestoresInnerThenOuterStateL2",
+      "rollbackGroupWithStaticReadThenWriteL2",
+      "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+      "mutableCallMakesReadThatCallsBack",
+      "nestedStaticLocalWriteL2",
+      "staticLocalWrite",
+      "staticReadCallsBackAndReadsAgain",
+      "topLevelStaticReentrantMissingProxy",
+      "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+      "mutableCallMakesReadThatCallsBackL2",
+      "nestedStaticLocalWriteL1",
+      "staticLocalWriteL2",
+      "staticReadCallsBackAndReadsAgainL2",
+      "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+      "staticReadHandlesFailedCallbackL2",
+      "staticReadPropagatesFailedCallbackL2",
+      "staticReadThenCatchFailedWriteL2",
+      "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+      "staticReadThenRollbackWriteL2",
+      "staticReadThenWriteWithCallbackL2",
+      "topLevelStaticReentrantMissingProxyL2"
+    ],
+    "complete": true
+  },
+  "accounting": {
+    "valid": true,
+    "missing": [],
+    "duplicates": [],
+    "unexpected": []
+  },
+  "upstream_exit_status": 0,
+  "evidence_complete": true,
+  "causal_coverage": {
+    "complete": true,
+    "missing": [],
+    "paired": [
+      "multi-call-twice",
+      "multi-call-two-diff",
+      "multi-call-twiceL2",
+      "multi-call-two-diffL2",
+      "counter-multi-tx",
+      "deepNested",
+      "flash-loan",
+      "multi-call-nested",
+      "nestedCounter",
+      "multi-call-nestedL2",
+      "nestedCounterL2",
+      "bridge",
+      "counter",
+      "bridgeL2",
+      "counterL2",
+      "reentrant",
+      "nestedCallRevert",
+      "revertFromOtherChain",
+      "nestedCallRevertL2",
+      "revertCounterL2",
+      "revertFromOtherChainAndCallAgainL2",
+      "revertFromOtherChainL2",
+      "revertFromOtherChainNested",
+      "nestedStaticCounter",
+      "staticReadWrite",
+      "staticReadX2Write",
+      "nestedStaticCounterL2",
+      "staticCounterL2",
+      "staticReadWriteL2",
+      "staticReadX2WriteL2",
+      "topLevelStaticReentrantCounterL2"
+    ],
+    "no_destination_required": [
+      "revertCounter",
+      "topLevelStaticCounter",
+      "topLevelStaticReentrantCounter"
+    ]
+  },
+  "semantic_blob_coverage": {
+    "complete": true,
+    "missing": [],
+    "authenticated": [
+      "multi-call-twice",
+      "multi-call-two-diff",
+      "multi-call-twiceL2",
+      "multi-call-two-diffL2",
+      "counter-multi-tx",
+      "deepNested",
+      "flash-loan",
+      "multi-call-nested",
+      "nestedCounter",
+      "multi-call-nestedL2",
+      "nestedCounterL2",
+      "bridge",
+      "counter",
+      "bridgeL2",
+      "counterL2",
+      "reentrant",
+      "nestedCallRevert",
+      "revertCounter",
+      "revertFromOtherChain",
+      "nestedCallRevertL2",
+      "revertCounterL2",
+      "revertFromOtherChainAndCallAgainL2",
+      "revertFromOtherChainL2",
+      "revertFromOtherChainNested",
+      "nestedStaticCounter",
+      "staticReadWrite",
+      "staticReadX2Write",
+      "topLevelStaticCounter",
+      "topLevelStaticReentrantCounter",
+      "nestedStaticCounterL2",
+      "staticCounterL2",
+      "staticReadWriteL2",
+      "staticReadX2WriteL2",
+      "topLevelStaticReentrantCounterL2"
+    ]
+  },
+  "passed": [
+    "multi-call-twice",
+    "multi-call-two-diff",
+    "multi-call-twiceL2",
+    "multi-call-two-diffL2",
+    "counter-multi-tx",
+    "deepNested",
+    "flash-loan",
+    "multi-call-nested",
+    "nestedCounter",
+    "multi-call-nestedL2",
+    "nestedCounterL2",
+    "bridge",
+    "counter",
+    "bridgeL2",
+    "counterL2",
+    "reentrant",
+    "nestedCallRevert",
+    "revertCounter",
+    "revertFromOtherChain",
+    "nestedCallRevertL2",
+    "revertCounterL2",
+    "revertFromOtherChainAndCallAgainL2",
+    "revertFromOtherChainL2",
+    "revertFromOtherChainNested",
+    "nestedStaticCounter",
+    "staticReadWrite",
+    "staticReadX2Write",
+    "topLevelStaticCounter",
+    "topLevelStaticReentrantCounter",
+    "nestedStaticCounterL2",
+    "staticCounterL2",
+    "staticReadWriteL2",
+    "staticReadX2WriteL2",
+    "topLevelStaticReentrantCounterL2"
+  ],
+  "failed": [],
+  "skipped": [],
+  "root_commit": "f8d6eb0343d8d6616a42319581c03ae67d06a51b",
+  "scenarios": [
+    {
+      "scenario": "multi-call-twice",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "4ecdb117b35cc2ecac40118df664a676a0647c440b1ed7f20b2f98163fab880b"
+    },
+    {
+      "scenario": "multi-call-two-diff",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "7f002257f05c7e82bd71ad8b0429a5bdc15fcc86f87f8cbfa1738cc08d52632d"
+    },
+    {
+      "scenario": "multi-call-twiceL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "6f0a7889c0540eb4ec793c8146c7e1147e8c5cdfdf56ccf2ac869cb91ebcb122"
+    },
+    {
+      "scenario": "multi-call-two-diffL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "c69ee1b40b73ec7543c3ddce07f20accbd48fde00c8623685eb0b06f6ab70353"
+    },
+    {
+      "scenario": "counter-multi-tx",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "ee62879fdd07e278db7e15c78a92484148f7b63d964477aa7ec533a3d41f111b"
+    },
+    {
+      "scenario": "deepNested",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "8aca24a6f6499d8ee570229b6e39067a600443eb136ab17996d5b7b59e47ee43"
+    },
+    {
+      "scenario": "flash-loan",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "6ec026f5e5aa0d189c07cea35b8ddeedfec05a8e49443e20dbd10a11dd8aa178"
+    },
+    {
+      "scenario": "multi-call-nested",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "0eeee26e5d7c8080d03c5b2341ab4e5e49d4f71e81dbeb785cdb3d510499b240"
+    },
+    {
+      "scenario": "nestedCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "ea073c49ba7577c53a23f5298650a3afe7dee7eb74c3a51385c5c470b4bb130d"
+    },
+    {
+      "scenario": "multi-call-nestedL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "e46ed03a3add248c36d8585a5e6678b6686dea1e8588f238e56c9c3b024ab634"
+    },
+    {
+      "scenario": "nestedCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "017f5f6694a0f24ae8d048811af62a36472818e6828fb167edd4284e47e23228"
+    },
+    {
+      "scenario": "bridge",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "47ff25d607e15afb9e31fdfbc821eaf9910841a8b8a14bfaae300728e8900d11"
+    },
+    {
+      "scenario": "counter",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "ff1d417fc8c3722122b77b30b0cef2395c7a4d95569b5ebfcee5731ce0e5ed8d"
+    },
+    {
+      "scenario": "bridgeL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "c221efb170bb98801a82d7ad3daf109e3f83224cd68110e848f3a6ebe16e8f6d"
+    },
+    {
+      "scenario": "counterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "3378eb06f9acdb7e7d96ef93cbcedec717523d3f54215ff2974deaafd0d27726"
+    },
+    {
+      "scenario": "reentrant",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "25444704796d54122d69c2bc61194f8494159bd1016ecafb87588a6ca191aa7b"
+    },
+    {
+      "scenario": "nestedCallRevert",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "f786a9db6b09fc803ff35b8dfe7baad6d3b97fad90b837d384a7ab912dcaca38"
+    },
+    {
+      "scenario": "revertCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-lookup-only",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "6e7dc0fa899e7f94f96f4c9238770e5e2e13e9db02308001f978037dcb112e10"
+    },
+    {
+      "scenario": "revertFromOtherChain",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "6c4c809728ddb0c025f8a7b521dae1db5bdc0679362f548beb680b96f2d1070a"
+    },
+    {
+      "scenario": "nestedCallRevertL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "0adb547411bf6cf2451e130b0496b11174bcd4b980ef1bd713e6a95fa0aedc5a"
+    },
+    {
+      "scenario": "revertCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "310a555f53a8b5cd99c02ec0b829cadb4052e4df812707bfb248696869df6aa7"
+    },
+    {
+      "scenario": "revertFromOtherChainAndCallAgainL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "9ae60e28aca7518577f5018971764ecda91eb9dbf1d9fed83c8e004a129a87b4"
+    },
+    {
+      "scenario": "revertFromOtherChainL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "da94a40f7b3a081ff4f4cafb312b25ae77d39853b085419755a36c19d521b6ee"
+    },
+    {
+      "scenario": "revertFromOtherChainNested",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "84b98050a567c5d7306532f3f9ad6454280fe73ff389c8c7d67279a22a6cc452"
+    },
+    {
+      "scenario": "nestedStaticCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "fe02835302dfd98540793fc69c3d15c9deb462261c42b390912e2bca5f3e2c13"
+    },
+    {
+      "scenario": "staticReadWrite",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "911f7cddf595c10d3daea00e71bafd9fa45eb88adf0ab2d1bba36e034fbf493e"
+    },
+    {
+      "scenario": "staticReadX2Write",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "78de99aa541ad21c4bef5bfd81838512bf102d1427c03b5dddffdd5cde827ca6"
+    },
+    {
+      "scenario": "topLevelStaticCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-lookup-only",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "b81fd68727a72200f5c3585da18217ebf481072e1bc2a15e9b711457cbf93a60"
+    },
+    {
+      "scenario": "topLevelStaticReentrantCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-lookup-only",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "4fbf6ff783b261d76add6d19480569c56afd4727bc2c247aed1deb2105151f8f"
+    },
+    {
+      "scenario": "nestedStaticCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "c9c9d545f3f6d825b4b1a36352160637e8c57190c3f648578d6f1ca67d6180bb"
+    },
+    {
+      "scenario": "staticCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-static-pool",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "668f5fb717557b35e966f5f05e08e42e843f00fb37c6b54b39a3a1016e92759d"
+    },
+    {
+      "scenario": "staticReadWriteL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "16e807e9f9d49e25add11ec8086fce35c3c49a086d652c963b5699cfebabab3b"
+    },
+    {
+      "scenario": "staticReadX2WriteL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "d13c7b096d8ff91d15290c2636d6880252a8462a01577f6fdc723f3be0ce751a"
+    },
+    {
+      "scenario": "topLevelStaticReentrantCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-static-pool",
+      "causal_verified": true,
+      "blob_verified": true,
+      "source_log_sha256": "7c8d932de05a3375a410ca20e406a509c9e61b4a2354088f1b89f3489a9af86e"
+    }
+  ]
+}

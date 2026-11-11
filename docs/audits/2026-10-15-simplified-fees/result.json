@@ -1,0 +1,212 @@
+{
+  "status": "deployed_and_verified",
+  "date": "2026-10-15",
+  "source": "b2a82536e87d2543ce9839eb3ba15a9ceefdaefc",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "uiSource": "dcf4ac71b62ebc7bf5ac10cdb426e1f48ce11e00",
+  "build": {
+    "profile": "release",
+    "cargoJobs": 2,
+    "dependencyLockUnchanged": true,
+    "localDevelopmentImages": true,
+    "ciPromotion": false
+  },
+  "images": {
+    "node": {
+      "tag": "eez-node:simplified-fees-b2a82536",
+      "id": "sha256:712c027cd6ee482adb449d53783dc75353e5feca2b0d8ab50962875a0d5cac09",
+      "source": "b2a82536e87d2543ce9839eb3ba15a9ceefdaefc",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+      "executables": {
+        "eez-composer": "44cde4ae76e0e893b6e4f2f5a5097781cc353d140b3a0332167313620317503f",
+        "eez-follower": "4dbb6461168682fd7e999e38e47bada88b616362408907dca140ac1fa56801f9",
+        "eez-genesis-state-root": "67354b6171a7eef8d75669cbe9da77e461d56044e020195061f1d0510f8f39d6",
+        "eez-genesis-block-hash": "38d54cf21a89403ed6e67d086ec2c3991e638fabfb0641950afe12cd8cd19fca"
+      }
+    },
+    "signer": {
+      "tag": "eez-proof-signer:simplified-fees-b2a82536",
+      "id": "sha256:00cdbf0a414b3bfeaaf028c38901d84c7286fbae778cffc2d60c9d6687303250",
+      "source": "b2a82536e87d2543ce9839eb3ba15a9ceefdaefc",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+      "executables": {
+        "eez-proof-signer": "c36e0c91654d7a3ce6ad49a01d33ed08af58a4ec3ba969e7f8c40f4e7e535ddf"
+      }
+    },
+    "deploy": {
+      "tag": "eez-deploy:simplified-fees-b2a82536",
+      "id": "sha256:2e35a1aa2301201b827522a19976d848c6815fb318770e29eca60b9d196c0aa5",
+      "source": "b2a82536e87d2543ce9839eb3ba15a9ceefdaefc",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+      "executables": {}
+    },
+    "ui": {
+      "tag": "eez-rollup-ui:simplified-fees-dcf4ac71",
+      "id": "sha256:48156c9e69d2c934c6f79aa41d7007102651453e17160e915a736cf98b9f39c1",
+      "source": "dcf4ac71b62ebc7bf5ac10cdb426e1f48ce11e00"
+    }
+  },
+  "harness": {
+    "source": "5d07a8519114bd2588325f8ffcace7945445bcc8",
+    "executable": "node_e2e-87f14e4471b210f8",
+    "sha256": "ba5c4430c6691e5bcd931ab2cc34e9f8734b70ac581795018cd9da0e53de5001"
+  },
+  "harnessSourceDifference": "Only SDK JavaScript changed after the harness build; Rust source and dependency manifests match exactly.",
+  "blobVerifierSha256": "da99270dabdd0f2c8f3b28c5bfcdac91506149955fd40c27cdc0867b0e4b88af",
+  "sdkSha256": "16e477a0028166adb70efa583ce5f876ecf71667107962a7814feed3f58dbb0a",
+  "checks": {
+    "composerUnit": {
+      "passed": 353,
+      "ignored": 1
+    },
+    "l1Unit": {
+      "passed": 189
+    },
+    "nodeUnit": {
+      "passed": 88
+    },
+    "sdk": {
+      "passed": 6
+    },
+    "chiadoConfig": {
+      "passed": 18
+    },
+    "mockedBrowserScenarios": 43,
+    "process-fee-quotes": {
+      "passed": 11,
+      "failed": 0,
+      "ignored": 0
+    },
+    "process-settlement-cost": {
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    "process-settlement-gas": {
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    "process-dynamic-admission": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    "kurtosis-independent-replay": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "pendingSettlementQuotes": {
+    "cases": 2,
+    "firstAttemptSuccessfulPerCase": 8,
+    "retries": 0
+  },
+  "liveAvailability": {
+    "concurrency": 8,
+    "bursts": 3,
+    "baseline": {
+      "ok": 3,
+      "quote_busy": 21
+    },
+    "candidate": {
+      "ok": 24
+    },
+    "candidateMinMs": 4.51,
+    "candidateMaxMs": 32.75,
+    "timingLimit": "Observational shared-host sample; background load and chain state were not controlled. Not a capacity benchmark."
+  },
+  "kurtosis": {
+    "enclave": "eez-simple-fees-20261015-5d07",
+    "uuid": "e3f242bb7a584f769eb0a921ac00cfb8",
+    "stoppedAfterEvidence": true,
+    "nestedSourcesBatched": 2,
+    "authenticatedBlobPostings": 5,
+    "outboundSources": 5,
+    "canonicalReferenceSources": 5,
+    "canonicalReferencePhysicalL2Transactions": 9
+  },
+  "live": {
+    "l1ChainId": 10200,
+    "l2ChainId": 906969,
+    "riskBps": 0,
+    "targetProfitBps": 2000,
+    "conversion": "1 L1 native unit per L2 native unit",
+    "fixedCosts": "Existing proving, operations and treasury assumptions remain zero.",
+    "publicReopenedAt": "2026-10-15T20:02:43.300043+00:00",
+    "sources": [
+      {
+        "hash": "0x9ba378f5e90614cd737ac38141e9c1abe58f5ce2d7fb10ad53e00fc9a296b685",
+        "gasUsed": 99149,
+        "collectedL2Tip": "320017951284263"
+      }
+    ],
+    "postings": [
+      {
+        "hash": "0xe4c97ca548a945892c8dfcedc898bec30b39bb7c97c3a7dedf129f17ff218d36",
+        "actualPostingCostL1": "304767001215865",
+        "requiredL2": "304767001215865",
+        "paidL2": "320017951284263",
+        "realizedMarginBps": "500"
+      }
+    ],
+    "marginMeaning": "Surplus over canonical posting and blob costs under configured conversion; not verified realized treasury profit.",
+    "existingL2ReceiptPreserved": [
+      "0x78fda602502e8ff1e4c5216a18b04aa84ab24b737b471aa4093127a53ef777c1"
+    ],
+    "consensusRecovery": {
+      "firstRetainedStalledHeadObservationUtc": "2026-10-15T19:55:42Z",
+      "handoverBeganUtc": "2026-10-15T19:56:12Z",
+      "embeddedHead": 23537109,
+      "publicHeadAtComparison": 23537140,
+      "embeddedAgeSecondsAtComparison": 190,
+      "quoteError": "quote_unavailable: L1 fee sample is too old",
+      "beaconBeforeRestart": {
+        "data": {
+          "is_syncing": true,
+          "is_optimistic": false,
+          "el_offline": false,
+          "head_slot": "25339567",
+          "sync_distance": "52"
+        }
+      },
+      "action": "Restarted only the existing consensus container; image and writable data were preserved."
+    }
+  },
+  "limits": [
+    "L1-origin fee recovery unsupported; inbound execution remains subsidized.",
+    "No actual Falcon-signature workload or real wallet-extension coverage.",
+    "Full protocol staged/stress and CI release matrix not rerun.",
+    "Pending queue remains in memory; no durable queue recovery or treasury redemption added.",
+    "Dashboard source publication deferred by operator."
+  ],
+  "evidence": {
+    "location": "artifacts/simplified-fees-20261015/ (local-only, ignored by Git)",
+    "sha256": {
+      "unit-tests-final.log": "87f40d1f439ae6710e2a30021cc2e5f78128928e1ec21e541727b513625d5716",
+      "clippy-final.log": "6f89e8480d6c2de3257552a8670beae665126d0aed2008a6a9f4832b241c6a24",
+      "sdk-tests-final.log": "2a7b345899e138dafc86a303b29b55fa1b0d902fe651fcabf026330271f65478",
+      "chiado-config-tests.log": "84b867b55c97cfac4808aa53f973b568d01a7a2a83e31a6f4b552b7bc27851c6",
+      "ui-browser-fees.log": "ae8e8e2be6e9648f2cd88b507774ee6c97766f255e2ea227449d42d00563fc5e",
+      "ui-browser-gas.log": "d1fbfead7ddd4a6239189eefa6ebbb9e1a1dd1517a5034401b0328adb7b4553f",
+      "process-fee-quotes.log": "bf6f64daeca98167324d0c61fe7b60c31568406250cae547389b0154adca0684",
+      "process-settlement-cost.log": "09f825e15811e9b6441166b5b294c945a17c455462ad23f534915e391609f803",
+      "process-settlement-gas.log": "5a12105649ae3260d339b08e098575ab3a11b7cf3d9db8d016625b24bb42422a",
+      "process-dynamic-admission.log": "a47521f2651617243abdd2f9d9a93b398d6fe2c26fb7960667472895d8bc9db2",
+      "kurtosis-independent-replay.log": "47a3994ccc5232803c78176b4b97c4f1e0a06dda6aae0efdbc7fd8f77e3fd1e1",
+      "kurtosis-nested-fees.log": "07b9070c0ec6aa7c963b75aed2c319e1b85141e8cdc210c3008cc366a18bd041",
+      "kurtosis-bridge-fees.log": "669cc5a84a9e9a1515380f3d632c32ffd11712d5b14338e8ff5792552dc33a70",
+      "kurtosis-ui-fees.log": "9bb18992d7e1b22d5e135b60322f0d60b5763bc0eb6f43edf77737f50825c698",
+      "kurtosis-references.log": "cd81386c86fbb87fd549a980155d3195783ccec95b4c766220cfd3cde5675393",
+      "kurtosis-blobs.log": "931c82533a7eb31f4fe23709c824f33cf475f5ca619b3bc2255bc3d8d0959432",
+      "local-api-check.initial-stale.log": "2d4db977a18cef788b294d941b01e6931bc72ef04bed1ebb1c6fc37ed6f86ddd",
+      "local-api-check.log": "e65d5eab9947fe18dc5275dfe1be9310db0fef44af222acefd85164aeffa7833",
+      "public-api-check.log": "e65d5eab9947fe18dc5275dfe1be9310db0fef44af222acefd85164aeffa7833",
+      "live-final-checks.log": "5bd49bdfe436ded8756908f4663583b3ac141c8c5b760d31c49abe5507abc1a7",
+      "candidate-availability.json": "de830d9c61df1bb759fc19913e8e5e7adfd88d2869edd1948363e7eb24b1ce33",
+      "live-l1-stall.json": "962a9d45742cbe1e30d1191121ce95b5c610780c21a4e08e5175ab754ae71e20",
+      "public-ui-check.json": "e760e4f61d9b09e4111cf97b108a8fcc598b18e2a0315e09395af327c3fe2a7a"
+    }
+  }
+}

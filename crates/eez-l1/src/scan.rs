@@ -41,8 +41,6 @@ struct DecodedBatchLog {
     tx_hash: B256,
     tx_index: u64,
     submitter: Address,
-    /// This batch lists our rollup, so it wiped our queue — a window boundary.
-    verifies_our_rollup: bool,
     transaction_blob_hashes: Vec<B256>,
     post_batch_input: Bytes,
     claimed_current_root: Option<B256>,
@@ -89,9 +87,9 @@ impl BatchLogChunks {
     }
 }
 
-/// One decoded `BatchPosted` log: winner flag plus the claimed block hashes
-/// from our rollup's legacy-named `RootUpdate`. The Deriver's catch-up scan and
-/// the live [`L1Watcher`](crate::L1Watcher) poll consume the same shape.
+/// One decoded `BatchPosted` log verifying the configured rollup: winner flag
+/// plus claimed block hashes from its legacy-named `RootUpdate`. The Deriver's
+/// catch-up scan and live [`L1Watcher`](crate::L1Watcher) consume the same shape.
 #[derive(Debug, Clone)]
 pub struct ScannedBatch {
     pub l1_block_number: u64,
@@ -486,9 +484,9 @@ pub(crate) async fn scan_batch_logs_range(
         roots.sort_by_key(|r| (r.tx_index, r.log_index));
     }
 
-    // Pass 1: decode every postBatch. Windows can't be computed until we know
-    // which OTHER batches in the same block touch our rollup — each of those
-    // wipes our queue (`EEZ.sol:_markVerifiedBlockPerRollup`), ending the
+    // Pass 1: decode every postBatch verifying our rollup. Windows need all
+    // such posts in the same block: each resets our queue
+    // (`EEZ.sol:_markVerifiedBlockAndResetQueues`), ending the
     // previous batch's consumption window.
     let mut decoded_batches: Vec<DecodedBatchLog> = Vec::with_capacity(logs.len());
     for log in &logs {
@@ -501,6 +499,19 @@ pub(crate) async fn scan_batch_logs_range(
         let tx_hash = log
             .transaction_hash
             .ok_or_else(|| L1Error::Provider("BatchPosted log missing tx_hash".into()))?;
+        // Check the observation before filtering foreign posts. Otherwise a
+        // reorg between the two log queries could hide our replacement batch
+        // behind a foreign post and turn an inconclusive scan into an empty one.
+        if settled_by_block
+            .get(&l1_block_number)
+            .is_some_and(|roots| roots.iter().all(|root| root.block_hash != l1_block_hash))
+        {
+            return Err(L1Error::SourceIncomplete {
+                block: l1_block_number,
+                tx_hash,
+                detail: "settlement logs are from another fork of this block; retry".into(),
+            });
+        }
         // Fetch the postBatch tx by (block hash, index) — a minimal node has no
         // tx-hash index, and (block NUMBER, index) alone can straddle a reorg.
         let tx_index = log
@@ -510,31 +521,31 @@ pub(crate) async fn scan_batch_logs_range(
             .await?;
         let submitter = tx.inner.signer();
         let input = tx.inner.input();
-        // `BatchPosted` can include several rollup IDs, so we decode every
-        // rollup's batch — and a peer posting via a router yields undecodable
-        // input. Skip unless it settled OUR rollup (invariant 8).
-        let decoded = match postAndVerifyBatchCall::abi_decode(input) {
-            Ok(decoded) => decoded,
-            Err(e) if !winner_tx_hashes.contains(&(l1_block_hash, tx_hash)) => {
-                event!(
-                    name: "eez.l1_scan.foreign_batch_undecodable",
-                    Level::WARN,
-                    l1_block_number,
-                    tx_hash = %tx_hash,
-                    error = %e,
-                    "skipping an undecodable postBatch that did not settle our rollup",
-                );
-                continue;
-            }
-            Err(e) => {
-                return Err(L1Error::Decode(format!("decode postBatch({tx_hash}): {e}")));
-            }
-        };
-        let _decoded_event = BatchPosted::decode_log(&alloy_primitives::Log {
+        let decoded_event = BatchPosted::decode_log(&alloy_primitives::Log {
             address: log.address(),
             data: log.data().clone(),
         })
         .map_err(|e| L1Error::Decode(format!("decode BatchPosted({tx_hash}): {e}")))?;
+        // The registry emits exactly the verified rollups. A foreign post does
+        // not replace our queue and need not use our native blob profile. Its
+        // transaction may still consume an earlier queued entry: those root
+        // logs remain in settled_by_block for attribution to the owning batch.
+        if !decoded_event.rollupIds.contains(&rollup_id) {
+            continue;
+        }
+        let decoded = postAndVerifyBatchCall::abi_decode(input)
+            .map_err(|e| L1Error::Decode(format!("decode postBatch({tx_hash}): {e}")))?;
+        if !decoded
+            .batch
+            .rollupIdsWithProofSystems
+            .iter()
+            .map(|rollup| rollup.rollupId)
+            .eq(decoded_event.rollupIds.iter().copied())
+        {
+            return Err(L1Error::Decode(format!(
+                "BatchPosted rollups differ from postBatch({tx_hash})"
+            )));
+        }
         let skipped_indices = skipped_by_tx
             .get(&(l1_block_hash, tx_hash))
             .cloned()
@@ -547,13 +558,6 @@ pub(crate) async fn scan_batch_logs_range(
             tx_hash,
             tx_index,
             submitter,
-            // A batch verifies (and therefore wipes) our rollup iff it lists it
-            // — the same array `postAndVerifyBatch` loops over to mark verified.
-            verifies_our_rollup: decoded
-                .batch
-                .rollupIdsWithProofSystems
-                .iter()
-                .any(|r| r.rollupId == rollup_id),
             transaction_blob_hashes: tx
                 .inner
                 .blob_versioned_hashes()
@@ -572,12 +576,10 @@ pub(crate) async fn scan_batch_logs_range(
     // that point, queue wiped.
     let mut boundaries: HashMap<(u64, B256), Vec<u64>> = HashMap::new();
     for b in &decoded_batches {
-        if b.verifies_our_rollup {
-            boundaries
-                .entry((b.l1_block_number, b.l1_block_hash))
-                .or_default()
-                .push(b.tx_index);
-        }
+        boundaries
+            .entry((b.l1_block_number, b.l1_block_hash))
+            .or_default()
+            .push(b.tx_index);
     }
     for idxs in boundaries.values_mut() {
         idxs.sort_unstable();
@@ -590,16 +592,7 @@ pub(crate) async fn scan_batch_logs_range(
             .get(&(b.l1_block_number, b.l1_block_hash))
             .and_then(|idxs| idxs.iter().copied().find(|&i| i > b.tx_index))
             .unwrap_or(u64::MAX);
-        // Roots at this height on a DIFFERENT hash mean the two log queries
-        // straddled a reorg; retry rather than silently settling empty.
         let block_roots = settled_by_block.get(&b.l1_block_number);
-        if block_roots.is_some_and(|roots| roots.iter().all(|r| r.block_hash != b.l1_block_hash)) {
-            return Err(L1Error::SourceIncomplete {
-                block: b.l1_block_number,
-                tx_hash: b.tx_hash,
-                detail: "settlement logs are from another fork of this block; retry".into(),
-            });
-        }
         let observed: Vec<B256> = block_roots
             .map(|roots| window_roots(roots, b.tx_index, window_end, b.l1_block_hash))
             .unwrap_or_default();
@@ -923,7 +916,7 @@ mod tests {
         window_roots,
     };
     use crate::error::L1Error;
-    use alloy_consensus::transaction::TxHashRef;
+    use alloy_consensus::{Transaction, transaction::TxHashRef};
     use alloy_primitives::{Address, B256, Bytes, U256};
     use alloy_provider::ProviderBuilder;
     use alloy_sol_types::{SolCall, SolEvent};
@@ -1756,6 +1749,107 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn foreign_blob_free_batch_does_not_reach_native_blob_hydration() {
+        let block_hash = B256::with_last_byte(0xA1);
+        for rollup_id in [2, 1] {
+            let replies = Asserter::new();
+            let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
+            let tx = batch_tx(rollup_id, None, 0);
+            let mut log = batch_posted_log(700, block_hash, *tx.inner.tx_hash(), 0);
+            log.inner.data = BatchPosted {
+                sharedPublicInput: B256::ZERO,
+                rollupIds: vec![rollup_id],
+            }
+            .encode_log_data();
+            replies.push_success(&vec![log]);
+            replies.push_success(&Vec::<alloy_rpc_types_eth::Log>::new());
+            replies.push_success(&tx);
+            let mut scanned = scan_batch_logs_range(&provider, Address::ZERO, 1, 700, 700)
+                .await
+                .unwrap();
+            let mut block: alloy_rpc_types_eth::Block = Default::default();
+            block.header.hash = block_hash;
+            block.header.inner.number = 700;
+            replies.push_success(&block);
+            let result = crate::blob_source::BeaconBlobSource::new(Some(
+                "http://127.0.0.1:1/".parse().unwrap(),
+            ))
+            .hydrate_scanned_batches(&provider, 1, &mut scanned)
+            .await;
+            if rollup_id == 2 {
+                result.expect("foreign blob-free batches must not face our native blob rules");
+                assert!(scanned.is_empty());
+            } else {
+                assert_eq!(scanned.len(), 1, "our no-effect batch is still observed");
+                assert!(
+                    matches!(result, Err(L1Error::Decode(ref message))
+                    if message.contains("no EIP-4844 versioned hashes")),
+                    "{result:?}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn foreign_post_preserves_our_window_but_our_no_effect_post_closes_it() {
+        let replies = Asserter::new();
+        let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
+        let block_hash = B256::with_last_byte(0xA1);
+        let (c0, c1, c2) = (
+            B256::with_last_byte(0x10),
+            B256::with_last_byte(0x11),
+            B256::with_last_byte(0x12),
+        );
+        let mut own_call =
+            postAndVerifyBatchCall::abi_decode(batch_tx(1, Some((c0, c1)), 0).inner.input())
+                .unwrap();
+        let mut second = own_call.batch.entries[0].clone();
+        second.rootUpdates[0].currentRoot = c1;
+        second.rootUpdates[0].newRoot = c2;
+        own_call.batch.entries.push(second);
+        let own = mock_post_batch_tx(own_call.abi_encode());
+        let foreign = batch_tx(2, None, 0);
+        let boundary = batch_tx(1, None, 1);
+        let own_hash = *own.inner.tx_hash();
+        let foreign_hash = *foreign.inner.tx_hash();
+        let boundary_hash = *boundary.inner.tx_hash();
+        let mut foreign_log = batch_posted_log(700, block_hash, foreign_hash, 1);
+        foreign_log.inner.data = BatchPosted {
+            sharedPublicInput: B256::ZERO,
+            rollupIds: vec![2],
+        }
+        .encode_log_data();
+        replies.push_success(&vec![
+            batch_posted_log(700, block_hash, own_hash, 0),
+            foreign_log,
+            batch_posted_log(700, block_hash, boundary_hash, 2),
+        ]);
+        replies.push_success(&vec![
+            // The foreign transaction can consume our earlier queued entry;
+            // its BatchPosted does not replace our queue or own this effect.
+            settled_root_log(1, c1, 700, block_hash, foreign_hash, 1, 0),
+            // Past our next queue replacement: cannot credit the first post.
+            settled_root_log(1, c2, 700, block_hash, B256::with_last_byte(0xFF), 3, 0),
+        ]);
+        replies.push_success(&own);
+        replies.push_success(&foreign);
+        replies.push_success(&boundary);
+        let scanned = scan_batch_logs_range(&provider, Address::ZERO, 1, 700, 700)
+            .await
+            .unwrap();
+        assert_eq!(
+            scanned.len(),
+            2,
+            "only posts verifying our rollup are returned"
+        );
+        assert_eq!(scanned[0].tx_hash, own_hash);
+        assert_eq!(scanned[0].settlement.len, 1);
+        assert_eq!(scanned[0].settlement.final_state, Some(c1));
+        assert_eq!(scanned[1].tx_hash, boundary_hash);
+        assert_eq!(scanned[1].settlement.len, 0);
+    }
+
     /// The boot-crash fix's linchpin: a tx the L1 serves at (block hash, index) is
     /// returned when its hash matches the log's; a null lookup classifies as
     /// `SourceIncomplete` (retryable) rather than a fatal provider error.
@@ -2031,19 +2125,24 @@ mod tests {
         assert!(err.is_source_incomplete(), "unexpected error: {err}");
     }
 
-    /// `BatchPosted` can include several rollup IDs, so a peer posting via a
-    /// router yields an input we cannot decode. That must not halt us — unless
-    /// the same tx settled OUR rollup, which we then genuinely cannot derive.
+    /// A foreign rollup may post via a router we cannot decode. A post listing
+    /// our rollup must decode even without root logs: it replaces our queue.
     #[tokio::test]
-    async fn undecodable_foreign_batch_is_skipped_but_one_that_settled_us_is_fatal() {
+    async fn undecodable_foreign_batch_is_skipped_but_our_no_effect_post_is_fatal() {
         let block_hash = B256::with_last_byte(0xA1);
         let tx = mock_post_batch_tx(b"not a postAndVerifyBatch call".to_vec());
         let tx_hash = *tx.inner.tx_hash();
 
-        // Did not settle our rollup: skipped, scan still succeeds.
+        // Does not verify our rollup: skipped, scan still succeeds.
         let asserter = Asserter::new();
         let provider = ProviderBuilder::new().connect_mocked_client(asserter.clone());
-        asserter.push_success(&vec![batch_posted_log(700, block_hash, tx_hash, 0)]);
+        let mut foreign_log = batch_posted_log(700, block_hash, tx_hash, 0);
+        foreign_log.inner.data = BatchPosted {
+            sharedPublicInput: B256::ZERO,
+            rollupIds: vec![2],
+        }
+        .encode_log_data();
+        asserter.push_success(&vec![foreign_log]);
         asserter.push_success(&Vec::<alloy_rpc_types_eth::Log>::new());
         asserter.push_success(&tx);
         let scanned = scan_batch_logs_range(&provider, Address::ZERO, 1, 700, 700)
@@ -2051,23 +2150,68 @@ mod tests {
             .expect("a foreign undecodable batch must not fail the scan");
         assert!(scanned.is_empty());
 
-        // Settled our rollup: we cannot derive it, so fail loudly.
+        // Our queue was replaced even though no root changed: fail closed.
         let asserter = Asserter::new();
         let provider = ProviderBuilder::new().connect_mocked_client(asserter.clone());
         asserter.push_success(&vec![batch_posted_log(700, block_hash, tx_hash, 0)]);
-        asserter.push_success(&vec![settled_root_log(
-            1,
-            B256::repeat_byte(0x77),
+        asserter.push_success(&Vec::<alloy_rpc_types_eth::Log>::new());
+        asserter.push_success(&tx);
+        let err = scan_batch_logs_range(&provider, Address::ZERO, 1, 700, 700)
+            .await
+            .expect_err("an undecodable post verifying our rollup must not be skipped");
+        assert!(
+            matches!(err, L1Error::Decode(ref message) if message.starts_with("decode postBatch(")),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn batch_input_cannot_disagree_with_the_registrys_verified_rollup_list() {
+        let replies = Asserter::new();
+        let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
+        let tx = batch_tx(2, None, 0);
+        replies.push_success(&vec![batch_posted_log(
             700,
-            block_hash,
+            B256::with_last_byte(1),
+            *tx.inner.tx_hash(),
+            0,
+        )]);
+        replies.push_success(&Vec::<alloy_rpc_types_eth::Log>::new());
+        replies.push_success(&tx);
+        let result = scan_batch_logs_range(&provider, Address::ZERO, 1, 700, 700).await;
+        assert!(
+            matches!(result, Err(L1Error::Decode(ref message))
+            if message.starts_with("BatchPosted rollups differ from postBatch(")),
+            "{result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn filtering_foreign_posts_preserves_cross_fork_retry() {
+        let replies = Asserter::new();
+        let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
+        let tx = batch_tx(2, None, 0);
+        let tx_hash = *tx.inner.tx_hash();
+        let mut log = batch_posted_log(700, B256::with_last_byte(1), tx_hash, 0);
+        log.inner.data = BatchPosted {
+            sharedPublicInput: B256::ZERO,
+            rollupIds: vec![2],
+        }
+        .encode_log_data();
+        replies.push_success(&vec![log]);
+        replies.push_success(&vec![settled_root_log(
+            1,
+            B256::with_last_byte(9),
+            700,
+            B256::with_last_byte(2),
             tx_hash,
             0,
             0,
         )]);
-        asserter.push_success(&tx);
-        let err = scan_batch_logs_range(&provider, Address::ZERO, 1, 700, 700)
-            .await
-            .expect_err("an undecodable batch that moved our root must not be skipped");
-        assert!(err.is_terminal(), "unexpected error: {err}");
+        let result = scan_batch_logs_range(&provider, Address::ZERO, 1, 700, 700).await;
+        assert!(
+            matches!(result, Err(L1Error::SourceIncomplete { block: 700, .. })),
+            "{result:?}"
+        );
     }
 }

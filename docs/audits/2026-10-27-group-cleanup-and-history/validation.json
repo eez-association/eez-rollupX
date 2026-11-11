@@ -1,0 +1,163 @@
+{
+  "scope": "Intermediate #105/#108 milestone; source identity still uses prior implementation. Not final PR or release artifact evidence.",
+  "base_commit": "0dcd3735e80e88b955c7d76f20c4fdc44bb6bcaa",
+  "core_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "toolchain": {
+    "rust": "1.95.0",
+    "locked": true,
+    "foundry": "1.7.1"
+  },
+  "runtime_sha256": [
+    "9303d7a3ab79c0630aaa8c9d9798366493ae6540d03b490dd01256e8eafa867c  artifacts/group-cleanup-20261027/verified-runtime/eez-proof-signer",
+    "5819c8d508bbdf27ced517642073c119ea6c7856547b3466faa617f11b781f26  target/debug/eez-composer",
+    "3837676f8aca77391fcb5b7a494b77c46d0b3f69c883f601af5bae5a09e2b78a  target/debug/eez-follower",
+    "4691b20525a2dc6416bf641763d0f75885ff0a56a7a07c2b361ed2f1735d15da  target/debug/deps/node_e2e-80175e4ea6b0aedd"
+  ],
+  "local_logs": [
+    {
+      "path": "artifacts/group-cleanup-20261027/history-core-tests-second.log",
+      "sha256": "58ef0186cdd65be176673064f74073871f70b65efc3fa4a7d20382c64eda2381"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/signer-control-client-current.log",
+      "sha256": "1a8facf53f5caf7b57f200fdd7a3f80823c77ba05836cd1763eed6f42466ff3e"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/prefix-evidence-current-second.log",
+      "sha256": "f721d3efc84405e6b34808fb588d919c74f99076676938c37429aa066812e228"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/runtime-adapters-oracles-current.log",
+      "sha256": "7f5858f668bc0b2460113da38e7bd155c16839a61896456103134ba50b873841"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/history-observation-process-current.log",
+      "sha256": "10113237c41707c68c83e6b2d42f31a1e56e8a346ccb50c735f49ca20f4666fc"
+    }
+  ],
+  "processes": [
+    {
+      "test": "native_system::two_composers_two_keyless_followers",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/group-cleanup-20261027/process-native_system-two_composers_two_keyless_followers.log",
+      "log_sha256": "0d17680fa9f71776fa0153586f9708d2fafc2ea9217129c43f4b203a123b9da4"
+    },
+    {
+      "test": "cross_chain::combined_history::scheduled_history_static_and_lookup_settle",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/group-cleanup-20261027/process-cross_chain-combined_history-scheduled_history_static_and_lookup_settle.log",
+      "log_sha256": "bb31fc07cb158498c4f5ebc3436f408a82d21fa06a957385ef03f4d9fb74b220"
+    },
+    {
+      "test": "cross_chain::bidirectional_cross_chain_with_history_at_sync",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/group-cleanup-20261027/process-cross_chain-bidirectional_cross_chain_with_history_at_sync.log",
+      "log_sha256": "b1e71806c721709bee125ea23e1112dc9d5e0a966fed463540b5dcee1b5c94b0"
+    },
+    {
+      "test": "cross_chain::outbound_multiple_proxy_calls_in_one_transaction_preserve_ordered_results",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/group-cleanup-20261027/process-cross_chain-outbound_multiple_proxy_calls_in_one_transaction_preserve_ordered_results.log",
+      "log_sha256": "71f0179ac1b46fb54e720284d819e2e3dc3603721fca7d728dd743577214d4fd"
+    },
+    {
+      "test": "cross_chain::overlay_sibling_callback_state_is_not_reused_by_later_call",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/group-cleanup-20261027/process-cross_chain-overlay_sibling_callback_state_is_not_reused_by_later_call.log",
+      "log_sha256": "bbc9e3885cb43330b7444c960938c915e4f5a7b99f7379e5a208c5914acd6174"
+    },
+    {
+      "test": "cross_chain::overlay_burn_survives_nested_call_without_reentry",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/group-cleanup-20261027/process-cross_chain-overlay_burn_survives_nested_call_without_reentry.log",
+      "log_sha256": "acaa0340448384162c843bd46e6f3e9a9c5492614a727cee37faaead62939cf5"
+    },
+    {
+      "test": "partial_consumption::first_source_omission_keeps_the_registration_anchor",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/group-cleanup-20261027/process-partial_consumption-first_source_omission_keeps_the_registration_anchor.log",
+      "log_sha256": "8d1b63bf97f6c7388233dee255f72df628cc7e171eef03c2a99b71f765bfd8c2"
+    },
+    {
+      "test": "partial_consumption::partial_prefix_keeps_unconsumed_users_and_receipt_costs",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/group-cleanup-20261027/process-partial_consumption-partial_prefix_keeps_unconsumed_users_and_receipt_costs.log",
+      "log_sha256": "dcf1d7569f268f325647d12d207a3c9537bb64d230ceffadf00c54e43bc273ea"
+    },
+    {
+      "test": "partial_consumption::last_source_omission_keeps_two_user_prefix",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/group-cleanup-20261027/process-partial_consumption-last_source_omission_keeps_two_user_prefix.log",
+      "log_sha256": "fbe61009537366e7f6ea2288d687232aa76a65b12477589db3a1d49d8a8c1b25"
+    },
+    {
+      "test": "partial_consumption::restart_after_partial_keeps_accounting_and_rebuilds_intent",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/group-cleanup-20261027/process-partial_consumption-restart_after_partial_keeps_accounting_and_rebuilds_intent.log",
+      "log_sha256": "54bb059626d4b7f91944bb1ab328412c669f8bd73e24b90437e91b9df36bc237"
+    },
+    {
+      "test": "partial_consumption::valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/group-cleanup-20261027/process-partial_consumption-valid_blob_batch_resumes_at_middle_group_in_same_l1_block.log",
+      "log_sha256": "7f9f766f7683705ce19b33a30645f16b199c0068f2f8bd86ed73c7e8fa3761eb"
+    },
+    {
+      "test": "chained_interstate::mixed_direction_state_chain_in_one_slot",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/group-cleanup-20261027/process-chained_interstate-mixed_direction_state_chain_in_one_slot.log",
+      "log_sha256": "081e6438d9a00cccc3c6e43eba2f51fe2fbca646b1e9775dc0da1834eb8e012c"
+    },
+    {
+      "test": "queue_reorg::imported_history_reorg_recovers_twenty_ordinary_transactions_without_settlement",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/group-cleanup-20261027/process-queue_reorg-imported_history_reorg_recovers_twenty_ordinary_transactions_without_settlement.log",
+      "log_sha256": "60b7bd514c7235dc97076207752197443f43325290b1b788761fe17028de02f9"
+    },
+    {
+      "test": "derivable_operations::multipart::expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/group-cleanup-20261027/process-derivable_operations-multipart-expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay.log",
+      "log_sha256": "8d16fcb75c19c07619877f912260c28a1af461c9f2ef92574272c3fbcdfc0467"
+    }
+  ],
+  "commands": [
+    "cargo +1.95.0 test --locked -p eez-proof-signer -p eez-control-rpc -p eez-prover-client -- --test-threads=2",
+    "cargo +1.95.0 test --locked -p eez-l1 --features chain-spec --example verify_blob_evidence -- --test-threads=2",
+    "cargo +1.95.0 test --locked -p eez-driver -p eez-deriver -p eez-node-common -p eez-l1 -p eez-blob-codec -p eez-protocol --features eez-l1/chain-spec --lib --tests -- --test-threads=2"
+  ],
+  "remaining": [
+    "prefix-bound source identity implementation and renewed affected evidence",
+    "workspace Clippy -D warnings",
+    "final shipping/CI matrix",
+    "final independent correctness and cleanup review"
+  ]
+}

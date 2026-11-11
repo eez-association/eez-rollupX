@@ -1,0 +1,4 @@
+DIAGNOSTIC compact repeated read verifier: Ok(NestedPairVerification { l2_outbound_hashes: [0xfc605fd8cb9a1993709342c3ab2c603fc42b69a9c0d6120624ce65f4ce394107], ether_delta: 0, l1_to_l2_value: 0, l2_to_l1_value: 0, l2_to_l1_executed_value: 0 })
+DIAGNOSTIC compact repeated read binding: Err(Settlement("mutable table mismatch"))
+test historical_static_replay::repeated_static_replay_compatibility ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.00s

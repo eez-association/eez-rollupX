@@ -1,0 +1,166 @@
+{
+  "recorded_utc": "2026-10-24T16:32:34.130960+00:00",
+  "baseline_commit": "319ebc2dbfdace3d5e708a2c9881cc741529aec4",
+  "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "scope": "Distributed verify_blob_evidence --prefixes tooling and its collectors/tests only. No node, signer, protocol pin, lockfile or wire changes.",
+  "failure": {
+    "original_input_sha256": "df23a707a15b02f76a873e016f24479cdba391cbf51e812bcac18961fbd8bfbe",
+    "error": "mandatory L1 history evidence source is not configured",
+    "cause": "EezEvmConfig::new was used without with_l1_history; the existing execution-witness RPC carries L2 ancestry but not L1 headers.",
+    "original_evidence_local_only": "artifacts/pr-readiness/kurtosis/live/protocol-ci-final/protocol-e2e/evidence/revertCounter.lookup-root.input.json",
+    "control_reproduction_local_only": "artifacts/pr-readiness/kurtosis/live/prefix-history-diagnostic/result.json"
+  },
+  "implementation": [
+    "Embed the deployed L1 genesis or resolve an existing public preset offline; derive effective rules with the existing chain-config module and compare the full offline-profile commitment with protocolConfigHash at the original L1 post.",
+    "Decode exactly one inherited header plus the recorded import count, at most 65 headers of at most 2048 bytes. HeaderChain checks canonical RLP, fork layout, computed hashes, consecutive numbers, parent linkage and timestamps.",
+    "Install WitnessHistory on the existing EezEvmConfig. The unchanged executor checks history runtime/profile/storage in the parent trie, native import identity and exact calldata, timing and PREVRANDAO; the helper still independently replays every transaction and checks all receipts and terminal roots.",
+    "RPC endpoint storage reads only locate header bytes. Registry/manager calls are fixed to the original post block; no RPC-supplied prefix state root is admitted."
+  ],
+  "regression_coverage": {
+    "captured_l2_9468": "Full witness replay of three native transactions with inherited H1571. Exactly one reconstructed prefix matches the independently extracted L1 calldata pin 0xe889943a26b2ec20ef054994650839c1b6f12b2b51b762d9360f4c7cc0c87873.",
+    "captured_l2_9465": "Full witness replay of the scheduled native import from H1570 to H1571; shared genesis/configuration is reused without editing either captured block/witness.",
+    "negative_execution": "Fork-correct mutated inherited header reaches parent-trie rejection; changed L2 PREVRANDAO reaches execution rejection on both blocks; changed imported header and native sourceHash reach their exact executor errors.",
+    "bounded_input": "Missing/extra/oversized/noncanonical/wrong-layout headers, profile mismatch, untrusted file selectors, duplicate imports and reversed ancestry reject. Decoder cardinality covers empty imports and the inclusive 64-import/65-header bound; these synthetic bound cases do not claim full state-transition execution.",
+    "tooling": "Private-genesis and public-preset forwarding, absent/empty/invalid L1 profile, bounded RPC ranges, correct RPC endpoint routing, preserved rejected replay inputs and explicit feature activation for local helper builds."
+  },
+  "validation": {
+    "rust_coordinated_by_root": [
+      {
+        "command": [
+          "cargo",
+          "+1.95.0",
+          "fmt",
+          "--all",
+          "--check"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 2.001,
+        "record_local_only": "artifacts/pr-readiness/prefix-history-final/format.json",
+        "record_sha256": "3249a7a7cd5e085c35b66547aa4a7a2f7d8e87a541ced8e815e73b5c037c3dcb"
+      },
+      {
+        "command": [
+          "cargo",
+          "+1.95.0",
+          "clippy",
+          "--locked",
+          "--offline",
+          "--workspace",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 8.003,
+        "record_local_only": "artifacts/pr-readiness/prefix-history-final/clippy.json",
+        "record_sha256": "bb0521e748198e41336c4eff5a1559f33c996ea3a4f63acb2fcd1be982e68841"
+      },
+      {
+        "command": [
+          "cargo",
+          "+1.95.0",
+          "test",
+          "--locked",
+          "--offline",
+          "-p",
+          "eez-l1",
+          "--features",
+          "chain-spec",
+          "--example",
+          "verify_blob_evidence",
+          "--",
+          "--test-threads=1"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 214.053,
+        "record_local_only": "artifacts/pr-readiness/prefix-history-final/example-tests.json",
+        "record_sha256": "3f640ad26041fdcfceddd6c0b1d1ab6661beaf230082b08c8464e5b4530a865b"
+      },
+      {
+        "command": [
+          "cargo",
+          "+1.95.0",
+          "build",
+          "--locked",
+          "--offline",
+          "-p",
+          "eez-l1",
+          "--features",
+          "chain-spec",
+          "--example",
+          "verify_blob_evidence",
+          "--message-format=json"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 12.004,
+        "record_local_only": "artifacts/pr-readiness/prefix-history-final/build-helper.json",
+        "record_sha256": "09629b91ab58b2b817d3d7230dc61aceef1cd94c15703f611ccd2f757f2f2a79"
+      }
+    ],
+    "example_selection": {
+      "passed": 20,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_out": 0
+    },
+    "python_command": [
+      "python3",
+      "-m",
+      "unittest",
+      "scripts.ci.tests.test_protocol_lookup_evidence",
+      "scripts.ci.tests.test_protocol_network_runner",
+      "scripts.ci.tests.test_runtime_artifacts",
+      "-v"
+    ],
+    "python_result": {
+      "passed": 105,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 251.865,
+      "log_local_only": "artifacts/pr-readiness/prefix-history-fix/python-suites.log",
+      "log_sha256": "062b9e5ef81786076c345cc45bf3e9ebbd7e1010bfcfa8f87d075d8e6a0b2bb1"
+    },
+    "python_environment": "bwrap --bind / / --dev /dev with a task-private directory bound at /tmp; no RPC, broadcast, Docker lifecycle or Cargo invocation by these mocked suites.",
+    "retained_first_environment_failure": {
+      "log_local_only": "artifacts/pr-readiness/prefix-history-fix/python-focused.log",
+      "sha256": "99d9eeee5474790d720a3f1c13182387e06cfae710a59c5e7d9babbb91efa69a",
+      "reason": "The initial bwrap invocation omitted a /dev mount; /dev/null was not writable and intended assertions were not reached. Corrected environment then passed the three focused tests and all 105 affected tests. This was not a retry of a failed semantic assertion."
+    },
+    "syntax_and_diff": "bash -n on the three edited shell scripts and git diff --check passed.",
+    "helper_sha256": "2afb9adcaa1a08a2196d88e7fde1b0c6980710fe84f648da0d48ea4777511622",
+    "helper_profile": {
+      "opt_level": "1",
+      "debuginfo": "line-tables-only",
+      "debug_assertions": true,
+      "overflow_checks": true,
+      "test": false
+    }
+  },
+  "feature_review": {
+    "required_feature": "eez-l1/chain-spec",
+    "evidence_local_only": "artifacts/pr-readiness/prefix-history-fix/feature-evidence.json",
+    "sha256": "796c79ba68794a05ea38b825de55f5e1da9b68df687db3867725c7e35b650430",
+    "finding": "Existing shipping and archive unit graphs already activate chain-spec through follower/signer and node-e2e dependencies. The manifest only declares the example requirement; no dependency version or shipping/archive external feature selection was changed. Standalone local helper builds now explicitly activate that existing feature.",
+    "limit": "Static review of retained unit graphs and current dependency declarations; the pending release producer remains the authoritative shipping/archive validation."
+  },
+  "source_sha256": {
+    "crates/eez-l1/Cargo.toml": "ee7db7682fe4965401bdd5a78514d75ba6e9572a240e4a44572854e4127ffe44",
+    "crates/eez-l1/examples/verify_blob_evidence/prefixes.rs": "fe6b8912b7e9a3c4aed45c7915ebfd56ed6e06a97ebac00f68b40ef8ff67686a",
+    "crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history.json": "a1b176a9b309a513dc3f5903e05ee6629d28211d232de17ad9d5201170230d7b",
+    "crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history-import.json": "6c7a38f719e330100856d6ac106db5196649dadf69c46d3a6c02ca848ed25234",
+    "testing/kurtosis/scripts/verify-lookup-root.sh": "a7b2dd03fde25dfc54bf087c81f02c4a490505cb5cac0589b318aa4ee58697e2",
+    "testing/kurtosis/scripts/run-protocol-e2e.sh": "9aa81e40d6dcd36a3a00ead5667908371920323ebf801ae66fc819534cfbe204",
+    "testing/kurtosis/scripts/runtime-tools.sh": "30827aa3d8232f9274ed6f97ff7c7518a69463442ca620c7d83c419e3ada2aa9",
+    "scripts/ci/tests/test_protocol_lookup_evidence.py": "4545a2cf93cd1397367328500001b292672a7765e0d73ad76c3e73cc2764ad83",
+    "scripts/ci/tests/test_protocol_network_runner.py": "8116a45113d8ab4df573db1bdc47e2c37c0668eaf0c31e963ebe75776484072a",
+    "scripts/ci/tests/test_runtime_artifacts.py": "0aa9b3a99f349ce3eae48ae4a1890b9f4776fb791537b0b78d329a71e871922a",
+    "testing/kurtosis/README.md": "7a64be77ceebb45ce3d50aa943fe834f321f0bd9462464aa4de4bb94db9baeb6"
+  },
+  "limits": [
+    "The surrounding collector still trusts configured L1/L2 RPCs for canonical chain identity. Prefix replay is not a new consensus proof or independent L1 settlement validation.",
+    "Named mainnet/sepolia/hoodi/chiado presets and embedded Ethereum genesis are supported. Private Gnosis genesis profiles are explicitly unsupported by this helper.",
+    "The local helper was built with debug assertions and overflow checks; no release-performance claim is made.",
+    "First live failures remain unchanged. The separate live-validation record owns the identical-input A/B comparison and read-only collector rerun; this record does not claim those pending results."
+  ]
+}

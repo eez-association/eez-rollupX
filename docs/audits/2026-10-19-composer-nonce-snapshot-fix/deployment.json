@@ -1,0 +1,172 @@
+{
+  "source": "de4209a5e956b432db7a7d37517d9d44d68dfaa4",
+  "protocol": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+  "endpoint": "https://eez.asuscomm.com",
+  "passed": true,
+  "images": {
+    "node": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-node:sha-de4209a5e956b432db7a7d37517d9d44d68dfaa4-local-nonce-20261019-1",
+      "imageId": "sha256:76f072e0af67cebcb5e3b031d9128ecfd2ae657ab2dbff6bb23f854c79ce29a7",
+      "startedAt": "2026-10-19T12:21:37.213956453Z",
+      "restartCount": 0
+    },
+    "signer": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-proof-signer:sha-de4209a5e956b432db7a7d37517d9d44d68dfaa4-local-nonce-20261019-1",
+      "imageId": "sha256:012f151a6d1bdbdd5cc20cb4f1677fcc0b0dbb63b9a1b0189791eef9a97d16be",
+      "startedAt": "2026-10-19T12:21:31.625607637Z",
+      "restartCount": 0
+    }
+  },
+  "binaries_sha256": {
+    "eez-composer": "ad7d835cc2cee8749b3ec95241c7281b58f18e49c7e9af5271347060fb81329b",
+    "eez-proof-signer": "db929fe09c610117ce6b264b7d7aa0744ee31a73329bb048957bb83a7965a843"
+  },
+  "pre_stop_queue_counts": {
+    "l1": {
+      "queued": 0,
+      "inFlight": 0,
+      "blocked": 0,
+      "unknown": 0
+    },
+    "l2": {
+      "queued": 0,
+      "inFlight": 0,
+      "blocked": 0,
+      "unknown": 0
+    }
+  },
+  "ordinary_pending_before_stop": 0,
+  "before_safe": {
+    "number": "0xf8c0f",
+    "hash": "0x867d57c3d2a7bd73cf1df2dca0abea63cfba2fb8ec76100bc00d238734351934",
+    "stateRoot": "0x570315a47fd89e41101efe9d61f647ecf352e20bdc961712681ee9874a2235ba"
+  },
+  "after_safe": {
+    "number": "0xf8caa",
+    "hash": "0x61c957bdb9237f728a68d747b6d96238a8fed9b94b6bec030207e20f969562da",
+    "stateRoot": "0x56121cdc8064ddd0f8c68a5dd710048b2e0fa8c593daac2d5a2ffcf3471fc26e",
+    "timestamp": "0x6ad60bd6"
+  },
+  "previous_safe_and_watermark_retained": true,
+  "genesis_sha256": "ec2ca22f45a8801ca4e955c4ab4dd6f2cea268bd85a63a85a22d755cf48cc7bf",
+  "genesis_and_bindings_unchanged": true,
+  "effective_node_and_signer_settings_unchanged": true,
+  "original_stopped_databases_retained": true,
+  "public_routing_restored_exactly": true,
+  "public_quotes": {
+    "passed": true,
+    "public": true,
+    "quoteCalls": 8,
+    "feeOptions": 16,
+    "directions": [
+      "L1->L2",
+      "L2->L1"
+    ],
+    "explicitAndOmitted": true,
+    "transactionsBroadcast": 0,
+    "sourceAccountsUnchanged": true
+  },
+  "local_quotes": {
+    "passed": true,
+    "public": false,
+    "quoteCalls": 8,
+    "feeOptions": 16,
+    "directions": [
+      "L1->L2",
+      "L2->L1"
+    ],
+    "explicitAndOmitted": true,
+    "transactionsBroadcast": 0,
+    "sourceAccountsUnchanged": true
+  },
+  "quote_options": [
+    {
+      "layer": 1,
+      "method": "eez_quoteFee",
+      "explicit_nonce": true,
+      "nonce": "0x3",
+      "types": [
+        "0x0",
+        "0x2"
+      ]
+    },
+    {
+      "layer": 1,
+      "method": "eez_quoteFee",
+      "explicit_nonce": false,
+      "nonce": "0x3",
+      "types": [
+        "0x0",
+        "0x2"
+      ]
+    },
+    {
+      "layer": 1,
+      "method": "eez_debugQuoteFee",
+      "explicit_nonce": true,
+      "nonce": "0x3",
+      "types": [
+        "0x0",
+        "0x2"
+      ]
+    },
+    {
+      "layer": 1,
+      "method": "eez_debugQuoteFee",
+      "explicit_nonce": false,
+      "nonce": "0x3",
+      "types": [
+        "0x0",
+        "0x2"
+      ]
+    },
+    {
+      "layer": 2,
+      "method": "eez_quoteFee",
+      "explicit_nonce": true,
+      "nonce": "0x6",
+      "types": [
+        "0x0",
+        "0x2"
+      ]
+    },
+    {
+      "layer": 2,
+      "method": "eez_quoteFee",
+      "explicit_nonce": false,
+      "nonce": "0x6",
+      "types": [
+        "0x0",
+        "0x2"
+      ]
+    },
+    {
+      "layer": 2,
+      "method": "eez_debugQuoteFee",
+      "explicit_nonce": true,
+      "nonce": "0x6",
+      "types": [
+        "0x0",
+        "0x2"
+      ]
+    },
+    {
+      "layer": 2,
+      "method": "eez_debugQuoteFee",
+      "explicit_nonce": false,
+      "nonce": "0x6",
+      "types": [
+        "0x0",
+        "0x2"
+      ]
+    }
+  ],
+  "raw_evidence": "local only: operator artifacts/nonce-snapshot-fix-20261019 and data/nonce-snapshot-upgrade-20261019.gtqu74n_",
+  "raw_evidence_sha256": {
+    "health-after-upgrade.private.json": "fb68ac0421aeb144bfcf68a44871786c109339ea589ea7914b54e67736b22e43",
+    "live-after.json": "2a63a08440919c7ca38600eff1a9f18226cc824ff32777e1cdec90addc3c0b00",
+    "live-public.json": "ca733c32d48ac8ace80a363fa9434efa48db55373301cab15e36f3143b72ae2b",
+    "required-checks.json": "09d4a45c1e41945614085ab6af0541becb06700e52df8c0c935f577f2fae042d"
+  },
+  "verified_at": "2026-10-19T12:25:00.150537+00:00"
+}

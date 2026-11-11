@@ -62,14 +62,24 @@ source "$deploy_dir/deployments.env"
 set +a
 if [[ "${EEZ_USE_LOCAL_DEPLOYMENTS:-0}" == "1" ]]; then
     : "${EEZ_L2_GENESIS:?set the deployed L2 genesis path for execution-prefix replay}"
+    : "${EEZ_L1_CHAIN_CONFIG:?set the deployed L1 profile for execution-prefix replay}"
 else
     EEZ_L2_GENESIS="$deploy_dir/l2-genesis.json"
+    kurtosis files download "$ENCLAVE" el_cl_genesis_data "$deploy_dir/network" >/dev/null
+    EEZ_L1_CHAIN_CONFIG="$deploy_dir/network/genesis.json"
 fi
 [[ -f "$EEZ_L2_GENESIS" && -r "$EEZ_L2_GENESIS" ]] || {
     echo "L2 genesis is not a readable file: $EEZ_L2_GENESIS" >&2
     exit 1
 }
-export EEZ_L2_GENESIS
+case "$EEZ_L1_CHAIN_CONFIG" in
+    mainnet|sepolia|hoodi|chiado) ;;
+    *) [[ -f "$EEZ_L1_CHAIN_CONFIG" && -r "$EEZ_L1_CHAIN_CONFIG" ]] || {
+        echo "L1 genesis is not a readable file: $EEZ_L1_CHAIN_CONFIG" >&2
+        exit 1
+    } ;;
+esac
+export EEZ_L2_GENESIS EEZ_L1_CHAIN_CONFIG
 
 ROLLUPS="${ROLLUPS:-$EEZ_REGISTRY_ADDRESS}"
 MANAGER_L2="${MANAGER_L2:-${EEZL2_ADDRESS:-0x4b2760f84b83d6b3829e30a7573b0172b6d6402c}}"
@@ -118,15 +128,24 @@ wait_for_protocol_ready() {
 
 wait_for_protocol_ready
 
-(
-    cd "$PROTOCOL"
-    bash script/e2e/run/prepare-network.sh \
-        --l1-rpc "$L1_RPC" \
-        --l1-front "$L1_FRONT" \
-        --l2-rpc "$L2_RPC" \
-        --pk "$PK" \
-        --rollups "$ROLLUPS"
-)
+env_file="$deploy_dir/chain.env"
+# The pinned network runner uses one L2 URL for Ethereum reads and correlation
+# queries. Both work on the L2 front; debug evidence below still uses L2_RPC.
+cat >"$env_file" <<ENV
+L1_RPC=$L1_RPC
+L1_FRONT=$L1_FRONT
+L2_RPC=$L2_FRONT
+L2_FRONT=$L2_FRONT
+ROLLUPS=$ROLLUPS
+MANAGER_L2=$MANAGER_L2
+PK=$PK
+ENV
+
+# Upstream setup discovers the deployment through the L1 front's
+# eez_composerInfo and bridges the sender's L2 balance up to 0.05 ETH. It
+# prefers an ambient SOURCE_PK over the file's PK, so bind the same wallet the
+# balance check and the scenario runner use.
+SOURCE_PK="$PK" bash "$PROTOCOL/script/e2e/run/network/setup.sh" 0.05 "$env_file"
 
 # Independently enforce the balance required by the scenario deployments.
 min_l2_balance=10000000000000000
@@ -136,31 +155,17 @@ if (( $(echo "$l2_balance < $min_l2_balance" | bc) )); then
     exit 1
 fi
 
-env_file="$deploy_dir/chain.env"
-cat >"$env_file" <<ENV
-L1_RPC=$L1_RPC
-L1_FRONT=$L1_FRONT
-L2_RPC=$L2_RPC
-L2_FRONT=$L2_FRONT
-ROLLUPS=$ROLLUPS
-MANAGER_L2=$MANAGER_L2
-PK=$PK
-ENV
-
 # Discover the upstream suite from the pinned submodule. Scenario basenames are
 # the network runner's result keys, so require them to be globally unique.
 mapfile -t all_scenario_paths < <(
-    find "$PROTOCOL/script/e2e" -mindepth 3 -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
+    find "$PROTOCOL/script/e2e/scenarios" -mindepth 3 -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
         | sed "s#^$PROTOCOL/##" \
         | sort
 )
 (( ${#all_scenario_paths[@]} > 0 )) || { echo "no upstream protocol E2Es discovered" >&2; exit 1; }
 
 declare -A all_path_by_name=()
-declare -A eligible_path_by_name=()
 all_scenario_names=()
-eligible_scenario_paths=()
-excluded_names=()
 for path in "${all_scenario_paths[@]}"; do
     name="$(basename "$(dirname "$path")")"
     if [[ -n "${all_path_by_name[$name]+x}" ]]; then
@@ -169,12 +174,6 @@ for path in "${all_scenario_paths[@]}"; do
     fi
     all_path_by_name["$name"]="$path"
     all_scenario_names+=("$name")
-    if grep -q '^// E2E_EXCLUDE_FROM_ALL:' "$PROTOCOL/$path"; then
-        excluded_names+=("$name")
-    else
-        eligible_path_by_name["$name"]="$path"
-        eligible_scenario_paths+=("$path")
-    fi
 done
 
 if [[ -n "${EEZ_PROTOCOL_SCENARIOS:-}" ]]; then
@@ -187,10 +186,12 @@ selected_paths=()
 for target in "${targets[@]}"; do
     matches=()
     if [[ "$target" == "all" ]]; then
-        matches=("${eligible_scenario_paths[@]}")
-    elif [[ -d "$PROTOCOL/script/e2e/$target" ]]; then
+        # Pass exact names to the upstream runner so its pending-integration
+        # markers cannot silently reduce this fork's qualification inventory.
+        matches=("${all_scenario_paths[@]}")
+    elif [[ -d "$PROTOCOL/script/e2e/scenarios/$target" ]]; then
         mapfile -t matches < <(
-            find "$PROTOCOL/script/e2e/$target" -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
+            find "$PROTOCOL/script/e2e/scenarios/$target" -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
                 | sed "s#^$PROTOCOL/##" \
                 | sort
         )
@@ -217,16 +218,10 @@ for path in "${selected_paths[@]}"; do
 done
 
 suite_complete=false
-if (( ${#selected_names[@]} == ${#eligible_scenario_paths[@]} )); then
+if (( ${#selected_names[@]} == ${#all_scenario_paths[@]} )); then
     suite_complete=true
-    for name in "${selected_names[@]}"; do
-        if [[ -z "${eligible_path_by_name[$name]+x}" ]]; then
-            suite_complete=false
-            break
-        fi
-    done
 fi
-echo "==> discovered ${#all_scenario_names[@]} upstream E2Es; ${#eligible_scenario_paths[@]} live in 'all'; selected ${#selected_names[@]} (complete=$suite_complete)"
+echo "==> discovered ${#all_scenario_names[@]} upstream E2Es; selected ${#selected_names[@]} (complete=$suite_complete)"
 
 json_array() {
     jq -cn --args '$ARGS.positional' "$@"
@@ -258,12 +253,15 @@ jq -n --arg protocol_commit "$actual_protocol" --argjson scenarios "$manifest_js
 network_dir="$(mktemp -d "$RESULT_DIR/network.XXXXXXXX")"
 run_log="$network_dir/runner.log"
 status=0
-SOURCE_PK="$PK" python3 "$REPO/scripts/ci/run-protocol-network.py" \
+# The fee-enabled execution-order tests use 100 gwei source bids. Their recent
+# history can raise ordinary setup fee suggestions too: even the first bridge
+# deployment can require more than 0.008 ETH upfront. Give disposable workers
+# headroom for multiple deployments plus quoted triggers on both chains.
+SOURCE_PK="$PK" FUND_ETH="${EEZ_PROTOCOL_FUND_ETH:-1}" python3 -u "$REPO/scripts/ci/run-protocol-network.py" \
     --protocol-dir "$PROTOCOL" --env-file "$env_file" --log-dir "$network_dir" \
     --max-parallel "${EEZ_PROTOCOL_MAX_PARALLEL:-all}" \
     --suite-timeout "${EEZ_PROTOCOL_SUITE_TIMEOUT:-2400}" \
-    "${selected_names[@]}" >"$run_log" 2>&1 || status=$?
-cat "$run_log"
+    "${selected_names[@]}" 2>&1 | tee "$run_log" || status=$?
 
 # Parse the raw upstream result stream once. Independent verification can
 # reject a PASS, but must never turn an upstream failure into a success.
@@ -348,7 +346,7 @@ for name in "${selected_names[@]}"; do
     fi
 done
 if (( ${#verify_names[@]} > 0 )); then
-    L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" ROLLUPS="$ROLLUPS" MANAGER_L2="$MANAGER_L2" \
+    L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" L2_FRONT="$L2_FRONT" ROLLUPS="$ROLLUPS" MANAGER_L2="$MANAGER_L2" \
         ROLLUP_ID="$ROLLUP_ID" PROTOCOL_COMMIT="$actual_protocol" CAUSAL_VERIFIER="$CAUSAL_VERIFIER" \
         BEACON_URL="$BEACON_URL" BLOB_VERIFIER="$BLOB_VERIFIER" \
         python3 "$REPO/scripts/ci/collect-protocol-evidence.py" \
@@ -387,9 +385,9 @@ evidence_index="$evidence_dir/index.json"
 jq \
     --arg protocol_commit "$actual_protocol" \
     --argjson discovered_count "${#all_scenario_names[@]}" \
-    --argjson eligible_count "${#eligible_scenario_paths[@]}" \
+    --argjson eligible_count "${#all_scenario_paths[@]}" \
     --argjson selected_count "${#selected_names[@]}" \
-    --argjson excluded_from_all "$(json_array ${excluded_names[@]+"${excluded_names[@]}"})" \
+    --argjson excluded_from_all '[]' \
     --argjson suite_complete "$suite_complete" \
     --argjson accounting_ok "$accounting_ok" \
     --argjson upstream_exit_status "$status" \

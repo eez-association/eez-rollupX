@@ -1,0 +1,26 @@
+{
+  "scope": "Isolated native-blob funding experiment; never connects to a public RPC.\n\nUses the pinned EEZ bytecode, a hash-checking mock proof system, and synthetic\nL1 companions. This does not run Composer, an L2 prover, or a production builder.\nRetained to reproduce the funding/fee boundary without operator wallets/state.\n",
+  "cases": [],
+  "local_evidence_directory": "/tmp/rollupx-sponsorship-r8uc1_12",
+  "source": "fa916b13254a36423cad130080dde367bb18a7d6",
+  "protocol": "855fe0602484750861b4c31502a1a91355d33ed6",
+  "executables": {
+    "forge": {
+      "sha256": "4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c",
+      "version": "forge Version: 1.7.1\nCommit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8\nBuild Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)\nBuild Profile: dist"
+    },
+    "cast": {
+      "sha256": "ccd95a4607ca3ebfcb88bb90e7235cdb7f0564f5f1afa17478d5fccabbb222cb",
+      "version": "cast Version: 1.7.1\nCommit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8\nBuild Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)\nBuild Profile: dist"
+    },
+    "anvil": {
+      "sha256": "10c1c727d6c1de973aeb160e59875b9a9a23464d6e74149ee8abb30b3500311b",
+      "version": "anvil Version: 1.7.1\nCommit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8\nBuild Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)\nBuild Profile: dist"
+    }
+  },
+  "eez_artifact_sha256": "d3a0d29d34b7c1e67a7f7828aaa13e4aa6204fadb0f2a69e10e92b212398dd96",
+  "eez_metadata_source_files_verified": 10,
+  "probe_bytecode_sha256": "b3a5fe2ff46233e6e5024e4cbe2e37fc645ad38922d52167b737d459d246dc08",
+  "status": "failed",
+  "error": "TypeError(\"string indices must be integers, not 'str'\")"
+}

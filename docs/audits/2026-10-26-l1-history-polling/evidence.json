@@ -1,0 +1,238 @@
+{
+  "issue": "https://github.com/eez-association/eez-rollupX/issues/107",
+  "date_utc": "2026-10-26",
+  "deployed_source": "9e3599abf2f1f08c4bcfff41f496f3365b5c4561",
+  "amendment_parent": "6a776eaea80e790c7ab0a1c606dea5ee0c1e9bb1",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "history_source_git_blob": "8258f723155ea25a515dccdacf3d17818d8d3615",
+  "history_runtime_matches_live": true,
+  "history_runtime_sha256": "0e8a8f4671d83bd3416500fb606b73b1208083b9c1eece16085bf52eddde4bb1",
+  "l2_chain_id": 916969,
+  "collector_address": "0xf0c163dbef9e7f4cbd11a7b9a2f2c011a6bed899",
+  "l2_failure_block": 77899,
+  "l2_failure_block_hash": "0xcfc65ff1c2ba994b8e24acfe1f354d515eb111a261fa803a24ad6d98e00e1ee1",
+  "consumed_l1_block": 23705164,
+  "requested_l1_block": 23705165,
+  "first_available_l2_block": 77903,
+  "timestamps": {
+    "failed_l2_block": 1793046524,
+    "requested_l1_block": 1793046525,
+    "import_l2_block": 1793046528
+  },
+  "history_interval_seconds": 5,
+  "history_delay_seconds": 3,
+  "read_only_queries": [
+    {
+      "route": "/rpc/l2",
+      "method": "eth_call",
+      "params": [
+        {
+          "to": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+          "data": "0x9fa6a6e3"
+        },
+        "0x1304b"
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": "0x000000000000000000000000000000000000000000000000000000000169b64cb63337d7959dd02c74cf3a1a225e1a8558ff9981bf712cd23c6df289a6571c42"
+      }
+    },
+    {
+      "route": "/rpc/l2",
+      "method": "eth_call",
+      "params": [
+        {
+          "to": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+          "data": "0x225eaf68000000000000000000000000000000000000000000000000000000000169b64d"
+        },
+        "0x1304b"
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": 3,
+          "message": "execution reverted",
+          "data": "0x2cbf90b9000000000000000000000000000000000000000000000000000000000169b64d"
+        }
+      }
+    },
+    {
+      "route": "/rpc/l2",
+      "method": "eth_call",
+      "params": [
+        {
+          "to": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+          "data": "0x9fa6a6e3"
+        },
+        "0x1304e"
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": "0x000000000000000000000000000000000000000000000000000000000169b64cb63337d7959dd02c74cf3a1a225e1a8558ff9981bf712cd23c6df289a6571c42"
+      }
+    },
+    {
+      "route": "/rpc/l2",
+      "method": "eth_call",
+      "params": [
+        {
+          "to": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+          "data": "0x225eaf68000000000000000000000000000000000000000000000000000000000169b64d"
+        },
+        "0x1304e"
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": 3,
+          "message": "execution reverted",
+          "data": "0x2cbf90b9000000000000000000000000000000000000000000000000000000000169b64d"
+        }
+      }
+    },
+    {
+      "route": "/rpc/l2",
+      "method": "eth_call",
+      "params": [
+        {
+          "to": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+          "data": "0x9fa6a6e3"
+        },
+        "0x1304f"
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": "0x000000000000000000000000000000000000000000000000000000000169b64d1da752c62ff4d9d68287cc375b3baacea8a234c8a976e7b35b8e406341329bad"
+      }
+    },
+    {
+      "route": "/rpc/l2",
+      "method": "eth_call",
+      "params": [
+        {
+          "to": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+          "data": "0x225eaf68000000000000000000000000000000000000000000000000000000000169b64d"
+        },
+        "0x1304f"
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": "0x1da752c62ff4d9d68287cc375b3baacea8a234c8a976e7b35b8e406341329bad"
+      }
+    },
+    {
+      "route": "/rpc/l2",
+      "method": "debug_traceTransaction",
+      "params": [
+        "0xd29cacd26f1bf5e01ebd27ef02d168001d685f8019b6ccf0fddf366988632016",
+        {
+          "tracer": "callTracer"
+        }
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "from": "0x0aebf98eac89b28982690f8643bcf34bcdc710ea",
+          "gas": "0x109d4",
+          "gasUsed": "0x10682",
+          "to": "0xf0c163dbef9e7f4cbd11a7b9a2f2c011a6bed899",
+          "input": "0xa1175279",
+          "output": "0x0000000000000000000000000000000000000000000000000000000000000001b63337d7959dd02c74cf3a1a225e1a8558ff9981bf712cd23c6df289a6571c42",
+          "calls": [
+            {
+              "from": "0xf0c163dbef9e7f4cbd11a7b9a2f2c011a6bed899",
+              "gas": "0xa155",
+              "gasUsed": "0x1ada",
+              "to": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+              "input": "0x225eaf68000000000000000000000000000000000000000000000000000000000169b64c",
+              "output": "0xb63337d7959dd02c74cf3a1a225e1a8558ff9981bf712cd23c6df289a6571c42",
+              "type": "STATICCALL"
+            }
+          ],
+          "value": "0x0",
+          "type": "CALL"
+        }
+      }
+    },
+    {
+      "route": "/rpc/l2",
+      "method": "debug_traceTransaction",
+      "params": [
+        "0x5a78a227aa556e9bf340b07ac8fad729ec89faa30cffcd55c41377a1d8a934b6",
+        {
+          "tracer": "callTracer"
+        }
+      ],
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "from": "0x0aebf98eac89b28982690f8643bcf34bcdc710ea",
+          "gas": "0x109d4",
+          "gasUsed": "0x77e2",
+          "to": "0xf0c163dbef9e7f4cbd11a7b9a2f2c011a6bed899",
+          "input": "0xa1175279",
+          "output": "0x2cbf90b9000000000000000000000000000000000000000000000000000000000169b64d",
+          "error": "execution reverted",
+          "calls": [
+            {
+              "from": "0xf0c163dbef9e7f4cbd11a7b9a2f2c011a6bed899",
+              "gas": "0xa155",
+              "gasUsed": "0x11c0",
+              "to": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+              "input": "0x225eaf68000000000000000000000000000000000000000000000000000000000169b64d",
+              "output": "0x2cbf90b9000000000000000000000000000000000000000000000000000000000169b64d",
+              "error": "execution reverted",
+              "type": "STATICCALL"
+            }
+          ],
+          "value": "0x0",
+          "type": "CALL"
+        }
+      }
+    }
+  ],
+  "local_only_full_evidence_sha256": "47c01752212e6b08e15664f8bbc5038c413577a0ca5e12513f2529ff20667242",
+  "reference_source_sha256": "38af0a95543f6b935c206913c937439546d990f3b948e27538d640d190986dd4",
+  "reference_tests_sha256": "05f48e748d2e3be0f6f2755c8c67fb6d97b8c144ce6b7ab8f3aac1bcd5b56c0c",
+  "checks": [
+    {
+      "command": "forge test --root contracts --match-contract L1BlockHashCollectorTest -vv",
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "forge test --root contracts",
+      "passed": 157,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "forge fmt --check --root contracts",
+      "exit_code": 0
+    },
+    {
+      "command": "bash scripts/update-eezl2-genesis.sh --check",
+      "exit_code": 0,
+      "state_root": "0x91d4a700e13c9fe12111e8e4c03f83363632bf76ac9e783ebe765be0b2ce8066"
+    }
+  ],
+  "local_only_logs_sha256": {
+    "collector-tests.log": "28820e67d359d7c53919d725c2d2bb5bcae3717786a9cc9d2850d9fefafb32bc",
+    "contracts-full.log": "8f4cd7fcea10756b65d252ad12c46be020d55b216c1b9f822cffafb3864969c9",
+    "genesis-check.log": "223cd77535fe01aae0d71313737ef3dc426372dd1323dac69fad5f183c656e4b"
+  },
+  "limits": [
+    "The external application source was unavailable; the test models its observed unguarded lookup.",
+    "No transaction broadcast, deployment, or live execution of the reference collector.",
+    "No new process or independent follower replay for this application-only amendment."
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "utc": "2026-11-11T09:19:18.170486+00:00",
+  "stable_version": "v8.3.3-57c2abc",
+  "stable_image": "sigp/lighthouse@sha256:53f9063d98c3d3a2d290207873f019ea2298cfc02f8cd58d87c33b04aab856d1",
+  "offline_tool_image": "sigp/lighthouse@sha256:219533433228d9ec2ad51cf5a6c07d718f609b4e633bf656f2fa06501aa76305",
+  "schema_before": 28,
+  "schema_after": 32,
+  "pruning_marker": {
+    "oldest_data_slot": "25536256"
+  },
+  "sync": {
+    "is_syncing": false,
+    "is_optimistic": false,
+    "el_offline": false,
+    "head_slot": "25798491",
+    "sync_distance": "0"
+  },
+  "peers": {
+    "connected": "5",
+    "connecting": "0",
+    "disconnected": "2",
+    "disconnecting": "0"
+  },
+  "runtime_roles": [
+    {
+      "restart_count": 0,
+      "start_unchanged": true,
+      "role": "composer"
+    },
+    {
+      "restart_count": 0,
+      "start_unchanged": true,
+      "role": "proof-signer"
+    },
+    {
+      "restart_count": 0,
+      "start_unchanged": true,
+      "role": "follower"
+    }
+  ],
+  "retained_blob_verified": true,
+  "fresh_settlement": {
+    "first": 1194201,
+    "last": 1194415,
+    "matching_blocks": 215,
+    "matching_receipts": 3,
+    "post": "0xd6a33b98eea2f304a0c08dba225800298c450a801f960442cef43471df045d68",
+    "canonical_l1": true,
+    "composer_post_observed": true,
+    "utc": "2026-11-11T09:16:07.184374+00:00"
+  },
+  "local_evidence_sha256": {
+    "stable-before-prune.log": "d5e63f6cc9f1e33d6b010f7468b2f951996f01799384fd22945f9a5d69969e09",
+    "fixed-prune.log": "d57cc7c2c57fdf48ba2bca4976f04748bd28509ce7639616a609dcec27b6da94",
+    "stable-after-prune.log": "c11d99ae83bb17d9769d49d3177938b237b4683dd3e22d740528573f07a42166",
+    "live-migration.log": "893a64192f8ba21662f7e4a91b6262995a56aba48a65ee94ae4e1efbb613f61e",
+    "live-fixed-prune.log": "0300e36225ae37e9bd50202faef41b33a81a1f73a91bfc5ee6d81b31ab15b75e",
+    "live-stable-prune.log": "3ce6b056f21ac14d01506b5916521f10316684d8e3c7e3ef08b3b359ac8c8439",
+    "retained-blob-verification.json": "dc2b5e331e64444b41e09013a72f162edfabee2662ff8ee5867ecff68bec8c8c",
+    "replay-comparison.json": "ac7e4592c36355938e29aa40d9f26eb88bc9ad37c007954f19c16234be6c12c8",
+    "final-state.json": "10a6bdd7826577d910e686c00db31d5b625a58c063f07e22ef32ce0e8cd8a421",
+    "final.private.log": "26cedf3cef3ad4522b021408d97eae286acee5dbd0c6f7c261211bc9fdaf43c0"
+  }
+}

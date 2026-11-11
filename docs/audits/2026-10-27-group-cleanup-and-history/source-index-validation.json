@@ -1,0 +1,489 @@
+{
+  "scope": "Final fresh-network #103 native execution/source candidate; local-only debug/test evidence, not release-artifact provenance.",
+  "source_commit": "d37d2e86481ca18153f23ebf859a9b48566431a7",
+  "base_commit": "641e768f2e6605f7563c808a00937d374e98e8fb",
+  "intermediate_history_commit": "19843a670085fc7b012cb7b395088de26a56d5fd",
+  "core_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "core_changed": false,
+  "rpc_schema_changed": false,
+  "dependency_changes": false,
+  "toolchain": {
+    "rust": "1.95.0",
+    "locked": true,
+    "foundry": "1.7.1",
+    "local_build_jobs": 1
+  },
+  "artifact_scope": "Frozen source-built local runtimes produced before the source commit; subsequent corrections affect only tests/docs. Their production semantics match the committed candidate. Exact final-head shipping/release provenance is a separate CI gate.",
+  "source_build_command": "cargo +1.95.0 test --locked -p eez-node-e2e -p eez-proof-signer --no-run --config 'profile.dev.package.eez-node.opt-level=0' --config 'profile.dev.package.eez-node.debug=0'",
+  "process_environment": {
+    "EEZ_TEST_PROOF_SIGNER_NO_NETWORK": "1",
+    "EEZ_TEST_PREBUILT": "unset",
+    "EEZ_TEST_RUNTIME_BIN_DIR": "owned frozen source-index-runtime directory, digests checked before every scenario",
+    "TMPDIR": "owned private /tmp mount via bwrap; no shared network lifecycle operations"
+  },
+  "local_log_root": "artifacts/group-cleanup-20261027 (ignored/local-only, unavailable in another checkout)",
+  "remaining": [
+    "Final-head CI and exact release-artifact provenance",
+    "Independent correctness review and resolution of findings"
+  ],
+  "logs": [
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-core-tests-second.log",
+      "sha256": "957b0b9b535e27e48a77771d34f5624374dbccd7b4d9691a4817231214cef904"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-signer-da-first.log",
+      "sha256": "564a5282eada5ec68747386ebffacaf574d5f34ec4c751c4b27295da0b818f0f"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-signer-rpc-client-first.log",
+      "sha256": "0244603eabc3e5444216cfcc3a8a93c7a17d2040dffed960c8e46af73db00d97"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-signer-service-second.log",
+      "sha256": "6acb18a657963e1ccd4defdaefdf766b00fcb451143f333484d48d6a09419550"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-signer-rpc-client-second.log",
+      "sha256": "a2bb3d8f73765b54a50682eb61a07c4a3b19d22ec678faeb3ab2292bef4f7418"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-workspace-clippy-first.log",
+      "sha256": "fef6641c0471dacf73e37f384a70852de243a32380c2069af85f5256f7b503e3"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-workspace-clippy-second.log",
+      "sha256": "38b887758ebea4201904ed4ef3e35bbc2ecc8ab749e0d80a6df668a6437fed84"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-prefix-evidence-first.log",
+      "sha256": "d60f13eea91411d32bbc2700c162e2c76f714a9dd1c4a6b510c8d6f07b09c33b"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-prefix-evidence-second.log",
+      "sha256": "a3978ee0de1d2abef0e9c904e52645be05c49f805ee1c680a6b5d0dd9a2cd66c"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-commitment-oracles-final.log",
+      "sha256": "7cec23e705e3f66917738373ef44d894c01b1539fb54e736c04824d313507c22"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-codec-oracles-final.log",
+      "sha256": "00967befff8e8d87aa656bf40b6ab897a1687569c3655269eef368283ad836fb"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-signer-clippy-final.log",
+      "sha256": "34ebe660f2af98eca172492ec1a9e3e2ec46de8f1212455d95bb0da63ca3bd66"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-signer-doc-final.log",
+      "sha256": "fccabaa318bd339d3f6ce7573242702b486a609b8a3c87546bbd58df85b6c2f0"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-harness-final-build.log",
+      "sha256": "285e61c18f825c1e2f1e94c430fa77169a9a15c063158ca908e15d02ed6549fe"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-harness-final-build-second.log",
+      "sha256": "7a20d6b99fea4c54308044a4557b97601e6bc78b52f1c0141a709b7cc5cd8f14"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-vector-manifest-final.log",
+      "sha256": "73a2cb93772fd532e22005ecd61c22035395d290df17042d4a2376539412a426"
+    },
+    {
+      "path": "artifacts/group-cleanup-20261027/source-index-portable-encoding-final.log",
+      "sha256": "c87fe38829a67ca743ecf7a91d9cbcf7e7b70b272c00ac36f4037d5ca2a5d04d"
+    }
+  ],
+  "runtime_sha256_before_wrapper_rebuild": [
+    "ad0fec0564390b8a72e0821d059f7cee4e2f55deed08d026ee65991ca4eae076  artifacts/group-cleanup-20261027/source-index-runtime/eez-composer",
+    "dcc0e620d519bcc07a3f114ff20eb7577a1ccf17f0f8da69c5b7d0b78572b346  artifacts/group-cleanup-20261027/source-index-runtime/eez-follower",
+    "942cba77315d768a67c52b5cb96b48ef1ca3dfe0b647e18c687f24e0c80b91d0  artifacts/group-cleanup-20261027/source-index-runtime/eez-proof-signer",
+    "0951ac5544e2c7c48b3810a89b9232e7693e6c602e832316623da1ec7012f001  target/debug/deps/node_e2e-131e4390fdbe836d"
+  ],
+  "runtime_sha256_final_harness": [
+    "ad0fec0564390b8a72e0821d059f7cee4e2f55deed08d026ee65991ca4eae076  artifacts/group-cleanup-20261027/source-index-runtime/eez-composer",
+    "dcc0e620d519bcc07a3f114ff20eb7577a1ccf17f0f8da69c5b7d0b78572b346  artifacts/group-cleanup-20261027/source-index-runtime/eez-follower",
+    "942cba77315d768a67c52b5cb96b48ef1ca3dfe0b647e18c687f24e0c80b91d0  artifacts/group-cleanup-20261027/source-index-runtime/eez-proof-signer",
+    "c82e9522f08d3bbfc43f5f9a26dcdd1abe8f216222c7df15b7d8ac4b27cf87b1  target/debug/deps/node_e2e-131e4390fdbe836d"
+  ],
+  "processes": [
+    {
+      "test": "partial_consumption::valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "attempt": "first",
+      "exit_status": 101,
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "seconds": 47.16,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-partial_consumption-valid_blob_batch_resumes_at_middle_group_in_same_l1_block-first.log",
+      "log_sha256": "ead769840a3603bb97ef3083b60520fbc45470489ee3a5d7b6a2662369d960ae",
+      "harness_manifest": "source-index-runtime.sha256"
+    },
+    {
+      "test": "partial_consumption::valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "attempt": "second",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 51.4,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-partial_consumption-valid_blob_batch_resumes_at_middle_group_in_same_l1_block-second.log",
+      "log_sha256": "af87420987617f8b124c4835bdbf06dd4c56f00ecad4fea4d65936582ed5dcd3",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "native_system::two_composers_two_keyless_followers",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 54.04,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-native_system-two_composers_two_keyless_followers-first.log",
+      "log_sha256": "cd378a46b35b71677cbe4b448fc3972aa6af18a9207ff8ad50d58576dbe3f3c7",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "cross_chain::combined_history::scheduled_history_static_and_lookup_settle",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 46.82,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-cross_chain-combined_history-scheduled_history_static_and_lookup_settle-first.log",
+      "log_sha256": "3d1f78098e143b569bedd28f92d5905e3d1bafe79ef45c465fdcafd67bc34b82",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "cross_chain::bidirectional_cross_chain_with_history_at_sync",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 37.61,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-cross_chain-bidirectional_cross_chain_with_history_at_sync-first.log",
+      "log_sha256": "1b5852d342c5f0cc494b013e5592e82c5d74819dfefd9527cefe20543bc47eed",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "cross_chain::outbound_multiple_proxy_calls_in_one_transaction_preserve_ordered_results",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 37.09,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-cross_chain-outbound_multiple_proxy_calls_in_one_transaction_preserve_ordered_results-first.log",
+      "log_sha256": "9ed8ff4f50fe1172fc18c1f0cc6a58d8bd4406613fe23543de7fc13faa98ac3c",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "cross_chain::overlay_sibling_callback_state_is_not_reused_by_later_call",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 47.81,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-cross_chain-overlay_sibling_callback_state_is_not_reused_by_later_call-first.log",
+      "log_sha256": "656c3a6c7460719521d72535619e09fc71a943f81cd6e2954483f52fd047887e",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "cross_chain::overlay_burn_survives_nested_call_without_reentry",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 47.49,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-cross_chain-overlay_burn_survives_nested_call_without_reentry-first.log",
+      "log_sha256": "cdfbfffbf0273e0c629be1687a905f97082bf5a28088508fab8862a7488a2ac5",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "partial_consumption::first_source_omission_keeps_the_registration_anchor",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 54.6,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-partial_consumption-first_source_omission_keeps_the_registration_anchor-first.log",
+      "log_sha256": "3e91cc0f65c6639b1d201fddc9da0befb427bc6162b2ad3705e455f687db7189",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "partial_consumption::partial_prefix_keeps_unconsumed_users_and_receipt_costs",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 54.55,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-partial_consumption-partial_prefix_keeps_unconsumed_users_and_receipt_costs-first.log",
+      "log_sha256": "4d4c059b8b3e4819f291f123859bcf2006559be900ba86256b88e9365ce6e74f",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "partial_consumption::last_source_omission_keeps_two_user_prefix",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 54.49,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-partial_consumption-last_source_omission_keeps_two_user_prefix-first.log",
+      "log_sha256": "92fb519c6c05701e93b6940b884131dd8582af7f44661230d14165d3a00a2251",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "partial_consumption::restart_after_partial_keeps_accounting_and_rebuilds_intent",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 74.93,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-partial_consumption-restart_after_partial_keeps_accounting_and_rebuilds_intent-first.log",
+      "log_sha256": "5fd3f8522f811bd6578807a0734a74c37f5189011fd7af7197acbd7740ee66df",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "chained_interstate::mixed_direction_state_chain_in_one_slot",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 53.55,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-chained_interstate-mixed_direction_state_chain_in_one_slot-first.log",
+      "log_sha256": "d4017b2b0ffe906f33fe2d89375bf80dd3f526399c44b616765d1a53362cb6c8",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "queue_reorg::imported_history_reorg_recovers_twenty_ordinary_transactions_without_settlement",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 49.9,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-queue_reorg-imported_history_reorg_recovers_twenty_ordinary_transactions_without_settlement-first.log",
+      "log_sha256": "f931fa38b1c8ed17a099b57c84bee91974eab5e46f441e3a0f75adf970fd7e1e",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "derivable_operations::multipart::expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 171.92,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-derivable_operations-multipart-expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay-first.log",
+      "log_sha256": "e6b357d3368550a0ee41fb53bbeba9c784b22ed95c8218623d383d70925cbba2",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "chained_interstate::identical_outbound_calls_in_separate_transactions_chain_state",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 42.29,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-chained_interstate-identical_outbound_calls_in_separate_transactions_chain_state-first.log",
+      "log_sha256": "58e44237c0b6f2d65e245e829241651a0972a021418c2037faf385ef3d9acc1a",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "chained_interstate::three_order_dependent_inbound_calls_in_one_bundle",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 48.56,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-chained_interstate-three_order_dependent_inbound_calls_in_one_bundle-first.log",
+      "log_sha256": "ed35cef3c39cae1ea3cc7dd7c8fff2d5fb804d9c2a6882faf9c6720b106a71fc",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "queue_reorg::native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order",
+      "attempt": "first",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 62.35,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-queue_reorg-native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order-first.log",
+      "log_sha256": "a0255186e2176b7f0dfc6a85fc508c81e8141d844f3c5ee274325bdb7b867513",
+      "harness_manifest": "source-index-runtime-second.sha256"
+    },
+    {
+      "test": "fee_quotes::unsigned_nested_quote_matches_receipt_and_replays",
+      "attempt": "final",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 39.92,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-fee_quotes-unsigned_nested_quote_matches_receipt_and_replays-final.log",
+      "log_sha256": "3307055559fd1df30af77456c8e1c630062b9821d8e06d8671dec82777b66430",
+      "harness_manifest": "source-index-runtime-third.sha256"
+    },
+    {
+      "test": "fee_quotes::l1_refund_quote_eip1559_continues_after_missing_payment",
+      "attempt": "final",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 67.18,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-fee_quotes-l1_refund_quote_eip1559_continues_after_missing_payment-final.log",
+      "log_sha256": "eef479cebec13556548dd3f9c7668e0d3952782298139c0c2995728d32d35be9",
+      "harness_manifest": "source-index-runtime-third.sha256"
+    },
+    {
+      "test": "fee_quotes::mixed::both_fee_routes_prepare_together_and_replay_partial_inclusion",
+      "attempt": "final",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 49.47,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-fee_quotes-mixed-both_fee_routes_prepare_together_and_replay_partial_inclusion-final.log",
+      "log_sha256": "61f9e9b4ec9f971f45a8bd8b3ca26c941e8cbff63cc7ddd186aa860656790a1d",
+      "harness_manifest": "source-index-runtime-third.sha256"
+    },
+    {
+      "test": "fee_quotes::mixed::gnosis_both_fee_routes_prepare_together_and_replay_partial_inclusion",
+      "attempt": "final",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 42.46,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-fee_quotes-mixed-gnosis_both_fee_routes_prepare_together_and_replay_partial_inclusion-final.log",
+      "log_sha256": "1e882e66f21c157cb6b6dccee659dd3ea6cf064d32e8bd746826ed18203c6efa",
+      "harness_manifest": "source-index-runtime-third.sha256"
+    },
+    {
+      "test": "native_system::treasury::recipient_rotation_withdrawal_and_offline_replay",
+      "attempt": "final",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 43.01,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-native_system-treasury-recipient_rotation_withdrawal_and_offline_replay-final.log",
+      "log_sha256": "ca046884346ddc73d8292e0962a65ecb2cd289bc0813db328e03ff44327140b0",
+      "harness_manifest": "source-index-runtime-third.sha256"
+    },
+    {
+      "test": "cross_chain::outbound_static_read_with_static_callback_settles_and_replays",
+      "attempt": "final",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 60.91,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-cross_chain-outbound_static_read_with_static_callback_settles_and_replays-final.log",
+      "log_sha256": "f3ac74abbc1dcaafd760f29586858b788cc48626c29630a31d69b3436c356ce0",
+      "harness_manifest": "source-index-runtime-third.sha256"
+    },
+    {
+      "test": "cross_chain::history_observations::scheduled_history_observations_are_bound_before_offline_signing",
+      "attempt": "final",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 2.38,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-cross_chain-history_observations-scheduled_history_observations_are_bound_before_offline_signing-final.log",
+      "log_sha256": "c1dbe772d15c7a2add2a69c456bb1becce688c695e61a77a7be259b712bb1ab9",
+      "harness_manifest": "source-index-runtime-third.sha256"
+    },
+    {
+      "test": "partial_consumption::valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "attempt": "final",
+      "exit_status": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 50.98,
+      "log": "artifacts/group-cleanup-20261027/source-index-process-partial_consumption-valid_blob_batch_resumes_at_middle_group_in_same_l1_block-final.log",
+      "log_sha256": "2e39182ba639edd692c5ece4986330d0a084140f9f0a740ab2dd15795f2e139e",
+      "harness_manifest": "source-index-runtime-third.sha256"
+    }
+  ],
+  "captures": [
+    {
+      "test": "cross_chain::minimal_bidirectional_cross_chain_smoke",
+      "fixture": "native-offline-bidirectional",
+      "from_block": 1,
+      "to_block": 440,
+      "request_bytes": 2723310,
+      "request_keccak": "2b3ef3ffe3a0e4a5a80af69581697f6525f1d2528a7497af6ef88a44b8ee3633",
+      "request_sha256": "4f8ad47047e10dc5626cd9782816c536fdad2d4d2cff4849bc4b937bf1e8bdb7",
+      "log": "artifacts/group-cleanup-20261027/source-index-capture-bidirectional-first.log",
+      "log_sha256": "33ebae3217da3ffba2cae03ba26d53cf10b03f24b4e7afd85d555ef6931e2795"
+    },
+    {
+      "test": "cross_chain::inbound_reverting_destination_preserves_caught_result_without_destination_writes",
+      "fixture": "native-osaka-lookup",
+      "from_block": 1,
+      "to_block": 45,
+      "request_bytes": 511142,
+      "request_keccak": "2bed7dea36339001f5e5d6b775b5b9b8d542b305eee75c32e59bb1258a03468b",
+      "request_sha256": "dd25ee729e3b12a3b1c87d0313ed09f87a5ccd4a97743ee6bb9ada404684d909",
+      "log": "artifacts/group-cleanup-20261027/source-index-capture-lookup-first.log",
+      "log_sha256": "a3399a8361bf479d50c88d7e26c020095ede4e373e949951e3d7b8af46591585"
+    },
+    {
+      "test": "cross_chain::outbound_changing_static_reads_and_write_settle_and_replay",
+      "fixture": "native-osaka-changing-static",
+      "from_block": 1,
+      "to_block": 30,
+      "request_bytes": 399664,
+      "request_keccak": "3bd3e5476439204c057cfb5c873a73fbec4cc367b338c9e0a210e53742e11f0d",
+      "request_sha256": "3f2492eed65fc8f2370e6ccf5a9690b55693670518f937fc8c95ec83f07802b8",
+      "log": "artifacts/group-cleanup-20261027/source-index-capture-static-first.log",
+      "log_sha256": "0478900929e53e003ab4c1e77a380882097212f815ee9c8e33379d554e1525e2"
+    }
+  ],
+  "distinct_successful_processes": 27,
+  "extended_process_successful_executions": 25,
+  "retained_failures": [
+    "First enhanced same-block test expected a no-progress immediate post; pinned core rejects AllImmediateL2TxsFailed. Corrected to three successful progressive postings, without changing core/production validation.",
+    "Five synthetic signer cases encoded zero rather than their declared 0x04 raw prefix; corrected fixture constructors, all 329 signer tests passed.",
+    "Workspace Clippy found the enlarged test future; boxed the test wrapper without suppressing lint.",
+    "Independent prefix replay retained prior capture heights; updated exact 440/438 height assertions while preserving independent L1 event pins.",
+    "An E2E-only no-run rebuild selected a different feature union; interrupted only the owned build and reused the prior E2E+signer union. No process result is attributed to the interrupted build."
+  ],
+  "limits": [
+    "No release build/provenance or final-head CI claim from these debug/test executables.",
+    "No deployed network/wallet/service/application changes.",
+    "No complete cargo test --workspace or full native suite rerun locally; affected suites/processes are recorded.",
+    "Existing contract/genesis/core/tooling/indexer results are retained in validation.json at unchanged component code; core exclusions/skips are not coverage.",
+    "No actual C#/Nethermind implementation was executed; portable contract/vectors are supplied for its implementers.",
+    "Multipart catch-up tests inaccessible L1 BLOCKHASH and bounded parts, not four days of wall-clock load."
+  ],
+  "runtime_sha256_initial_harness": [
+    "ad0fec0564390b8a72e0821d059f7cee4e2f55deed08d026ee65991ca4eae076  artifacts/group-cleanup-20261027/source-index-runtime/eez-composer",
+    "dcc0e620d519bcc07a3f114ff20eb7577a1ccf17f0f8da69c5b7d0b78572b346  artifacts/group-cleanup-20261027/source-index-runtime/eez-follower",
+    "942cba77315d768a67c52b5cb96b48ef1ca3dfe0b647e18c687f24e0c80b91d0  artifacts/group-cleanup-20261027/source-index-runtime/eez-proof-signer",
+    "87040860090f6c75aed4bf8f00a468dc925503bfb1128659d18e74afdace4c6b  target/debug/deps/node_e2e-131e4390fdbe836d"
+  ],
+  "portable_encoding_check": {
+    "command": "Foundry cast abi-encode/calldata/to-rlp + keccak against every native-profile-v1.json vector, then declared relationships",
+    "encodings": 18,
+    "relationships": 9,
+    "result": "passed"
+  }
+}

@@ -1,4 +1,13 @@
-# eez-rollup0
+# rollupX
+
+An EEZ rollup implementation derived from
+[eez-association/eez-rollup0](https://github.com/eez-association/eez-rollup0).
+The core contracts are pinned in the `eez-core-protocol` submodule.
+
+This revision targets fresh networks with [permanent L1 history, delayed
+PREVRANDAO and offline v2 proving](docs/proposals/l1-origin-and-offline-proving.md)
+active from genesis. It requires matching new contracts, genesis and L2 datadirs;
+it does not migrate existing deployments.
 
 An L2 rollup where L1 and L2 can call into each other as part of the same
 flow. Four components do the work: a **sequencer** produces L2 blocks (it
@@ -35,6 +44,16 @@ unbound mock signature.
 The [Composer-to-prover gRPC specification](crates/eez-control-rpc/SPEC.md)
 defines request construction, response validation, and settlement recovery for
 the current native-blob profile.
+
+For L2 state reads, select `latest` or an explicit executed block. Synthesized
+`pending` simulations can be unavailable while L1 evidence is unresolved or a
+scheduled history import needs an executed block; see the
+[RPC simulation boundary](docs/proposals/l1-origin-and-offline-proving.md#rpc-simulation-boundary).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development and validation,
+[SECURITY.md](SECURITY.md) for private vulnerability reporting, and
+[LICENSE](LICENSE) for this repository's MIT license. Third-party code and
+dependencies retain their own licenses and notices.
 
 ## Run the local protocol network
 
@@ -125,16 +144,42 @@ the expected cost. Do not start another upstream network runner concurrently.
 | **L2→L1 front** (Outbound) | `http://localhost:18998` | send L2-origin cross-chain txs here |
 
 The two **cross-chain ingress fronts** are transparent, wallet-compatible
-proxies. Each signed transaction is classified with a read-only call trace:
-transactions that enter the source chain's EEZ cross-chain dispatcher are held
+proxies. Each signed transaction is classified with a read-only call trace.
+L2 routing uses the executed head's state and header; L1 routing uses pending
+state. This observation does not reserve a future execution context.
+Transactions that enter the source chain's EEZ cross-chain dispatcher are held
 and composed into the next Sync block, while ordinary transactions are forwarded
-unchanged to the source-chain mempool. Every other `eth_*` method is forwarded as
-well, so a wallet can use one front URL per chain. Classification fails closed:
+unchanged to the source-chain mempool. The fronts also prepare cross-chain
+`eth_estimateGas` calls locally; other `eth_*` methods are forwarded, so a wallet
+can use one front URL per chain. Classification fails closed:
 if tracing is unavailable, the transaction is held rather than allowing a
 cross-chain call to bypass composition. The fronts use the compose env
 `EEZ_L1_XCHAIN_PORT` / `EEZ_L2_XCHAIN_PORT`; both ports are required in composer
 mode. The `eez-follower` binary does not start them.
 Upstreams are `EEZ_L1_RPC_URL` / `EEZ_L2_RPC_URL` respectively.
+
+For wallet gas estimation, supply `from`, `to`, calldata and any intended value,
+nonce, fees and access list. Estimate and submit through the same source-chain
+front. A cross-chain estimate covers **only the user's source transaction**;
+separate system transactions, posting and blob fees are excluded. Omitted block,
+`latest` and `pending` use an isolated next Composer context, without queued
+predecessors or a slot reservation. Historical/state-override cross-chain calls
+are unsupported. Ordinary calls retain upstream estimation after local dispatch
+classification; unavailable local history/context returns an error. Numeric
+historical blocks and state overrides can be classified; `safe`, `finalized` and
+EIP-1898 selectors are unavailable in this first version. Ordinary `pending`
+classification observes local head state, not upstream mempool transactions.
+
+L1 estimation runs real registry preparation (through the configured, recognized
+posting wrapper when present) with one simulation-only proof
+assumption; it does not generate or verify a proof. Actual submission still
+requires the signer and final native preflight. Both fronts share two estimate
+workers, a five-second execution deadline and at most three gas probes. Busy,
+reconciling or changed contexts return an error: retry after the context becomes
+available. A supplied gas field is a ceiling. Estimates remain advisory when
+state, fee fields or bundle position change. See the
+[gas estimation design](docs/proposals/composer-gas-estimation.md) for supported
+execution, validation and upgrade boundaries.
 
 `EEZ_MAX_USER_TXS_PER_BUNDLE` caps how many held user cross-chain transactions,
 combined across both directions, the composer offers to one Sync block. The
@@ -181,7 +226,14 @@ cargo run -p eez-node -- node \
 
 Select the non-default follower role explicitly. `EEZ_L1_CHAIN_ID` must match
 the numeric chain ID served by `EEZ_L1_RPC_URL`. A follower also requires the
-fixed native system address and L2 execution identity to reconstruct Sync blocks:
+fixed native system address and L2 execution identity to reconstruct Sync blocks.
+
+Both roles validate the timing configuration at startup. Export the deployment's
+L1/L2 cadence, proof/slack values and required `EEZ_SETTLEMENT_START_AFTER_BLOCK`
+before running either command. `EEZ_SETTLEMENT_START_DELAY_MS` defaults to zero;
+remove obsolete `EEZ_PREPARATION_TIME_MS` entirely. Followers validate these local
+scheduler fields but do not use them to sequence blocks. See the
+[timing and migration contract](docs/configurable-settlement-policy.md#conditional-slot-production).
 
 ```bash
 # L1-derived follower; optionally add `--sequencer-rpc <URL>` after `node`.
@@ -230,17 +282,17 @@ caching. Details are in
 
 ### L1/L2 settlement correlation RPC
 
-Composer and follower L2 RPCs expose the exact canonical mapping derived from
+Both Composer fronts expose the exact canonical mapping derived from
 accepted `postAndVerifyBatch` transactions:
 
 ```bash
 # L2 number or 32-byte hash -> its L1 posting block/transaction and exact range.
-curl -s http://localhost:18688 \
+curl -s http://localhost:18998 \
   -H 'content-type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"eez_getSettlementByL2Block","params":["0xcc"]}'
 
 # L1 number or 32-byte hash -> zero or more settled L2 ranges.
-curl -s http://localhost:18688 \
+curl -s http://localhost:18998 \
   -H 'content-type: application/json' \
   --data '{"jsonrpc":"2.0","id":2,"method":"eez_getSettledL2RangesByL1Block","params":["0x23"]}'
 ```
@@ -269,8 +321,8 @@ cross-chain fronts**, the L1 and L2 endpoints clients submit through
 (`EEZ_L1_XCHAIN_PORT` / `EEZ_L2_XCHAIN_PORT`, 18999 / 18998 in the Chiado
 profile), so clients can discover the deployment instead of hardcoding it. The
 front answers it locally, also before L1 catch-up completes; it is not served by
-the L2 node RPC, and batches containing it are rejected like other non-`eth_*`
-methods. It takes no
+the regular node RPC. Single requests and read-only JSON-RPC batches are supported.
+It takes no
 parameters (absent, `[]` or `{}`; any argument is rejected with `-32602`) and
 returns the configured contracts, the L1/L2 chain IDs and the Composer version:
 
@@ -298,6 +350,61 @@ manager and the bridge fields (`EEZ_L1_BRIDGE_SENDER`, `EEZ_L2_BRIDGE_RECEIVER`)
 are omitted when unset or empty; a malformed or zero value fails startup.
 `eezL1` is the embedded L1's chain ID and `eezL2` the L2 chain specification's.
 The response is fixed at startup.
+
+Wallets that disallow custom JSON-RPC methods can use `eth_call` through their
+selected injected provider. Composer intercepts only calls to
+`0x7Ae2c80116976915a0Ee9b7994e7Bb12026087f8` with selector `0x98da5085`
+(`composerInfo(bytes32)`). No on-chain contract is needed. For example:
+
+```javascript
+const nonce = Array.from(crypto.getRandomValues(new Uint8Array(32)),
+  byte => byte.toString(16).padStart(2, "0")).join("");
+const encoded = await selectedWalletProvider.request({
+  method: "eth_call",
+  params: [{
+    to: "0x7Ae2c80116976915a0Ee9b7994e7Bb12026087f8",
+    data: "0x98da5085" + nonce,
+  }, "latest"],
+});
+```
+
+ABI-decode `encoded` as `(bytes32 marker, uint256 schemaVersion, bytes32
+echoedNonce, uint256 sourceChainId, bytes info)`. Require marker
+`0xf331ada39582afc2fae4082b2baeb82639a90399d9d6688eda56cc24dd03e734`,
+schema version `1`, your exact nonce, and the wallet's selected source chain ID.
+`info` is UTF-8 JSON containing exactly the existing discovery result above.
+The schema version is independent of the package version in that JSON.
+
+Use `latest` (also the default when omitted); historical/pending tags and
+state/block overrides are rejected. `input` is an alias for `data`; conflicting
+aliases, malformed calldata and nonzero value return `-32602`. A valid optional
+`from` and gas/fee fields are accepted without querying balance or executing the
+EVM. Notifications receive no response, including in mixed batches. Batches
+containing `eth_sendRawTransaction*` remain rejected as a whole.
+
+Detection proves neither submission readiness, provider authenticity nor gas
+estimator compatibility. Empty/malformed replies and provider errors mean the
+client has not established discovery. Address derivation, the ABI and complete
+compatibility policy are in the
+[discovery contract](docs/proposals/composer-wallet-discovery.md).
+
+### Composer-only namespace and client upgrades
+
+**All `eez_*` methods are front-only**, including
+`eez_getCrossChainTransaction`, `eez_getCrossChainQueueStatus`, both correlation
+methods above and `eez_executionWitnessByBlockHash`. Both fronts observe the
+same Composer/L2 state. Ordinary Composer node RPCs and follower RPCs expose no
+`eez_*` methods; ordinary `eth_call` is not a discovery endpoint.
+
+Move queue/correlation clients (including indexer `details.l2_http_url`) to the
+Composer front when upgrading the binary. Keep standard `debug_*` clients on
+the regular node RPC. The augmented witness method requires the Composer's
+HTTP `debug` namespace to be explicitly enabled; restrict access to **both
+fronts** when enabling it. WS/IPC debug settings do not enable front witnesses.
+No storage, genesis, protocol pin or follower replay migration is needed.
+Older fronts do not support these moved methods or virtual discovery; a binary
+rollback requires restoring the old client URLs too. Restart still does not
+preserve in-memory unsettled work.
 
 ## Build, test, teardown
 

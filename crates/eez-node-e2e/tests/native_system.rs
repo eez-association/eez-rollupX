@@ -1,11 +1,15 @@
 //! Live native transaction QA with two independent Composers and two keyless followers.
 
-use alloy_primitives::U256;
+use alloy_primitives::{Address, B256, Bytes, U256};
 use alloy_sol_types::SolCall;
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
+use eez_protocol::l1_history::{HISTORY_ADDRESS, IL1BlockhashContract};
 use serde_json::{Value, json};
 
 use eez_testkit::*;
+
+mod history_upgrade;
+mod treasury;
 
 async fn rpc(url: &str, method: &str, params: Value) -> Result<Value> {
     let response: Value = reqwest::Client::new()
@@ -34,6 +38,8 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
         "genesis must omit the system account entirely"
     );
     let builder = eez_testkit::native::SelectedBuilder::start().await?;
+    let collector: Address =
+        serde_json::from_value(genesis["config"]["rollupX"]["feeCollector"].clone())?;
     let world = setup_cross_chain_with_env(&[
         ("EEZ_COMPOSER_EXPECT_EXTERNAL_BATCHES", "true".to_owned()),
         ("EEZ_L1_BUILDER_RPC_URL", builder.url.clone()),
@@ -46,7 +52,7 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
     let mut owned_follower = None;
     let mut owned_late = None;
     let result: Result<()> = async {
-    owned_composer = Some(eez_testkit::native::spawn_composer(&world, &builder.url).await?);
+    owned_composer = Some(eez_testkit::native::spawn_composer(&world, &builder.url, &[]).await?);
     let composer = owned_composer.as_ref().unwrap();
     owned_follower = Some(eez_testkit::native::spawn_follower(&world, "native-follower-1").await?);
     let follower = owned_follower.as_ref().unwrap();
@@ -70,7 +76,33 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
         );
     }
 
-    // Composer 1 mints a real deposit from an initially absent system account.
+    // Ordinary transactions must burn residual donations in their own closed
+    // block, even without a cross-chain group. Force ETH into the real EEZL2
+    // proxy using a constructor SELFDESTRUCT; no payable receive is assumed.
+    let mut donations = Vec::new();
+    for destination in [system, eez_primitives::EEZL2_ADDRESS] {
+        let (to, input, gas) = if destination == system {
+            (Some(destination), Vec::new(), 21_000)
+        } else {
+            let mut initcode = vec![0x73];
+            initcode.extend_from_slice(destination.as_slice());
+            initcode.push(0xff);
+            (None, initcode, 100_000)
+        };
+        let hash = sign_and_send(&primary_rpc, OUTBOUND_USER, world.l2_chain_id,
+            onchain_nonce(&primary_rpc, OUTBOUND_USER).await?, to, U256::from(7), input, gas).await?;
+        ensure!(wait_for(SETTLE_TIMEOUT, || async { receipt_ok(&primary_rpc, hash).await }).await?,
+            "ordinary donation failed");
+        let receipt = rpc(&primary_rpc, "eth_getTransactionReceipt", json!([hash])).await?;
+        let block = rpc(&primary_rpc, "eth_getBlockByHash", json!([receipt["blockHash"], true])).await?;
+        ensure!(block["transactions"].as_array().context("donation block transactions")?.iter()
+            .all(|tx| tx["type"] != "0x45"), "donation must exercise block-finalization cleanup independently of groups");
+        ensure!(rpc(&primary_rpc, "eth_getBalance", json!([destination, receipt["blockNumber"]])).await? == "0x0",
+            "donation survived its own closed block");
+        donations.push((hash, destination, receipt));
+    }
+
+    // Composer 1 mints a real deposit; native execution never changes the system nonce.
     let inbound = sign_and_send(
         &world.l1_xchain(),
         INBOUND_USER,
@@ -108,10 +140,6 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
         ensure!(
             l2_balance(url, system).await? == U256::ZERO,
             "deposit consumed or retained system funds at {url}"
-        );
-        ensure!(
-            rpc(url, "eth_getTransactionCount", json!([system, "latest"])).await? == "0x1",
-            "deposit nonce at {url}"
         );
     }
 
@@ -191,10 +219,20 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
     })
     .await?;
 
-    // Outbound ETH reaches the system address in the outbound block and is burned
-    // before the next block's first transaction. Keyless followers import only
-    // settled blocks, so the next block is checked on both producing Composers;
-    // followers must later derive the same block hashes.
+    // Settled replay on both Composers and the live/cold followers must burn
+    // the ordinary donations at the same height, not one block later.
+    for (hash, destination, receipt) in &donations {
+        for url in urls {
+            ensure!(rpc(url, "eth_getTransactionReceipt", json!([hash])).await? == *receipt,
+                "ordinary donation receipt differs on {url}");
+            ensure!(rpc(url, "eth_getBalance", json!([destination, receipt["blockNumber"]])).await? == "0x0",
+                "ordinary donation survived its closed block on {url}");
+        }
+    }
+
+    // Outbound ETH is cleared at the complete load/user group's checkpoint.
+    // Both live followers and the cold late follower must agree in the same
+    // settled block; the next block cannot be used to hide missing cleanup.
     let balance_at = |url: String, block: u64| async move {
         rpc(&url, "eth_getBalance", json!([system, format!("0x{block:x}")]))
             .await?
@@ -212,17 +250,22 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
         .await?;
         ensure!(
             balance_at(url.clone(), final_height + 1).await? == U256::ZERO,
-            "outbound ETH must be burned at the next block start on {url}"
+            "protocol balance must remain zero after the group checkpoint on {url}"
         );
     }
+    let final_nonce = rpc(&primary_rpc, "eth_getTransactionCount", json!([system, format!("{final_height:#x}")])).await?;
     for url in urls {
         ensure!(
-            balance_at(url.clone(), final_height).await? == withdrawal,
-            "outbound ETH must reach the system address in its block on {url}"
+            balance_at(url.clone(), final_height).await? == U256::ZERO,
+            "outbound ETH must be cleared in its own group on {url}"
         );
         ensure!(
-            rpc(url, "eth_getTransactionCount", json!([system, "latest"])).await? == "0x2",
-            "native nonces differ at {url}"
+            rpc(url, "eth_getBalance", json!([eez_primitives::EEZL2_ADDRESS, format!("{final_height:#x}")])).await? == "0x0",
+            "EEZL2 residual at the completed group on {url}"
+        );
+        ensure!(
+            rpc(url, "eth_getTransactionCount", json!([system, format!("{final_height:#x}")])).await? == final_nonce,
+            "system account nonce differs at {url}"
         );
         ensure!(
             l2_balance(url, world.recipient).await? == recipient_before + deposit,
@@ -234,7 +277,7 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
         json!({
             "systemGenesisBalance": "0x0", "systemGenesisNonce": "0x0",
             "deposit": deposit, "withdrawal": withdrawal,
-            "finalSystemBalance": withdrawal, "finalSystemNonce": 2,
+            "finalSystemBalance": U256::ZERO, "finalSystemNonce": final_nonce,
         })
     );
 
@@ -244,12 +287,19 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
             .trim_start_matches("0x"), 16)?)
     };
     let genesis_timestamp = quantity(&genesis_block["timestamp"])?;
-    let mut expected_seed = genesis_block["mixHash"].clone();
-    let mut refreshes = std::collections::BTreeMap::new();
-    // Independent oracle: inspect actual accepted commitments and their L1
-    // headers, retaining every same-height occurrence in transaction order.
+    ensure!(world.dep.profile.feeCollector == collector, "collector not bound by deployed profile");
+    ensure!(
+        (world.dep.profile.blockInterval, world.dep.profile.syncInterval, world.dep.profile.updateOffset) == (1, 5, 2),
+        "independent oracle requires the fixture's one-second blocks and three-second update delay"
+    );
+    let mut live_anchors = std::collections::BTreeSet::new();
+    let mut l1_headers = Vec::new();
+    // Check each recorded choice against independently fetched L1 headers.
+    // Later evidence must not replace an earlier valid repeated origin.
     for l1_number in 0..=l1.get_block_number().await? {
-        let accepted = rpc(&primary_rpc, "eez_getSettledL2RangesByL1Block", json!([format!("{l1_number:#x}")])).await?;
+        let header = rpc(&l1_rpc, "eth_getBlockByNumber", json!([format!("{l1_number:#x}"), false])).await?;
+        l1_headers.push((l1_number, quantity(&header["timestamp"])?, header["hash"].clone(), header["mixHash"].clone()));
+        let accepted = rpc(&world.l2_xchain(), "eez_getSettledL2RangesByL1Block", json!([format!("{l1_number:#x}")])).await?;
         for record in accepted.as_array().ok_or_else(|| anyhow::anyhow!("missing accepted ranges"))? {
             let height = quantity(&record["l2Range"]["lastBlockNumber"])?;
             if height > final_height { continue; }
@@ -260,16 +310,28 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
             let containing_timestamp = quantity(&containing["timestamp"])?;
             ensure!(endpoint_timestamp <= containing_timestamp, "future accepted endpoint");
             if endpoint_timestamp == containing_timestamp {
-                refreshes.insert(height, containing["mixHash"].clone());
+                live_anchors.insert(height);
             }
         }
     }
-    ensure!(final_height % 5 == 0 && !refreshes.is_empty(), "no accepted live Sync anchors");
-    let mut blocks_with_refreshed_seed = 0;
+    ensure!(final_height % 5 == 0 && !live_anchors.is_empty(), "no accepted live Sync anchors");
+    let bootstrap_source = l1_headers.iter().rfind(|header| header.1 <= genesis_timestamp - 5)
+        .ok_or_else(|| anyhow::anyhow!("bootstrap source missing"))?;
+    ensure!(genesis_block["mixHash"] == bootstrap_source.3, "bootstrap RANDAO mismatch");
+    let current_call = Bytes::from(IL1BlockhashContract::getLatestImportedL1BlockCall {}.abi_encode());
+    let mut blocks_with_updated_origin = 0;
+    let mut history_updates = Vec::new();
+    let mut last_source_number = bootstrap_source.0;
+    let mut stored_source = None;
 
     let mut native_count = 0;
     let mut incoming_count = 0;
     let mut load_count = 0;
+    let mut collected = U256::ZERO;
+    for url in urls {
+        ensure!(rpc(url, "eth_getBalance", json!([collector, "0x0"])).await? == "0x0",
+            "collector must start unfunded");
+    }
     for number in 1..=final_height {
         let block = rpc(
             &primary_rpc,
@@ -279,8 +341,41 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
         .await?;
         ensure!(quantity(&block["timestamp"])? == genesis_timestamp + number,
             "block {number} timestamp does not follow genesis");
-        ensure!(block["mixHash"] == expected_seed, "block {number} used the wrong accepted-anchor seed");
-        blocks_with_refreshed_seed += usize::from(expected_seed != genesis_block["mixHash"]);
+        let cutoff = if number < 3 { genesis_timestamp - 5 }
+            else { genesis_timestamp + ((number - 3) / 5) * 5 };
+        let transactions = block["transactions"].as_array().unwrap();
+        let updates: Vec<_> = transactions.iter().enumerate()
+            .filter(|(_, tx)| tx["type"] == "0x46")
+            .collect();
+        if !updates.is_empty() {
+            ensure!(number % 5 == 3 && updates.len() == 1 && updates[0].0 == 0,
+                "history must be transaction zero at an eligible fixed-phase block {number}");
+            let call: eez_primitives::HistoryTransaction = serde_json::from_value(updates[0].1.clone())?;
+            ensure!((1..=64).contains(&call.blocks.len()), "invalid import bounds");
+            ensure!(updates[0].1.get("sourceHash").is_none(), "history has no source identity field");
+            for record in &call.blocks {
+                let expected = stored_source.map_or(bootstrap_source.0.max(1), |last| last + 1);
+                ensure!(record.number == expected, "producer must fill consecutive available records");
+                last_source_number = record.number;
+                stored_source = Some(record.number);
+                let header = l1_headers.iter().find(|header| header.0 == last_source_number)
+                    .ok_or_else(|| anyhow::anyhow!("missing L1 header {last_source_number}"))?;
+                ensure!(json!(record.block_hash) == header.2 && header.1 <= cutoff,
+                    "recorded import skipped or changed an eligible L1 header");
+            }
+            history_updates.push((number, last_source_number));
+        }
+        let source = l1_headers.iter().find(|header| header.0 == last_source_number).unwrap();
+        ensure!(block["mixHash"] == source.3, "block {number} used the wrong recorded source RANDAO");
+        blocks_with_updated_origin += usize::from(source.0 > bootstrap_source.0);
+        for url in urls {
+            let returned: Bytes = serde_json::from_value(rpc(url, "eth_call", json!([
+                {"to": HISTORY_ADDRESS, "data": current_call}, format!("{number:#x}")
+            ])).await?)?;
+            let current = IL1BlockhashContract::getLatestImportedL1BlockCall::abi_decode_returns(&returned)?;
+            ensure!(current.number == stored_source.unwrap_or(0) && json!(current.hash) == if stored_source.is_some() { source.2.clone() } else { json!(B256::ZERO) },
+                "history origin differs from header RANDAO at L2 {number} on {url}");
+        }
         for url in &urls[1..] {
             let other = rpc(
                 url,
@@ -290,13 +385,32 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
             .await?;
             ensure!(block == other, "block {number} differs at {url}");
         }
-        for tx in block["transactions"].as_array().unwrap() {
-            if tx["type"] != "0x76" {
+        let mut previous_gas = 0;
+        for tx in transactions {
+            let receipt = rpc(&primary_rpc, "eth_getTransactionReceipt", json!([tx["hash"]])).await?;
+            let gas_used = quantity(&receipt["gasUsed"])?;
+            if tx["type"] != "0x45" && tx["type"] != "0x46" {
+                ensure!(tx["from"] != json!(collector) && tx["to"] != json!(collector),
+                    "collector fixture must not mix fee income with ordinary transfers");
+                collected += U256::from(quantity(&block["baseFeePerGas"])?) * U256::from(gas_used);
+                previous_gas += gas_used;
                 continue;
+            }
+            let expected_gas = if tx["to"] == json!(HISTORY_ADDRESS) { 2_000_000 }
+                else { (quantity(&block["gasLimit"])? - previous_gas).min(1 << 24) };
+            ensure!(quantity(&tx["gas"])? == expected_gas, "native gas must match its exact position");
+            previous_gas += gas_used;
+            ensure!(quantity(&tx["nonce"])? == 0, "native nonce must be a zero RPC placeholder");
+            if tx["type"] == "0x45" {
+                ensure!(tx.get("version").is_none(), "cross-chain envelope has no version field");
+                let source: B256 = serde_json::from_value(tx["sourceHash"].clone())?;
+                ensure!(source != B256::ZERO, "cross-chain source hash must bind the occurrence");
+            } else {
+                ensure!(quantity(&tx["version"])? == 1, "history version must be one");
             }
             native_count += 1;
             ensure!(
-                tx["from"] == "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076",
+                tx["from"] == "0xfffffffffffffffffffffffffffffffffffffffe",
                 "native caller: {tx}"
             );
             for field in ["r", "s", "v"] {
@@ -320,11 +434,14 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
             )) {
                 load_count += 1;
             }
+            if tx["to"] == json!(HISTORY_ADDRESS) {
+                ensure!(tx["value"] == "0x0" && quantity(&tx["gas"])? == 2_000_000,
+                    "history must have zero value and its own gas cap");
+            }
             let hash = &tx["hash"];
-            let native_receipt =
-                rpc(&primary_rpc, "eth_getTransactionReceipt", json!([hash])).await?;
+            let native_receipt = receipt;
             ensure!(
-                native_receipt["type"] == "0x76" && native_receipt["status"] == "0x1",
+                native_receipt["type"] == tx["type"] && native_receipt["status"] == "0x1",
                 "native receipt: {native_receipt}"
             );
             ensure!(
@@ -345,7 +462,7 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
             );
             let raw = rpc(&primary_rpc, "eth_getRawTransactionByHash", json!([hash])).await?;
             ensure!(
-                raw.as_str().is_some_and(|raw| raw.starts_with("0x76")),
+                raw.as_str().is_some_and(|raw| raw.starts_with(tx["type"].as_str().unwrap())),
                 "native raw bytes: {raw}"
             );
             for url in urls {
@@ -364,18 +481,49 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
                 );
             }
         }
-        if let Some(seed) = refreshes.get(&number) {
-            expected_seed = seed.clone(); // This anchor changes only descendants.
+        for url in urls {
+            let balance: U256 = serde_json::from_value(rpc(url, "eth_getBalance",
+                json!([collector, format!("{number:#x}")])).await?)?;
+            ensure!(balance == collected, "collector state differs at block {number} on {url}");
         }
     }
+    ensure!(collected > U256::ZERO, "positive base fee collection was not exercised");
+    ensure!(quantity(&final_nonce)? == 0, "native execution must preserve the system account nonce");
+    ensure!(native_count > 0, "no native transactions exercised");
     ensure!(
         incoming_count > 0 && load_count > 0,
         "did not exercise both native directions: incoming={incoming_count}, load={load_count}"
     );
-    ensure!(blocks_with_refreshed_seed > 0, "did not execute descendants of a live seed refresh");
+    ensure!(blocks_with_updated_origin > 0, "did not execute a delayed origin update");
+    // Include every produced header in the covered range, not only selected
+    // origins. All four independent nodes must retain the same exact mapping.
+    for source in l1_headers.iter().filter(|header| (bootstrap_source.0.max(1)..=last_source_number).contains(&header.0)) {
+        let data = Bytes::from(IL1BlockhashContract::getL1BlockHashCall { number: source.0 }.abi_encode());
+        for url in urls {
+            let returned: Bytes = serde_json::from_value(rpc(url, "eth_call", json!([
+                {"to": HISTORY_ADDRESS, "data": data}, format!("{final_height:#x}")
+            ])).await?)?;
+            let hash = IL1BlockhashContract::getL1BlockHashCall::abi_decode_returns(&returned)?;
+            ensure!(json!(hash) == source.2, "permanent L1 history differs at {} on {url}", source.0);
+        }
+    }
+    // Pin the query to the same executed state on every producer and follower;
+    // subsequent L1 arrivals must not change availability in this block.
+    for number in [last_source_number.checked_add(1).context("history endpoint overflow")?, u64::MAX] {
+        let data = Bytes::from(IL1BlockhashContract::getL1BlockHashCall { number }.abi_encode());
+        for url in urls {
+            let returned: Bytes = serde_json::from_value(rpc(url, "eth_call", json!([
+                {"to": HISTORY_ADDRESS, "data": data}, format!("{final_height:#x}")
+            ])).await?)?;
+            let hash = IL1BlockhashContract::getL1BlockHashCall::abi_decode_returns(&returned)?;
+            ensure!(hash == B256::ZERO, "future history must return zero for {number} on {url}");
+        }
+    }
     println!("derivation evidence: {}", json!({
-        "genesisTimestamp": genesis_timestamp, "syncInterval": 5,
-        "liveAnchorSeeds": refreshes, "blocksAfterSeedRefresh": blocks_with_refreshed_seed,
+        "genesisTimestamp": genesis_timestamp, "syncInterval": 5, "historyDelaySeconds": 3,
+        "liveSyncAnchors": live_anchors, "historyUpdates": history_updates,
+        "blocksWithUpdatedOrigin": blocks_with_updated_origin,
+        "lastImportedL1Number": last_source_number,
     }));
     world.node.assert_no_divergence_failure_logs();
     composer.node.assert_no_divergence_failure_logs();

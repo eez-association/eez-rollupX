@@ -9,6 +9,7 @@ use reth_primitives_traits::SignerRecoverable;
 use super::SemanticTransaction;
 use crate::abi::ExecutionEntrySol;
 use crate::entries::{InboundSidecar, finalize_l1_entry_traces};
+use crate::native_source::{LiveSourceContext, SourceEntry};
 use crate::system_tx::{OutboundSourceEntry, OutboundSyncEffect, OutboundSyncGroup};
 use crate::{Composition, EvmBatch, RollupId};
 
@@ -92,6 +93,15 @@ impl ReconstructionActions {
             } else {
                 return Err(ReconstructionError::Origin(transaction.origin_chain.0));
             };
+            // Failed/reverted roots still require semantic validation. They may
+            // not smuggle a foreign chain through an empty materialized target.
+            if transaction.actions.iter().any(|action| {
+                [action.source_rollup_id, action.target_rollup_id]
+                    .iter()
+                    .any(|id| !id.is_mainnet() && *id != rollup)
+            }) {
+                return Err(ReconstructionError::Table("foreign action chain"));
+            }
             let composition = transaction
                 .materialize()
                 .map_err(|e| ReconstructionError::Materialization(e.to_string()))?;
@@ -115,24 +125,13 @@ impl ReconstructionActions {
                 .collect::<Result<Vec<_>, _>>()?;
             if outbound {
                 let source = &composition.source;
-                if !source.batch.staticEntries.is_empty()
-                    || source.callback_entry_counts.len() != source.batch.entries.len()
-                    || source
-                        .callback_entry_counts
-                        .iter()
-                        .try_fold(0usize, |sum, n| sum.checked_add(*n))
-                        != Some(deliveries.len())
-                {
-                    return Err(ReconstructionError::Table("outbound callback partition"));
+                if !source.batch.staticEntries.is_empty() || !deliveries.is_empty() {
+                    return Err(ReconstructionError::Table(
+                        "standalone outbound callbacks are unsupported",
+                    ));
                 }
                 let mut effects = Vec::new();
-                let mut callbacks = deliveries.into_iter();
-                for (entry, count) in source
-                    .batch
-                    .entries
-                    .iter()
-                    .zip(&source.callback_entry_counts)
-                {
+                for entry in &source.batch.entries {
                     if entry.destinationRollupId != RollupId::MAINNET.0
                         || !entry.rootUpdates.is_empty()
                     {
@@ -140,13 +139,11 @@ impl ReconstructionActions {
                     }
                     effects.push(OutboundSyncEffect {
                         source_entry: OutboundSourceEntry::Mutable(entry.clone()),
-                        callback_entries: callbacks.by_ref().take(*count).collect(),
                     });
                 }
                 effects.extend(source.l2_static_entries.iter().cloned().map(|entry| {
                     OutboundSyncEffect {
                         source_entry: OutboundSourceEntry::Static(entry),
-                        callback_entries: Vec::new(),
                     }
                 }));
                 if effects.is_empty() {
@@ -158,13 +155,66 @@ impl ReconstructionActions {
                     effects,
                     user_tx: transaction.tx_data.clone(),
                 });
+                let hosts = composition
+                    .targets
+                    .iter()
+                    .filter(|target| target.rollup_id.is_mainnet())
+                    .flat_map(|target| &target.batch.entries)
+                    .take(2)
+                    .count();
+                if hosts != 1 {
+                    return Err(ReconstructionError::Table(
+                        "outbound bracket requires one settlement host",
+                    ));
+                }
             } else {
                 if !composition.source.l2_static_entries.is_empty() {
                     return Err(ReconstructionError::Table(
                         "L1 source has L2 static entries",
                     ));
                 }
-                result.inbound.extend(deliveries);
+                let applied = crate::settlement::l1_applied_root_mask(&transaction.actions)
+                    .map_err(ReconstructionError::Materialization)?;
+                let roots = transaction
+                    .actions
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, action)| {
+                        action.parent_index.is_none()
+                            && action.call_mode == crate::CallMode::Mutable
+                    })
+                    .collect::<Vec<_>>();
+                if roots.len() != composition.source.batch.entries.len() {
+                    return Err(ReconstructionError::Table(
+                        "mutable root/settlement row count differs",
+                    ));
+                }
+                let roots = roots
+                    .into_iter()
+                    .filter(|(index, _)| applied[*index])
+                    .collect::<Vec<_>>();
+                if roots.len() != deliveries.len() {
+                    return Err(ReconstructionError::Table(
+                        "inbound root/delivery count differs",
+                    ));
+                }
+                for ((_, action), delivery) in roots.into_iter().zip(deliveries) {
+                    let call_hash = crate::common_cross_chain_call_hash(crate::CallHashInput {
+                        call_mode: action.call_mode,
+                        source_address: action.source_address,
+                        source_rollup_id: action.source_rollup_id,
+                        target_address: action.target_address,
+                        target_rollup_id: action.target_rollup_id,
+                        value: action.value,
+                        data: &action.data,
+                    });
+                    if call_hash != delivery.as_abi_entry().proxyEntryHash {
+                        return Err(ReconstructionError::Table(
+                            "inbound root/delivery identity differs",
+                        ));
+                    }
+                    result.inbound.push(delivery);
+                }
             }
             result.compositions.push(composition);
         }
@@ -182,7 +232,29 @@ impl ReconstructionActions {
         &self.inbound
     }
 
-    /// Match every semantic L1 table to its exact supplied settlement table.
+    /// Whole-group ordinals from the complete Live Sync stream, before any
+    /// consumed-prefix filtering. Every outbound bracket counts once; only
+    /// applying inbound deliveries count. Full DA/execution and accepted-root
+    /// checks authenticate this sequence across postings in the same L1 block.
+    pub fn source_entries(
+        &self,
+        context: &LiveSourceContext,
+    ) -> Result<Vec<SourceEntry>, ReconstructionError> {
+        self.outbound
+            .iter()
+            .map(|_| ())
+            .chain(self.inbound.iter().map(|_| ()))
+            .enumerate()
+            .map(|(index, ())| {
+                let index = u64::try_from(index)
+                    .map_err(|_| ReconstructionError::Table("group index exceeds uint64"))?;
+                Ok(context.entry(index))
+            })
+            .collect()
+    }
+
+    /// Match every semantic L1 table to its exact supplied settlement table,
+    /// requiring the signer's supported dispatch profile.
     /// Only root updates/pins are supplied by settlement: their values still
     /// require independent execution/commitment authorization by the caller.
     /// No extra semantic or settlement suffix is accepted.
@@ -192,10 +264,44 @@ impl ReconstructionActions {
                 "immediate static entries are unsupported",
             ));
         }
+        let boundary = self.bind_observed_settlement(batch)?;
+        if batch.immediateEntryCount != alloy_primitives::U256::from(boundary) {
+            return Err(ReconstructionError::Settlement(
+                "immediate count differs from outbound boundary",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Bind canonical L1 settlement tables independently of the poster's dispatch choice.
+    /// Returns the first inbound table index, derived from the semantic stream,
+    /// not from the unproven immediate counts. The caller must authenticate L1
+    /// inclusion and blob commitments independently. This does not establish which
+    /// entries executed: callers must still reconcile canonical root advancement.
+    /// This does not enforce signer admission: producers/signers need their stricter
+    /// dispatch checks (as in [`Self::bind_settlement`]) in addition to table binding.
+    pub fn bind_observed_settlement(&self, batch: &EvmBatch) -> Result<usize, ReconstructionError> {
+        // Each outbound semantic transaction has exactly one settlement host.
+        let boundary =
+            self.outbound
+                .len()
+                .checked_add(1)
+                .ok_or(ReconstructionError::Settlement(
+                    "outbound boundary overflow",
+                ))?;
         let immediate = usize::try_from(batch.immediateEntryCount)
             .map_err(|_| ReconstructionError::Settlement("immediate count overflow"))?;
-        if immediate == 0 || immediate > batch.entries.len() {
+        let immediate_static = usize::try_from(batch.immediateStaticEntryCount)
+            .map_err(|_| ReconstructionError::Settlement("immediate static count overflow"))?;
+        if immediate < boundary || immediate > batch.entries.len() {
             return Err(ReconstructionError::Settlement("invalid immediate count"));
+        }
+        if immediate_static > batch.staticEntries.len()
+            || (immediate_static != 0 && immediate == boundary)
+        {
+            return Err(ReconstructionError::Settlement(
+                "invalid immediate static count",
+            ));
         }
         let (anchor, rest) = batch
             .entries
@@ -204,8 +310,8 @@ impl ReconstructionActions {
         if !crate::settlement::is_root_only_entry(anchor, self.rollup.0) {
             return Err(ReconstructionError::Settlement("invalid anchor shape"));
         }
-        let mut outbound = &rest[..immediate - 1];
-        let mut inbound = &batch.entries[immediate..];
+        let mut outbound = &rest[..boundary - 1];
+        let mut inbound = &batch.entries[boundary..];
         let mut statics = batch.staticEntries.as_slice();
         for composition in &self.compositions {
             let mut composition = composition.clone();
@@ -250,7 +356,7 @@ impl ReconstructionActions {
         if !outbound.is_empty() || !inbound.is_empty() || !statics.is_empty() {
             return Err(ReconstructionError::Settlement("unused settlement entries"));
         }
-        Ok(())
+        Ok(boundary)
     }
 }
 

@@ -1,0 +1,148 @@
+{
+  "live_runtime_image": "sha256:030765e36a9ef21fee9cac7a673dd91d0547c3644a6a9ca87a32928c7a9437fb",
+  "live_runtime_source_label": "a7fee49d04be78a01220a85d37042489ba082e35",
+  "runtime_baseline": "897ec9d64b0b32b1daf2804f4ab5e1f546d08a32",
+  "runtime_candidate": "4e84688cfcaba3b5c689cf0bf0e84f8026c67174",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "read_only_live_probes": {
+    "discovery": [
+      {
+        "front": "/composer/l1",
+        "tag": "latest",
+        "resultBytes": 480,
+        "error": null
+      },
+      {
+        "front": "/composer/l1",
+        "tag": "0x167069f",
+        "resultBytes": null,
+        "error": {
+          "code": -32602,
+          "message": "Composer discovery supports only the latest block tag"
+        }
+      },
+      {
+        "front": "/composer/l2",
+        "tag": "latest",
+        "resultBytes": 480,
+        "error": null
+      },
+      {
+        "front": "/composer/l2",
+        "tag": "0x9ff58",
+        "resultBytes": null,
+        "error": {
+          "code": -32602,
+          "message": "Composer discovery supports only the latest block tag"
+        }
+      }
+    ],
+    "estimates": [
+      {
+        "sample": 0,
+        "time": 1792048772.215379,
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "0x1a01a"
+        }
+      },
+      {
+        "sample": 1,
+        "time": 1792048778.2812667,
+        "response": {
+          "error": {
+            "code": -32000,
+            "message": "cross-chain estimation unavailable: settlement reconciliation pending"
+          },
+          "id": 1,
+          "jsonrpc": "2.0"
+        }
+      },
+      {
+        "sample": 2,
+        "time": 1792048789.6021464,
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "0x1a01a"
+        }
+      },
+      {
+        "sample": 3,
+        "time": 1792048796.1137123,
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "0x1a01a"
+        }
+      },
+      {
+        "sample": 4,
+        "time": 1792048802.353041,
+        "response": {
+          "id": 1,
+          "jsonrpc": "2.0",
+          "result": "0x1a01a"
+        }
+      }
+    ]
+  },
+  "limits": [
+    "No signatures, broadcasts, live restarts or deployment",
+    "The supplied wallet stack lacks the original eth_call payload; numeric rewriting matches verified MetaMask middleware and reproduces the same server rejection",
+    "Gas probes replay an existing public fixture, not the user transaction whose full input was not supplied"
+  ],
+  "dashboard_candidate": "4957a1c9cba1a3ad6bbc94d70d85cfd4574c0b82",
+  "runtime_executable_sha256": {
+    "eez-composer": "4d90806954bfa4fdb52daa78022844c59d8004badfa4d92fdb9b8c1a4497a73b",
+    "eez-follower": "7799c40c246c550ed74ab96f8b1d07ed76b83905b77e18ebb1a4283787001128",
+    "eez-proof-signer": "991d0cd4bd0680cdf0f6bf2a290cec7fd9272f7351204bf611fd0fec440c2609"
+  },
+  "local_only_log_sha256": {
+    "discovery-baseline.log": "b8536817925171e0b02f6d2bdb6bada63c60e68627afdd101144232d3848b698",
+    "units.log": "cc8708fb4de1b05116e49f98015d5036cf2245eb1313808f8fc5c7368347435d",
+    "units-fixed.log": "bf6215cbbad0c106f0cb8c2195a11e696c42189fe0ba340ff8e3432ae01753aa",
+    "clippy.log": "457d9abde7a6ecd6153ae73fce7eb6a97bc2fe405a53326c0ce7c30b31fdd23d",
+    "contracts.log": "ac7b1f9ad75d7755daf1a3091c50dd3479edb27464a771e65c283619c9d1b55f",
+    "process.log": "1643e014e6d28f86eae2e40b2d4ebd2e31ebcebb003dd02f2fdc1dd77cf603bf"
+  },
+  "validation": {
+    "baseline_discovery": {
+      "passed": 0,
+      "failed": 1,
+      "filtered": 83
+    },
+    "baseline_ui_retry_tests": {
+      "passed": 1,
+      "failed": 3
+    },
+    "composer_units": {
+      "passed": 343,
+      "failed": 0,
+      "ignored": 1
+    },
+    "node_units": {
+      "passed": 85,
+      "failed": 0,
+      "ignored": 0
+    },
+    "native_wallet_processes": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 141,
+      "seconds": 240.98,
+      "structured_context_retries": 18
+    },
+    "dashboard_retry_tests": 4,
+    "dashboard_discovery_tests": 27,
+    "dashboard_build": "passed",
+    "browser_bridge_scenarios": 27,
+    "browser_wallet_scenarios": 16,
+    "browser_fee_scenarios": 6,
+    "workspace_clippy_all_targets": "passed",
+    "formatting": "passed",
+    "documentation": "passed"
+  }
+}

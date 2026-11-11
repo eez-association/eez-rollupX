@@ -1,0 +1,105 @@
+{
+  "checked_utc": "2026-10-23T17:25:00.681002+00:00",
+  "result": "PASS",
+  "matrix_rows": 58,
+  "unique_matrix_ids": 58,
+  "missing_reference_definitions": [],
+  "missing_local_targets": [],
+  "table_column_errors": [],
+  "immutable_spec_files_checked": 40,
+  "remote_citations_revision_and_line_bounds": "PASS",
+  "json_syntax": "PASS",
+  "git_diff_check": {
+    "invocation": "git diff --no-index --check /dev/null <audit file>",
+    "note": "exit 1 with no diagnostics is expected for added files under --no-index; no whitespace errors reported",
+    "files": [
+      {
+        "file": "README.md",
+        "exit_code": 1,
+        "diagnostics": ""
+      },
+      {
+        "file": "baseline-end.json",
+        "exit_code": 1,
+        "diagnostics": ""
+      },
+      {
+        "file": "baseline-start.json",
+        "exit_code": 1,
+        "diagnostics": ""
+      },
+      {
+        "file": "concurrent-changes.json",
+        "exit_code": 1,
+        "diagnostics": ""
+      },
+      {
+        "file": "documentation-checks.json",
+        "exit_code": 1,
+        "diagnostics": ""
+      },
+      {
+        "file": "external-references.json",
+        "exit_code": 1,
+        "diagnostics": ""
+      },
+      {
+        "file": "matrix-summary.json",
+        "exit_code": 1,
+        "diagnostics": ""
+      },
+      {
+        "file": "post-snapshot-source-status.json",
+        "exit_code": 1,
+        "diagnostics": ""
+      },
+      {
+        "file": "remote-identity.json",
+        "exit_code": 1,
+        "diagnostics": ""
+      },
+      {
+        "file": "source-evidence.json",
+        "exit_code": 1,
+        "diagnostics": ""
+      },
+      {
+        "file": "specs-files.json",
+        "exit_code": 1,
+        "diagnostics": ""
+      },
+      {
+        "file": "v0-comparison.json",
+        "exit_code": 1,
+        "diagnostics": ""
+      }
+    ]
+  },
+  "offline_draft_vectors": {
+    "command": "python3 artifacts/validation/specs-divergence-audit/specs-draft/companion-docs/check-wire-vectors.py",
+    "observed_exit_code": 0,
+    "observed_stdout": "PASS: EEZ vectors 4–6 (entry ABI, entry hash, shared input, proof-system folds)",
+    "scope": "bundled historical EEZ digest only, not current core or end-to-end rollupX"
+  },
+  "cast_identity_at_close": {
+    "path": "/home/edu/.foundry/bin/cast",
+    "version": "1.7.1",
+    "commit": "4072e48705af9d93e3c0f6e29e93b5e9a40caed8",
+    "sha256": "ccd95a4607ca3ebfcb88bb90e7235cdb7f0564f5f1afa17478d5fccabbb222cb"
+  },
+  "v0_comparison": "PASS independent Python construction; neither Rust codec executed",
+  "runtime_tests_builds_services_deployments_run": false,
+  "artifact_sha256": {
+    "README.md": "1c28ee04b6078403b931fd10cc3a4268436b71f445088cd603b1879e1d8f0e7f",
+    "baseline-end.json": "662f4b782d4a94feb9e2c001265cbd4fc87b3cb25c5be317ac43972529819162",
+    "baseline-start.json": "f76317de624f424b18a5e6dd82cb65f2b93293e8c6c6a2426e28004a1c4e39e9",
+    "concurrent-changes.json": "622148a1c26957c68fd7b1d5786407dd52f7ed4fad6ace513f7eedbe8e287811",
+    "external-references.json": "57364d1702a757b7a359eb7effe6de56c72779e57a5128637b264a6bdaab6d1c",
+    "matrix-summary.json": "cf15aa643d79c5a28f16d9bf44980dc66a3cc2d4583f859d5db1d2625892082f",
+    "post-snapshot-source-status.json": "f82e7bd96ff3a1711297e156c371ea8c8f650b79eba2cfaeb3929fb6de90954c",
+    "remote-identity.json": "f1c9c82b24f1805f90264c88b8f23b8498c7fdd692e5429bc6515457362137b5",
+    "source-evidence.json": "624d3e5fabc1321ae003d47f8ca4d2933ac4c14ac782f8fe3b53c8abc8163185",
+    "specs-files.json": "6c1d56d670fc019b66317485e0339c5f008ddbe98ab77f43332031daf2544eaf",
+    "v0-comparison.json": "28753f609d776b5c170190481a05eeb6354453857eca0310bdefc287feac4b71"
+  }
+}

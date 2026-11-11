@@ -1,0 +1,23 @@
+{
+  "base_commit": "3e23955dc477c9e675364776f118b1cecda75774",
+  "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "profile": "local debug, source-based node_e2e plus standalone source-built signer; no published artifacts",
+  "process_cases": [
+    "cross_chain::outbound_changing_static_reads_and_write_settle_and_replay"
+  ],
+  "binaries": {
+    "eez-composer": {
+      "sha256": "db7167e62b9b0b4d0fd4ef58ecf505f81c9836696905c453322a2229d4332f46",
+      "bytes": 854435072
+    },
+    "eez-follower": {
+      "sha256": "8f87cf5108023b379c48ecfdf921b765b235c9491d826966550e4ad4363709fd",
+      "bytes": 712652224
+    },
+    "eez-proof-signer": {
+      "sha256": "9916cee70c2747b49cb1884f7accd7775bb15e94c34898a6bb91a6ea1155916f",
+      "bytes": 470900664
+    }
+  },
+  "scope": "Hashes retained immediately after the final capture. Earlier source runs passed, but their executable hashes were not saved before subsequent Cargo builds; do not assume byte identity with this run."
+}

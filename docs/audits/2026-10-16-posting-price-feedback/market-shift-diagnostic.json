@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-10-16T13:23:47.375186Z",
+  "transaction": "0xad59797efa6ac4aadd3de04eb1dccbb05f0be00b2e629b1dcd773da9aeaf7815",
+  "error": {
+    "code": "l2_tip_underfunded",
+    "details": {
+      "l1BlobPrice": "0x1",
+      "l1ExecutionPrice": "0x786428e2",
+      "l1PriorityFeePerGas": "0x77359400",
+      "l1Sample": {
+        "hash": "0xffac2c668f1bebb237c8311094ce426ace079c78c97ece2505d51025b6525e21",
+        "number": "0x1d"
+      },
+      "l2Parent": {
+        "hash": "0x9b0574aad860af6eb3e743f2c17c02e0732cdc4f60cfe25a10a4f0b7ac749357",
+        "number": "0x91"
+      },
+      "offeredPayment": "0x321a5acef34e6",
+      "paymentBasis": "gross_priority_payment",
+      "paymentChainId": "0x1",
+      "reason": "settlement_fee",
+      "requiredPayment": "0x51e8e319dd108",
+      "scope": "source",
+      "shortfall": "0x1fce884ae9c22",
+      "sourceBaseFeePerGas": "0x3215f92",
+      "sourceGasUsed": "0x1c6b6"
+    },
+    "message": "signed L2 priority payment does not cover the configured settlement tariff"
+  }
+}

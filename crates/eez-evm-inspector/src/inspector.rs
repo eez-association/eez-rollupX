@@ -35,6 +35,9 @@ use crate::overlay::OverlayChannelHandle;
 use eez_protocol::{CallMode, CompositionBuilder, ExecutorError, ProxyLookupConfig, RollupId};
 use eez_protocol::{ProxyInfo, decode_proxy_value, proxy_mapping_key};
 
+/// Bytes of a cross-chain call's return or revert data kept in its log line.
+const LOGGED_RETURN_BYTES: usize = 256;
+
 /// Look up `authorizedProxies[addr]` from the live EVM state at the
 /// hook site.
 ///
@@ -67,52 +70,26 @@ fn lookup_authorized_proxy_live<CTX: ContextTr + Host>(
 
 /// Clone this rollup's in-flight cache with journal-live values.
 ///
-/// revm keeps mid-transaction writes in its journal, while loaded cache
-/// entries can still contain their pre-write values. Refresh every loaded
-/// account and slot through `Host` before sharing the cache. An `SSTORE`
-/// first loads its slot, so the cache already identifies every storage key
-/// that needs refreshing.
+/// The DB cache still contains pre-transaction values. In particular, a new
+/// contract's constructor storage may exist only in the journal: CREATE does
+/// not load those slots from the DB. Apply the full live account changes to a
+/// cloned cache using REVM's own conversion, including code and creation state.
+/// Neither the source DB nor its rollback journal is committed here.
 fn live_cache_snapshot<'db, DB, CTX>(context: &mut CTX) -> CacheState
 where
     CTX: ContextTr<Db = &'db mut State<DB>> + Host,
+    CTX::Journal: JournalTr<State = revm::state::EvmState>,
     DB: 'db,
 {
     let mut cache = context.db_mut().cache.clone();
-    // Collect keys first: the refresh loops below mutate `cache` while
-    // reading live values through `context`.
-    let mut addrs: Vec<Address> = Vec::new();
-    let mut slots: Vec<(Address, alloy_primitives::U256)> = Vec::new();
-    for (addr, acc) in &cache.accounts {
-        addrs.push(*addr);
-        if let Some(plain) = acc.account.as_ref() {
-            for slot in plain.storage.keys() {
-                slots.push((*addr, *slot));
-            }
-        }
-    }
-    // Read live storage values through the journal-aware host.
-    for (addr, slot) in slots {
-        if let Some(load) = context.sload(addr, slot)
-            && let Some(plain) = cache
-                .accounts
-                .get_mut(&addr)
-                .and_then(|a| a.account.as_mut())
-        {
-            plain.storage.insert(slot, load.data);
-        }
-    }
-    // Read live balances and nonces through the host.
-    for addr in addrs {
-        if let Ok(info) = context.load_account_info_skip_cold_load(addr, false, true)
-            && let Some(plain) = cache
-                .accounts
-                .get_mut(&addr)
-                .and_then(|a| a.account.as_mut())
-        {
-            plain.info.balance = info.balance;
-            plain.info.nonce = info.nonce;
-        }
-    }
+    let _ = cache.apply_evm_state(
+        context
+            .journal_ref()
+            .evm_state()
+            .iter()
+            .map(|(address, account)| (*address, account.clone())),
+        |_, _| {},
+    );
     cache
 }
 
@@ -275,6 +252,7 @@ impl SessionInspector<'_> {
 impl<'db, DB, CTX> Inspector<CTX> for SessionInspector<'_>
 where
     CTX: ContextTr<Db = &'db mut State<DB>> + Host,
+    CTX::Journal: JournalTr<State = revm::state::EvmState>,
     DB: 'db,
 {
     fn initialize_interp(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
@@ -353,21 +331,27 @@ where
         };
         // Dispatch is synchronous, so this inspector can exchange cache
         // snapshots around the nested execution.
-        // Snapshot this rollup's in-flight cache before dispatch. If the
-        // downstream call re-enters this rollup, the new session preloads the
-        // snapshot and publishes its updated cache for this frame to apply.
+        // Open a frame with this rollup's in-flight cache. If the downstream
+        // call re-enters this rollup, the new session preloads the snapshot
+        // and publishes its updated cache into this frame.
         self.overlay_channel
-            .push_pre_snapshot(live_cache_snapshot(context));
+            .open_frame(live_cache_snapshot(context));
         let sim = self.dispatcher.dispatch_call(info.original_rollup_id, req);
-        // A downstream session that re-entered this rollup publishes its
-        // post-execution cache on the same channel. Apply that diff before
-        // this EVM frame continues. The popped pre-snapshot is the exact
-        // cache pushed above (same thread, LIFO, re-entered sessions only
-        // peek), so it serves as the diff baseline without a second clone.
-        let before_snapshot = self.overlay_channel.pop_pre_snapshot();
-        if let (Some(before), Some(after)) =
-            (before_snapshot, self.overlay_channel.pop_post_cache())
-            && let Err(e) = crate::overlay::apply_overlay_diff(context, &before, &after)
+        // Apply only a result published during this dispatch, before this EVM
+        // frame continues. A failed target call reverts every callback it
+        // made, so its result is discarded. The frame's snapshot is the exact
+        // cache recorded above (same thread; re-entered sessions only peek),
+        // so it serves as the diff baseline without a second clone.
+        let frame = self.overlay_channel.close_frame();
+        let succeeded = sim
+            .as_ref()
+            .is_ok_and(eez_protocol::ExecutionOutcome::is_success);
+        if let Some(crate::overlay::DispatchFrame {
+            pre_dispatch,
+            result: Some(result),
+        }) = frame
+            && succeeded
+            && let Err(e) = crate::overlay::apply_overlay_diff(context, &pre_dispatch, &result)
         {
             self.record_error(ExecutorError::evm(format!(
                 "overlay diff-apply failed: {e}"
@@ -394,6 +378,14 @@ where
         };
 
         let success = sim.is_success();
+        let return_data: Bytes = sim
+            .return_data()
+            .map(<[u8]>::to_vec)
+            .unwrap_or_default()
+            .into();
+        // A failed target's revert data is the only clue to why a source
+        // later fails; keep a bounded prefix so the line stays log-sized.
+        let logged = &return_data[..return_data.len().min(LOGGED_RETURN_BYTES)];
         tracing::info!(
             dest = %info.original_address,
             rollup_id = %info.original_rollup_id,
@@ -404,14 +396,10 @@ where
             value = %call_value,
             target_result = if success { "ok" } else { "REVERT" },
             target_gas = sim.gas_used().unwrap_or(0),
+            return_len = return_data.len(),
+            return_data = %alloy_primitives::hex::encode_prefixed(logged),
             "cross-chain proxy call detected"
         );
-
-        let return_data: Bytes = sim
-            .return_data()
-            .map(<[u8]>::to_vec)
-            .unwrap_or_default()
-            .into();
 
         // Surface a failed cross-chain sim as `Revert` to the surrounding
         // EVM — the outer Solidity frame should see the call as reverted
@@ -465,6 +453,65 @@ mod tests {
     use revm::context::Context;
     use revm::database::{CacheDB, EmptyDB};
 
+    #[test]
+    fn live_snapshot_includes_created_code_and_constructor_storage_without_committing() {
+        use revm::bytecode::Bytecode;
+        use revm::context_interface::journaled_state::account::JournaledAccountTr;
+        use revm::primitives::{bytes, hardfork::SpecId};
+
+        let child = Address::with_last_byte(0x42);
+        let code = Bytecode::new_raw(bytes!("602a60005260206000f3"));
+        let mut db = State::builder().with_database(EmptyDB::default()).build();
+        let mut context = Context::mainnet().with_db(&mut db);
+        let outer = context.journal_mut().checkpoint();
+        context.journal_mut().load_account(child).unwrap();
+        context
+            .journal_mut()
+            .create_account_checkpoint(child, child, U256::ZERO, SpecId::PRAGUE)
+            .unwrap();
+        context.journal_mut().checkpoint_commit();
+        {
+            let mut account = context.journal_mut().load_account_mut(child).unwrap();
+            account.data.set_code_and_hash_slow(code.clone());
+            account.data.set_balance(U256::from(17));
+            account.data.set_nonce(2);
+        }
+        context
+            .journal_mut()
+            .sstore(child, U256::ZERO, U256::from(41))
+            .unwrap();
+        let original_cache = context.db_mut().cache.clone();
+        let original_journal = context.journal_ref().evm_state().clone();
+        assert!(original_cache.accounts[&child].account.is_none());
+
+        let snapshot = live_cache_snapshot(&mut context);
+        let account = snapshot.accounts[&child].account.as_ref().unwrap();
+        assert_eq!(account.info.code_hash, code.hash_slow());
+        assert_eq!(account.info.code.as_ref(), Some(&code));
+        assert_eq!(account.info.nonce, 2);
+        assert_eq!(account.info.balance, U256::from(17));
+        assert_eq!(account.storage[&U256::ZERO], U256::from(41));
+        assert_eq!(snapshot.contracts[&code.hash_slow()], code);
+        assert_eq!(context.db_mut().cache, original_cache);
+        assert_eq!(context.journal_ref().evm_state(), &original_journal);
+
+        // Another dispatch must see the source's later write, and an enclosing
+        // revert must leave no created code in any subsequent snapshot.
+        context
+            .journal_mut()
+            .sstore(child, U256::ZERO, U256::from(42))
+            .unwrap();
+        let snapshot = live_cache_snapshot(&mut context);
+        assert_eq!(
+            snapshot.accounts[&child].account.as_ref().unwrap().storage[&U256::ZERO],
+            U256::from(42)
+        );
+        context.journal_mut().checkpoint_revert(outer);
+        let snapshot = live_cache_snapshot(&mut context);
+        assert!(snapshot.accounts[&child].account.is_none());
+        assert!(!snapshot.contracts.contains_key(&code.hash_slow()));
+    }
+
     const EEZ_ADDRESS: Address = address!("0x1111111111111111111111111111111111111111");
     const EEZL2_ADDRESS: Address = address!("0x4444444444444444444444444444444444444444");
     const PROXY_ADDR: Address = address!("0x2222222222222222222222222222222222222222");
@@ -495,6 +542,55 @@ mod tests {
         (),
     > {
         Context::mainnet().with_db(CacheDB::<EmptyDB>::default())
+    }
+
+    #[test]
+    fn proxy_code_context_calls_are_left_to_the_evm_without_dispatch() {
+        use revm::interpreter::CallValue;
+        // Register both the code and execution-context addresses. Even an
+        // authorized context must not be mistaken for a normal proxy CALL by
+        // the composition hook; the actual manager call remains EVM execution.
+        for scheme in [CallScheme::DelegateCall, CallScheme::CallCode] {
+            let mut db = State::builder().with_database(EmptyDB::default()).build();
+            let mut context = Context::mainnet().with_db(&mut db);
+            context.journal_mut().load_account(EEZ_ADDRESS).unwrap();
+            for address in [PROXY_ADDR, DESTINATION_ADDR] {
+                context
+                    .journal_mut()
+                    .sstore(
+                        EEZ_ADDRESS,
+                        proxy_mapping_key(address, EEZ_AUTHORIZED_PROXIES_SLOT).into(),
+                        packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP),
+                    )
+                    .unwrap();
+            }
+            let mut dispatcher = CompositionBuilder::new(RollupId::MAINNET, Default::default());
+            let factory = SessionInspectorFactory::new(
+                lookup(EEZ_ADDRESS, EEZ_AUTHORIZED_PROXIES_SLOT),
+                RollupId::MAINNET,
+                crate::overlay::new_overlay_channel(),
+            );
+            let mut inspector = factory.build(&mut dispatcher);
+            let mut inputs = CallInputs {
+                input: Default::default(),
+                return_memory_offset: 0..0,
+                gas_limit: 100_000,
+                reservoir: 0,
+                bytecode_address: PROXY_ADDR,
+                known_bytecode: Default::default(),
+                target_address: DESTINATION_ADDR,
+                caller: Address::with_last_byte(7),
+                value: CallValue::Apparent(U256::ZERO),
+                scheme,
+                is_static: false,
+                charged_new_account_state_gas: false,
+            };
+            assert!(inspector.call(&mut context, &mut inputs).is_none());
+            assert!(inspector.take_error().is_none());
+            assert_eq!(inspector.dispatcher.recorded_count(), 0);
+            assert_eq!(inspector.frame_boundaries.len(), 1);
+            assert!(!inspector.frame_boundaries[0].intercepted_cross_chain);
+        }
     }
 
     #[test]

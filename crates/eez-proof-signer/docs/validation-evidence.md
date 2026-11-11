@@ -34,9 +34,18 @@ flowchart TB
 
 ## Startup initialization
 
-At startup, [`validate/stateless.rs`](../src/validate/stateless.rs) loads the
-operator-configured Alloy `ChainConfig` or complete `Genesis` document once,
-then builds the Reth `ChainSpec` and EVM configuration shared by every request.
+At startup, the service loads the complete fresh-network L2 `Genesis` and local
+L1 rule profile, then builds the Reth `ChainSpec`, fixed offline profile and
+EVM configuration. Startup does not fetch chain data.
+
+Before block replay, [stream validation](../src/validate/streaming.rs) extends
+the checked raw L1-header chain and freezes its evidence for execution. The
+history validator authenticates the previous endpoint against L2 storage,
+checks any recorded scheduled update and verifies synchronized PREVRANDAO,
+including inheritance when the update is omitted. Finalize
+still must resolve recorded origin membership, exact anchor termination and the accepted
+L2 commitment through the selected mode. A validated block ACK alone cannot
+authorize a signature.
 
 ## Per-request adapter stages
 
@@ -67,10 +76,13 @@ independently recomputed post-state root. The adapter carries those returned
 values into `BackendWindowOutput`; it does not promote a copied Composer or
 header claim merely by renaming it.
 
-The terminal block always uses checkpoint-enabled replay, including an empty
-selection, to expose its state after mandatory pre-execution. B[0] commits that
-state plus the ordinary transaction prefix. An empty checkpoint vector does
-not authorize an effect position. Preceding blocks use ordinary replay.
+A terminal containing native system transactions uses checkpoint-enabled replay
+to expose its state after mandatory pre-execution. B[0] commits that state plus
+the ordinary transaction prefix. Ordinary and empty terminals use normal replay;
+their fully validated block hash already commits the complete ordinary prefix.
+An empty checkpoint vector does not authorize an effect position. Preceding
+blocks use ordinary replay. V2 retains each block as a possible terminal, then
+checks the actual intermediate-block restrictions again at Finalize.
 
 ## One associated output per block
 
@@ -118,6 +130,13 @@ fork. The fork adds opt-in selected transaction-state checkpoints and returns
 the computed pre-state and post-state roots already produced during validation.
 Consensus, execution, receipt, gas, and state-root validation remain
 Stateless/Reth responsibilities.
+
+RollupX uses the shared [`eez-evm` adapter](../../eez-evm/src/stateless.rs)
+to close disposable checkpoint trie inputs without clearing the continuing
+execution. It independently checks the actual terminal bundle with the ordinary
+trie, so checkpoint projection cannot repair a missing finalization transition.
+FIFO observation replay uses the unfinalized transaction boundary; its pin binds
+the closed prefix's body and execution parent, not an RPC read of its state root.
 
 A fork change must keep the extension narrow and pass that repository's tests
 before this crate updates its pin. The pin update must also pass this crate's

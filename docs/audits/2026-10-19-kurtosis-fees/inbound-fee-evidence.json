@@ -1,0 +1,55 @@
+{
+  "scope": "First four-source fee-enabled inbound wave; private test funds; not a single-source margin test",
+  "blockHash": "0x33305c2e0a9ed8fdab1b9e5d1281cd05e82b9afa418864d8bc83f4dbe75d33d5",
+  "blockNumber": 32,
+  "beneficiary": "0xb9e79d19f651a941757b35830232e7efc77e1c79",
+  "baseFeePerGas": "14566804",
+  "sources": [
+    {
+      "hash": "0x6b28338e0186f161bd434383b02829ac36f0a5341ecbc875b9ad5fe6ede7f1f9",
+      "gasUsed": 89641,
+      "feeWei": "511942666573525",
+      "priorityPaymentWei": "510636883696161"
+    },
+    {
+      "hash": "0x366bfa101e81ef1f3ae23698524e93883be823a8e37c3e8e9dc45f0f2e45e6f6",
+      "gasUsed": 85156,
+      "feeWei": "245508907444820",
+      "priorityPaymentWei": "244268456683396"
+    },
+    {
+      "hash": "0xbc47a50afe19d7aaa4ec8f50af4bd4dd5a29a9025893b93036288424883d694d",
+      "gasUsed": 111263,
+      "feeWei": "251596479540450",
+      "priorityPaymentWei": "249975733226998"
+    },
+    {
+      "hash": "0x049015895a9752bad15eb5b695c433868225080c6d1332e2f36d5b5abca13cab",
+      "gasUsed": 161234,
+      "feeWei": "339730003873540",
+      "priorityPaymentWei": "337381339797404"
+    }
+  ],
+  "posts": [
+    {
+      "hash": "0xb2c121961d8dd0ea64a8abb53b6370e27d60c4f0dd139df24625ff7d5c56b22c",
+      "gasUsed": 952707,
+      "costWei": "966584896269500",
+      "status": "0x1"
+    }
+  ],
+  "refunds": [
+    {
+      "hash": "0x50549b3197da92e71a0b8797fe0f448a38c948b7c15b27bfacbae9d1fadeb2b5",
+      "from": "0xb9e79d19f651a941757b35830232e7efc77e1c79",
+      "valueWei": "459267292442544",
+      "gasCostWei": "305902884000",
+      "status": "0x1"
+    }
+  ],
+  "largestSourceTipWei": "510636883696161",
+  "netRecoveryAfterPostingWei": "-507317603826956",
+  "refundPercent": 90,
+  "expectedRefundWei": "459267292442544",
+  "refundMatchesLargestSourceOnly": true
+}

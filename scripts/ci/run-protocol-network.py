@@ -98,14 +98,23 @@ def run_network(protocol, logs, names, env, deadline, phase="parallel"):
         record["error"] = "suite deadline exceeded before phase start"
         return record
     old_dirs = {path.name for path in (protocol / "tmp/e2e-parallel-net").glob("*")}
-    command = ["bash", "script/e2e/run/network-parallel.sh", "--fresh", *names]
+    command = ["bash", "script/e2e/run/network/parallel.sh", "--fresh", *names]
     raw_log = logs / f"{phase}.log"
     print(f"==> protocol {phase}: {len(names)} scenarios (MAX_PARALLEL={env['MAX_PARALLEL']})", flush=True)
     with raw_log.open("x") as log:
         process = subprocess.Popen(command, cwd=protocol, env=env, stdout=log,
                                    stderr=subprocess.STDOUT, start_new_session=True)
         try:
-            record["exit_code"] = process.wait(timeout=max(0, deadline - time.monotonic()))
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(command, 0)
+                try:
+                    record["exit_code"] = process.wait(timeout=min(30, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    print(f"==> protocol {phase}: still running "
+                          f"({time.monotonic() - started:.0f}s elapsed; log: {raw_log})", flush=True)
         except subprocess.TimeoutExpired:
             record["error"] = "suite deadline exceeded; stopped this runner's process group"
         except SystemExit as error:

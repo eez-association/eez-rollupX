@@ -78,7 +78,8 @@ impl std::fmt::Debug for LocalExecutionSession {
 }
 
 impl LocalExecutionSession {
-    /// Create from a `ChainProvider`. Opens latest state.
+    /// Create from a `ChainProvider`. An explicit parent/environment pins lazy
+    /// re-entry to a wallet probe; ordinary composition retains latest state.
     ///
     /// When supplied, `inspector_factory` detects nested proxy calls and routes
     /// them through the composition builder. `None` executes without nested
@@ -87,36 +88,51 @@ impl LocalExecutionSession {
     /// `cache` preloads in-flight state captured before a nested dispatch;
     /// `None` opens a fresh revm state. `overlay_channel` publishes cumulative
     /// state after execution so a suspended inspector can apply the diff.
+    /// A quote context pins both cold state reads and block opcodes. Reentrant
+    /// frames must not open `latest` after their source has begun. Normal
+    /// composition supplies no override and keeps its existing latest-state path.
     ///
     /// # Errors
     ///
     /// Returns [`ExecutorErrorKind::Provider`] if reading the latest
     /// block number or header fails, or if opening the state provider
     /// fails.
-    pub fn new(
+    pub(crate) fn new(
         provider: &ChainProvider,
         manager_address: Address,
         inspector_factory: Option<SessionInspectorFactory>,
         cache: Option<CacheState>,
         overlay_channel: OverlayChannelHandle,
+        pinned: Option<(alloy_primitives::B256, reth_evm::EvmEnv)>,
     ) -> ExecutorResult<Self> {
-        let num = provider.headers.best_block_number().map_err(provider_err)?;
-        tracing::debug!(block = num, "target session: best block number");
+        let (state_prov, mut evm_env) = if let Some((hash, env)) = pinned {
+            (
+                provider
+                    .provider
+                    .state_by_block_hash(hash)
+                    .map_err(provider_err)?,
+                env,
+            )
+        } else {
+            let num = provider.headers.best_block_number().map_err(provider_err)?;
+            tracing::debug!(block = num, "target session: best block number");
 
-        let header = provider
-            .headers
-            .header_by_number(num)
-            .map_err(provider_err)?
-            .ok_or_else(|| ExecutorError::from(ExecutorErrorKind::Missing("target header")))?;
-        tracing::debug!(
-            block = num,
-            state_root = %header.state_root,
-            "target session: opened header"
-        );
+            let header = provider
+                .headers
+                .header_by_number(num)
+                .map_err(provider_err)?
+                .ok_or_else(|| ExecutorError::from(ExecutorErrorKind::Missing("target header")))?;
+            tracing::debug!(
+                block = num,
+                state_root = %header.state_root,
+                "target session: opened header"
+            );
 
-        let state_prov = provider.provider.latest().map_err(provider_err)?;
+            let state_prov = provider.provider.latest().map_err(provider_err)?;
 
-        let mut evm_env = provider.evm_config.evm_env(&header).map_err(evm_err)?;
+            let evm_env = provider.evm_config.evm_env(&header).map_err(evm_err)?;
+            (state_prov, evm_env)
+        };
         let chain_id = evm_env.cfg_env.chain_id;
         disable_checks(&mut evm_env);
 
@@ -128,7 +144,6 @@ impl LocalExecutionSession {
         let state = builder.build();
 
         tracing::debug!(
-            block = num,
             chain_id,
             %manager_address,
             "target session: ready"
@@ -197,10 +212,21 @@ impl LocalExecutionSession {
         let tx_env = self.build_tx_env(destination, calldata, value, source_address, source_rollup);
         let caller = tx_env.caller;
         let (return_data, gas_used, success, mut changes) = {
-            let mut evm = self
-                .evm_config
-                .evm_with_env(&mut self.state, self.evm_env.clone());
-            let result = evm.transact(tx_env).map_err(evm_err)?;
+            let inspector = crate::composer::quote_trace::inspect(
+                revm::inspector::NoOpInspector,
+                self.chain_id,
+                "composition",
+                &tx_env,
+            );
+            let tracing = inspector.is_capturing();
+            let mut evm = self.evm_config.evm_with_env_and_inspector(
+                &mut self.state,
+                self.evm_env.clone(),
+                inspector,
+            );
+            // Ordinary execution previously bypassed the inspection handler.
+            evm.set_inspector_enabled(tracing);
+            let result = evm.transact_funded_call(tx_env).map_err(evm_err)?;
             (
                 result.result.output().cloned().unwrap_or_default(),
                 result.result.tx_gas_used(),
@@ -231,12 +257,18 @@ impl LocalExecutionSession {
         let caller = tx_env.caller;
         let (return_data, gas_used, success, mut changes, inspector_error) = {
             let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
+            let traced = crate::composer::quote_trace::inspect(
+                traced,
+                self.chain_id,
+                "composition",
+                &tx_env,
+            );
             let mut evm = self.evm_config.evm_with_env_and_inspector(
                 &mut self.state,
                 self.evm_env.clone(),
                 traced,
             );
-            let result = evm.transact(tx_env).map_err(evm_err)?;
+            let result = evm.transact_funded_call(tx_env).map_err(evm_err)?;
             let output = result.result.output().cloned().unwrap_or_default();
             let gas_used = result.result.tx_gas_used();
             let success = result.result.is_success();
@@ -269,10 +301,19 @@ impl LocalExecutionSession {
             &req.source_address,
             req.source_rollup_id,
         );
+        if dispatcher.executing_static_read_callback() {
+            self.require_deployed_callback_proxy(tx_env.caller)?;
+        }
         let (return_data, gas_used, success, inspector_error) =
             if let Some(factory) = self.inspector_factory.clone() {
                 let mut inspector = factory.build_static(dispatcher);
                 let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
+                let traced = crate::composer::quote_trace::inspect(
+                    traced,
+                    self.chain_id,
+                    "composition",
+                    &tx_env,
+                );
                 let mut evm = self.evm_config.evm_with_env_and_inspector(
                     &mut self.state,
                     self.evm_env.clone(),
@@ -287,6 +328,12 @@ impl LocalExecutionSession {
             } else {
                 let mut inspector = ForceStaticInspector;
                 let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
+                let traced = crate::composer::quote_trace::inspect(
+                    traced,
+                    self.chain_id,
+                    "composition",
+                    &tx_env,
+                );
                 let mut evm = self.evm_config.evm_with_env_and_inspector(
                     &mut self.state,
                     self.evm_env.clone(),
@@ -310,6 +357,23 @@ impl LocalExecutionSession {
         })
     }
 
+    /// Reject a static-read callback whose source proxy has no code here.
+    /// Simulation executes the callback with the proxy's address as caller
+    /// whether or not it exists, but the protocol cannot deploy it inside the
+    /// read's static frame and reverts the read instead.
+    fn require_deployed_callback_proxy(&mut self, proxy: Address) -> ExecutorResult<()> {
+        let account = revm::Database::basic(&mut self.state, proxy)
+            .map_err(|error| ExecutorErrorKind::Provider(Box::new(error)))?;
+        if account.is_some_and(|account| !account.is_empty_code_hash()) {
+            return Ok(());
+        }
+        Err(ExecutorErrorKind::StaticCallbackProxyMissing {
+            proxy,
+            chain_id: self.chain_id,
+        }
+        .into())
+    }
+
     /// Commit the revm bundle, publish the overlay cache, and return the
     /// execution outcome.
     fn commit_and_finish(
@@ -321,11 +385,12 @@ impl LocalExecutionSession {
     ) -> eez_protocol::ExecutionOutcome {
         self.state.commit(changes);
 
-        // Publish the cumulative post-execute cache. An inspector waiting on
-        // the same channel can pop and apply it after nested dispatch; the
-        // stack preserves LIFO order for recursive re-entry.
-        self.overlay_channel
-            .push_post_cache(self.state.cache.clone());
+        // Publish the cumulative post-execute cache into the suspended
+        // dispatch frame of this rollup. Its inspector applies the latest
+        // result after the dispatch returns.
+        if !self.overlay_channel.publish(self.state.cache.clone()) {
+            tracing::trace!("no suspended dispatch frame; overlay result dropped");
+        }
 
         tracing::debug!(
             success = success,
@@ -377,12 +442,30 @@ impl LocalExecutionSession {
     }
 }
 
+/// Reject a cross-chain call whose destination is the executing chain's
+/// manager. Protocol managers refuse it in every dispatched call array
+/// (`EEZDestinationForbidden`). The check also covers static calls, including a
+/// top-level static lookup the managers would resolve: this admission policy is
+/// deliberately narrower, since reading a manager cross-chain has no supported
+/// use. Every target session applies it before simulating the call.
+pub(crate) fn reject_manager_destination(
+    req: &ExecutionRequest,
+    manager: Address,
+    chain_id: u64,
+) -> ExecutorResult<()> {
+    if req.target_address == manager {
+        return Err(ExecutorErrorKind::ManagerDestination { manager, chain_id }.into());
+    }
+    Ok(())
+}
+
 impl TargetExecutionSession for LocalExecutionSession {
     fn execute(
         &mut self,
         req: ExecutionRequest,
         dispatcher: &mut CompositionBuilder,
     ) -> ExecutorResult<ExecutionOutcome> {
+        reject_manager_destination(&req, self.manager_address, self.chain_id)?;
         if req.call_mode == CallMode::Static {
             return self.execute_static(&req, dispatcher);
         }
@@ -411,6 +494,11 @@ impl TargetExecutionSession for LocalExecutionSession {
     }
 
     fn checkpoint(&mut self) -> ExecutorResult<eez_protocol::SessionSnapshot> {
+        // A retained callback session may predate writes made by the resumed
+        // source. Refresh before saving the rollback point, while preserving
+        // cumulative sibling-callback state within the same dispatch frame.
+        self.overlay_channel
+            .refresh_before_reentry(&mut self.state.cache);
         // Synthetic target execution reads and writes through the cache. Keep
         // the exact pre-call cache so a source-frame revert can rewind this
         // chain before a later sibling dispatch observes it. Transition and
@@ -420,18 +508,21 @@ impl TargetExecutionSession for LocalExecutionSession {
         Ok(Box::new(self.state.cache.clone()) as Box<dyn std::any::Any + Send>)
     }
 
-    fn rollback(&mut self, snapshot: eez_protocol::SessionSnapshot) -> ExecutorResult<()> {
-        let cache = snapshot.downcast::<CacheState>().map_err(|_e| {
+    fn rollback(&mut self, snapshot: &eez_protocol::SessionSnapshot) -> ExecutorResult<()> {
+        let cache = snapshot.downcast_ref::<CacheState>().ok_or_else(|| {
             ExecutorError::from(ExecutorErrorKind::Encoding(
                 "LocalExecutionSession::rollback: snapshot type mismatch".into(),
             ))
         })?;
-        self.state.cache = *cache;
+        self.state.cache = cache.clone();
         Ok(())
     }
 }
 
 pub(super) fn disable_checks(env: &mut reth_evm::EvmEnvFor<EezEvmConfig>) {
+    // Intercepted composition frames are calls, not charged L2 transactions.
+    // Only the separately executed native/user body distributes actual fees.
+    env.cfg_env.disable_fee_charge = true;
     env.cfg_env.disable_base_fee = true;
     env.cfg_env.disable_balance_check = true;
     env.cfg_env.disable_nonce_check = true;
@@ -448,4 +539,38 @@ pub(super) fn provider_err(
 
 pub(super) fn evm_err(e: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> ExecutorError {
     ExecutorError::evm(e)
+}
+
+#[cfg(test)]
+mod manager_destination_tests {
+    use super::*;
+
+    fn request(call_mode: CallMode, target_address: Address) -> ExecutionRequest {
+        ExecutionRequest {
+            call_mode,
+            target_address,
+            data: Bytes::new(),
+            value: U256::ZERO,
+            source_address: Address::repeat_byte(0x11),
+            source_rollup_id: RollupId(0),
+        }
+    }
+
+    #[test]
+    fn manager_destination_is_rejected_for_mutable_and_static_calls() {
+        let manager = Address::repeat_byte(0x4b);
+        for call_mode in [CallMode::Mutable, CallMode::Static] {
+            let error = reject_manager_destination(&request(call_mode, manager), manager, 7)
+                .expect_err("a call to the destination manager is rejected");
+            assert!(
+                matches!(
+                    error.kind(),
+                    ExecutorErrorKind::ManagerDestination { manager: m, chain_id: 7 } if *m == manager
+                ),
+                "{error}"
+            );
+            reject_manager_destination(&request(call_mode, Address::repeat_byte(0x22)), manager, 7)
+                .expect("other destinations are allowed");
+        }
+    }
 }

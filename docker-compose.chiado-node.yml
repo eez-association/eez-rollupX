@@ -18,7 +18,6 @@ services:
       - ./deployments.env
     environment:
       EEZ_PROOF_SIGNER_ADDR: 127.0.0.1:${EEZ_SIGNER_PORT:-50061}
-      EEZ_L1_RPC_URL: http://127.0.0.1:18645
       EEZ_CHAIN_CONFIG: /app/genesis.json
       EEZ_L1_CHAIN_CONFIG: chiado
       EEZ_PROOF_SIGNER_KEY: "${EEZ_PROOF_SIGNER_KEY:?set EEZ_PROOF_SIGNER_KEY}"
@@ -54,6 +53,25 @@ services:
       # Coinbase of every L2 block (priority fees). Required so the operator
       # chooses it explicitly; the zero address is allowed if set deliberately.
       EEZ_L2_FEE_RECIPIENT: "${EEZ_L2_FEE_RECIPIENT:?set EEZ_L2_FEE_RECIPIENT (L2 coinbase address)}"
+      # Explicit collection switches and shared cost assumptions; no defaults.
+      EEZ_FEES_L1_TO_L2_ENABLED:
+      EEZ_FEES_L2_TO_L1_ENABLED:
+      EEZ_FEES_L1_PER_L2_NUMERATOR:
+      EEZ_FEES_L1_PER_L2_DENOMINATOR:
+      EEZ_FEES_PROVING_COST_L1:
+      EEZ_FEES_OPERATIONS_COST_L1:
+      EEZ_FEES_TREASURY_COST_L1:
+      EEZ_FEES_RISK_BPS:
+      EEZ_FEES_PROFIT_BPS:
+      EEZ_FEES_EXCLUDED_SENDERS:
+      EEZ_FEES_QUOTE_BASE_FEE_PERCENT:
+      EEZ_FEES_L1_REFUND_RECIPIENT:
+      EEZ_FEES_L1_REFUND_PERCENT:
+      # Forward obsolete inputs only for actionable startup rejection.
+      EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP:
+      EEZ_L2_FEE_SHADOW_POLICY:
+      EEZ_L1_FEE_REFUND_POLICY:
+      EEZ_L2_FEE_ENFORCE_TARIFF:
       # One relay URL or a comma-separated list; forwarded unchanged.
       EEZ_L1_BUILDER_RPC_URL: "${EEZ_L1_BUILDER_RPC_URL:?set EEZ_L1_BUILDER_RPC_URL}"
       # Optional X-Flashbots-Signature key for builders that authenticate
@@ -117,6 +135,9 @@ services:
       EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE:
       EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE:
       EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE:
+      EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE:
+      EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE:
+      EEZ_L1_POSTBATCH_TARGET:
       EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS:
       EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS:
       EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS:
@@ -126,10 +147,12 @@ services:
       # Deterministic L1-anchored timings (must match any follower).
       EEZ_L1_BLOCK_TIME_MS: "5000"
       EEZ_L2_BLOCK_TIME_MS: "1000"
-      # Without explicit preparation, runtime retains the rounded trigger.
       EEZ_PROOF_TIME_MS: "${EEZ_PROOF_TIME_MS-750}"
       EEZ_SUBMISSION_SLACK_MS: "${EEZ_SUBMISSION_SLACK_MS:-700}"
+      # Forward obsolete values so startup rejects unmigrated configurations.
       EEZ_PREPARATION_TIME_MS:
+      EEZ_SETTLEMENT_START_AFTER_BLOCK:
+      EEZ_SETTLEMENT_START_DELAY_MS:
       EEZ_BUNDLE_SUBMISSION_LEAD_MS: "${EEZ_BUNDLE_SUBMISSION_LEAD_MS:-7500}"
       # Don't freeze the sequencer when chiado bundles are slow to land.
       EEZ_MAX_SPECULATIVE_DEPTH: "${EEZ_MAX_SPECULATIVE_DEPTH:-0}"
@@ -186,7 +209,9 @@ services:
       driver: "local"
 
   lighthouse:
-    image: sigp/lighthouse:v8.1.3
+    # v8.3.3; schema 32. Back up existing data before upgrading:
+    # docs/runbooks/chiado-deployment.md#lighthouse-upgrades-and-checkpoint-boundary-pruning
+    image: sigp/lighthouse@sha256:53f9063d98c3d3a2d290207873f019ea2298cfc02f8cd58d87c33b04aab856d1
     container_name: eez-chiado-lighthouse
     network_mode: host
     restart: unless-stopped
@@ -198,9 +223,8 @@ services:
       - ${JWT_FILE:?set JWT_FILE}:/jwt/jwt.hex:ro
       # Lighthouse v8 reads discovery seeds from bootstrap_nodes.yaml here.
       - ${CHIADO_CONFIG_DIR:?set CHIADO_CONFIG_DIR}:/config-dir:ro
-    # v8.1.3's built-in Chiado profile does not activate Fulu; use the current
-    # Gnosis config. A semi-supernode reconstructs full PeerDAS blobs for the
-    # deriver. Direct TCP endpoints supplement discovery without pinning IDs.
+    # Preserve the deployment's checked-in Gnosis fork schedule.
+    # A semi-supernode reconstructs full PeerDAS blobs for the deriver. Direct TCP endpoints supplement discovery without pinning IDs.
     # Optional public ENR settings support hosts where automatic advertisement
     # cannot bootstrap. Compose splits this scalar into argv, without a shell.
     command: >-
@@ -219,6 +243,6 @@ services:
       --semi-supernode
       ${LH_ENR_ADDRESS:+--enr-address=}${LH_ENR_ADDRESS:-}
       ${LH_ENR_UDP_PORT:+--enr-udp-port=}${LH_ENR_UDP_PORT:-}
-      --libp2p-addresses=/ip4/57.131.40.177/tcp/9000,/ip4/45.79.214.176/tcp/9000,/ip4/51.210.221.124/tcp/9500,/ip4/57.129.122.18/tcp/9000,/ip4/51.210.221.124/tcp/9100,/ip4/137.74.112.3/tcp/9000,/ip4/65.109.101.48/tcp/9000
+      --boot-nodes=/ip4/57.131.40.177/tcp/9000,/ip4/45.79.214.176/tcp/9000,/ip4/51.210.221.124/tcp/9500,/ip4/57.129.122.18/tcp/9000,/ip4/51.210.221.124/tcp/9100,/ip4/137.74.112.3/tcp/9000,/ip4/65.109.101.48/tcp/9000
     logging:
       driver: "local"

@@ -1,0 +1,57 @@
+{
+  "reviewed_at": "2026-10-24T16:36:58.119109+00:00",
+  "baseline_commit": "319ebc2dbfdace3d5e708a2c9881cc741529aec4",
+  "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "reviewer": "root, independently reviewing the helper and multipart changes authored by subagents; the fitting-batch tests were separately reviewed by static_lookup_oracle",
+  "reviewed_source_sha256": {
+    "crates/eez-l1/Cargo.toml": "ee7db7682fe4965401bdd5a78514d75ba6e9572a240e4a44572854e4127ffe44",
+    "crates/eez-l1/examples/verify_blob_evidence/prefixes.rs": "fe6b8912b7e9a3c4aed45c7915ebfd56ed6e06a97ebac00f68b40ef8ff67686a",
+    "crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history.json": "a1b176a9b309a513dc3f5903e05ee6629d28211d232de17ad9d5201170230d7b",
+    "crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history-import.json": "6c7a38f719e330100856d6ac106db5196649dadf69c46d3a6c02ca848ed25234",
+    "crates/eez-node-e2e/tests/settlement_policy.rs": "1bd80e423d9c5f4b65b8bcdd92a78ac7315e4d3edb9dd27a6259aea20b2c642c",
+    "crates/eez-node-e2e/tests/derivable_operations/multipart.rs": "364fd9834d7a10dabdb3fe6e74cd34cad48cc8bb56c03aa345806032c7db1691",
+    "testing/kurtosis/scripts/run-protocol-e2e.sh": "9aa81e40d6dcd36a3a00ead5667908371920323ebf801ae66fc819534cfbe204",
+    "testing/kurtosis/scripts/verify-lookup-root.sh": "a7b2dd03fde25dfc54bf087c81f02c4a490505cb5cac0589b318aa4ee58697e2",
+    "testing/kurtosis/scripts/runtime-tools.sh": "30827aa3d8232f9274ed6f97ff7c7518a69463442ca620c7d83c419e3ada2aa9",
+    "scripts/ci/tests/test_protocol_lookup_evidence.py": "4545a2cf93cd1397367328500001b292672a7765e0d73ad76c3e73cc2764ad83",
+    "scripts/ci/tests/test_protocol_network_runner.py": "8116a45113d8ab4df573db1bdc47e2c37c0668eaf0c31e963ebe75776484072a",
+    "scripts/ci/tests/test_runtime_artifacts.py": "0aa9b3a99f349ce3eae48ae4a1890b9f4776fb791537b0b78d329a71e871922a"
+  },
+  "conclusions": [
+    {
+      "area": "prefix reconstruction",
+      "result": "No additional defect found. The helper preserves exact block/receipt/terminal checks and supplies checked request-local L1 history to the existing executor. Parent trie, position-bound native identity, import bytes, fork rules and PREVRANDAO are validated. It accepts no caller-supplied prefix state root."
+    },
+    {
+      "area": "collector configuration",
+      "result": "The deployed L1 genesis or existing public preset reaches the helper, with a manager commitment read at the original post block. RPC storage only locates a bounded header range. Public preset loading cannot turn an evidence string into an arbitrary file path. Private Gnosis profiles remain explicitly unsupported by this helper."
+    },
+    {
+      "area": "fitting batches",
+      "result": "The revised assertions distinguish retained ordinary settlement from a capacity fallback and preserve one-post/range/blob/receipt checks. Fullness additionally checks the posted root update, success event, retained checkpoint, canonical terminal and both replayed applications. No runtime policy change."
+    },
+    {
+      "area": "multipart catch-up",
+      "result": "The terminal is fixed once and covers all receipts and the minimum history. The last application deliberately arrives beyond the old boundary, preventing timing-dependent accidental coverage. Every bounded proof, final actual-parent part, negative evidence check and cold replay remains."
+    },
+    {
+      "area": "shipping features",
+      "result": "Only the example required-features contract changes; chain-spec was already active in both producer and archive dependency graphs. Cargo.lock, node, follower, signer, core pin, RPC and on-chain contracts are unchanged since the verified CI runtime candidate."
+    }
+  ],
+  "evidence": [
+    "fullness-regression.json",
+    "multipart-terminal-regression.json",
+    "prefix-history-verifier.json",
+    "kurtosis/protocol-prefix-continuation.json",
+    "kurtosis/cold-replay-final.json",
+    "ci-runtime-consumption.json"
+  ],
+  "remaining_limits": [
+    "The final corrected helper is a locally built debug-profile executable; the live node/follower/signer are the verified prior CI release payload. The next CI run must establish the new published helper/test payload.",
+    "Two missing-proxy live scenarios did not reach their intended terminal queue oracle; 26 unsupported signer-profile scenarios remain excluded. Core Anvil64/64 is separate evidence.",
+    "No Nethermind server was available; conformance vectors do not prove integration with that implementation.",
+    "Inherited dependency advisories remain an integration blocker; no waiver or dependency upgrade is included.",
+    "The shared-host OOM incident and the limits of the process-recovery observation remain recorded."
+  ]
+}

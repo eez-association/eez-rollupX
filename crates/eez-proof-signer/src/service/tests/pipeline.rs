@@ -228,7 +228,7 @@ fn settlement_pipeline_errors_have_stable_rpc_mappings() {
 }
 
 #[test]
-fn cancelled_settlement_stops_before_decoding_untrusted_input() {
+fn cancelled_settlement_stops_before_effect_and_da_checks() {
     let cancellation = CancellationToken::default();
     cancellation.cancel();
     let system_transaction_reconstructor =
@@ -241,8 +241,14 @@ fn cancelled_settlement_stops_before_decoding_untrusted_input() {
     let validated = validated_single_block(settling_block, Vec::new(), Vec::new());
 
     let run = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: b"not ABI calldata".to_vec(),
+        posting_context: crate::testkit::proof_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(
+            eez_protocol::entries::encode_postbatch(&anchor_batch()),
+        )
+        .unwrap(),
         submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
@@ -257,42 +263,6 @@ fn cancelled_settlement_stops_before_decoding_untrusted_input() {
 }
 
 #[test]
-fn an_elapsed_deadline_stops_the_pipeline_between_validation_and_settlement() {
-    let mut input = stub_block(5, 0x04, 0x05);
-    let empty_body: eez_primitives::BlockBody = Default::default();
-    input.rlp = alloy_rlp::encode(eez_primitives::Block::new(Default::default(), empty_body));
-    let inputs = vec![input];
-    let state = inner(Validator::stub(vec![Ok(backend_output_for(&inputs))]));
-    // A deadline captured now is already past when the boundary between
-    // execution validation and settlement runs.
-    let deadline = tokio::time::Instant::now();
-
-    let result = validate_and_settle(
-        &state,
-        crate::window::AdmittedBlocks::for_test(inputs),
-        b"not ABI calldata".to_vec(),
-        Vec::new(),
-        eez_blob_codec::MAX_BLOBS_PER_TRANSACTION,
-        crate::testkit::l1_target(),
-        crate::service::l1::CandidateContext::Synthetic,
-        deadline,
-        &CancellationToken::default(),
-    );
-
-    // The exact variant proves settlement never decoded the untrusted bytes:
-    // decoding them would have produced a calldata error instead.
-    let error = result
-        .err()
-        .expect("an elapsed deadline must stop the pipeline");
-    assert!(matches!(error, PipelineError::DeadlineBeforeSettlement));
-    assert_eq!(error.phase(), "settlement");
-    assert_eq!(error.gate(), "deadline");
-    let status = error.status();
-    assert_eq!(status.code(), Code::DeadlineExceeded);
-    assert_eq!(status.message(), "Prove request deadline exceeded");
-}
-
-#[test]
 fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
     let value = U256::from(7);
     let (transaction, call_hash, return_data, sidecar) = strict_inbound_transaction(value);
@@ -300,7 +270,13 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
         transactions: vec![transaction],
         ..Default::default()
     };
-    let block = eez_primitives::Block::new(Default::default(), body);
+    let block = eez_primitives::Block::new(
+        alloy_consensus::Header {
+            gas_limit: crate::testkit::SYNTHETIC_BLOCK_GAS_LIMIT,
+            ..Default::default()
+        },
+        body,
+    );
     let block_rlp = alloy_rlp::encode(block);
     let settling_block = validate::ValidatedBlock::for_test(
         5,
@@ -330,6 +306,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
     batch.callData = settlement::encode_da_payload(&[Vec::new()]).into();
     let inbound_call = &sidecar.l2ToL1Calls[0];
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId::MAINNET,
         tx_data: Bytes::new(),
         actions: vec![fixture_action(
@@ -344,7 +321,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
         )],
     };
     let post_batch = public_input_post_batch_for_semantics(batch.clone(), &[semantic]);
-    let expected_hash = recompute_test_public_inputs_hash(&post_batch);
+    let expected_hash = recompute_test_public_inputs_hash(&post_batch, test_proof_system_vkey());
     let calldata = post_batch.abi_calldata.clone();
     let statuses = [true];
     let checkpoints = [checkpoint(0, B256::repeat_byte(0x05))];
@@ -354,8 +331,11 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let run = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: calldata.clone(),
+        posting_context: crate::testkit::proof_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(calldata.clone()).unwrap(),
         submitted_blobs: &post_batch.blobs,
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
@@ -375,8 +355,11 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
     );
     let reverted = validated_single_block(reverted_block, vec![false], checkpoints.to_vec());
     let error = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: calldata,
+        posting_context: crate::testkit::proof_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(calldata).unwrap(),
         submitted_blobs: &post_batch.blobs,
         validated_window: &reverted,
         expected_rollup_id: expected_rollup_id(1),
@@ -404,7 +387,15 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
 
 #[test]
 fn a_reverted_outbound_load_reports_the_paired_user_transaction() {
-    let (batch, block_rlp, user, _call_hash) = canonical_outbound_case();
+    // A load funding a value-bearing callback frames its user transaction too.
+    for callback_value in [U256::ZERO, U256::from(1_000_000_000_000_000u64)] {
+        assert_reverted_outbound_load_reports_its_user(callback_value);
+    }
+}
+
+fn assert_reverted_outbound_load_reports_its_user(callback_value: U256) {
+    let (batch, block_rlp, user, _call_hash) =
+        outbound_case_with_callback_value(U256::ZERO, callback_value);
     let settling_block = validate::ValidatedBlock::for_test(
         5,
         block_rlp,
@@ -420,8 +411,14 @@ fn a_reverted_outbound_load_reports_the_paired_user_transaction() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
+        posting_context: crate::testkit::proof_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(
+            eez_protocol::entries::encode_postbatch(&batch),
+        )
+        .unwrap(),
         submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
@@ -463,8 +460,14 @@ fn an_outbound_observation_failure_reports_the_user_transaction() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
+        posting_context: crate::testkit::proof_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(
+            eez_protocol::entries::encode_postbatch(&batch),
+        )
+        .unwrap(),
         submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
@@ -512,8 +515,14 @@ fn an_outbound_claim_hash_mismatch_remains_non_actionable() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
+        posting_context: crate::testkit::proof_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(
+            eez_protocol::entries::encode_postbatch(&batch),
+        )
+        .unwrap(),
         submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
@@ -532,7 +541,7 @@ fn an_outbound_claim_hash_mismatch_remains_non_actionable() {
 }
 
 #[test]
-fn a_fully_bound_outbound_effect_is_authorized() {
+fn a_fully_bound_outbound_effect_passes_settlement_checks() {
     let (batch, block_rlp, user, call_hash) = canonical_outbound_case();
     let settling_block = validate::ValidatedBlock::for_test(
         5,
@@ -546,6 +555,7 @@ fn a_fully_bound_outbound_effect_is_authorized() {
     );
     let call = &batch.entries[1].l2ToL1Calls[0];
     let semantic = SemanticTransaction {
+        operations_version: Default::default(),
         origin_chain: RollupId(1),
         tx_data: Bytes::copy_from_slice(&user),
         actions: vec![fixture_action(
@@ -561,7 +571,7 @@ fn a_fully_bound_outbound_effect_is_authorized() {
     };
     let post_batch =
         public_input_post_batch_for_semantics(batch.clone(), std::slice::from_ref(&semantic));
-    let expected_hash = recompute_test_public_inputs_hash(&post_batch);
+    let expected_hash = recompute_test_public_inputs_hash(&post_batch, test_proof_system_vkey());
     let calldata = post_batch.abi_calldata.clone();
     let statuses = [true, true];
     let checkpoints = [checkpoint(1, B256::repeat_byte(0x05))];
@@ -571,8 +581,11 @@ fn a_fully_bound_outbound_effect_is_authorized() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let run = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: calldata,
+        posting_context: crate::testkit::proof_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(calldata).unwrap(),
         submitted_blobs: &post_batch.blobs,
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
@@ -589,8 +602,14 @@ fn a_fully_bound_outbound_effect_is_authorized() {
     mismatched_da.callData = settlement::encode_da_payload(&[vec![user]]).into();
     let mismatched_post_batch = public_input_post_batch_for_semantics(mismatched_da, &[semantic]);
     let run = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: mismatched_post_batch.abi_calldata,
+        posting_context: crate::testkit::proof_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(
+            mismatched_post_batch.abi_calldata,
+        )
+        .unwrap(),
         submitted_blobs: &mismatched_post_batch.blobs,
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),

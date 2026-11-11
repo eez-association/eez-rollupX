@@ -47,6 +47,20 @@ class ChiadoConfigTest(unittest.TestCase):
             text=True, capture_output=True,
         )
 
+    def test_offline_signer_has_local_profiles_and_no_chain_rpc(self):
+        result = self.render()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        services = json.loads(result.stdout)["services"]
+        signer = services["eez-proof-signer"]["environment"]
+        self.assertFalse(any("RPC_URL" in key for key in signer))
+        for key in ("EEZ_L2_TREASURY_OWNER", "EEZ_L2_TREASURY_RECIPIENT"):
+            self.assertNotIn(key, signer)
+            self.assertNotIn(key, services["eez-node"]["environment"])
+        self.assertEqual(signer["EEZ_CHAIN_CONFIG"], "/app/genesis.json")
+        self.assertEqual(signer["EEZ_L1_CHAIN_CONFIG"], "chiado")
+        self.assertEqual(services["eez-node"]["environment"]["EEZ_L1_RPC_URL"],
+                         "http://127.0.0.1:18645")
+
     def test_fee_recipient_is_required_and_reaches_only_the_node(self):
         env_file = self.repo / ".env"
         configured = env_file.read_text()
@@ -80,7 +94,7 @@ class ChiadoConfigTest(unittest.TestCase):
         node = services["eez-node"]["environment"]
         for key, value in {
             "EEZ_L1_CHAIN_ID": "10200", "EEZ_L1_BLOCK_TIME_MS": "5000",
-            "EEZ_PROOF_TIME_MS": "750", "EEZ_PREPARATION_TIME_MS": "500",
+            "EEZ_PROOF_TIME_MS": "750", "EEZ_SETTLEMENT_START_AFTER_BLOCK": "2",
             "EEZ_SUBMISSION_SLACK_MS": "700",
             "EEZ_BUNDLE_SUBMISSION_LEAD_MS": "7500",
             "EEZ_L1_BEACON_URL": "http://127.0.0.1:6152/",
@@ -110,7 +124,7 @@ class ChiadoConfigTest(unittest.TestCase):
                     "EEZ_SETTLEMENT_BLOB_FULLNESS_BPS", "EEZ_L1_POSTBATCH_PRIORITY_FEE",
                     "EEZ_MAX_BLOBS_PER_BATCH"):
             self.assertIsNone(node.get(key), key)
-        self.assertEqual(services["lighthouse"]["image"], "sigp/lighthouse:v8.1.3")
+        self.assertEqual(services["lighthouse"]["image"], "sigp/lighthouse@sha256:53f9063d98c3d3a2d290207873f019ea2298cfc02f8cd58d87c33b04aab856d1")
         command = services["lighthouse"]["command"]
         self.assertIn("--semi-supernode", command)
         self.assertNotIn("--supernode", command)
@@ -139,6 +153,43 @@ class ChiadoConfigTest(unittest.TestCase):
                 self.assertEqual(services["eez-node"]["environment"][key],
                                  "1500" if override is None else override)
                 self.assertNotIn(key, services["eez-proof-signer"]["environment"])
+
+    def test_fee_settings_preserve_absence_and_shell_precedence(self):
+        keys = [
+            'EEZ_FEES_L1_TO_L2_ENABLED',
+            'EEZ_FEES_L2_TO_L1_ENABLED',
+            'EEZ_FEES_L1_PER_L2_NUMERATOR',
+            'EEZ_FEES_L1_PER_L2_DENOMINATOR',
+            'EEZ_FEES_PROVING_COST_L1',
+            'EEZ_FEES_OPERATIONS_COST_L1',
+            'EEZ_FEES_TREASURY_COST_L1',
+            'EEZ_FEES_RISK_BPS',
+            'EEZ_FEES_PROFIT_BPS',
+            'EEZ_FEES_EXCLUDED_SENDERS',
+            'EEZ_FEES_QUOTE_BASE_FEE_PERCENT',
+            'EEZ_FEES_L1_REFUND_RECIPIENT',
+            'EEZ_FEES_L1_REFUND_PERCENT',
+        ]
+        # Obsolete names still reach the node so it rejects them explicitly.
+        keys += ["EEZ_L2_FEE_SHADOW_POLICY", "EEZ_L1_FEE_REFUND_POLICY",
+                 "EEZ_L2_FEE_ENFORCE_TARIFF", "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP"]
+        result = self.render()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        node = json.loads(result.stdout)["services"]["eez-node"]["environment"]
+        for key in keys:
+            self.assertIsNone(node.get(key), key)
+        with (self.repo / ".env").open("a") as stream:
+            for key in keys:
+                stream.write(f"\n{key}=fixture\n")
+        # Scalar transport, not acceptance: runtime tests validate the values.
+        for override in (None, "", "bad", "false", "true", "90"):
+            with self.subTest(override=override):
+                result = self.render({} if override is None else dict.fromkeys(keys, override))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                services = json.loads(result.stdout)["services"]
+                for key in keys:
+                    self.assertEqual(services["eez-node"]["environment"][key], "fixture" if override is None else override)
+                    self.assertNotIn(key, services["eez-proof-signer"]["environment"])
 
     def test_posting_logging_survives_normal_startup_and_legacy_overlay(self):
         for configured in (None, "", str(self.root / "posting-history")):
@@ -305,22 +356,40 @@ esac
                     else:
                         self.assertEqual(command, baseline)
 
-    def test_optional_preparation_preserves_unset_empty_and_explicit_values(self):
-        # The supplied preset is explicit; omission remains available to operators
-        # choosing the runtime's rounded trigger instead.
-        env_file = self.repo / ".env"
-        env_file.write_text(env_file.read_text().replace("EEZ_PREPARATION_TIME_MS=500\n", ""))
-        for value in (None, "500", ""):
+    def test_obsolete_preparation_reaches_runtime_for_rejection(self):
+        for value in (None, "500", "", "invalid"):
             with self.subTest(value=value):
                 overrides = {} if value is None else {"EEZ_PREPARATION_TIME_MS": value}
                 result = self.render(overrides)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 actual = json.loads(result.stdout)["services"]["eez-node"]["environment"]
                 self.assertEqual(actual.get("EEZ_PREPARATION_TIME_MS"), value)
-                # Explicit empty reaches Rust's startup validation; Compose must
-                # not silently replace it with a default or an absent setting.
+                # Any explicit value must reach Rust's migration rejection,
+                # including empty and with the required position also supplied.
+                self.assertEqual(actual["EEZ_SETTLEMENT_START_AFTER_BLOCK"], "2")
                 self.assertEqual(actual["EEZ_PROOF_TIME_MS"], "750")
                 self.assertEqual(actual["EEZ_SUBMISSION_SLACK_MS"], "700")
+
+    def test_scheduler_preserves_absence_empty_invalid_and_shell_precedence(self):
+        env_file = self.repo / ".env"
+        fixture = env_file.read_text()
+        env_file.write_text(fixture.replace("EEZ_SETTLEMENT_START_AFTER_BLOCK=2\n", ""))
+        for key in ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "EEZ_SETTLEMENT_START_DELAY_MS"):
+            for value in (None, "3", "250", "", "0", "-1", "invalid"):
+                with self.subTest(key=key, value=value):
+                    result = self.render({} if value is None else {key: value})
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    services = json.loads(result.stdout)["services"]
+                    self.assertEqual(services["eez-node"]["environment"].get(key), value)
+                    self.assertNotIn(key, services["eez-proof-signer"]["environment"])
+        env_file.write_text(fixture + "\nEEZ_SETTLEMENT_START_DELAY_MS=100\n")
+        result = self.render({"EEZ_SETTLEMENT_START_AFTER_BLOCK": "3",
+                              "EEZ_SETTLEMENT_START_DELAY_MS": "250"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        node = json.loads(result.stdout)["services"]["eez-node"]["environment"]
+        self.assertEqual(node["EEZ_SETTLEMENT_START_AFTER_BLOCK"], "3")
+        self.assertEqual(node["EEZ_SETTLEMENT_START_DELAY_MS"], "250")
+        self.assertIsNone(node.get("EEZ_PREPARATION_TIME_MS"))
 
     def test_proof_budget_profile_and_shell_override_reach_node(self):
         for value in ("750", "1000", "1500", "", "invalid"):

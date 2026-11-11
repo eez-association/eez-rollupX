@@ -42,6 +42,7 @@ pub mod ingress;
 pub mod local;
 pub mod optimistic;
 mod prover_retry;
+pub mod rejection;
 pub mod rollup;
 pub mod settlement_policy;
 mod submission_metrics;
@@ -63,4 +64,6 @@ pub use optimistic::OptimisticallyIncluded;
 pub use rollup::{RollupConfig, RollupState};
 
 mod admission_events;
+mod fee_diagnostics;
 mod posting_events;
+pub use fee_diagnostics::{FundingDiagnostic, PosterBalanceError, SourceBalanceError};

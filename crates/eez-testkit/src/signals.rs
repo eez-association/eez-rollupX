@@ -2,7 +2,6 @@ use alloy_primitives::B256;
 use anyhow::{Context, Result, anyhow};
 
 pub const BUNDLE_ACCEPTED: &str = "eez.node.l1_embedded.bundle.accepted";
-pub const DERIVER_REORG_NOOP: &str = "eez.deriver.l1.reorg.noop";
 pub const DERIVER_REORG_RETREATED: &str = "eez.deriver.l1.reorg.retreated";
 pub const DERIVER_STATE_DIVERGED_POST: &str = "eez.deriver.state.diverged_post";
 pub const DERIVER_STATE_DIVERGED_PRE: &str = "eez.deriver.state.diverged_pre";
@@ -14,12 +13,12 @@ pub const DERIVER_COMMITTER_CLOSED: &str = "eez.deriver.committer.closed";
 pub const NODE_BOOT_CATCH_UP_FAILED: &str = "eez.node.deriver.boot_catch_up.failed";
 pub const NODE_COMPOSER_SPAWNED: &str = "eez.node.composer.spawned";
 pub const COMPOSER_BUNDLE_DISPATCHED: &str = "eez.composer.bundle.dispatched";
+pub const SEQUENCER_SLOT_DECISION: &str = "eez.sequencer.slot.decision";
 pub const COMPOSER_SYNC_SLOT_INVOKED: &str = "eez.composer.sync_slot.invoked";
 pub const COMPOSER_SYNC_SLOT_DRAIN: &str = "eez.composer.sync_slot.drain";
 pub const COMPOSER_PHASE1_BUNDLE_DISPATCHED: &str = "eez.composer.phase1.bundle.dispatched";
 pub const COMPOSER_SETTLEMENT_RECONCILED: &str = "eez.composer.settlement.reconciled";
 pub const COMPOSER_BUNDLE_OBSERVED: &str = "eez.composer.bundle.observed";
-pub const COMPOSER_OUTBOUND_ROOT_MISMATCH: &str = "eez.composer.cc_compose.outbound_root_mismatch";
 pub const COMPOSER_POISON_EVICTION_COMPLETED: &str =
     "eez.composer.cc_compose.poison_eviction_completed";
 pub const FOLLOWER_HEAD_ADVANCED: &str = "eez.node.follower.head.advanced";

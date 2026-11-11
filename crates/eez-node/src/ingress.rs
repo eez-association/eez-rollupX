@@ -2,13 +2,16 @@
 //!
 //! A cross-chain tx is signed and tracked against its source chain, so wallets
 //! need a real RPC for that chain. Each front is a transparent proxy: it
-//! forwards every `eth_*` to the source chain's node and classifies
+//! forwards ordinary `eth_*` requests to the source chain's node, prepares
+//! cross-chain `eth_estimateGas` locally, and classifies
 //! `eth_sendRawTransaction` with a read-only execution trace. Transactions that
 //! reach the chain's EEZ dispatcher are held in the per-rollup [`HeldPool`] with
 //! the front's fixed [`Direction`] (L1 front → `Inbound`, L2 front → `Outbound`);
 //! ordinary transactions are forwarded to the source-chain mempool unchanged.
 //! The receipt resolves when the held tx lands — an outbound in the L2 Sync
 //! block, an inbound in the L1 postBatch bundle.
+//! Composer-only `eez_*` observations and the virtual discovery `eth_call`
+//! are answered locally; discovery does not assert submission readiness.
 //!
 //! Classification fails closed: if tracing is temporarily unavailable, the tx
 //! is held rather than risking a cross-chain transaction bypassing composition.
@@ -37,6 +40,9 @@ use hyper_util::rt::TokioIo;
 use serde_json::Value;
 use tokio::net::TcpListener;
 use tracing::{Level, event};
+
+mod estimate;
+pub(crate) use estimate::EstimationService;
 
 const MAX_BODY: usize = 10 * 1024 * 1024;
 
@@ -81,6 +87,9 @@ pub async fn gate_and_hold(
             "creations are not cross-chain: a contract creation has no target; submit deploys to the chain's own RPC".into(),
         );
     };
+    if let Err(msg) = check_block_gas_limit(envelope, validation_provider).await {
+        return Admission::Rejected(msg);
+    }
     // No code at `to` means no manager frame can ever run, so holding this tx
     // would only end in an evict.
     match validation_provider.get_code_at(to).await {
@@ -115,6 +124,7 @@ pub async fn gate_and_hold(
         raw_tx: raw_tx.clone(),
         hash,
         attempts: 0,
+        excluded_slots: 0,
         max_fee_per_gas: envelope.max_fee_per_gas(),
         // Legacy/2930 have no tip field; gas_price is both cap and tip.
         priority_fee_per_gas: envelope
@@ -192,6 +202,76 @@ fn validate_front_envelope(
             "wrong source-chain id {chain_id} for {direction:?} front: expected {expected_source_chain_id}"
         ));
     }
+    // The checks below reject transactions no block can ever include, which
+    // would otherwise be held and then evicted without a client-visible reason.
+    // A fee cap below the base fee is not among them: it can become valid later.
+    if let Some(priority_fee) = envelope.max_priority_fee_per_gas()
+        && priority_fee > envelope.max_fee_per_gas()
+    {
+        return Err(format!(
+            "max_priority_fee_per_gas {priority_fee} exceeds max_fee_per_gas {}",
+            envelope.max_fee_per_gas()
+        ));
+    }
+    if envelope.gas_limit() > TX_GAS_LIMIT_CAP {
+        return Err(format!(
+            "gas limit {} exceeds the per-transaction cap {TX_GAS_LIMIT_CAP} (EIP-7825)",
+            envelope.gas_limit()
+        ));
+    }
+    let intrinsic = intrinsic_gas(envelope);
+    if envelope.gas_limit() < intrinsic {
+        return Err(format!(
+            "gas limit {} is below the transaction's intrinsic gas {intrinsic}",
+            envelope.gas_limit()
+        ));
+    }
+    Ok(())
+}
+
+/// Osaka's per-transaction gas cap (EIP-7825). The L2 runs Osaka from genesis;
+/// both L1 fronts apply the same cap by policy.
+const TX_GAS_LIMIT_CAP: u64 = 1 << 24;
+
+/// Minimum gas any inclusion charges: the base cost, calldata and access list,
+/// or the EIP-7623 calldata floor when that is higher. Both source chains run
+/// at least Prague rules.
+fn intrinsic_gas(envelope: &TxEnvelope) -> u64 {
+    let (accounts, slots) = envelope.access_list().map_or((0, 0), |list| {
+        list.iter().fold((0u64, 0u64), |(accounts, slots), item| {
+            (accounts + 1, slots + item.storage_keys.len() as u64)
+        })
+    });
+    let gas = revm::context_interface::cfg::gas::calculate_initial_tx_gas(
+        revm::primitives::hardfork::SpecId::PRAGUE,
+        envelope.input(),
+        envelope.is_create(),
+        accounts,
+        slots,
+        0,
+        None,
+    );
+    (gas.initial_regular_gas + gas.initial_state_gas).max(gas.floor_gas)
+}
+
+/// Reject a gas limit above the source chain's current block gas limit. The L2
+/// limit is fixed; an L1 limit can change, so this checks the latest block.
+async fn check_block_gas_limit(
+    envelope: &TxEnvelope,
+    validation_provider: &RootProvider,
+) -> Result<(), String> {
+    let block = validation_provider
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+        .await
+        .map_err(|e| format!("source-chain block lookup failed: {e}"))?
+        .ok_or_else(|| "source-chain block lookup returned no block".to_string())?;
+    let block_gas_limit = block.header.gas_limit;
+    if envelope.gas_limit() > block_gas_limit {
+        return Err(format!(
+            "gas limit {} exceeds the source chain's block gas limit {block_gas_limit}",
+            envelope.gas_limit()
+        ));
+    }
     Ok(())
 }
 
@@ -228,6 +308,10 @@ struct Ctx {
     dispatch_address: Address,
     /// Serialized `eez_composerInfo` result, shared by both fronts.
     composer_info: Arc<Value>,
+    /// Local Composer-only methods. Never installed on an upstream node RPC.
+    composer_methods: jsonrpsee::RpcModule<()>,
+    estimator: Option<EstimationService>,
+    fee_quotes: Option<Arc<crate::fee_quotes::FeeQuotes>>,
 }
 
 /// Verify that a configured cross-chain front points at its expected source chain.
@@ -256,7 +340,8 @@ pub async fn validate_cross_chain_front(
 ///
 /// # Errors
 /// Fails if the listener can't bind or the reqwest client can't be built.
-pub async fn run_cross_chain_front(
+#[cfg(test)]
+pub(crate) async fn run_cross_chain_front(
     port: u16,
     upstream_rpc_url: String,
     direction: Direction,
@@ -266,6 +351,44 @@ pub async fn run_cross_chain_front(
     dispatch_address: Address,
     ready: Arc<std::sync::atomic::AtomicBool>,
     composer_info: Arc<Value>,
+    fee_quotes: Option<Arc<crate::fee_quotes::FeeQuotes>>,
+) -> eyre::Result<()> {
+    let mut composer_methods = jsonrpsee::RpcModule::new(());
+    composer_methods.merge(crate::queue_rpc::module(
+        Arc::clone(&held_pool),
+        expected_source_chain_id,
+        expected_source_chain_id,
+    )?)?;
+    run_cross_chain_front_with_estimator(
+        port,
+        upstream_rpc_url,
+        direction,
+        held_pool,
+        validation_provider,
+        expected_source_chain_id,
+        dispatch_address,
+        ready,
+        composer_info,
+        composer_methods,
+        None,
+        fee_quotes,
+    )
+    .await
+}
+
+pub(crate) async fn run_cross_chain_front_with_estimator(
+    port: u16,
+    upstream_rpc_url: String,
+    direction: Direction,
+    held_pool: Arc<HeldPool>,
+    validation_provider: RootProvider,
+    expected_source_chain_id: u64,
+    dispatch_address: Address,
+    ready: Arc<std::sync::atomic::AtomicBool>,
+    composer_info: Arc<Value>,
+    composer_methods: jsonrpsee::RpcModule<()>,
+    estimator: Option<EstimationService>,
+    fee_quotes: Option<Arc<crate::fee_quotes::FeeQuotes>>,
 ) -> eyre::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await?;
@@ -292,6 +415,9 @@ pub async fn run_cross_chain_front(
         expected_source_chain_id,
         dispatch_address,
         composer_info,
+        composer_methods,
+        estimator,
+        fee_quotes,
     };
     loop {
         let (stream, _peer) = match listener.accept().await {
@@ -406,6 +532,130 @@ fn all_forwarded_methods_are_eth(json: &Value) -> bool {
     }
 }
 
+fn contains_composer_method(request: &Value) -> bool {
+    match request {
+        Value::Array(items) => items.iter().any(contains_composer_method),
+        _ => {
+            request
+                .get("method")
+                .and_then(Value::as_str)
+                .is_some_and(|method| method.starts_with("eez_"))
+                || crate::composer_rpc::is_discovery_call(request)
+        }
+    }
+}
+
+async fn composer_item(ctx: &Ctx, request: &Value) -> Option<Value> {
+    let error = |id: Value, code: i64, message: &str| serde_json::json!({"jsonrpc":"2.0", "id":id, "error":{"code":code,"message":message}});
+    // Invalid batch members are errors, not notifications. Explicit null IDs
+    // are calls; only an absent ID on a valid envelope suppresses the response.
+    if request.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
+        || request.get("method").and_then(Value::as_str).is_none()
+        || request
+            .get("id")
+            .is_some_and(|id| !id.is_null() && !id.is_string() && !id.is_number())
+    {
+        return Some(error(Value::Null, -32600, "invalid request"));
+    }
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
+    let method = request["method"].as_str().unwrap_or_default();
+    let response = if method == crate::composer_rpc::METHOD {
+        crate::composer_rpc::respond(request, &ctx.composer_info)
+    } else if crate::composer_rpc::is_discovery_call(request) {
+        crate::composer_rpc::respond_eth_call(
+            request,
+            &ctx.composer_info,
+            ctx.expected_source_chain_id,
+        )
+    } else if matches!(
+        method,
+        crate::fee_quotes::METHOD | crate::fee_quotes::DEBUG_METHOD
+    ) {
+        match request.get("params").and_then(Value::as_array) {
+            Some(params) if (1..=2).contains(&params.len()) => {
+                let (status, value) = if !ctx.ready.load(std::sync::atomic::Ordering::Acquire) {
+                    crate::fee_quotes::error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "starting_up",
+                        STARTING_UP_MSG,
+                    )
+                } else if let Some(service) = &ctx.fee_quotes {
+                    service
+                        .compact(
+                            &params[0],
+                            params.get(1).unwrap_or(&serde_json::json!({})),
+                            method == crate::fee_quotes::DEBUG_METHOD,
+                        )
+                        .await
+                } else {
+                    crate::fee_quotes::error(
+                        StatusCode::NOT_FOUND,
+                        "quotes_disabled",
+                        "fee quotes are not configured",
+                    )
+                };
+                crate::fee_quotes::rpc_response(id, status, value)
+            }
+            _ => error(
+                id,
+                -32602,
+                "expected transaction and optional quote options",
+            ),
+        }
+    } else if method.starts_with("eez_") {
+        let mut call = request.clone();
+        // RpcModule's numeric IDs are u64-only. Use a private ID for dispatch
+        // and restore the client's JSON ID, including negative numbers/null.
+        // Suppress notifications only after executing the handler.
+        call["id"] = Value::from(0);
+        match ctx
+            .composer_methods
+            .raw_json_request(&call.to_string(), 1)
+            .await
+        {
+            Ok((raw, _)) => match serde_json::from_str::<Value>(raw.get()) {
+                Ok(mut response) => {
+                    response["id"] = id;
+                    response
+                }
+                Err(_) => error(id, -32603, "invalid local RPC response"),
+            },
+            Err(_) => error(id, -32602, "invalid Composer RPC parameters"),
+        }
+    } else if method.starts_with("eth_") {
+        return estimate::item(ctx, request).await;
+    } else {
+        error(
+            id,
+            -32601,
+            "cross-chain front serves only eth_* and Composer eez_* methods",
+        )
+    };
+    request.get("id").map(|_| response)
+}
+
+async fn handle_composer_methods(ctx: &Ctx, request: &Value) -> Response<Full<HyperBytes>> {
+    let response = if let Value::Array(items) = request {
+        let mut responses = Vec::new();
+        for item in items {
+            if let Some(response) = composer_item(ctx, item).await {
+                responses.push(response);
+            }
+        }
+        (!responses.is_empty()).then_some(Value::Array(responses))
+    } else {
+        composer_item(ctx, request).await
+    };
+    match response {
+        Some(response) => json_response(response.to_string()),
+        None => Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .header("Access-Control-Allow-Origin", "*")
+            .body(Full::new(HyperBytes::new()))
+            .expect("valid response"),
+    }
+}
+
 async fn handle(
     req: Request<hyper::body::Incoming>,
     ctx: Ctx,
@@ -457,15 +707,27 @@ async fn handle(
         ));
     }
 
+    // The batch handler retains all replies until the entire batch finishes.
+    // Per-quote capture limits must not multiply into an unbounded trace reply.
+    if let Value::Array(items) = &json
+        && items.iter().any(|item| {
+            item["method"] == crate::fee_quotes::DEBUG_METHOD
+                && item["params"][1].get("trace").is_some()
+        })
+    {
+        return Ok(rpc_error(
+            Value::Null,
+            -32600,
+            "traced eez_debugQuoteFee requests must be sent individually",
+        ));
+    }
+
     let method = json.get("method").and_then(Value::as_str).unwrap_or("");
 
-    // Discovery is answered locally (never forwarded) and does not depend on
-    // readiness: the advertised configuration is static for the process.
-    // Batches remain limited to forwarded `eth_*` methods below.
-    if method == crate::composer_rpc::METHOD {
-        return Ok(json_response(
-            crate::composer_rpc::respond(&json, &ctx.composer_info).to_string(),
-        ));
+    // Split only requests containing front-local work. Pure Ethereum requests
+    // keep their existing transparent forwarding and estimation behavior.
+    if contains_composer_method(&json) {
+        return Ok(handle_composer_methods(&ctx, &json).await);
     }
 
     // An unrouted variant would be forwarded to the source chain, skipping the
@@ -498,28 +760,25 @@ async fn handle(
             "cross-chain front forwards only eth_* JSON-RPC methods",
         ));
     }
+    if estimate::contains_estimate(&json) {
+        return Ok(estimate::handle(&ctx, &json).await);
+    }
     Ok(forward(&ctx, body_bytes.to_vec()).await)
 }
 
-const EXECUTE_CROSS_CHAIN_CALL_SELECTOR: &str = "9af53259";
-const STATIC_CROSS_CHAIN_CALL_SELECTOR: &str = "31344ade";
-
 fn trace_contains_cross_chain_call(trace: &Value, dispatch_address: Address) -> bool {
-    let targets_dispatch = trace
+    let target = trace
         .get("to")
         .and_then(Value::as_str)
-        .is_some_and(|to| to.eq_ignore_ascii_case(&dispatch_address.to_string()));
-    let calls_cross_chain_entrypoint = trace
+        .and_then(|s| s.parse::<Address>().ok());
+    let input = trace
         .get("input")
         .and_then(Value::as_str)
-        .and_then(|input| input.strip_prefix("0x"))
-        .is_some_and(|input| {
-            input.get(..8).is_some_and(|selector| {
-                selector.eq_ignore_ascii_case(EXECUTE_CROSS_CHAIN_CALL_SELECTOR)
-                    || selector.eq_ignore_ascii_case(STATIC_CROSS_CHAIN_CALL_SELECTOR)
-            })
-        });
-    if targets_dispatch && calls_cross_chain_entrypoint {
+        .and_then(|s| s.parse::<Bytes>().ok());
+    let dispatch = target.zip(input).is_some_and(|(target, input)| {
+        eez_composer::composer::estimate::is_dispatch(target, &input, dispatch_address)
+    });
+    if dispatch {
         return true;
     }
     trace
@@ -554,13 +813,21 @@ async fn transaction_is_cross_chain(ctx: &Ctx, envelope: &TxEnvelope) -> Result<
         call.insert("to".into(), Value::String(to.to_string()));
     }
 
+    // L2 routing observes an executed state/header pair, as the local gas
+    // classifier does. Reth's derived pending state cannot apply a scheduled
+    // history import; treating that predictable error as cross-chain ownership
+    // strands ordinary calls. L1 retains its pending-state classification.
+    let block = match ctx.direction {
+        Direction::Outbound => "latest",
+        Direction::Inbound => "pending",
+    };
     let request = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "debug_traceCall",
         "params": [
             Value::Object(call),
-            "pending",
+            block,
             { "tracer": "callTracer" }
         ],
     });
@@ -607,7 +874,21 @@ async fn intercept_send_raw(
     }
     let id = json.get("id").cloned().unwrap_or(Value::Null);
     let hash: B256 = keccak256(raw.as_ref());
-    match transaction_is_cross_chain(ctx, &envelope).await {
+    // A predecessor may change whether execution reaches dispatch. Only the
+    // stateful fee path can classify such a call; an isolated trace could revert
+    // early and incorrectly release it into the ordinary mempool.
+    let requires_owned_state = ctx.fee_quotes.as_ref().is_some_and(|s| s.enforce_tariff)
+        && (ctx.held_pool.owns(hash)
+            || envelope.recover_signer().is_ok_and(|sender| {
+                ctx.held_pool
+                    .owns_predecessor(sender, ctx.direction, envelope.nonce())
+            }));
+    let classification = if requires_owned_state {
+        Ok(true)
+    } else {
+        transaction_is_cross_chain(ctx, &envelope).await
+    };
+    match classification {
         Ok(false) => {
             event!(
                 name: "eez.xchain_front.ordinary_forwarded",
@@ -635,6 +916,25 @@ async fn intercept_send_raw(
     // nothing drains. Ordinary transactions took the forwarding branch above.
     if !ctx.ready.load(std::sync::atomic::Ordering::Relaxed) {
         return Some(rpc_error(id, -32000, STARTING_UP_MSG));
+    }
+    if let Some(service) = &ctx.fee_quotes
+        && service.enforce_tariff
+    {
+        if ctx.held_pool.owns(hash) {
+            return Some(json_response(
+                serde_json::json!({"jsonrpc":"2.0","id":id,"result":hash}).to_string(),
+            ));
+        }
+        let (status, result) = service.check_signed(&envelope).await;
+        if !status.is_success() {
+            tracing::info!(event_name = "eez.xchain_front.funding_rejected",
+                tx_hash = %hash, direction = ?ctx.direction,
+                error = %result["error"], "signed source failed settlement admission");
+            return Some(json_response(serde_json::json!({
+                "jsonrpc":"2.0", "id":id,
+                "error":{"code":-32003,"message":"settlement tariff admission failed", "data":result["error"]}
+            }).to_string()));
+        }
     }
     let resp_body = match gate_and_hold(
         &envelope,
@@ -780,9 +1080,27 @@ mod tests {
         }
     }
 
-    /// One admitted tx makes three lookups: code, balance, nonce. The mock
-    /// answers in push order, not by method, so the order matters.
+    const SOURCE_BLOCK_GAS_LIMIT: u64 = 30_000_000;
+
+    /// The source chain's latest block, as `eth_getBlockByNumber` returns it.
+    fn push_latest_block(asserter: &Asserter, gas_limit: u64) {
+        let block = alloy_rpc_types_eth::Block::<alloy_rpc_types_eth::Transaction> {
+            header: alloy_rpc_types_eth::Header {
+                inner: alloy_consensus::Header {
+                    gas_limit,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        asserter.push_success(&block);
+    }
+
+    /// One admitted tx makes four lookups: latest block, code, balance, nonce.
+    /// The mock answers in push order, not by method, so the order matters.
     fn push_admission_lookups(asserter: &Asserter, balance: u64, nonce: u64) {
+        push_latest_block(asserter, SOURCE_BLOCK_GAS_LIMIT);
         asserter.push_success(&Bytes::from_static(&[0x60, 0x00]));
         asserter.push_success(&U256::from(balance));
         asserter.push_success(&nonce);
@@ -829,6 +1147,146 @@ mod tests {
 
         assert!(msg.contains("missing source-chain id"));
         assert_eq!(pool.len(), 0, "rejected tx from {signer:?} mutated pool");
+    }
+
+    fn signed_eip1559_with(
+        gas_limit: u64,
+        max_fee_per_gas: u128,
+        max_priority_fee_per_gas: u128,
+        input: Bytes,
+    ) -> (TxEnvelope, Bytes) {
+        let signer = test_signer();
+        let mut tx = TxEip1559 {
+            chain_id: 31337,
+            nonce: 0,
+            gas_limit,
+            max_fee_per_gas,
+            max_priority_fee_per_gas,
+            to: TxKind::Call(Address::ZERO),
+            value: U256::ZERO,
+            access_list: alloy_eips::eip2930::AccessList::default(),
+            input,
+        };
+        let sig = signer.sign_transaction_sync(&mut tx).expect("tx signs");
+        let envelope = TxEnvelope::from(tx.into_signed(sig));
+        let raw = Bytes::from(envelope.encoded_2718());
+        (envelope, raw)
+    }
+
+    /// No base fee can make a tip above the fee cap valid (EIP-1559).
+    #[tokio::test]
+    async fn priority_fee_above_fee_cap_is_rejected_at_submission() {
+        let (envelope, raw) = signed_eip1559_with(21_000, 10, 11, Bytes::new());
+        let pool = HeldPool::new(Default::default());
+        let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
+
+        let msg = rejection(
+            gate_and_hold(&envelope, &raw, Direction::Inbound, &pool, 31337, &provider).await,
+        );
+
+        assert_eq!(
+            msg,
+            "max_priority_fee_per_gas 11 exceeds max_fee_per_gas 10"
+        );
+        assert_eq!(pool.len(), 0);
+    }
+
+    /// A gas limit below intrinsic gas can never execute. Calldata raises the
+    /// intrinsic cost, including the EIP-7623 floor.
+    #[tokio::test]
+    async fn gas_limit_below_intrinsic_gas_is_rejected_at_submission() {
+        let pool = HeldPool::new(Default::default());
+        let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
+
+        let (envelope, raw) = signed_eip1559_with(20_999, 10, 1, Bytes::new());
+        let msg = rejection(
+            gate_and_hold(&envelope, &raw, Direction::Inbound, &pool, 31337, &provider).await,
+        );
+        assert_eq!(
+            msg,
+            "gas limit 20999 is below the transaction's intrinsic gas 21000"
+        );
+
+        // 100 nonzero bytes: 21000 + 100 * 16 = 22600, floor 21000 + 400 * 10 = 25000.
+        let (envelope, raw) = signed_eip1559_with(22_600, 10, 1, Bytes::from(vec![1u8; 100]));
+        let msg = rejection(
+            gate_and_hold(&envelope, &raw, Direction::Inbound, &pool, 31337, &provider).await,
+        );
+        assert_eq!(
+            msg,
+            "gas limit 22600 is below the transaction's intrinsic gas 25000"
+        );
+        assert_eq!(pool.len(), 0);
+    }
+
+    /// Osaka caps one transaction at 2^24 gas on either source chain, before
+    /// any chain lookup.
+    #[tokio::test]
+    async fn gas_limit_above_the_per_transaction_cap_is_rejected_at_submission() {
+        let (envelope, raw) = signed_eip1559_with(16_777_217, 10, 1, Bytes::new());
+        for direction in [Direction::Inbound, Direction::Outbound] {
+            let pool = HeldPool::new(Default::default());
+            let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
+            let msg =
+                rejection(gate_and_hold(&envelope, &raw, direction, &pool, 31337, &provider).await);
+            assert_eq!(
+                msg,
+                "gas limit 16777217 exceeds the per-transaction cap 16777216 (EIP-7825)"
+            );
+            assert_eq!(pool.len(), 0);
+        }
+    }
+
+    /// No block on the source chain can include more gas than its current limit.
+    #[tokio::test]
+    async fn gas_limit_above_source_block_gas_limit_is_rejected_at_submission() {
+        let (envelope, raw) = signed_eip1559_with(10_000_001, 10, 1, Bytes::new());
+        let pool = HeldPool::new(Default::default());
+        let asserter = Asserter::new();
+        let provider = ProviderBuilder::default().connect_mocked_client(asserter.clone());
+        push_latest_block(&asserter, 10_000_000);
+
+        let msg = rejection(
+            gate_and_hold(
+                &envelope,
+                &raw,
+                Direction::Outbound,
+                &pool,
+                31337,
+                &provider,
+            )
+            .await,
+        );
+
+        assert_eq!(
+            msg,
+            "gas limit 10000001 exceeds the source chain's block gas limit 10000000"
+        );
+        assert_eq!(pool.len(), 0);
+    }
+
+    /// The boundaries themselves (intrinsic gas, the per-transaction cap and an
+    /// equal tip) are valid, and a fee cap below the current
+    /// base fee is still held: it can become includable later.
+    #[tokio::test]
+    async fn boundary_gas_limits_and_equal_tip_are_accepted() {
+        let pool = HeldPool::new(Default::default());
+        let asserter = Asserter::new();
+        let provider = ProviderBuilder::default().connect_mocked_client(asserter.clone());
+        push_admission_lookups(&asserter, 1_000_000_000, 0);
+        let (envelope, raw) = signed_eip1559_with(21_000, 10, 10, Bytes::new());
+        assert!(matches!(
+            gate_and_hold(&envelope, &raw, Direction::Inbound, &pool, 31337, &provider).await,
+            Admission::Held(_)
+        ));
+
+        let pool = HeldPool::new(Default::default());
+        push_admission_lookups(&asserter, u64::MAX, 0);
+        let (envelope, raw) = signed_eip1559_with(TX_GAS_LIMIT_CAP, 1, 1, Bytes::new());
+        assert!(matches!(
+            gate_and_hold(&envelope, &raw, Direction::Inbound, &pool, 31337, &provider).await,
+            Admission::Held(_)
+        ));
     }
 
     #[tokio::test]
@@ -929,7 +1387,7 @@ mod tests {
 
     #[tokio::test]
     async fn upfront_cost_overflow_is_rejected() {
-        let (signer, envelope, raw) = signed_eip1559(31337, U256::MAX, 1, 1);
+        let (signer, envelope, raw) = signed_eip1559(31337, U256::MAX, 21_000, 1);
         let pool = HeldPool::new(Default::default());
         let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
 
@@ -1020,6 +1478,84 @@ mod tests {
         assert!(!trace_contains_cross_chain_call(&trace, dispatch));
     }
 
+    #[tokio::test]
+    async fn signed_ingress_uses_executed_l2_state_and_keeps_dispatch_guard() {
+        use jsonrpsee::{RpcModule, server::ServerBuilder, types::ErrorObjectOwned};
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+        for (direction, expected_block) in [
+            (Direction::Outbound, "latest"),
+            (Direction::Inbound, "pending"),
+        ] {
+            let dispatcher = Address::repeat_byte(0x42);
+            let (_, _, raw) = signed_eip1559(31337, U256::ZERO, 50_000, 1);
+            let hash = keccak256(raw.as_ref());
+            let dispatch = Arc::new(AtomicBool::new(false));
+            let forwarded = Arc::new(AtomicUsize::new(0));
+            let upstream = ServerBuilder::default().build("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", upstream.local_addr().unwrap());
+            let mut module = RpcModule::new((dispatch.clone(), forwarded.clone()));
+            module
+                .register_method("debug_traceCall", move |params, state, _| {
+                    let params: Vec<Value> = params.parse()?;
+                    if params[1] != expected_block {
+                        return Err(ErrorObjectOwned::owned(
+                            -32603,
+                            "pending L1 history import has not executed",
+                            None::<()>,
+                        ));
+                    }
+                    Ok::<_, ErrorObjectOwned>(if state.0.load(Ordering::Relaxed) {
+                        json!({"type":"CALL", "calls":[{
+                            "to":dispatcher, "input":"0x9af53259", "error":"execution reverted"
+                        }]})
+                    } else {
+                        json!({"type":"CALL", "calls":[]})
+                    })
+                })
+                .unwrap();
+            module
+                .register_method("eth_sendRawTransaction", move |_, state, _| {
+                    state.1.fetch_add(1, Ordering::Relaxed);
+                    json!(hash)
+                })
+                .unwrap();
+            let server = upstream.start(module);
+            let port = free_port();
+            let pool = Arc::new(HeldPool::new(Default::default()));
+            let task = tokio::spawn(run_cross_chain_front(
+                port,
+                url,
+                direction,
+                pool.clone(),
+                ProviderBuilder::default().connect_mocked_client(Asserter::new()),
+                31337,
+                dispatcher,
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(json!({})),
+                None,
+            ));
+            wait_for_front(port).await;
+            let ordinary = send_raw(port, &raw, 1).await;
+            assert_eq!(
+                ordinary["result"],
+                json!(hash),
+                "ordinary L2 work must not enter held ownership at a history boundary: {ordinary}"
+            );
+            assert!(!pool.owns(hash));
+            dispatch.store(true, Ordering::Relaxed);
+            let guarded = send_raw(port, &raw, 2).await;
+            assert_eq!(guarded["error"]["message"], STARTING_UP_MSG);
+            assert_eq!(
+                forwarded.load(Ordering::Relaxed),
+                1,
+                "a caught dispatcher call cannot enter the ordinary mempool"
+            );
+            task.abort();
+            server.stop().unwrap();
+        }
+    }
+
     fn free_port() -> u16 {
         std::net::TcpListener::bind(("127.0.0.1", 0))
             .unwrap()
@@ -1053,8 +1589,36 @@ mod tests {
             .unwrap()
     }
 
+    #[tokio::test]
+    async fn l2_fee_rpc_without_policy_reports_disabled_locally() {
+        let port = free_port();
+        let task = tokio::spawn(run_cross_chain_front(
+            port,
+            "http://127.0.0.1:1".into(),
+            Direction::Outbound,
+            Arc::new(HeldPool::new(Default::default())),
+            ProviderBuilder::default().connect_mocked_client(Asserter::new()),
+            1,
+            Address::ZERO,
+            Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            Arc::new(serde_json::json!({})),
+            None,
+        ));
+        wait_for_front(port).await;
+        let response = post(
+            port,
+            &serde_json::json!({
+                "jsonrpc":"2.0", "id":1, "method":crate::fee_quotes::METHOD, "params":[{}]
+            }),
+        )
+        .await;
+        assert_eq!(response["error"]["code"], -32004);
+        assert_eq!(response["error"]["data"]["code"], "quotes_disabled");
+        task.abort();
+    }
+
     /// Discovery is answered by the front itself: before readiness, without
-    /// contacting the (here unreachable) upstream, and only for single requests.
+    /// contacting the (here unreachable) upstream, singly and in batches.
     #[tokio::test]
     async fn front_answers_composer_info_locally() {
         let port = free_port();
@@ -1069,6 +1633,7 @@ mod tests {
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
             Arc::new(info.clone()),
+            None,
         ));
         wait_for_front(port).await;
 
@@ -1087,14 +1652,205 @@ mod tests {
         )
         .await;
         assert_eq!(response["error"]["code"], -32602);
-        // Batches stay limited to forwarded eth_* methods.
         let response = post(
             port,
             &serde_json::json!([{"jsonrpc": "2.0", "method": "eez_composerInfo", "id": 9}]),
         )
         .await;
-        assert_eq!(response["error"]["code"], -32601);
+        assert_eq!(
+            response,
+            serde_json::json!([{"jsonrpc":"2.0", "id":9, "result":info}])
+        );
         task.abort();
+    }
+
+    fn discovery_request(id: Value) -> Value {
+        serde_json::json!({"jsonrpc":"2.0", "id":id, "method":"eth_call", "params":[{
+            "to":eez_protocol::discovery::ADDRESS,
+            "input":format!("0x98da5085{}", "a5".repeat(32)),
+            "from":Address::repeat_byte(0x99), "gas":"0x0", "value":"0x0"
+        }, "latest"]})
+    }
+
+    #[tokio::test]
+    async fn front_discovery_works_before_readiness_on_both_chains_and_suppresses_notifications() {
+        for (direction, chain) in [(Direction::Inbound, 1), (Direction::Outbound, 10201)] {
+            let port = free_port();
+            let info = serde_json::json!({"version":"test", "supportedNetworks":{"eezL1":1,"eezL2":10201}});
+            let task = tokio::spawn(run_cross_chain_front(
+                port,
+                "http://127.0.0.1:1".into(),
+                direction,
+                Arc::new(HeldPool::new(Default::default())),
+                ProviderBuilder::default().connect_mocked_client(Asserter::new()),
+                chain,
+                Address::ZERO,
+                Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                Arc::new(info.clone()),
+                None,
+            ));
+            wait_for_front(port).await;
+            for id in [
+                serde_json::json!("wallet"),
+                serde_json::json!(7),
+                Value::Null,
+            ] {
+                for block in [serde_json::json!("latest"), serde_json::json!("0x9ff58")] {
+                    let mut request = discovery_request(id.clone());
+                    request["params"][1] = block;
+                    let response = post(port, &request).await;
+                    assert_eq!(response["id"], id);
+                    assert_eq!(
+                        response["result"],
+                        serde_json::json!(Bytes::from(eez_protocol::discovery::encode_response(
+                            B256::repeat_byte(0xa5),
+                            chain,
+                            info.to_string().as_bytes()
+                        )))
+                    );
+                }
+            }
+            let mut notification = discovery_request(Value::Null);
+            notification.as_object_mut().unwrap().remove("id");
+            let mut invalid_notification = notification.clone();
+            invalid_notification["params"][1] = serde_json::json!("not-a-block");
+            for body in [
+                notification.clone(),
+                serde_json::json!([
+                    notification, invalid_notification,
+                    {"jsonrpc":"2.0", "method":"eez_composerInfo"},
+                    {"jsonrpc":"2.0", "method":"eez_unknown"}
+                ]),
+            ] {
+                let response = reqwest::Client::new()
+                    .post(format!("http://127.0.0.1:{port}"))
+                    .json(&body)
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::NO_CONTENT);
+                assert!(response.bytes().await.unwrap().is_empty());
+            }
+            task.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn front_discovery_mixed_batches_keep_routing_ids_and_submission_guard() {
+        let upstream = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", upstream.local_addr().unwrap());
+        let forwarded = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let observed = Arc::clone(&forwarded);
+        let server = tokio::spawn(async move {
+            let mut connections = tokio::task::JoinSet::new();
+            loop {
+                let (stream, _) = upstream.accept().await.unwrap();
+                let observed = Arc::clone(&observed);
+                connections.spawn(async move {
+                    let service = service_fn(move |req: Request<hyper::body::Incoming>| {
+                        let observed = Arc::clone(&observed);
+                        async move {
+                            let bytes = req.into_body().collect().await.unwrap().to_bytes();
+                            let request: Value = serde_json::from_slice(&bytes).unwrap();
+                            observed.lock().unwrap().push(request.clone());
+                            let result = if request["method"] == "eth_estimateGas" {
+                                "0x5208"
+                            } else {
+                                "0xdeadbeef"
+                            };
+                            Ok::<_, std::convert::Infallible>(json_response(
+                                serde_json::json!({
+                                    "jsonrpc":"2.0", "id":request["id"], "result":result
+                                })
+                                .to_string(),
+                            ))
+                        }
+                    });
+                    let _ = http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), service)
+                        .await;
+                });
+            }
+        });
+        let port = free_port();
+        let info = serde_json::json!({"version":"test"});
+        let task = tokio::spawn(run_cross_chain_front(
+            port,
+            url,
+            Direction::Outbound,
+            Arc::new(HeldPool::new(Default::default())),
+            ProviderBuilder::default().connect_mocked_client(Asserter::new()),
+            10201,
+            Address::ZERO,
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            Arc::new(info.clone()),
+            None,
+        ));
+        wait_for_front(port).await;
+        let mut ordinary = discovery_request(serde_json::json!("ordinary"));
+        ordinary["params"][0]["to"] = serde_json::json!(Address::repeat_byte(0x12));
+        let mut other_selector = discovery_request(serde_json::json!("selector"));
+        other_selector["params"][0]["input"] = serde_json::json!("0x12345678");
+        let mut estimate = ordinary.clone();
+        estimate["method"] = serde_json::json!("eth_estimateGas");
+        estimate["id"] = serde_json::json!("estimate");
+        let mut notification = ordinary.clone();
+        notification.as_object_mut().unwrap().remove("id");
+        let batch = serde_json::json!([
+            discovery_request(serde_json::json!(1)), ordinary, other_selector, estimate, notification,
+            {"jsonrpc":"2.0", "id":null, "method":"eez_composerInfo"},
+            {"jsonrpc":"2.0", "id":-2, "method":"eez_getCrossChainQueueStatus"},
+            {"jsonrpc":"2.0", "id":3, "method":"eez_getCrossChainTransaction", "params":[B256::ZERO]},
+            {"jsonrpc":"2.0", "id":4, "method":"eez_unknown"},
+            {"jsonrpc":"2.0", "id":5, "method":"debug_traceCall"},
+            false,
+            {"jsonrpc":"2.0", "id":[], "method":"eez_composerInfo"}
+        ]);
+        let response = post(port, &batch).await;
+        let items = response.as_array().unwrap();
+        assert_eq!(items.len(), 11);
+        assert_eq!(items[1]["id"], "ordinary");
+        assert_eq!(items[1]["result"], "0xdeadbeef");
+        assert_eq!(items[2]["id"], "selector");
+        assert_eq!(items[2]["result"], "0xdeadbeef");
+        assert_eq!(items[3]["id"], "estimate");
+        assert_eq!(items[3]["result"], "0x5208");
+        assert!(items[4]["id"].is_null());
+        assert_eq!(items[4]["result"], info);
+        assert_eq!(items[5]["result"]["queued"], 0);
+        assert_eq!(items[5]["id"], -2);
+        assert!(items[6]["result"].is_null());
+        assert_eq!(items[7]["error"]["code"], -32601);
+        assert_eq!(items[8]["error"]["code"], -32601);
+        assert_eq!(items[9]["error"]["code"], -32600);
+        assert_eq!(items[10]["error"]["code"], -32600);
+        assert_eq!(
+            *forwarded.lock().unwrap(),
+            vec![ordinary, other_selector, estimate, notification]
+        );
+        for method in [
+            "eth_sendRawTransaction",
+            "eth_sendRawTransactionConditional",
+        ] {
+            let response = post(
+                port,
+                &serde_json::json!([
+                    discovery_request(serde_json::json!(1)),
+                    {"jsonrpc":"2.0", "id":2, "method":method, "params":["0x01"]}
+                ]),
+            )
+            .await;
+            assert_eq!(response["error"]["code"], -32600);
+            assert!(
+                response["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("singly")
+            );
+            assert_eq!(forwarded.lock().unwrap().len(), 4);
+        }
+        task.abort();
+        server.abort();
     }
 
     async fn send_raw(port: u16, raw: &Bytes, id: u64) -> Value {
@@ -1335,6 +2091,7 @@ mod tests {
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(true)),
             Arc::new(serde_json::json!({"fixture": true})),
+            None,
         ));
         let outbound_task = tokio::spawn(run_cross_chain_front(
             outbound_port,
@@ -1346,6 +2103,7 @@ mod tests {
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(true)),
             Arc::new(serde_json::json!({"fixture": true})),
+            None,
         ));
         wait_for_front(inbound_port).await;
         wait_for_front(outbound_port).await;
@@ -1400,6 +2158,7 @@ mod tests {
             Address::ZERO,
             Arc::clone(&ready),
             Arc::new(serde_json::json!({"fixture": true})),
+            None,
         ));
         wait_for_front(port).await;
 
@@ -1496,6 +2255,7 @@ mod tests {
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(true)),
             Arc::new(serde_json::json!({"fixture": true})),
+            None,
         ));
         wait_for_front(port).await;
 
@@ -1530,6 +2290,7 @@ mod tests {
         let provider = ProviderBuilder::default().connect_mocked_client(asserter.clone());
         // Empty code, then a good balance and nonce, so only the code check can
         // be what rejects this tx.
+        push_latest_block(&asserter, SOURCE_BLOCK_GAS_LIMIT);
         asserter.push_success(&Bytes::new());
         asserter.push_success(&U256::from(1_000_000u64));
         asserter.push_success(&0_u64);
@@ -1544,6 +2305,7 @@ mod tests {
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(true)),
             Arc::new(serde_json::json!({"fixture": true})),
+            None,
         ));
         wait_for_front(port).await;
 

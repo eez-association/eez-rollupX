@@ -27,13 +27,36 @@ def settlement_environment(values):
     allowed = [
         "EEZ_SETTLEMENT_PURE_L2_MODE", "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS",
         "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
+        "EEZ_SETTLEMENT_START_AFTER_BLOCK",
+        "EEZ_SETTLEMENT_START_DELAY_MS",
+        # Preserve obsolete values for the node's actionable migration error.
+        "EEZ_PREPARATION_TIME_MS",
         "EEZ_SETTLEMENT_BLOB_FULLNESS_BPS", "EEZ_MAX_BLOBS_PER_BATCH",
         "EEZ_MAX_POSTBATCH_GAS", "EEZ_L1_POSTBATCH_PRIORITY_FEE",
         "EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE",
         "EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE",
+        "EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE",
+        "EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE",
         "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
         "EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS", "EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS",
         "EEZ_L1_POSTBATCH_GAS_MARGIN_BPS",
+        "EEZ_L2_FEE_RECIPIENT",
+        "EEZ_FEES_L1_TO_L2_ENABLED",
+        "EEZ_FEES_L2_TO_L1_ENABLED",
+        "EEZ_FEES_L1_PER_L2_NUMERATOR",
+        "EEZ_FEES_L1_PER_L2_DENOMINATOR",
+        "EEZ_FEES_PROVING_COST_L1",
+        "EEZ_FEES_OPERATIONS_COST_L1",
+        "EEZ_FEES_TREASURY_COST_L1",
+        "EEZ_FEES_RISK_BPS",
+        "EEZ_FEES_PROFIT_BPS",
+        "EEZ_FEES_EXCLUDED_SENDERS",
+        "EEZ_FEES_QUOTE_BASE_FEE_PERCENT",
+        "EEZ_FEES_L1_REFUND_RECIPIENT",
+        "EEZ_FEES_L1_REFUND_PERCENT",
+        # Preserve obsolete inputs for Composer migration errors.
+        "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP",
+        "EEZ_L2_FEE_SHADOW_POLICY", "EEZ_L2_FEE_ENFORCE_TARIFF", "EEZ_L1_FEE_REFUND_POLICY",
     ]
     result = {}
     for name, value in values.items():
@@ -41,6 +64,7 @@ def settlement_environment(values):
             fail("settlement_env requires a recognized environment name and a quoted string: " + name)
         result[name] = value
     for name in [
+        "EEZ_SETTLEMENT_START_AFTER_BLOCK",
         "EEZ_SETTLEMENT_PURE_L2_MODE",
         "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
         "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS",
@@ -80,7 +104,7 @@ def run(plan, args):
         )
 
     # Pair B: canonical L1, validators, and MEV stack.
-    eth = ethereum_package.run(plan, eth_args)
+    eth = ethereum_package.run(resources.relay_startup_plan(plan), eth_args)
     resources.configure_mev_relay_cpu(plan, eth_args, eez.get("mev_relay_cpu", None))
 
     participants = eth.all_participants
@@ -160,14 +184,27 @@ def run(plan, args):
         description="wait for the canonical L1 genesis reference",
     )
 
+    history_environment = {}
+    if "history_update_offset" in eez:
+        offset = eez["history_update_offset"]
+        if type(offset) != "int" or offset < 0:
+            fail("eez.history_update_offset must be a nonnegative integer")
+        # deploy.sh validates the offset against the configured Sync interval
+        # and binds it into genesis and the on-chain offline profile.
+        history_environment["EEZ_L2_HISTORY_UPDATE_OFFSET"] = str(offset)
+
     # Deploy protocol contracts and emit /out/deployments.env + /out/l2-genesis.json.
     deploy = plan.run_sh(
         description="deploy EEZ contracts + generate L2 genesis on the shared L1",
         image=eez.get("deploy_image", "eez-deploy:dev"),
-        env_vars={
+        files={"/genesis": "el_cl_genesis_data"},
+        env_vars=dict({
             "EEZ_L1_RPC_URL": l1_el.rpc_http_url,
+            "EEZ_L1_CHAIN_CONFIG": "/genesis/genesis.json",
             "EEZ_L1_POSTER_KEY": poster_key,
             "EEZ_PROOF_SIGNER_KEY": proof_signer_key,
+            # Public fixture recipient, bound into the rendered genesis/profile.
+            "EEZ_L2_TREASURY_RECIPIENT": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
             "EEZ_L1_BLOCK_TIME_MS": str(eez.get("l1_block_time_ms", 12000)),
             "EEZ_L2_BLOCK_TIME_MS": str(eez.get("l2_block_time_ms", 2000)),
             "EEZ_DEPLOYMENTS_FILE": "/out/deployments.env",
@@ -176,7 +213,7 @@ def run(plan, args):
             # Private devnet only: L1 block zero needs no finality wait.
             "EEZ_L1_REFERENCE": "genesis",
             "EEZ_GENESIS_OUT": "/out/l2-genesis.json",
-        },
+        }, **history_environment),
         run="mkdir -p /out && bash /repo/scripts/deploy.sh && cp -R /repo/contracts/broadcast /out/foundry-broadcast",
         store=[StoreSpec(src="/out", name="eez-deployments")],
         wait="900s",
@@ -215,7 +252,6 @@ def run(plan, args):
                 "/genesis": "el_cl_genesis_data",
             },
             env_vars={
-                "EEZ_L1_RPC_URL": l1_el.rpc_http_url,
                 "EEZ_PROOF_SIGNER_KEY": proof_signer_key,
                 "RUST_LOG": eez.get("proof_signer_rust_log", "info"),
             },
@@ -223,6 +259,21 @@ def run(plan, args):
             cmd=[signer_cmd],
         ),
     )
+
+    prover_url = "http://eez-proof-signer:{}".format(PROOF_SIGNER_GRPC_PORT)
+    if "prove_capture_image" in eez:
+        # Explicit opt-in test adapter. Only ACKed evidence and successful
+        # finalizations are retained; the real signer remains authoritative.
+        plan.add_service(
+            name="eez-prove-capture",
+            config=ServiceConfig(
+                image=eez["prove_capture_image"],
+                ports={"grpc": PortSpec(number=PROOF_SIGNER_GRPC_PORT, transport_protocol="TCP")},
+                entrypoint=["capture_prover"],
+                cmd=["0.0.0.0:{}".format(PROOF_SIGNER_GRPC_PORT), prover_url, "/data/captures"],
+            ),
+        )
+        prover_url = "http://eez-prove-capture:{}".format(PROOF_SIGNER_GRPC_PORT)
 
     # eez-node: embedded L1, composer, L2, and cross-chain fronts.
     eez_env = {
@@ -251,7 +302,7 @@ def run(plan, args):
         else "0",
         "EEZ_L1_POSTER_KEY": poster_key,
         "EEZ_L1_BLOB_SIDECAR_ENCODING": blob_sidecar_encoding,
-        "EEZ_PROVER_URL": "http://eez-proof-signer:{}".format(PROOF_SIGNER_GRPC_PORT),
+        "EEZ_PROVER_URL": prover_url,
         "EEZ_WITNESS_DB_PATH": "/data/witnesses",
         "EEZ_L2_DATADIR": "/data/l2",
         "EEZ_L2_HTTP_PORT": str(L2_RPC_PORT),
@@ -415,6 +466,7 @@ def run(plan, args):
                 files=ui_files,
                 env_vars={
                     "EEZ_UI_ENCLAVE": "kurtosis",
+                    "EEZ_UI_L2_FEES_ENABLED": eez.get("settlement_env", {}).get("EEZ_FEES_L2_TO_L1_ENABLED", "false"),
                     "EEZ_UI_DEMO_PRIVATE_KEY": eez.get(
                         "demo_private_key",
                         "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",

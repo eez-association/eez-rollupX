@@ -1,0 +1,64 @@
+{
+  "baseline": {
+    "runtime_source": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+    "window": [
+      1792864289.418,
+      1792865250.38
+    ],
+    "node_log_sha256": "a8957a583fd1f7b107443c02430f47a3cd14c5c86636e46410bc45240cbadf79",
+    "plans": 80,
+    "prepare_true": 72,
+    "prepare_false": 8,
+    "true_plans_without_invocation": 0,
+    "all_settlement_seconds": {
+      "count": 3802,
+      "p50": 13.790082931518555,
+      "p95": 25.41477394104004,
+      "max": 30.93915891647339
+    },
+    "settlement_overlapping_false_plan": {
+      "count": 425,
+      "p50": 24.817716121673584,
+      "p95": 30.326922178268433,
+      "max": 30.93915891647339
+    },
+    "settlement_without_false_plan": {
+      "count": 3377,
+      "p50": 12.923573970794678,
+      "p95": 18.401143074035645,
+      "max": 19.121803045272827
+    },
+    "attribution_limit": "An overlap associates a receipt with a deliberate no-prepare opportunity; it does not prove the counterfactual inclusion, establish causality, or compare identical transaction arrival phases."
+  },
+  "candidate": {
+    "runtime_source": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+    "window": [
+      1792873282.572,
+      1792874243.526
+    ],
+    "node_log_sha256": "89a6d3cbd209140d24bac830a6231d32f22a84cb4cd5cc1402db54d592463bf7",
+    "plans": 79,
+    "prepare_true": 68,
+    "prepare_false": 11,
+    "true_plans_without_invocation": 0,
+    "all_settlement_seconds": {
+      "count": 3890,
+      "p50": 14.092039465904236,
+      "p95": 31.59883403778076,
+      "max": 43.029327154159546
+    },
+    "settlement_overlapping_false_plan": {
+      "count": 533,
+      "p50": 29.002721071243286,
+      "p95": 41.540826082229614,
+      "max": 43.029327154159546
+    },
+    "settlement_without_false_plan": {
+      "count": 3357,
+      "p50": 13.098467111587524,
+      "p95": 18.43839406967163,
+      "max": 30.674268007278442
+    },
+    "attribution_limit": "An overlap associates a receipt with a deliberate no-prepare opportunity; it does not prove the counterfactual inclusion, establish causality, or compare identical transaction arrival phases."
+  }
+}

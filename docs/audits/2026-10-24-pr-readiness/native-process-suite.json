@@ -1,0 +1,129 @@
+{
+  "status": "failed first complete run; diagnostic repetitions are separate",
+  "observed_complete_at_utc": "2026-10-24T12:53:00.805485+00:00",
+  "exit_code": 101,
+  "command": "bwrap --bind / / --dev /dev --bind \"$TMPDIR\" /tmp --chdir \"$PWD\" artifacts/pr-readiness/runtime-bin/node_e2e-final --test-threads=1 --nocapture",
+  "selection": {
+    "declared": 179,
+    "passed": 172,
+    "failed": 2,
+    "ignored": 5,
+    "filtered_out": 0,
+    "seconds": 9845.87
+  },
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "genesis_state_root": "0x76df720c92bb7bf7ff3a42031b3af51b9a2db7d91abf2da3a810ca00a89273bf",
+  "executables_sha256": {
+    "artifacts/pr-readiness/runtime-bin/node_e2e-final": "f012c3f6d9957afaff9633589e491fce238f4ed602ec0e4191c75fe8f172991f",
+    "artifacts/pr-readiness/runtime-bin/eez-proof-signer-final": "2e8bafcd0c8efcde1f572900bfff200432c7ac16a26a0df4765bda875890bb2f",
+    "artifacts/pr-readiness/runtime-bin/final-source/eez-composer": "f613f0a2e9c0562ef505b9a241212f966d6fc5b0553f2489298afda16179e100",
+    "artifacts/pr-readiness/runtime-bin/final-source/eez-follower": "48507de679a2671cd9850eaaf959e8a51538f287342524f62994b46c63649e6f"
+  },
+  "executables_rehashed_after_completion": true,
+  "signer_outgoing_connections_denied": true,
+  "signer_denial_mechanism": "scripts/ci/run-offline-signer.py seccomp; incoming gRPC remains available",
+  "log": {
+    "path": "artifacts/pr-readiness/node-e2e-final-tests.log",
+    "sha256": "d12c18b81bd4ed45055867f33a77d523fefa2f8a3690645fcc1cd93653a457a4",
+    "availability": "local-only"
+  },
+  "per_module": {
+    "chained_interstate": {
+      "passed": 5
+    },
+    "cross_chain": {
+      "passed": 41,
+      "failed": 1
+    },
+    "derivable_operations": {
+      "ignored": 4,
+      "passed": 5
+    },
+    "dynamic_admission": {
+      "passed": 28
+    },
+    "e2e": {
+      "passed": 4
+    },
+    "fee_quotes": {
+      "passed": 23
+    },
+    "kurtosis_policy_replay": {
+      "ignored": 1
+    },
+    "native_system": {
+      "passed": 2
+    },
+    "partial_consumption": {
+      "passed": 5
+    },
+    "queue_liveness": {
+      "passed": 3
+    },
+    "queue_reorg": {
+      "passed": 2
+    },
+    "safe_fee_quotes": {
+      "passed": 5
+    },
+    "settlement_policy": {
+      "passed": 36,
+      "failed": 1
+    },
+    "settlement_policy_cost": {
+      "passed": 2
+    },
+    "settlement_policy_gas": {
+      "passed": 8
+    },
+    "streaming": {
+      "passed": 1
+    },
+    "transaction_references": {
+      "passed": 2
+    }
+  },
+  "failed_cases": [
+    "cross_chain::real_signer_attester_mismatch_never_submits_a_batch",
+    "settlement_policy::general_block_rule_consolidates_empty_history_before_the_pure_interval"
+  ],
+  "ignored_cases": [
+    {
+      "name": "derivable_operations::ethereum_native_large_history_cold_checkpoint",
+      "status": "ignored",
+      "reason": "ignored, explicit large native cold feasibility checkpoint; capped production catch-up takes minutes"
+    },
+    {
+      "name": "derivable_operations::gnosis_native_large_history_cold_checkpoint",
+      "status": "ignored",
+      "reason": "ignored, explicit large native cold feasibility checkpoint; capped production catch-up takes minutes"
+    },
+    {
+      "name": "derivable_operations::multipart::four_days_settle_in_parts_with_cold_offline_provers_and_independent_replay",
+      "status": "ignored",
+      "reason": "ignored, optional four-day stress run: 69,120 produced L1 blocks and 345,600 L2 blocks"
+    },
+    {
+      "name": "derivable_operations::retained_native_history_cold_checkpoint",
+      "status": "ignored",
+      "reason": "ignored, requires the explicitly retained native history and metadata"
+    },
+    {
+      "name": "kurtosis_policy_replay::kurtosis_policy_batches_replay_independently_from_l1",
+      "status": "ignored",
+      "reason": "ignored, requires the generated evidence and endpoints of a running Kurtosis enclave"
+    }
+  ],
+  "failure_records": {
+    "cross_chain::real_signer_attester_mismatch_never_submits_a_batch": "signer-port-collision.json",
+    "settlement_policy::general_block_rule_consolidates_empty_history_before_the_pure_interval": "general-rule-native-history.json"
+  },
+  "limits": [
+    "Frozen executables precede the R03 public pending-RPC correction; that implementation has separate focused process evidence.",
+    "The original test at the pending-RPC test name asserted guarded rejection; the changed positive behavior is validated separately in pending-rpc-validation.json.",
+    "The port-collision diagnostic repeat passed with these exact executables but does not turn this full invocation into a passing run.",
+    "The empty-history cost predicate is corrected in the working tree; its separate rerun is pending.",
+    "Four optional stress selections and the live-Kurtosis replay selection are ignored here, not successful coverage.",
+    "Release-runtime and live-Kurtosis execution are separate tracks."
+  ]
+}

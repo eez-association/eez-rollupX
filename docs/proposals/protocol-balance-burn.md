@@ -8,6 +8,15 @@
 | Protocol baseline | `eez-core-protocol` `9d13218` (unchanged) |
 | Related work | [Signer specification](../../crates/eez-proof-signer/SPEC.md), [Chiado deployment runbook](../runbooks/chiado-deployment.md#genesis-allocations) |
 
+## Accepted amendment (2026-10-27)
+
+The [native transaction proposal](native-system-transactions.md) now requires
+cleanup after each complete cross-chain group, inside the completing transaction
+and before its checkpoint. Block-finalization cleanup replaces block-start
+cleanup for transfers outside groups; ordinary donations remain visible until
+block close. The historical results below validate only the earlier block-start rule;
+they do not establish validation of the amended execution profile.
+
 ## Problem and scope
 
 L2 ETH is minted by `eez-evm` for each native system transaction and must stay

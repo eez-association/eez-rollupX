@@ -80,6 +80,40 @@ Alternatives:
 - **Upstream-style debug E2E** (deferred): would remove the release-binary E2E
   gate and needs its own measurement of debug-E2E runtime and flakiness.
 
+## Remove duplicate runtime links (2026-10-28)
+
+This follow-up keeps the current free GitHub-hosted runners, release optimization
+and complete test selection. The baseline is `7437487449ca07ce93c01bd6c99ec6bf5b9f6170`,
+with protocol `84a5b5207880f192a6a5896cbfe0bac5249db47f`. Its successful
+[main CI run](https://github.com/eez-association/eez-rollupX/actions/runs/40671113864)
+spent 1,630 seconds in the runtime build and 1,005 seconds in the test archive
+step. Runtime compiler-cache statistics reported 1,873 hits and 37 misses;
+linking executable crates is not cached by sccache. These are baseline timings,
+not a measured speedup for this change.
+
+`eez-node-e2e` previously declared its own Composer and follower entrypoints.
+Cargo built both as dependencies of its integration test, duplicating executable
+links whose outputs CI never launched. Remove those targets and their unused
+dependencies. Keep the production entrypoints and all seven release test targets.
+The resulting Cargo unit graph removes the two executables and the unused
+`eez-follower` library, adds no units, and retains the shipping third-party
+features and profiles. The existing archive guard still checks real compilation.
+
+For local source tests, the shared test harness asks Cargo to build the three
+production binaries in one invocation, once per test process. It verifies the
+current source instead of trusting an existing executable and performs the build
+on a blocking worker. For CI, explicit verified binary paths remain mandatory;
+missing paths fail without rebuilding. No archive, promotion or runtime format
+changes are required.
+
+Acceptance includes the real tiny-workspace producer/consumer regression:
+unchanged test inventory, no duplicate binary targets, rejection of divergent
+third-party features, source changes reflected in local launches, frozen runtime
+hashes, relocation without Cargo, complete shards and missing-path rejection.
+The full CI matrix must pass, and the candidate's archive duration must be
+compared with the baseline before claiming a performance improvement. No test
+timeout or validation gate is relaxed.
+
 ## Compile cap
 
 Update (2026-10-01): the retained-state cap is sized automatically. The first

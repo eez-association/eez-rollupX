@@ -1,0 +1,206 @@
+{
+  "revision": "2c6d346bea0b3736f7453c35174291495694d1fc",
+  "file_count": 40,
+  "files": [
+    {
+      "path": ".gitignore",
+      "bytes": 60,
+      "sha256": "52fe6c6cdc5f1756c7b8f89b96217bfce50958ee479ecf18fd650800841b9a68"
+    },
+    {
+      "path": "companion-docs/IMPLEMENTATION_NOTES.md",
+      "bytes": 38659,
+      "sha256": "bf69ff392c79fbf64dd2904d5a3fbe8fb0477038b149e23ae716210b01fa1020"
+    },
+    {
+      "path": "companion-docs/blob-da-spec.md",
+      "bytes": 1953,
+      "sha256": "4f62d7d984f538fa482b5096656633de57a60a637fea5017488c58a1f22fb58d"
+    },
+    {
+      "path": "companion-docs/check-wire-vectors.py",
+      "bytes": 3089,
+      "sha256": "d08f5241477cd4e1f2452b3aa9fa74d1bc95085e7cd41b4b4dfe66c3b8d5df07"
+    },
+    {
+      "path": "companion-docs/da-rlp-fixture.py",
+      "bytes": 4933,
+      "sha256": "0684471568bffe350b19f04542a3c6462e136bf79acdc95b3ca102019cac218e"
+    },
+    {
+      "path": "companion-docs/related-work.md",
+      "bytes": 33890,
+      "sha256": "a061d393a04300ef05936caf536b0c3ef3dc455ff364f81110c5a507fba2ecca"
+    },
+    {
+      "path": "companion-docs/review-findings-round2.md",
+      "bytes": 15038,
+      "sha256": "f8588de1a348fe06bd3ae4f21e922de5f363305165dce751912fceaaf6cfc462"
+    },
+    {
+      "path": "companion-docs/review-findings.md",
+      "bytes": 13056,
+      "sha256": "164336740bd7322e537ca8d105d9c54a024505653d234efc92bc6fa9829fa7de"
+    },
+    {
+      "path": "companion-docs/threat-model.md",
+      "bytes": 54436,
+      "sha256": "529f483e412cb4c9c02b13bd25b454f37b45f4ecf8bbe8d9034f7c2f11be81d9"
+    },
+    {
+      "path": "companion-docs/wire-vectors.s.sol",
+      "bytes": 17665,
+      "sha256": "d1d74f00c18f3785495d89f0c092e4dcf7862d12eb118b147af1b1951a80e3f9"
+    },
+    {
+      "path": "docs/assets/rollup0-base-fee-comparison.svg",
+      "bytes": 8367,
+      "sha256": "2247936440cb1a12b242c747731967b32cd7e8b07f361183f140efa7ef7a5bdf"
+    },
+    {
+      "path": "docs/eez-protocol-spec/01-architecture.md",
+      "bytes": 1389,
+      "sha256": "d22eb0f3abe3988c2b411eebfe69397acc22822fa5acf5e5aa24488239c820c4"
+    },
+    {
+      "path": "docs/eez-protocol-spec/02-evm-and-proxies.md",
+      "bytes": 3831,
+      "sha256": "25145068625c16d04420bbdff9fed3196d114bb9fbdfc7b216773c7ecaaafaf5"
+    },
+    {
+      "path": "docs/eez-protocol-spec/03-execution-model.md",
+      "bytes": 10561,
+      "sha256": "78f61a8a0902d9862233f10ef4e17e671421378b1482c858c90c4c81dea45875"
+    },
+    {
+      "path": "docs/eez-protocol-spec/04-proving-and-settlement.md",
+      "bytes": 5431,
+      "sha256": "ae021fddab00759425a70b9f92fc7fb30ca43a21e946a1bf2ba40f5f43bae8cb"
+    },
+    {
+      "path": "docs/eez-protocol-spec/05-wire-formats.md",
+      "bytes": 17063,
+      "sha256": "f10b98071eba12feae53aa7dceddfd61adfacfa35f54505905cab35431634f7d"
+    },
+    {
+      "path": "docs/eez-protocol-spec/index.md",
+      "bytes": 1332,
+      "sha256": "23d5ae04b13899f14b08afad165465e2af16f5ad14dbdf01281ec25d431b23e0"
+    },
+    {
+      "path": "docs/gnosis-chain-spec/index.md",
+      "bytes": 7595,
+      "sha256": "daca746504cb39cd92d13a0043f4b43e53449586ecf281fb7363c485cc78a0d5"
+    },
+    {
+      "path": "docs/index.md",
+      "bytes": 477,
+      "sha256": "11ea6743d5429a675edd134c050652e96e0dc3fcdaf21d3939503df3ca75da4b"
+    },
+    {
+      "path": "docs/rollup0-spec/01-overview.md",
+      "bytes": 15689,
+      "sha256": "d4f970f73f48278b821ff09da9caa8099cd9ea183850d3da490987728989fb9e"
+    },
+    {
+      "path": "docs/rollup0-spec/02-architecture.md",
+      "bytes": 6529,
+      "sha256": "1e9c00ee1dd4d2ac6fd32bf05174a45d2c252a3d9462f9f3203a2b050ac2b871"
+    },
+    {
+      "path": "docs/rollup0-spec/03-evm-proxy-systemtx.md",
+      "bytes": 26491,
+      "sha256": "732b271aac47f6a45fdf373423bc861408b8e5920c212917548b4eb1d0c6c11a"
+    },
+    {
+      "path": "docs/rollup0-spec/04-block-production.md",
+      "bytes": 14215,
+      "sha256": "ce5b5857254440b3618aceafc6ec53167ba3283d056d0ee2a7e53695e0c5e3b5"
+    },
+    {
+      "path": "docs/rollup0-spec/05-execution-model.md",
+      "bytes": 28539,
+      "sha256": "fb8cacc5e4321719cfadf8e15263bdeba888d5a68d694382239e2a17c00595bd"
+    },
+    {
+      "path": "docs/rollup0-spec/06-composer.md",
+      "bytes": 13123,
+      "sha256": "92f51f147c5ae6d95dbebb0e6fcd294b2972aabd19b1c641c889a8527702b12a"
+    },
+    {
+      "path": "docs/rollup0-spec/07-da-batches-bundles.md",
+      "bytes": 23683,
+      "sha256": "aa60b33722db2c44b4406747f772733481bda08396d22024ebe34e7b6d97c8e8"
+    },
+    {
+      "path": "docs/rollup0-spec/08-proving-settlement.md",
+      "bytes": 13268,
+      "sha256": "75077be69d1e29bd5d58e750775929b1701a42eb65ae1f5317299abf92977205"
+    },
+    {
+      "path": "docs/rollup0-spec/09-l1-to-l2.md",
+      "bytes": 7860,
+      "sha256": "dab8168ba495010e860d0f968963593d22905e482fc044ec3902ad517f7e0ca6"
+    },
+    {
+      "path": "docs/rollup0-spec/10-derivation-following.md",
+      "bytes": 12442,
+      "sha256": "730697b693dbbc858c1b69ba42e9e6477c8c0250a688b2b8a2e9826e0b8d689d"
+    },
+    {
+      "path": "docs/rollup0-spec/11-gas-economics.md",
+      "bytes": 11124,
+      "sha256": "906631826b04c20dff18d933df0f8d46d76b07a02c380a11889b3f0bf4c23791"
+    },
+    {
+      "path": "docs/rollup0-spec/12-open-issues.md",
+      "bytes": 9339,
+      "sha256": "5c5a01d22a4a0359b511c0c42b4965776eb84b1a97a11b61fa6d3974747c364a"
+    },
+    {
+      "path": "docs/rollup0-spec/A-reference.md",
+      "bytes": 13444,
+      "sha256": "88013bc6efcc741c92dd1b1e36300a23793175653d285453123e371b12131073"
+    },
+    {
+      "path": "docs/rollup0-spec/B-gas-cost-analysis.md",
+      "bytes": 6457,
+      "sha256": "5f224e5b5c68f6b689ee633699c31c04ca691713dfbff45f9ac10c047ad05732"
+    },
+    {
+      "path": "docs/rollup0-spec/C-open-questions.md",
+      "bytes": 2320,
+      "sha256": "ba731e9138edce5fd0e65589a2c79c4bc2a005fa8a8d9276f2b54676a899998d"
+    },
+    {
+      "path": "docs/rollup0-spec/D-wire-formats.md",
+      "bytes": 35641,
+      "sha256": "00a8bd9549c484d0a51e1a06fe3165444db070a01dd91871ac22af8203f1d2f0"
+    },
+    {
+      "path": "docs/rollup0-spec/E-implementation-divergences.md",
+      "bytes": 22863,
+      "sha256": "0384a3584ebdb49b15b8243e30835f27e709204ac6792c6156c7c382c7198f80"
+    },
+    {
+      "path": "docs/rollup0-spec/F-system-transaction-design.md",
+      "bytes": 22470,
+      "sha256": "1b442e4b284c7529e614fb91c0a155a9044a096e5b76b01e1f349f197ccf0d4a"
+    },
+    {
+      "path": "docs/rollup0-spec/G-blob-payload-design.md",
+      "bytes": 39583,
+      "sha256": "edb49acb25e1f0f6c93b5fc5b6169b3ed4b7288e4e7cc5681b0a393666516f7c"
+    },
+    {
+      "path": "docs/rollup0-spec/index.md",
+      "bytes": 3520,
+      "sha256": "a705a450b9dc5722a5b071b189f2fdd38637244fd8ab97c1de8e749db7e6dc69"
+    },
+    {
+      "path": "mkdocs.yml",
+      "bytes": 3637,
+      "sha256": "903159311db4033f6ea9f4b67f5edcebfb0b1d68ef2d69f5d4b9fffc9355700f"
+    }
+  ]
+}

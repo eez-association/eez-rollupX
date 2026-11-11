@@ -47,7 +47,9 @@ def parse_signals(log):
 
 
 def is_sync_boundary(event):
-    return event.get("event_name") == "eez.composer.sync_slot.invoked"
+    return (event.get("event_name") == "eez.sequencer.slot.decision"
+            and event.get("prepare") is False
+            and event.get("skip_post") is True)
 
 
 def included_post_hash(event):
@@ -132,15 +134,15 @@ def main():
     replacement = signed(keys[1], senders[1], 0, gas="21000", priority="500000000000")
     replacement_hash = command("cast", "keccak", replacement).lower()
 
-    # Start just after a fresh Sync boundary so all three users target the same
-    # later attempt. Mandatory settlement policy intentionally skips empty
-    # postBatch transactions, so an empty dispatch is not a valid barrier.
+    # An accepted idle cutoff fixes the current slot as ordinary. New users
+    # collect for the following cutoff; waiting for Composer invocation before
+    # enqueueing them would stall because idle slots never invoke it.
     cursor = len(signals())
 
     def fresh_sync_boundary():
         return any(is_sync_boundary(event) for event in signals()[cursor:])
 
-    wait_for(fresh_sync_boundary, "fresh Sync boundary before wave")
+    wait_for(fresh_sync_boundary, "fresh idle cutoff before wave")
     for raw, hash_ in zip(users, hashes):
         assert rpc(front, "eth_sendRawTransaction", raw).lower() == hash_
 

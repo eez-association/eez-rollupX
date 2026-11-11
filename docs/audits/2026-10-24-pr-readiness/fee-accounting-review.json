@@ -1,0 +1,86 @@
+{
+  "date": "2026-10-24",
+  "status": "passed",
+  "scope": "Independent integer-arithmetic review of retained live receipts and observed totals; no new broadcast, RPC recollection, or execution replay.",
+  "source": {
+    "path": "artifacts/pr-readiness/kurtosis/live/l1-fees.json",
+    "sha256": "6cf6a24fca1e90c028a03c7ca7051176065052edc816e098901ab338646792a7",
+    "snapshot": "Baseline release before public pending-RPC correction; exact runtime identity in kurtosis/release-identities.json"
+  },
+  "checks": {
+    "l1_single_sources": [
+      {
+        "case": "nested-0x0",
+        "source": "0x815700b994c2d49e0d5c5fe7d0752505ea0a9e16c9bf66937802461c9591deca",
+        "gross_tip_wei": "527499819306950",
+        "refund_percent": 90,
+        "gross_refund_share_wei": "474749837376255",
+        "payout_receipt_cost_wei": "523614000",
+        "net_refund_wei": "474749313762255",
+        "post_receipt_cost_wei": "378112427751274",
+        "equal": true
+      },
+      {
+        "case": "nested-0x2",
+        "source": "0x7643691a9cb111f29b37ce82a29da856dddf7e9eb306c5fbfdbe04d574e8263a",
+        "gross_tip_wei": "280792809394930",
+        "refund_percent": 90,
+        "gross_refund_share_wei": "252713528455437",
+        "payout_receipt_cost_wei": "401982000",
+        "net_refund_wei": "252713126473437",
+        "post_receipt_cost_wei": "193069695800444",
+        "equal": true
+      },
+      {
+        "case": "safe-create-0x0",
+        "source": "0x0b8b66890e1b0ee82756a29dcdb7769bd440f9ec252e015cbe1554fb39aae4c8",
+        "gross_tip_wei": "282113482290339",
+        "refund_percent": 90,
+        "gross_refund_share_wei": "253902134061305",
+        "payout_receipt_cost_wei": "308826000",
+        "net_refund_wei": "253901825235305",
+        "post_receipt_cost_wei": "194072854124492",
+        "equal": true
+      },
+      {
+        "case": "safe-create-0x2",
+        "source": "0x85267641a164aa31bfaa3dfb18ce7540de6867365ec8d75c8195002b10936960",
+        "gross_tip_wei": "277820914341600",
+        "refund_percent": 90,
+        "gross_refund_share_wei": "250038822907440",
+        "payout_receipt_cost_wei": "236838000",
+        "net_refund_wei": "250038586069440",
+        "post_receipt_cost_wei": "190865152683986",
+        "equal": true
+      }
+    ],
+    "l1_shared_batches": [
+      {
+        "post": "0xebca0b7abb4731fdb7e6f23419e99955ac18472c180b691d4aedc4bbd4b4d1e4",
+        "payer": "0x28b211354be2a423eca05c18cf9ff7dedc3069fb37112dc86c876c08a65ac5e4",
+        "source_count": 4,
+        "largest_payer_verified": true,
+        "net_refund_wei": "279978384507124",
+        "post_cost_wei": "937845763425511",
+        "shortfall_wei": "657867378918387"
+      },
+      {
+        "post": "0x7cc7d09c441dcd794e1466259f89cfde4c6030ba31e4f19507870dcf47304959",
+        "payer": "0xaaf89db82af78ab781e86830ee2d1de7de21f5827e0c546b23ec3d3849bf1f3b",
+        "source_count": 4,
+        "largest_payer_verified": true,
+        "net_refund_wei": "252708962334477",
+        "post_cost_wei": "360103234200626",
+        "shortfall_wei": "107394271866149"
+      }
+    ],
+    "l2_pooled_tips_and_20_percent_margin": true,
+    "bridge_two_quote_margins_and_gas_equality": true,
+    "fee_vault_credit_and_payout_arithmetic": true
+  },
+  "diagnostic_correction": "The first manual check incorrectly compared the net payout with 90% of the gross tip without subtracting the payout transaction fee and failed. Re-reading the existing policy/test and checking the retained payout receipt establishes grossTip * 90 / 100 (floor) minus payoutGasUsed * payoutEffectiveGasPrice. No runtime or test assertion was changed.",
+  "limits": [
+    "The two shared L1 batches have measured shortfalls under the accepted subsidized policy; these passes do not establish profitability of each batch.",
+    "Canonicality and balance observations are provided by the separately recorded live suites; this review independently recomputes arithmetic from their preserved inputs."
+  ]
+}

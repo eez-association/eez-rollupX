@@ -7,8 +7,8 @@
 use alloy_primitives::{Address, B256, Bytes};
 use alloy_sol_types::{SolCall, SolValue};
 use eez_protocol::abi::{
-    EtherDeltaSol, ExecutionEntrySol, RollupIdWithProofSystemsSol, RootUpdateSol,
-    StaticExecutionEntrySol, postAndVerifyBatchCall,
+    EtherDeltaSol, ExecutionEntrySol, ExpectedRootPerRollupSol, RollupIdWithProofSystemsSol,
+    RootUpdateSol, StaticExecutionEntrySol, postAndVerifyBatchCall,
 };
 use std::sync::LazyLock;
 
@@ -19,13 +19,17 @@ use super::super::{MAX_PROOF_BYTES, calldata_gas};
 const OFFSET_GROWTH: u64 = size_of::<usize>() as u64 * 12;
 const ARRAY_OFFSET_GAS: u64 = 32 * 4 + OFFSET_GROWTH;
 
-/// Upper bound for the anchor, enclosing ABI, proof and blob index words. All
+/// Upper bound for the anchor, accepted-root pin, ABI, proof and blob index words. All
 /// bytes in the small metadata template are charged nonzero so array lengths,
 /// offsets, roots, block number and sender binding can change independently.
 /// The native payload remains in blobs, never in `batch.callData`.
 pub(in super::super) fn base(maximum_blobs: usize) -> u64 {
     static BASE: LazyLock<u64> = LazyLock::new(|| {
         let batch = eez_protocol::EvmBatch {
+            expectedRootPerRollup: vec![ExpectedRootPerRollupSol {
+                rollupId: 0,
+                root: B256::ZERO,
+            }],
             entries: vec![ExecutionEntrySol {
                 rootUpdates: vec![RootUpdateSol {
                     rollupId: 0,
@@ -93,7 +97,7 @@ mod tests {
     };
     use super::*;
     use alloy_primitives::U256;
-    use eez_protocol::abi::{ExpectedL1ToL2CallSol, ExpectedRootPerRollupSol, L2ToL1CallSol};
+    use eez_protocol::abi::{ExpectedL1ToL2CallSol, L2ToL1CallSol};
 
     fn root() -> RootUpdateSol {
         RootUpdateSol {
@@ -153,6 +157,10 @@ mod tests {
     ) {
         let mut estimate = base(blobs);
         let mut batch = eez_protocol::EvmBatch {
+            expectedRootPerRollup: vec![ExpectedRootPerRollupSol {
+                rollupId: u64::MAX,
+                root: B256::repeat_byte(0xff),
+            }],
             entries: vec![ExecutionEntrySol {
                 rootUpdates: vec![root()],
                 rollingHash: B256::repeat_byte(0xff),

@@ -1,0 +1,259 @@
+{
+  "rows": 58,
+  "counting_rule": "primary state = first label; qualifiers retained in README",
+  "primary_states": {
+    "Incierta": 5,
+    "Diferente": 25,
+    "Implementada": 19,
+    "Pendiente": 4,
+    "No aplicable": 5
+  },
+  "strict_hf_l2_groups": [
+    "X04-X07 native envelope/sender/destination/nonce/receipt",
+    "X09 base-fee credit",
+    "X08 block lifecycle burn removal",
+    "X10-X11 recorded origin/history/PREVRANDAO",
+    "X03 conditional future execution-fork activation"
+  ],
+  "excluded_from_automatic_hf": [
+    "authorized contract ABI/layout/CREATE2 upgrade",
+    "L1 wrapper/proof threshold",
+    "DA-only format change",
+    "RPC/P2P/unsafe signature",
+    "runtime scheduling/bootstrap"
+  ],
+  "matrix": [
+    {
+      "id": "C01",
+      "state": "Incierta"
+    },
+    {
+      "id": "C02",
+      "state": "Diferente"
+    },
+    {
+      "id": "C03",
+      "state": "Diferente"
+    },
+    {
+      "id": "C04",
+      "state": "Diferente"
+    },
+    {
+      "id": "C05",
+      "state": "Diferente"
+    },
+    {
+      "id": "C06",
+      "state": "Diferente / implementada"
+    },
+    {
+      "id": "C07",
+      "state": "Diferente"
+    },
+    {
+      "id": "C08",
+      "state": "Implementada con alcance"
+    },
+    {
+      "id": "C09",
+      "state": "Implementada parcialmente / incierta en borde"
+    },
+    {
+      "id": "X01",
+      "state": "Implementada / parámetros pendientes"
+    },
+    {
+      "id": "X02",
+      "state": "Implementada"
+    },
+    {
+      "id": "X03",
+      "state": "Diferente"
+    },
+    {
+      "id": "X04",
+      "state": "Diferente"
+    },
+    {
+      "id": "X05",
+      "state": "Diferente"
+    },
+    {
+      "id": "X06",
+      "state": "Diferente / parcialmente coincidente"
+    },
+    {
+      "id": "X07",
+      "state": "Diferente / parcialmente coincidente"
+    },
+    {
+      "id": "X08",
+      "state": "Diferente"
+    },
+    {
+      "id": "X09",
+      "state": "Diferente"
+    },
+    {
+      "id": "X10",
+      "state": "Diferente deliberada"
+    },
+    {
+      "id": "X11",
+      "state": "Diferente extensión"
+    },
+    {
+      "id": "X12",
+      "state": "Diferente"
+    },
+    {
+      "id": "X13",
+      "state": "Diferente extensión"
+    },
+    {
+      "id": "X14",
+      "state": "Implementada / alcance distinto"
+    },
+    {
+      "id": "D01",
+      "state": "Implementada con pin distinto"
+    },
+    {
+      "id": "D02",
+      "state": "Diferente incompatible"
+    },
+    {
+      "id": "D03",
+      "state": "Implementada"
+    },
+    {
+      "id": "D04",
+      "state": "Diferente extensión"
+    },
+    {
+      "id": "D05",
+      "state": "Implementada con perfil más amplio"
+    },
+    {
+      "id": "D06",
+      "state": "Implementada / no divergencia de cuotas"
+    },
+    {
+      "id": "D07",
+      "state": "Incierta en draft / implementada localmente"
+    },
+    {
+      "id": "S01",
+      "state": "Diferente"
+    },
+    {
+      "id": "S02",
+      "state": "Diferente deliberada"
+    },
+    {
+      "id": "S03",
+      "state": "Pendiente para el perfil remoto"
+    },
+    {
+      "id": "S04",
+      "state": "Pendiente para el perfil remoto"
+    },
+    {
+      "id": "S05",
+      "state": "Diferente, con mitigaciones actuales"
+    },
+    {
+      "id": "S06",
+      "state": "Diferente"
+    },
+    {
+      "id": "S07",
+      "state": "Implementada con política local"
+    },
+    {
+      "id": "S08",
+      "state": "Pendiente parcial de servicio"
+    },
+    {
+      "id": "P01",
+      "state": "Implementada sólo para M=1 / pendiente generalización"
+    },
+    {
+      "id": "P02",
+      "state": "Implementada"
+    },
+    {
+      "id": "P03",
+      "state": "Diferente frontera de validación"
+    },
+    {
+      "id": "P04",
+      "state": "Implementada como elección permitida / privacidad condicionada"
+    },
+    {
+      "id": "P05",
+      "state": "Implementada / interoperability pendiente de demostrar"
+    },
+    {
+      "id": "P06",
+      "state": "Implementada con límite explícito"
+    },
+    {
+      "id": "O01",
+      "state": "Pendiente"
+    },
+    {
+      "id": "O02",
+      "state": "Implementada con extensión local"
+    },
+    {
+      "id": "O03",
+      "state": "Incierta / parcial"
+    },
+    {
+      "id": "O04",
+      "state": "Diferente límite operativo"
+    },
+    {
+      "id": "O05",
+      "state": "Implementada / capacidad no verificada"
+    },
+    {
+      "id": "O06",
+      "state": "Implementada como política configurable"
+    },
+    {
+      "id": "O07",
+      "state": "Implementada con limitación explícita"
+    },
+    {
+      "id": "N01",
+      "state": "Incierta, no contrato adoptable todavía"
+    },
+    {
+      "id": "N02",
+      "state": "No aplicable como requisito V1"
+    },
+    {
+      "id": "N03",
+      "state": "Incierta de despliegue"
+    },
+    {
+      "id": "G01",
+      "state": "No aplicable al perfil rollupX nuevo / pendiente si se elige Gnosis"
+    },
+    {
+      "id": "G02",
+      "state": "No aplicable / pendiente en variante"
+    },
+    {
+      "id": "G03",
+      "state": "No aplicable / diseño pendiente"
+    },
+    {
+      "id": "G04",
+      "state": "No aplicable por simple dependencia"
+    }
+  ]
+}

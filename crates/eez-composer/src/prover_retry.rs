@@ -244,19 +244,18 @@ impl TimingHistory {
         };
         let scaled = samples
             .iter()
-            .filter(|(sample, elapsed)| {
+            .filter(|(sample, _)| {
                 let covered = supplied(sample);
-                // A wider measured proof supersedes a cheaper sparse sample's
-                // extrapolation once it supplies at least as much of every
-                // requested dimension. Surplus old history is irrelevant to
-                // this comparison, but unseen history/blob growth and more
-                // expensive sparse proofs retain their own scaling terms.
-                // Strict dominance preserves at least one of the 32 samples.
-                !samples.iter().any(|(other, other_elapsed)| {
+                // Wider observations replace sparse scaling even when faster:
+                // otherwise a cold proof's fixed overhead can repeatedly cap
+                // admission at the last covered width. All samples still train
+                // `observed`, the slow-duration floor below. Missing history or
+                // blob coverage retains its scaling term; surplus old history
+                // is irrelevant to this request-relative comparison. Strict
+                // dominance preserves at least one of the 32 samples.
+                !samples.iter().any(|(other, _)| {
                     let other = supplied(other);
-                    other_elapsed >= elapsed
-                        && other != covered
-                        && other.iter().zip(covered).all(|(a, b)| *a >= b)
+                    other != covered && other.iter().zip(covered).all(|(a, b)| *a >= b)
                 })
             })
             .map(|(sample, elapsed)| {
@@ -299,8 +298,8 @@ pub(crate) struct ProofPrediction {
 /// Bounded histories with 25% headroom. Proofs outside observed coverage scale
 /// non-dominated samples by the largest workload ratio, capped at the greater
 /// of the bootstrap estimate and the observed proof floor. Dominance is relative
-/// to the requested dimensions and cannot discard a more expensive sample.
-/// Scaling never prices a larger request below an observed slower proof.
+/// to the requested dimensions. Superseded samples still contribute to the
+/// slow-duration floor; scaling never prices a larger request below it.
 /// This avoids returning to a prohibitive cold allocation for each new witness
 /// count while keeping the shared deadline authoritative. Finalization requires
 /// covering samples because envelope/preflight cost need not scale like proof work.
@@ -521,6 +520,7 @@ mod tests {
             raw_tx: Bytes::from(vec![hash_byte; 4]),
             hash: TxHash::repeat_byte(hash_byte),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(hash_byte),
             priority_fee_per_gas: u128::from(hash_byte),
             sender,
@@ -542,7 +542,6 @@ mod tests {
                         ..Default::default()
                     },
                     entry_traces: Vec::new(),
-                    callback_entry_counts: Vec::new(),
                     outbound_event_hashes: Vec::new(),
                 },
                 targets: Vec::new(),
@@ -616,7 +615,7 @@ mod tests {
                         gas_used: 0,
                         success: false,
                     },
-                    revert_span: None,
+                    revert_spans: vec![],
                 }],
                 source: eez_protocol::SourceComposition {
                     l2_static_entries: Vec::new(),
@@ -626,7 +625,6 @@ mod tests {
                         ..Default::default()
                     },
                     entry_traces: vec![Default::default()],
-                    callback_entry_counts: vec![0],
                     outbound_event_hashes: Vec::new(),
                 },
                 targets: Vec::new(),
@@ -861,28 +859,48 @@ mod tests {
 
     fn test_context() -> ProvingContext {
         ProvingContext {
-            parent_provenance: eez_protocol::l2::ParentProvenance {
-                parent: Default::default(),
-                accepted_l1_number: 0,
-                live_slot_endpoints: Vec::new(),
-            },
+            parent: Default::default(),
+            proof_context: eez_protocol::l1_history::ProofContext::new(
+                (eez_protocol::l1_history::NetworkProfile {
+                    feeCollector: alloy_primitives::address!(
+                        "f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+                    ),
+                    l1ChainId: alloy_primitives::U256::from(1),
+                    l2ChainId: alloy_primitives::U256::from(1),
+                    genesisHash: B256::repeat_byte(1),
+                    genesisTimestamp: 12,
+                    blockInterval: 2,
+                    syncInterval: 6,
+                    updateOffset: 2,
+                    l1ConfigHash: B256::repeat_byte(2),
+                })
+                .l2ChainId,
+                1,
+                eez_protocol::l1_history::EvidenceAnchor::ActualParent {
+                    number: 99,
+                    hash: B256::repeat_byte(0x42),
+                    target_timestamp: 1,
+                },
+                0,
+            )
+            .unwrap(),
             rollup_id: 1,
             from_block: 1,
             to_block: 1,
             batch: Default::default(),
             blobs: Vec::new(),
             blocks: Vec::new().into(),
-            l1_posting: eez_prover::L1PostingContext {
+            l1_posting: Some(eez_prover::L1PostingContext {
                 parent_number: 99,
                 parent_hash: B256::repeat_byte(0x42),
                 chain_id: 1,
                 target_timestamp: 1,
-            },
+            }),
         }
     }
 
     fn test_timing() -> RollupTiming {
-        RollupTiming::new(2_000, 1_000, 500, 100)
+        RollupTiming::new(2_000, 1_000, 500, 100, 1)
     }
 
     const TEST_NOW_MS: u64 = 1_700_000_000_000;
@@ -950,7 +968,7 @@ mod tests {
     }
 
     #[test]
-    fn expensive_sparse_proof_remains_a_scaling_observation() {
+    fn expensive_sparse_proof_retains_the_slowest_observation_floor() {
         let timings = PipelineTimings::default();
         timings.observe_proof(
             Workload {
@@ -978,8 +996,60 @@ mod tests {
                 },
             ),
             Duration::from_millis(750),
-            "a cheap wider sample cannot erase a slower sparse proof"
+            "a cheap wider sample cannot erase a slower sparse proof's duration floor"
         );
+    }
+
+    #[test]
+    fn faster_wider_proof_supersedes_sparse_scaling_but_preserves_its_slow_floor() {
+        let timings = PipelineTimings::default();
+        let configured = Duration::from_millis(500);
+        timings.observe_proof(
+            Workload {
+                groups: 1,
+                blobs: 2,
+                witnesses: 10,
+            },
+            Duration::from_millis(40),
+        );
+        timings.observe_proof(
+            Workload {
+                groups: 11,
+                blobs: 1,
+                witnesses: 5,
+            },
+            Duration::from_millis(31),
+        );
+        let request = Workload {
+            groups: 12,
+            blobs: 1,
+            witnesses: 5,
+        };
+        assert_eq!(
+            timings.proof_estimate(configured, request),
+            Duration::from_millis(50),
+            "retain the slow proof plus headroom, without multiplying its fixed cost by twelve",
+        );
+        for unseen in [
+            Workload {
+                blobs: 2,
+                ..request
+            },
+            Workload {
+                witnesses: 6,
+                ..request
+            },
+            Workload {
+                witnesses: usize::MAX,
+                ..request
+            },
+        ] {
+            assert_eq!(
+                timings.proof_estimate(configured, unseen),
+                configured,
+                "a wider group sample cannot replace missing blob/history coverage",
+            );
+        }
     }
 
     #[test]
@@ -1365,7 +1435,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn next_block_retry_attempt_uses_only_the_remaining_budget() {
-        let timing = RollupTiming::new(3_000, 1_000, 1_000, 100);
+        let timing = RollupTiming::new(3_000, 1_000, 1_000, 100, 1);
         let prover = DelayedFailureThenStallProver::default();
         let started = Instant::now();
 
@@ -1389,7 +1459,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn next_block_retries_until_its_total_wait_budget_is_exhausted() {
-        let timing = RollupTiming::new(5_000, 1_000, 2_000, 100);
+        let timing = RollupTiming::new(5_000, 1_000, 2_000, 100, 2);
         let prover = AlwaysRetryableProver::default();
         let started = Instant::now();
 
@@ -1443,7 +1513,7 @@ mod tests {
 
     #[test]
     fn proof_cutoff_reserves_proof_time_and_submission_slack() {
-        let timing = RollupTiming::new(12_000, 2_000, 4_000, 1_500);
+        let timing = RollupTiming::new(12_000, 2_000, 4_000, 1_500, 3);
         assert_eq!(
             proof_start_cutoff_ms(
                 timing,

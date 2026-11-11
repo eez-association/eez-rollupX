@@ -141,17 +141,84 @@ if raw_transaction_for http://unused "0x{'b' * 64}" "{self.root}"; then exit 77;
                         EEZ_L2_GENESIS=str(genesis), EEZ_L1_CHAIN_CONFIG="chiado",
                         EEZ_L1_BEACON_URL="http://beacon.invalid", EEZ_L2_BLOCK_TIME_MS="1000",
                         EEZ_PROOF_TIME_MS="1500",
-                        EEZ_SUBMISSION_SLACK_MS="700")
+                        EEZ_SUBMISSION_SLACK_MS="700",
+                        EEZ_SETTLEMENT_START_AFTER_BLOCK="2",
+                        EEZ_SETTLEMENT_START_DELAY_MS="250")
         script = REPO / "testing/kurtosis/scripts/verify-policy-replay.sh"
-        self.run_shell(f'''kurtosis() {{ exit 77; }}
+        mock = f'''kurtosis() {{ exit 77; }}
 cast() {{ [[ "$1" == chain-id ]] || exit 77; echo 10200; }}
 curl() {{ echo '{{"data":{{"SECONDS_PER_SLOT":"5"}}}}'; }}
-cargo() {{ printf '%s\\n' "$EEZ_KURTOSIS_L2_GENESIS" "$EEZ_L1_CHAIN_CONFIG" "$EEZ_L1_CHAIN_ID" "$EEZ_L1_BLOCK_TIME_MS" "$EEZ_L2_BLOCK_TIME_MS" "$EEZ_PROOF_TIME_MS" "$EEZ_SUBMISSION_SLACK_MS" > "{observed}"; }}
+cargo() {{ printf '%s\\n' "$EEZ_KURTOSIS_L2_GENESIS" "$EEZ_L1_CHAIN_CONFIG" "$EEZ_L1_CHAIN_ID" "$EEZ_L1_BLOCK_TIME_MS" "$EEZ_L2_BLOCK_TIME_MS" "$EEZ_PROOF_TIME_MS" "$EEZ_SUBMISSION_SLACK_MS" "$EEZ_SETTLEMENT_START_AFTER_BLOCK" "$EEZ_SETTLEMENT_START_DELAY_MS" > "{observed}"; }}
 export -f kurtosis cast curl cargo
 bash "{script}" "{evidence}"
-''')
+'''
+        self.run_shell(mock)
         self.assertEqual(observed.read_text().splitlines(),
-                         [str(genesis), "chiado", "10200", "5000", "1000", "1500", "700"])
+                         [str(genesis), "chiado", "10200", "5000", "1000", "1500", "700", "2", "250"])
+        self.env.pop("EEZ_SETTLEMENT_START_DELAY_MS")
+        self.run_shell(mock)
+        self.assertEqual(observed.read_text().splitlines()[-1], "0")
+        self.env["EEZ_SETTLEMENT_START_DELAY_MS"] = ""
+        self.run_shell(mock)
+        self.assertEqual(observed.read_text().splitlines()[-1], "")
+        for position in (None, ""):
+            if position is None:
+                self.env.pop("EEZ_SETTLEMENT_START_AFTER_BLOCK")
+            else:
+                self.env["EEZ_SETTLEMENT_START_AFTER_BLOCK"] = position
+            result = self.run_shell(mock, False)
+            self.assertIn("set the deployed settlement position", result.stderr)
+
+    def test_enclave_replay_uses_selected_timing_and_preserves_explicit_overrides(self):
+        evidence = self.root / "evidence.json"
+        evidence.write_text('{"enclave":"fixture","rollup_id":1}')
+        args = self.root / "args.yaml"
+        args.write_text('''eez:
+  l2_block_time_ms: 1000
+  proof_time_ms: 750
+  submission_slack_ms: 700
+  settlement_env:
+    EEZ_SETTLEMENT_START_AFTER_BLOCK: "2"
+    EEZ_SETTLEMENT_START_DELAY_MS: "250"
+''')
+        observed = self.root / "observed"
+        self.env.update(EEZ_USE_LOCAL_DEPLOYMENTS="0", KURTOSIS_ARGS_FILE=str(args))
+        timing_names = ("EEZ_L2_BLOCK_TIME_MS", "EEZ_PROOF_TIME_MS", "EEZ_SUBMISSION_SLACK_MS",
+                        "EEZ_SETTLEMENT_START_AFTER_BLOCK", "EEZ_SETTLEMENT_START_DELAY_MS")
+        for name in timing_names:
+            self.env.pop(name, None)
+        script = REPO / "testing/kurtosis/scripts/verify-policy-replay.sh"
+        mock = f'''kurtosis() {{
+  case "$1 $2" in
+    'port print') echo http://fixture:1234 ;;
+    'files download')
+      mkdir -p "$5"
+      if [[ "$4" == eez-deployments ]]; then
+        printf 'EEZ_REGISTRY_ADDRESS=fixture\\n' > "$5/deployments.env"
+        printf '{{}}' > "$5/l2-genesis.json"
+      else printf '{{"config":{{"chainId":7331}}}}' > "$5/genesis.json"; fi ;;
+    *) exit 77 ;;
+  esac
+}}
+curl() {{ echo '{{"data":{{"SECONDS_PER_SLOT":"5"}}}}'; }}
+cargo() {{ printf '%s\\n' "$EEZ_L2_BLOCK_TIME_MS" "$EEZ_PROOF_TIME_MS" "$EEZ_SUBMISSION_SLACK_MS" "$EEZ_SETTLEMENT_START_AFTER_BLOCK" "$EEZ_SETTLEMENT_START_DELAY_MS" > "{observed}"; }}
+export -f kurtosis curl cargo
+bash "{script}" "{evidence}"
+'''
+        self.run_shell(mock)
+        self.assertEqual(observed.read_text().splitlines(), ["1000", "750", "700", "2", "250"])
+        # Explicit overrides, including empty strings, must not become defaults.
+        self.env.update(dict.fromkeys(timing_names, ""))
+        self.run_shell(mock)
+        self.assertEqual(observed.read_text().splitlines(), [""] * 5)
+        for name in timing_names:
+            self.env.pop(name, None)
+        args.write_text(args.read_text().replace('    EEZ_SETTLEMENT_START_DELAY_MS: "250"\n', ""))
+        self.run_shell(mock)
+        self.assertEqual(observed.read_text().splitlines(), ["1000", "750", "700", "2", "0"])
+        args.write_text(args.read_text().replace('    EEZ_SETTLEMENT_START_AFTER_BLOCK: "2"\n', ""))
+        result = self.run_shell(mock, False)
+        self.assertIn("selected args require EEZ_SETTLEMENT_START_AFTER_BLOCK", result.stderr)
 
 if __name__ == "__main__":
     unittest.main()

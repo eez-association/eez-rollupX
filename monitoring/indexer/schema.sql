@@ -42,9 +42,10 @@ CREATE TABLE IF NOT EXISTS eez_indexer.details (
     PRIMARY KEY(block_hash,transaction_hash),
     FOREIGN KEY(block_hash,transaction_hash) REFERENCES eez_indexer.transactions ON DELETE CASCADE
 );
--- Re-enrich older records once for exact cross-chain source transaction counts, retaining known details.
+-- Re-enrich older records for native L2 gas and beneficiary-attributed fee totals.
+-- Canonical L1 history and unrelated enrichment remain intact.
 UPDATE eez_indexer.details SET retry_at=now()
-WHERE data->>'version' IS DISTINCT FROM '5';
+WHERE data->>'version' IS DISTINCT FROM '6';
 CREATE OR REPLACE VIEW eez_indexer.settlement_history AS
 SELECT to_timestamp(b.timestamp) AS time, b.height AS l1_block, b.hash AS l1_block_hash,
     t.transaction_hash, t.transaction_index, s.log_index, s.l2_block_hash

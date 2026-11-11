@@ -1,0 +1,132 @@
+//! Settlement projections must discard the complete failed ancestor frame.
+use alloy_primitives::{Address, B256, Bytes, I256, U256};
+use eez_protocol::abi::{EtherDeltaSol, RootUpdateSol};
+use eez_protocol::entries::{
+    NestedPairDirection, finalize_l1_entry_traces, project_inbound_value, verify_nested_group,
+};
+use eez_protocol::{CallMode, ExecutedAction, ExecutionOutcome, RollupId, materialize_actions};
+
+fn assert_inbound_projection_matches_verified_effect(depth: usize) {
+    let l2 = RollupId(1);
+    let calls = (0..depth)
+        .map(|index| {
+            let (source, target) = if index % 2 == 0 {
+                (RollupId::MAINNET, l2)
+            } else {
+                (l2, RollupId::MAINNET)
+            };
+            ExecutedAction {
+                parent_index: index.checked_sub(1),
+                call_mode: CallMode::Mutable,
+                source_rollup_id: source,
+                target_rollup_id: target,
+                source_address: Address::with_last_byte(source.0 as u8 + 1),
+                target_address: Address::with_last_byte(target.0 as u8 + 1),
+                data: Bytes::from(vec![index as u8]),
+                value: if index == depth - 1 {
+                    U256::from(7)
+                } else {
+                    U256::ZERO
+                },
+                outcome: ExecutionOutcome::Resolved {
+                    success: index != 1,
+                    return_data: if index == 1 {
+                        vec![0xde, 0xad]
+                    } else {
+                        vec![0x77]
+                    },
+                    gas_used: 21_000,
+                },
+                revert_spans: vec![],
+            }
+        })
+        .collect();
+    // The root succeeds after catching node 1's revert. The last transfer is
+    // inside node 1's frame and therefore must disappear on both chains.
+    let mut composition = materialize_actions(RollupId::MAINNET, calls).unwrap();
+    let source = &mut composition.source;
+    source.batch.entries[0].rootUpdates.push(RootUpdateSol {
+        rollupId: l2.0,
+        currentRoot: B256::with_last_byte(1),
+        newRoot: B256::with_last_byte(2),
+        etherDelta: EtherDeltaSol::ZERO,
+    });
+    finalize_l1_entry_traces(&mut source.batch, &source.entry_traces).unwrap();
+    let l1_entry = &composition.source.batch.entries[0];
+    let l2_entries = &composition.targets[0].batch.entries;
+    let verified =
+        verify_nested_group(l1_entry, l2_entries, NestedPairDirection::Inbound, l2).unwrap();
+    assert_eq!(
+        verified.ether_delta,
+        I256::ZERO,
+        "independent traversal must discard the failed ancestor's descendants"
+    );
+    let projected = project_inbound_value(
+        l1_entry,
+        &composition.source.entry_traces[0],
+        &l2_entries[0],
+        l2,
+    )
+    .unwrap();
+    assert_eq!(projected.ether_delta, verified.ether_delta);
+    assert_eq!(projected.l1_to_l2_value, U256::ZERO);
+    assert_eq!(projected.l2_to_l1_value, U256::ZERO);
+    assert_eq!(
+        projected.l2_to_l1_executed_value,
+        if depth == 4 {
+            U256::from(7)
+        } else {
+            U256::ZERO
+        }
+    );
+}
+
+#[test]
+fn naturally_failed_ancestor_discards_successful_descendant_withdrawal() {
+    assert_inbound_projection_matches_verified_effect(4);
+}
+
+#[test]
+fn naturally_failed_ancestor_discards_successful_descendant_deposit() {
+    assert_inbound_projection_matches_verified_effect(5);
+}
+
+#[test]
+fn failed_value_root_still_requires_execution_funding() {
+    use eez_protocol::entries::project_outbound_value;
+    use eez_protocol::system_tx::OutboundSourceEntry;
+    let l2 = RollupId(1);
+    let c = materialize_actions(
+        l2,
+        vec![ExecutedAction {
+            parent_index: None,
+            call_mode: CallMode::Mutable,
+            source_rollup_id: l2,
+            target_rollup_id: RollupId::MAINNET,
+            source_address: Address::with_last_byte(1),
+            target_address: Address::with_last_byte(2),
+            data: Bytes::new(),
+            value: U256::from(7),
+            outcome: ExecutionOutcome::Resolved {
+                success: false,
+                return_data: vec![0xde, 0xad],
+                gas_used: 21_000,
+            },
+            revert_spans: vec![],
+        }],
+    )
+    .unwrap();
+    let sources = c
+        .source
+        .batch
+        .entries
+        .into_iter()
+        .map(OutboundSourceEntry::Mutable)
+        .collect::<Vec<_>>();
+    let host = &c.targets[0];
+    let facts = project_outbound_value(&host.batch.entries[0], &host.entry_traces[0], &sources, l2)
+        .unwrap();
+    assert_eq!(facts.ether_delta, I256::ZERO);
+    assert_eq!(facts.l2_to_l1_value, U256::ZERO);
+    assert_eq!(facts.l2_to_l1_executed_value, U256::from(7));
+}

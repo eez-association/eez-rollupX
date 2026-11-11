@@ -1,0 +1,300 @@
+{
+  "at": "2026-10-16T11:59:36.476000+00:00",
+  "source": "be8477bc7ba48d3f287d33cd6c010089458885ec",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "queue": {
+    "queued": 0,
+    "ready": 0,
+    "blocked": 0,
+    "inFlight": 0,
+    "unknown": 0
+  },
+  "runtimeUnchangedThroughoutMeasuredRuns": true,
+  "runtime": [
+    {
+      "name": "/eez-node-chiado",
+      "image": "sha256:59dad838cfc6a8d349e668f4a0d63d89d74327e5abb82676ec7d8271ddf69e2f",
+      "id": "639c95bfc374be02a876647f474fca6741a146fe15121bb2bc724fe8158a3081",
+      "restarts": 0,
+      "started": "2026-10-16T11:13:05.936571925Z",
+      "running": true
+    },
+    {
+      "name": "/eez-proof-signer-chiado",
+      "image": "sha256:5095ca5db298a49f3c555a265b515689589e07e6db2c189c95be4257cc03017b",
+      "id": "eb45f3e28f474d16e9be0e3b5b27d8f79a7daf4fa60492c412d678937ae49e13",
+      "restarts": 0,
+      "started": "2026-10-16T11:13:00.340341741Z",
+      "running": true
+    }
+  ],
+  "quotesAfterLoad": [
+    {
+      "layer": "L1",
+      "types": [
+        "0x0",
+        "0x2"
+      ],
+      "success": true
+    },
+    {
+      "layer": "L2",
+      "types": [
+        "0x0",
+        "0x2"
+      ],
+      "success": true
+    }
+  ],
+  "publicRouting": {
+    "http": [
+      {
+        "route": "rpc/l1",
+        "chainId": 10200,
+        "pass": true
+      },
+      {
+        "route": "rpc/l2",
+        "chainId": 906969,
+        "pass": true
+      },
+      {
+        "route": "composer/l1",
+        "chainId": 10200,
+        "pass": true
+      },
+      {
+        "route": "composer/l2",
+        "chainId": 906969,
+        "pass": true
+      }
+    ],
+    "websocket": [
+      {
+        "route": "ws/l1",
+        "chainId": 10200,
+        "pass": true
+      },
+      {
+        "route": "ws/l2",
+        "chainId": 906969,
+        "pass": true
+      }
+    ]
+  },
+  "independentFollower": {
+    "verified": true,
+    "safeBlock": "0xb9230",
+    "hash": "0x6076cd034d488befc12d1310a06f9e54dc8c7d1b1d6304bdc5b17c90265ed899",
+    "stateRoot": "0xa2e718970a78d4198e4a25d49c009afc8cc0eefc83228dd3d7c97adc81e79a04",
+    "receipts": 1056,
+    "stateCalls": 16,
+    "sequencerOverlay": false,
+    "checkpointReplay": true
+  },
+  "nativeBlobs": {
+    "protocolPosts": 68,
+    "protocolSources": 906,
+    "falconPosts": 13,
+    "falconSources": 48,
+    "totalPosts": 81,
+    "totalMeasuredSources": 954,
+    "verified": true,
+    "sourceBindingsVerified": true,
+    "protocolEvidenceSha256": "925719f661c7e2c2a77ac794b7c5c0293c7e1db955daa6ce95acde6e73e3b65e",
+    "falconEvidenceSha256": "2f13f97bf2266f5763e747f4a015bf0c80a0b3a8d0a93637821bd89c6a6dedae"
+  },
+  "feeBeneficiary": {
+    "protocol": {
+      "expected": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52",
+      "blocks": 42,
+      "errors": [],
+      "results": [
+        {
+          "hash": "0x9d81f017d3b7d56b262a6696f4e06c38c51ec0e47feef3a0b6a0f5df2179f86d",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0xa95a862e27702421a5b514a74b531374c13ba3c9cc0d92957f1f3cc6af0a78a2",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x51f41bfe2c1922fa9d87f654fc4d17be7c20d1bee823ba746cba5cab10806193",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x8e6098d2856c240879d566cfd8e3933f8d8e83cf069349b4d63093f128b08188",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0xaf0299d04898ed93327655483b4643f060ea81f22d5b75128a62d6fdf9bcf7e9",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0xd835cfb834363bea467e846aa206b7e9f4e3a5fd4b50dfba09a11e7b6fb8afbb",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0xbfeb3f32bdefff2e41cc837ef9e811f91ceb3f1106f521c020d91446829ed6de",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x82f364c4f940cd924a7dfbc07c6621f2cc398abdf98961bdaa748f44c081bef4",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x8309023be8880a41d1998ca4f5f0314c733274610cd136fb10ac9856b7709cb8",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x5e3e4466c1874d597b1bb6d9977f53db5ea90a61245fd45b1c0d8c0ebce72dfa",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0xeeefdf4fa520d71293b1040472454b5559e39f96ca416aca5e538e2a10124038",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x0a790d750cbe727f802a548ef12166943f51db31b27c5facc2d9109ee5a0f4a6",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0xe44b067fc1820adfa9c48708b5b664f3830ad61a9fa6089a8ad8ae66a8f07b38",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x02261a64fa171827272d38ca804492c6e99f43a0b8b74529dc17ead18e3aa9fb",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x0148c73e0c982fc9641ff509bb31bcf406d384f372928d12f171678cb3716cda",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x9ce290dd6ec824b1836ea721061943181d828d933451b49f67c8222583ae599e",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x841dbc9780f47b071708703fb2bd27c20738403e5a16e19c6f1fc7088a2c090e",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x0d8fedaa62981eb64c0ea50a02afd061fa4480e1cd2fa2875ebfcba31aa3e357",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x676f25c6906613002b97a0ce187388b974155e7af429d0860d6945f39dfbd796",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x4b688f3fc2fd0fd2c57c2527052d326bf4128468bb4a696953a5e4c4cbad7d92",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x155398a2820c79c7cd160c84896f35d6ef4f201764f768e5249cfe6bb6d27cc5",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x93177b229d019222ddc5b107138d386ab191db731fa752b0ec6e6b3dfc5f2b13",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x554934dc7438a2846fa2e721f586052fefc0a836dcfc4767adb2e039fd75abab",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0xeb378848c1e7baa4080b3a98676e023d6cb33bd4df235047fc9c0474a04a3a6c",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x8e179c97c6ae8705a7dbe63df896b59e86d9ec70028dad8daca5a485241c2651",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x4cc5f1d1592e9b4e0735943736d8b3d9126efb0950fe60b55b39025b1ea6be33",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x369254f4a957781482bfd2bdf0bcbe894e6968f150da4a5f0663d6370b8e4376",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x9019425fa51c0722e8a3b39ed5dcca47f50eed500c2ca34f7aaaf31c3c8a4017",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x8c68b09bd770ad3bc8fac14f33190eefc2f61aee3c85c4e5b603b41418538dab",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x17d4a124843fc463f98f479c61f61dec975904e85bcc254ea2ac263d2533a4b9",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x19ac4cb8bc0f2c95c022ec5f861db31771d19734bfe63cce06f9aedc8349cbbd",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x30a7205bd11c290486e3189f63c2478939d64e65ab3af872f7af92880e3483f8",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x26154c3f938f86ae901043bfa98982716e1ca501cd22b69316eddd648787e8fa",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0xa9205954af3d7a69ff4d3db8e3f43655c9585c869eb4157eb8fa7ae1abb54e75",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x373d866e821ba5b86ccecf27dccd3dac8f3c8ec8139dc2e6b6146f15d0a0aaca",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x0787e36ef66dd0dca157bf7bc38a3ca10ebdd0fa0184213124e2ba766679c219",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x618bb4359bb3b0f225913de74a3a1848a9b5d7e9f7eb9f030f31394ec788ea79",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x79826051ed4096b0e299e33b754a4ba0df12b15f6ae0583c87bc34f9b2f6654a",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x65a8c1c71dfd580f6a4f15cd2091d1e37ec4aa47c93ea39501605b9a65857f01",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0xb581852d271c4bece57a0dd26548f6089ede2180c657d5e02ab85f0029875d77",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0x5809ca981012392aa699095440cfc92c3ca015ca72cdc74c4573183eb5055285",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        },
+        {
+          "hash": "0xa27f12e21f521f5e1013046b76f5a127f434f7c902e3427ed9cb41db1d785401",
+          "miner": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52"
+        }
+      ]
+    },
+    "falcon": {
+      "blocks": 13,
+      "expected": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52",
+      "allMatch": true
+    }
+  },
+  "localEvidenceHashes": {
+    "final-health.json": "f9e1c0971b2939048db9a7c5c60833b269f5f28d660d84924e21da0e5595612a",
+    "follower-result.json": "55e5659baf9038986146b002a25e83d3116d2672235ad29cb54ffa9e77a3b478",
+    "replay-target.json": "5a7b41fe21ac016ed63de58db3579c42ec42569d164adce311ff26a3b894395e",
+    "protocol-public-l1.json": "87dd556d3ad09d8e800cb0ea889b4729d09b6107c306f2df960ba6108498c99c",
+    "public-route-health.json": "4a39dd7d0055940f7429c1865325d8a477e5c332328fdc7f45c2d98168486d88",
+    "protocol-stress.log": "daeb4ba708ec9d6562eb86e9c3be87ffe97fbdf5c63d1003bf02fdaa06892231",
+    "falcon.log": "27703097bf6d9e59ff87e122eed2e1d8cf4e86c2e07e6690e85004dc9012efd5",
+    "falcon-negative.json": "772d3a9bddbe37e871b6c4363de042949a5e4c9ade772b5207531a98e0ee1894"
+  },
+  "evidenceAvailability": "Full journals and executable/database/log artifacts remain in the ignored local artifact directory; unavailable to another checkout."
+}

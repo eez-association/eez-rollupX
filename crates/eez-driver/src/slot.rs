@@ -4,28 +4,9 @@
 //! [`SlotKind`] is the per-block label (Live / Future / Sync) attached
 //! at production time for logging + dashboards.
 //!
-//! [`SlotEvent`] is the trigger event sent into the Sequencer's
-//! `mpsc::Receiver<SlotEvent>`. Two variants:
-//!
-//! - [`SlotEvent::SyncSlot`] — L1-anchored sync-slot trigger. Produced
-//!   by [`spawn_l1_anchored`], which subscribes to an
-//!   [`eez_l1::L1HeadStream`]
-//!   and sleeps until `L1.timestamp + proof_window_open` after each
-//!   head — i.e. the wall-clock moment when the prover should start
-//!   so the postBatch bundle reaches the relay before the next L1 block.
-//!   If that block is absent, bounded additional triggers target successive
-//!   timestamps on the same L1 parent; a new head replaces the pending timer.
-//! - [`SlotEvent::LiveTick`] — wall-clock `l2_block_time` tick, also
-//!   produced by [`spawn_l1_anchored`] between sync-slot triggers, so
-//!   the RPC head advances one Live block per cadence instead of in
-//!   per-anchor bursts. The Sequencer commits at most ONE Live block
-//!   per tick, and only while the head is below the live region of the
-//!   carried sync-slot height (the Future + Sync reserve belongs to
-//!   the anchor trigger — ticks never outrun it).
-//!
-//! The Sequencer is source-agnostic — it just consumes `SlotEvent`s.
-//! Tests inject fake schedules by sending events directly into the
-//! channel.
+//! L1 heads schedule bounded settlement preparation through [`SlotEvent::SyncSlot`].
+//! Ordinary production has its own local clock in [`crate::Sequencer`]; this
+//! source may stall, exhaust replacement opportunities or close without stopping it.
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -36,7 +17,6 @@ use async_trait::async_trait;
 use eez_l1::submitter::MAX_MISSING_SLOT_REPLACEMENTS;
 use reth_primitives_traits::SealedHeader;
 use tokio::sync::mpsc;
-use tokio::time::{Instant, MissedTickBehavior, interval_at};
 use tracing::{Level, event};
 
 use crate::timing::RollupTiming;
@@ -89,18 +69,8 @@ pub enum SlotEvent {
         /// L1 block this slot is anchored to; the postBatch targets
         /// `l1_head + 1` in steady state.
         l1_head: u64,
-    },
-    /// L1-anchored wall-clock tick — commit exactly one Live block,
-    /// but only while the head is below the live region of the next
-    /// sync slot (`sync_slot_block_height - future_count - 1`). The
-    /// Future + Sync reserve is produced by the [`Self::SyncSlot`]
-    /// trigger; the Sequencer no-ops ticks once the live region is
-    /// full so ticks cannot outrun the anchor.
-    LiveTick {
-        /// Latest anchor-computed L2 height the Sync block will land
-        /// at. The Sequencer derives the live-region bound from this
-        /// plus its own [`RollupTiming`].
-        sync_slot_block_height: u64,
+        /// Bind queued triggers to the observed parent, including same-height reorgs.
+        l1_hash: alloy_primitives::B256,
     },
 }
 
@@ -110,6 +80,9 @@ pub enum SlotEvent {
 /// [`BlockCommitterHandle::commit_derived`]: crate::block_committer::BlockCommitterHandle::commit_derived
 #[derive(Debug)]
 pub struct SyncSlotBlock {
+    /// Canonical origin hash captured during execution; compared again before
+    /// commit because two L1 branches may carry the same PREVRANDAO.
+    pub l1_origin_hash: alloy_primitives::B256,
     /// Engine-API payload.
     pub payload: ExecutionData,
     /// Sealed header of the new block (head-mirror update on commit).
@@ -154,6 +127,9 @@ pub enum SyncSlotMode {
     /// the mempool-fed `commit_one` fallback it keeps grid heights
     /// batch-boundary-eligible.
     Empty,
+    /// An authenticated ordinary decision: empty checkpoint without initiating
+    /// settlement. Unlike Empty, this must not evaluate late policy activity.
+    Ordinary,
 }
 
 /// Per-Sync-slot block producer for cross-chain content.
@@ -165,15 +141,45 @@ pub enum SyncSlotMode {
 /// `eez-composer`, to avoid a dependency cycle.
 #[async_trait]
 pub trait SyncSlotComposer: Send + Sync + 'static {
-    /// Cross-chain admission owns its combined preparation/proof deadline.
-    /// Ordinary-only settlement retains the configured proof-start gate.
-    fn has_cross_chain_work(&self, _rollup_id: u64) -> bool {
-        false
+    /// Initial finalization/delivery reserve, owned by the settlement pipeline.
+    fn post_proof_reserve(&self) -> Duration {
+        Duration::ZERO
+    }
+
+    /// Read-only preparation hint for a real committed cutoff parent. The
+    /// target height is not a commitment and cannot create settlement ownership.
+    /// Errors defer this opportunity; final composition remains authoritative.
+    async fn should_prepare(
+        &self,
+        _rollup_id: u64,
+        _parent: ParentContext,
+        _target_height: u64,
+        _target_timestamp: u64,
+        _l1_parent: eez_l1::L1BlockRef,
+    ) -> Result<bool, String> {
+        Ok(true)
     }
 
     /// The scheduler owns the Sync grid, including its genesis/slot offset.
     /// Publish its target before starting an ordinary payload job.
     fn set_sequencing_target(&self, rollup_id: u64, sync_height: u64);
+
+    /// Settle an already committed ordinary prefix without changing the local
+    /// head. The single preparation worker owns this bounded opportunity.
+    async fn settle_retained(&self, _rollup_id: u64, _head: ParentContext) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Freeze the native history input using local parent state and ready L1
+    /// evidence. Production implementations offload state reads to a worker.
+    async fn block_attributes(
+        &self,
+        _rollup_id: u64,
+        _parent: ParentContext,
+        attributes: eez_primitives::engine::EezPayloadAttributes,
+    ) -> Result<eez_primitives::engine::EezPayloadAttributes, String> {
+        Ok(attributes)
+    }
 
     /// Maximum encoded block item size for this exact parent. Errors stop
     /// production, never remove a bound.
@@ -231,6 +237,7 @@ struct PendingSyncSlot {
     timestamp: u64,
     /// L1 block of the anchoring head; carried into [`SlotEvent::SyncSlot`].
     l1_head: u64,
+    l1_hash: alloy_primitives::B256,
     /// L1 block timestamp of the anchoring head (logging only).
     l1_timestamp: u64,
     replacement_count: u64,
@@ -249,6 +256,7 @@ impl PendingSyncSlot {
                 / timing.l2_block_time().as_secs(),
             timestamp,
             l1_head: head.block_number,
+            l1_hash: head.block_hash.into(),
             l1_timestamp: head.timestamp,
             replacement_count: 0,
         }
@@ -294,14 +302,6 @@ impl PendingSyncSlot {
 /// 4. Arm the next preparation deadline on the same head, up to the shared
 ///    replacement bound. A new head resets the allowance; exhaustion disarms it.
 ///
-/// Between anchor triggers an internal `l2_block_time` ticker emits
-/// [`SlotEvent::LiveTick`] carrying the latest anchor-computed sync
-/// height, so the Sequencer advances one Live block per cadence rather
-/// than in per-anchor bursts. Ticks are suppressed until the first L1
-/// head (so they can't outrun the anchor) and sent with `try_send` — a
-/// full channel just means the Sequencer is busy and the next tick
-/// re-nudges, which beats blocking the armed trigger behind queued ticks.
-///
 /// Exits when the source closes or the receiver is dropped.
 #[must_use]
 pub fn spawn_l1_anchored(
@@ -311,15 +311,15 @@ pub fn spawn_l1_anchored(
 ) -> mpsc::Receiver<SlotEvent> {
     let (tx, rx) = mpsc::channel(8);
     tokio::spawn(async move {
-        let mut ticker = interval_at(
-            Instant::now() + timing.l2_block_time(),
-            timing.l2_block_time(),
-        );
-        ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
-
-        // Latest anchor-computed sync-slot height. None until the
-        // first L1 head; LiveTicks are suppressed until then.
-        let mut latest_sync_height: Option<u64> = None;
+        event!(name: "eez.slot.configuration", Level::INFO,
+            event_name = "eez.slot.configuration",
+            mode = "conditional_position",
+            start_after_block = timing.start_after_block(),
+            start_delay_ms = timing.start_delay().as_millis() as u64,
+            proof_seed_ms = timing.proof_time().as_millis() as u64,
+            submission_slack_ms = timing.submission_slack().as_millis() as u64,
+            trigger_offset_ms = timing.proof_window_open().as_millis() as u64,
+            "resolved slot production settings");
         // The shared submission bound also caps timers, including attempts
         // which cannot finish preparation. A new head resets this allowance.
         let mut pending: Option<PendingSyncSlot> = None;
@@ -338,6 +338,7 @@ pub fn spawn_l1_anchored(
             });
 
             tokio::select! {
+                () = tx.closed() => return,
                 maybe_head = source.next_head() => {
                     let Some(head) = maybe_head else {
                         event!(
@@ -365,7 +366,6 @@ pub fn spawn_l1_anchored(
                             "L1 head arrived before armed sync-slot trigger fired; superseding with newest anchor",
                         );
                     }
-                    latest_sync_height = Some(block_height);
                     pending = Some(next);
                 }
                 () = tokio::time::sleep(trigger_wait), if pending.is_some() => {
@@ -385,7 +385,6 @@ pub fn spawn_l1_anchored(
                             "last bounded replacement trigger; waiting for a new L1 head afterward",
                         );
                     }
-                    latest_sync_height = Some(fired.block_height);
                     event!(
                         name: "eez.slot.l1_anchored.trigger",
                         Level::DEBUG,
@@ -400,6 +399,7 @@ pub fn spawn_l1_anchored(
                             block_height: fired.block_height,
                             timestamp: fired.timestamp,
                             l1_head: fired.l1_head,
+                            l1_hash: fired.l1_hash,
                         })
                         .await
                         .is_err()
@@ -407,31 +407,24 @@ pub fn spawn_l1_anchored(
                         return; // Sequencer dropped the receiver; exit cleanly.
                     }
                 }
-                _ = ticker.tick() => {
-                    let Some(sync_slot_block_height) = latest_sync_height else {
-                        continue; // No anchor yet; ticks must not outrun it.
-                    };
-                    match tx.try_send(SlotEvent::LiveTick { sync_slot_block_height }) {
-                        Ok(()) => {}
-                        Err(mpsc::error::TrySendError::Full(_)) => {
-                            // Sequencer is mid-burst; the next tick
-                            // re-nudges, nothing is lost.
-                            event!(
-                                name: "eez.slot.l1_anchored.live_tick_skipped",
-                                Level::DEBUG,
-                                sync_slot_block_height,
-                                "schedule channel full; skipping live tick",
-                            );
-                        }
-                        Err(mpsc::error::TrySendError::Closed(_)) => {
-                            return; // Sequencer dropped the receiver; exit cleanly.
-                        }
-                    }
-                }
+
             }
         }
     });
     rx
+}
+
+/// First grid instant strictly after now. Subsequent missed ticks skip rather
+/// than shifting the phase; the sequencer also checks the block's wall time.
+pub(crate) fn next_grid_tick_delay(
+    now_ms: u64,
+    genesis_seconds: u64,
+    timing: RollupTiming,
+) -> Duration {
+    let genesis_ms = genesis_seconds.saturating_mul(1000);
+    let step = timing.l2_block_time().as_millis() as u64;
+    let elapsed = now_ms.saturating_sub(genesis_ms);
+    Duration::from_millis(genesis_ms.saturating_sub(now_ms) + step - elapsed % step)
 }
 
 /// Wall-clock unix time in milliseconds — the defer-on-lateness check
@@ -448,11 +441,44 @@ pub(crate) fn now_unix_millis() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn position_ticks_follow_genesis_phase_not_process_start() {
+        let timing = super::RollupTiming::new(12000, 2000, 100, 100, 3);
+        for (now, expected) in [
+            (1000, 2000),
+            (1500, 1500),
+            (2999, 1),
+            (3000, 2000),
+            (0, 3000),
+        ] {
+            assert_eq!(
+                super::next_grid_tick_delay(now, 1, timing).as_millis(),
+                expected
+            );
+        }
+        let first = super::PendingSyncSlot::new(
+            eez_l1::L1HeadInfo {
+                block_number: 7,
+                block_hash: [1; 32],
+                timestamp: 101,
+            },
+            timing,
+            5,
+        );
+        assert_eq!(first.trigger_at_ms, 107_000);
+        let mut slot = first;
+        for count in 1..=eez_l1::submitter::MAX_MISSING_SLOT_REPLACEMENTS {
+            slot = slot.replacement(timing).unwrap();
+            assert_eq!(slot.trigger_at_ms, first.trigger_at_ms + count * 12_000);
+            assert_eq!(slot.l1_hash, first.l1_hash);
+        }
+        assert!(slot.replacement(timing).is_none());
+    }
     use super::*;
 
     #[test]
     fn missing_slot_replacements_are_bounded_and_do_not_invent_an_l1_block() {
-        let timing = RollupTiming::new(5000, 1000, 1000, 700).with_preparation_time_ms(500);
+        let timing = RollupTiming::new(5000, 1000, 1000, 700, 2).with_start_delay_ms(800);
         let first = PendingSyncSlot::new(
             eez_l1::L1HeadInfo {
                 block_number: 7,
@@ -500,7 +526,7 @@ mod tests {
 
     #[test]
     fn missing_slot_replacement_rejects_overflow_without_wrapping() {
-        let timing = RollupTiming::new(5000, 1000, 1000, 700);
+        let timing = RollupTiming::new(5000, 1000, 1000, 700, 3);
         let first = PendingSyncSlot::new(
             eez_l1::L1HeadInfo {
                 block_number: 7,
@@ -535,8 +561,8 @@ mod tests {
             block_hash: [1; 32],
             timestamp: 100,
         };
-        let base = RollupTiming::new(5000, 1000, 500, 700);
-        let pending = PendingSyncSlot::new(head, base.with_preparation_time_ms(500), 1);
+        let base = RollupTiming::new(5000, 1000, 500, 700, 3);
+        let pending = PendingSyncSlot::new(head, base.with_start_delay_ms(300), 1);
         let old = PendingSyncSlot::new(head, base, 1);
         assert_eq!(
             (pending.block_height, pending.timestamp, pending.l1_head),

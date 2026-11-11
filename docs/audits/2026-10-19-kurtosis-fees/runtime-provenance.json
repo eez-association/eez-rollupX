@@ -1,0 +1,35 @@
+{
+  "runtime_root_commit": "110f952143853d0edbc51d6d8c2cb67be4d828f3",
+  "runtime_protocol_commit": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "runtime_archive_sha256": "20fbcc55d6ed4694041c1ac2e7c1b7b5cc20f82bc48a3df5212412cb67082ac4",
+  "runtime_images": {
+    "node": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-node@sha256:2fc8c6e121d1bd2116a0f78766ebd7c99b305e8e01720a2c91e693b21908a0b6",
+      "image_id": "sha256:2fc8c6e121d1bd2116a0f78766ebd7c99b305e8e01720a2c91e693b21908a0b6"
+    },
+    "signer": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:61e3b3581b4f010310f8558d250eeb91b9491f9cb1929363587c86aff4a2d201",
+      "image_id": "sha256:61e3b3581b4f010310f8558d250eeb91b9491f9cb1929363587c86aff4a2d201"
+    }
+  },
+  "local_candidate_root_base": "46d694faf88ae06941764b1858373b7c13987635",
+  "candidate_protocol_commit": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+  "binaries": {
+    "e2e-causal-verify": "0c9de2ab5a142b47635033aa8e84a1cd8274e2e55243aaa3325e5e5e05dbc842",
+    "eez-composer": "ef61234daa234fab4c155e35caf52ae00d78cab5101ca3a3bbae80c2cbb3b7d5",
+    "eez-follower": "fc05778d413d39a8f7484b03298b17a28b75592768caf0a845726041f001ed31",
+    "eez-genesis-block-hash": "316fc6833aa38f56a7a03f9f9825697e5a6e30e1f8f6ebfd53a7a97e71a52678",
+    "eez-genesis-state-root": "2e9de424c0c98ec8b34afb2f98f401c5b3df53fb712beca18f567540010e6218",
+    "eez-proof-signer": "c91dc363aa8901ddc0d42f419fafb3a4e792bd9e9a9da56477d37b9d79a800dc",
+    "verify_blob_evidence": "8e41c23bf8446438ef9212fea80327846628f9ff5a9f2c216959c6e1c80b721c"
+  },
+  "runtime_sources_unchanged": true,
+  "protocol_solidity_and_libraries_unchanged": true,
+  "scope": "Fee-enabled Kurtosis profiles and protocol runner/collector validation using unchanged verified runtime bytes.",
+  "local_deploy_image": {
+    "reference": "eez-deploy:pr54-fees-5321d244-20261019",
+    "image_id": "sha256:1541502ca46e0ae11d975fe311aa2cca117bd843ae0dbb1fc2a737ce4b9dea5c",
+    "protocol_commit": "5321d24464328899acbed9c85cf7fc43ece15f14",
+    "contracts_and_deployment_sources_unchanged_at_candidate": true
+  }
+}

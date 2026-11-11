@@ -9,15 +9,18 @@ use std::{
 use alloy_primitives::{Address, B256};
 use eez_l1::L1BlockRef;
 use eez_protocol::SourceCondition;
+use eez_protocol::settlement_manifest::{ChainTransaction, TransactionReferences};
 use serde_json::{Value, json};
 
 use super::{
     Direction, HeldPool, HeldTx, OptimisticallyIncluded, PoolState, TerminalReason, UserLocation,
 };
-use crate::optimistic::FinalizedUser;
+use crate::{optimistic::FinalizedUser, rejection::SourceRejection};
 
 /// Bound diagnostic history independently of the live pool and settlement ledger.
 pub(super) const MAX_RECENT_REMOVALS: usize = 1024;
+/// Rejection diagnostics are larger than removal records, so fewer are kept.
+pub(super) const MAX_RECENT_REJECTIONS: usize = 256;
 
 #[derive(Debug)]
 struct LocalRemoval {
@@ -30,6 +33,7 @@ struct LocalRemoval {
     /// Canonical L1 block of a finalized outcome; local pool removals have none.
     canonical: Option<L1BlockRef>,
     observed_at_ms: u64,
+    transaction_references: Option<(u64, TransactionReferences)>,
 }
 
 /// Exact states used for readiness evaluation, independent of wall-clock age.
@@ -50,9 +54,57 @@ impl SourceState {
 struct Blocked {
     hash: B256,
     nonce: u64,
-    condition: SourceCondition,
+    condition: BlockingCondition,
     source: SourceState,
     observed_at_ms: u64,
+}
+
+/// Runtime funding failures are distinct from EVM source-account validation.
+/// Both retain the source and its nonce suffix without charging a retry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum BlockingCondition {
+    Source(SourceCondition),
+    SettlementFee(Box<crate::FundingDiagnostic>),
+    SettlementPricing,
+}
+
+impl From<SourceCondition> for BlockingCondition {
+    fn from(condition: SourceCondition) -> Self {
+        Self::Source(condition)
+    }
+}
+
+impl BlockingCondition {
+    fn reason(&self) -> &'static str {
+        match self {
+            Self::Source(SourceCondition::Nonce { .. }) => "nonce",
+            Self::Source(SourceCondition::Fee) => "fee",
+            Self::Source(SourceCondition::Balance { .. }) => "balance",
+            Self::Source(SourceCondition::Escrow { .. }) => "escrow",
+            Self::SettlementFee(_) => "settlement_fee",
+            Self::SettlementPricing => "settlement_pricing",
+        }
+    }
+
+    fn json(&self) -> Value {
+        match self {
+            Self::Source(condition) => json!(condition),
+            Self::SettlementFee(detail) => detail.json(),
+            Self::SettlementPricing => {
+                json!({"reason":"settlement_pricing", "code":"quote_unavailable"})
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for BlockingCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Source(condition) => condition.fmt(f),
+            Self::SettlementFee(detail) => detail.fmt(f),
+            Self::SettlementPricing => f.write_str("settlement pricing unavailable"),
+        }
+    }
 }
 
 #[derive(Default, Debug)]
@@ -67,6 +119,9 @@ pub(super) struct QueueTelemetry {
     completion_observations: [u64; 2],
     // Observations only: never consulted for admission, ownership or recovery.
     recent_removals: VecDeque<LocalRemoval>,
+    // Kept apart from removals: a previously submitted user's terminal status
+    // is answered from the ledger, which prunes its local removal record.
+    recent_rejections: VecDeque<(B256, SourceRejection)>,
 }
 
 fn now_ms() -> u64 {
@@ -88,6 +143,8 @@ fn direction_name(direction: Direction) -> &'static str {
 impl QueueTelemetry {
     pub fn admitted(&mut self, hash: B256) {
         self.recent_removals.retain(|removed| removed.hash != hash);
+        self.recent_rejections
+            .retain(|(rejected, _)| *rejected != hash);
         self.admitted_at.insert(hash, now_ms());
         self.ready.remove(&hash);
     }
@@ -99,14 +156,21 @@ impl QueueTelemetry {
         reason: TerminalReason,
         replacement: Option<B256>,
     ) {
-        self.record_removal(hash, identity, reason, replacement, None);
+        self.record_removal(hash, identity, reason, replacement, None, None);
     }
 
     /// Keep the outcome of a user whose ledger record finality pruned.
     /// Without this, a settled or exhausted request becomes unknown once its
     /// attempt is finalized, although its outcome is still the useful answer.
     pub fn finalized(&mut self, user: FinalizedUser) {
-        self.record_removal(user.hash, user.identity, user.reason, None, user.canonical);
+        self.record_removal(
+            user.hash,
+            user.identity,
+            user.reason,
+            None,
+            user.canonical,
+            user.transaction_references,
+        );
     }
 
     fn record_removal(
@@ -116,6 +180,7 @@ impl QueueTelemetry {
         reason: TerminalReason,
         replacement: Option<B256>,
         canonical: Option<L1BlockRef>,
+        transaction_references: Option<(u64, TransactionReferences)>,
     ) {
         self.recent_removals.retain(|removed| removed.hash != hash);
         if self.recent_removals.len() == MAX_RECENT_REMOVALS {
@@ -130,7 +195,27 @@ impl QueueTelemetry {
             replacement,
             canonical,
             observed_at_ms: now_ms(),
+            transaction_references,
         });
+    }
+
+    /// Record why a source was rejected. A later admission of the same hash
+    /// clears it, so a stale diagnostic never describes a new attempt.
+    pub fn rejected(&mut self, hash: B256, rejection: SourceRejection) {
+        self.recent_rejections
+            .retain(|(rejected, _)| *rejected != hash);
+        if self.recent_rejections.len() == MAX_RECENT_REJECTIONS {
+            self.recent_rejections.pop_front();
+        }
+        self.recent_rejections.push_back((hash, rejection));
+    }
+
+    fn rejection_json(&self, hash: B256) -> Option<Value> {
+        self.recent_rejections
+            .iter()
+            .rev()
+            .find(|(rejected, _)| *rejected == hash)
+            .map(|(_, rejection)| rejection.json())
     }
 
     fn removal_status(&self, hash: B256) -> Option<Value> {
@@ -139,14 +224,20 @@ impl QueueTelemetry {
             .iter()
             .rev()
             .find(|removed| removed.hash == hash)?;
+        let mut ownership = json!({"state": "terminal", "reason": format!("{:?}", removed.reason),
+            "canonical": removed.canonical.map(|block| json!({"number": block.number, "hash": block.hash})),
+            "observedAtMs": removed.observed_at_ms,
+            "replacementHash": removed.replacement});
+        if let Some(rejection) = self.rejection_json(hash) {
+            ownership["rejection"] = rejection;
+        }
         Some(json!({
             "hash": hash, "sender": removed.sender, "direction": direction_name(removed.direction),
             "nonce": removed.nonce, "lifecycle": "terminal", "ownerGeneration": null,
-            "ownership": {"state": "terminal", "reason": format!("{:?}", removed.reason),
-                "canonical": removed.canonical.map(|block| json!({"number": block.number, "hash": block.hash})),
-                "observedAtMs": removed.observed_at_ms,
-                "replacementHash": removed.replacement},
+            "ownership": ownership,
             "blocking": null,
+            "transactions": removed.transaction_references.as_ref()
+                .map(|(generation, references)| references_json(*generation, references)),
         }))
     }
 
@@ -175,7 +266,9 @@ impl QueueTelemetry {
                 queued.contains(&blocked.hash) || in_flight.contains_key(&blocked.hash)
             });
             self.completed.retain(|(hash, generation), _| {
-                data.users.get(hash).is_some_and(|u| u.owner == *generation)
+                data.users
+                    .get(hash)
+                    .is_some_and(|u| u.first_attempt == *generation)
             });
         });
     }
@@ -187,7 +280,10 @@ impl QueueTelemetry {
                     reason: TerminalReason::Committed,
                     canonical: Some(block),
                 } = user.location
-                    && self.completed.insert((*hash, user.owner), block).is_none()
+                    && self
+                        .completed
+                        .insert((*hash, user.first_attempt), block)
+                        .is_none()
                 {
                     let index = usize::from(user.tx.direction == Direction::Outbound);
                     self.completion_observations[index] =
@@ -239,9 +335,10 @@ impl HeldPool {
     pub(crate) fn record_blocked(
         &self,
         tx: &HeldTx,
-        condition: SourceCondition,
+        condition: impl Into<BlockingCondition>,
         source: SourceState,
     ) {
+        let condition = condition.into();
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
         // An ineligible boundary (or its blocked predecessor) must not hide
         // independent ready sources at the next opportunity.
@@ -264,7 +361,7 @@ impl HeldPool {
             tracing::info!(name: "eez.held_pool.source_blocked",
                 event_name = "eez.held_pool.source_blocked", tx_hash = %tx.hash,
                 sender = %tx.sender, nonce = tx.nonce, direction = ?tx.direction,
-                ?owner, reason = %condition, l1_hash = %source.l1.hash, l2_hash = %source.l2.hash,
+                ?owner, reason = %condition, condition = %condition.json(), l1_hash = %source.l1.hash, l2_hash = %source.l2.hash,
                 "source deferred; independent senders remain eligible");
         }
         state.telemetry.ready.remove(&tx.hash);
@@ -332,23 +429,47 @@ impl HeldPool {
                 UserLocation::Queued => json!({"state": "queued"}),
                 UserLocation::Composing => json!({"state": "composing"}),
                 UserLocation::AwaitingEvidence => json!({"state": "awaiting_evidence"}),
-                UserLocation::Terminal { reason, canonical } => json!({
-                    "state": "terminal", "reason": format!("{reason:?}"),
-                    "canonical": canonical.map(|block| json!({"number": block.number, "hash": block.hash})),
-                }),
+                UserLocation::Terminal { reason, canonical } => {
+                    let mut terminal = json!({
+                        "state": "terminal", "reason": format!("{reason:?}"),
+                        "canonical": canonical.map(|block| json!({"number": block.number, "hash": block.hash})),
+                    });
+                    if *reason == TerminalReason::SimulationFailed
+                        && let Some(rejection) = state.telemetry.rejection_json(hash)
+                    {
+                        terminal["rejection"] = rejection;
+                    }
+                    terminal
+                }
             });
             let lifecycle = if state.by_hash.contains(&hash) { "queued" }
                 else if state.in_flight.contains_key(&hash) { "in_flight" }
                 else { ownership.as_ref().and_then(|value| value["state"].as_str()).unwrap_or("unknown") };
             let blocked = state.telemetry.blocked.get(&(sender, direction)).filter(|b| nonce >= b.nonce);
+            let transactions = owner.and_then(|user| data.attempts.get(&user.owner))
+                .and_then(|attempt| attempt.manifest.users.iter().find(|source| source.tx_hash == hash)
+                    .and_then(|source| source.transaction_references.as_ref())
+                    .map(|references| references_json(attempt.id.generation, references)));
             Some(json!({"hash": hash, "sender": sender, "direction": direction_name(direction),
                 "nonce": nonce, "lifecycle": lifecycle, "ownerGeneration": owner.map(|u| u.owner),
+                "transactions": transactions,
                 "ownership": ownership,
-                "blocking": blocked.map(|b| json!({"condition": b.condition,
+                "blocking": blocked.map(|b| json!({"condition": b.condition.json(),
                     "predecessorHash": b.hash, "observedAtMs": b.observed_at_ms,
                     "sourceState": b.source.json(), "current": Some(b.source) == state.telemetry.current}))}))
         })
     }
+}
+
+fn references_json(generation: u64, references: &TransactionReferences) -> Value {
+    let reference =
+        |tx: &ChainTransaction| json!({"chainId":format!("{:#x}",tx.chain_id),"hash":tx.hash});
+    json!({
+        "basis":"attempt", "complete":true, "attemptGeneration":format!("{generation:#x}"),
+        "l1":reference(&references.l1),
+        "l2":references.l2.iter().map(reference).collect::<Vec<_>>(),
+        "postBatch":reference(&references.post_batch),
+    })
 }
 
 impl PoolState {
@@ -372,12 +493,7 @@ impl PoolState {
                 .filter(|b| Some(b.source) == telemetry.current && tx.nonce >= b.nonce)
             {
                 blocked += 1;
-                let reason = match condition.condition {
-                    SourceCondition::Nonce { .. } => "nonce",
-                    SourceCondition::Fee => "fee",
-                    SourceCondition::Balance { .. } => "balance",
-                    SourceCondition::Escrow { .. } => "escrow",
-                };
+                let reason = condition.condition.reason();
                 *reasons.entry(reason).or_default() += 1;
             }
         }
@@ -499,6 +615,7 @@ mod tests {
             direction,
             nonce: 0,
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: 1,
             priority_fee_per_gas: 1,
         }
@@ -515,6 +632,66 @@ mod tests {
                 hash: B256::repeat_byte(20),
             },
         }
+    }
+
+    #[test]
+    fn settlement_funding_and_pricing_waits_keep_ownership_and_distinct_diagnostics() {
+        let pool = HeldPool::new(Default::default());
+        let first = request(1, Direction::Outbound);
+        let successor = HeldTx {
+            nonce: 1,
+            hash: B256::repeat_byte(2),
+            ..first.clone()
+        };
+        let independent = request(3, Direction::Outbound);
+        for user in [&first, &successor, &independent] {
+            pool.push_contiguous(user.clone(), 0).unwrap();
+        }
+        let state = source();
+        pool.begin_evaluation(state);
+        let funding = crate::FundingDiagnostic {
+            required: alloy_primitives::U256::from(200),
+            offered: alloy_primitives::U256::from(100),
+            payment_chain_id: 906969,
+            source_gas_used: 80_000,
+            source_base_fee: 49,
+            candidate_prefix: true,
+            l1_sample: state.l1,
+            l2_parent: state.l2,
+            l1_priority_fee: 2_000_000_000,
+            l1_execution_price: 2_000_000_008,
+            l1_blob_price: 1,
+        };
+        pool.record_blocked(
+            &first,
+            BlockingCondition::SettlementFee(Box::new(funding)),
+            state,
+        );
+        pool.record_ready(&independent, state);
+        assert_eq!(
+            pool.queue_snapshot().blocked_reasons,
+            BTreeMap::from([("settlement_fee", 2)])
+        );
+        assert_eq!(pool.queue_snapshot().ready, 1);
+        let status = pool.transaction_status(successor.hash).unwrap();
+        assert_eq!(status["blocking"]["condition"]["reason"], "settlement_fee");
+        assert_eq!(status["blocking"]["condition"]["requiredPayment"], "0xc8");
+        assert_eq!(status["blocking"]["condition"]["scope"], "candidate_prefix");
+        assert_eq!(status["blocking"]["predecessorHash"], json!(first.hash));
+        pool.record_blocked(&first, BlockingCondition::SettlementPricing, state);
+        assert_eq!(
+            pool.queue_snapshot().blocked_reasons,
+            BTreeMap::from([("settlement_pricing", 2)])
+        );
+        pool.record_blocked(&first, SourceCondition::Fee, state);
+        assert_eq!(
+            pool.queue_snapshot().blocked_reasons,
+            BTreeMap::from([("fee", 2)])
+        );
+        assert!(pool.owns(first.hash) && pool.owns(successor.hash));
+        let queued = pool.pop_all();
+        assert_eq!(queued.len(), 3);
+        assert!(queued.iter().all(|tx| tx.attempts == 0));
     }
 
     #[test]
@@ -665,6 +842,7 @@ mod tests {
             direction: Direction::Inbound,
             nonce: 0,
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: 1,
             priority_fee_per_gas: 1,
         };
@@ -683,6 +861,7 @@ mod tests {
                     crate::optimistic::OwnedUser {
                         tx: tx.clone(),
                         owner: 7,
+                        first_attempt: 7,
                         fifo_position: 0,
                         location: UserLocation::Terminal {
                             reason: TerminalReason::Committed,
@@ -709,6 +888,151 @@ mod tests {
         assert!(pool.transaction_status(tx.hash).is_none());
     }
 
+    fn rejected_user(hash: u8, nonce: u64) -> HeldTx {
+        HeldTx {
+            raw_tx: Bytes::new(),
+            hash: B256::repeat_byte(hash),
+            sender: Address::repeat_byte(9),
+            direction: Direction::Outbound,
+            nonce,
+            attempts: 0,
+            excluded_slots: 0,
+            max_fee_per_gas: 1,
+            priority_fee_per_gas: 1,
+        }
+    }
+
+    fn reverting_source() -> SourceRejection {
+        SourceRejection::from_simulation(
+            "protocol: source transaction does not execute successfully",
+            24_228,
+            &[0xc5, 0xca, 0x42, 0x2b],
+            &[],
+        )
+    }
+
+    #[test]
+    fn simulation_rejection_names_the_cause_and_keeps_diagnostics_until_readmission() {
+        let pool = HeldPool::new(Default::default());
+        let (root, suffix) = (rejected_user(1, 0), rejected_user(2, 1));
+        pool.push_contiguous(root.clone(), 0).unwrap();
+        pool.push_contiguous(suffix.clone(), 0).unwrap();
+        // The root is in flight, as during a drain; the suffix stays queued.
+        assert!(pool.claim(&root));
+        let evicted = pool.evict_rejected_chain(root.sender, root.direction, 0, reverting_source());
+        assert_eq!(evicted, vec![suffix.clone()]);
+
+        let status = pool.transaction_status(root.hash).unwrap();
+        assert_eq!(status["lifecycle"], "terminal");
+        assert_eq!(status["ownership"]["reason"], "SimulationFailed");
+        let rejection = &status["ownership"]["rejection"];
+        assert_eq!(
+            rejection["error"],
+            "protocol: source transaction does not execute successfully"
+        );
+        assert_eq!(rejection["source"]["output"], "0xc5ca422b");
+        assert_eq!(rejection["source"]["gasUsed"], 24_228);
+
+        // The gapped suffix is not the rejected source.
+        let gap = pool.transaction_status(suffix.hash).unwrap();
+        assert_eq!(gap["ownership"]["reason"], "NonceGap");
+        assert!(gap["ownership"].get("rejection").is_none());
+
+        // A fresh admission of the same signed transaction is a new attempt.
+        pool.push_contiguous(root.clone(), 0).unwrap();
+        let readmitted = pool.transaction_status(root.hash).unwrap();
+        assert_eq!(readmitted["lifecycle"], "queued");
+        let _ = pool.evict_chain_at_or_above(root.sender, root.direction, 0);
+        let discarded = pool.transaction_status(root.hash).unwrap();
+        assert_eq!(discarded["ownership"]["reason"], "PoolDiscarded");
+        assert!(discarded["ownership"].get("rejection").is_none());
+    }
+
+    #[test]
+    fn previously_submitted_root_is_recorded_as_simulation_failed_in_the_ledger() {
+        let ledger = std::sync::Arc::new(OptimisticallyIncluded::default());
+        let pool = HeldPool::new(ledger.clone());
+        let root = rejected_user(1, 0);
+        pool.push_contiguous(root.clone(), 0).unwrap();
+        assert!(pool.claim(&root));
+        // A user retried after an attempt is owned by the ledger while it is
+        // recomposed; its status is answered from there, not local removals.
+        ledger
+            .update(|state| {
+                state.users.insert(
+                    root.hash,
+                    crate::optimistic::OwnedUser {
+                        tx: root.clone(),
+                        owner: 3,
+                        first_attempt: 3,
+                        fifo_position: 0,
+                        location: UserLocation::Composing,
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+        let _ = pool.evict_rejected_chain(root.sender, root.direction, 0, reverting_source());
+        let status = pool.transaction_status(root.hash).unwrap();
+        assert_eq!(status["ownerGeneration"], 3);
+        assert_eq!(status["ownership"]["reason"], "SimulationFailed");
+        assert_eq!(
+            status["ownership"]["rejection"]["source"]["output"],
+            "0xc5ca422b"
+        );
+
+        // An ordinary eviction of another ledger user keeps PoolDiscarded.
+        let other = rejected_user(4, 0);
+        let other = HeldTx {
+            sender: Address::repeat_byte(8),
+            ..other
+        };
+        pool.push_contiguous(other.clone(), 0).unwrap();
+        assert!(pool.claim(&other));
+        ledger
+            .update(|state| {
+                state.users.insert(
+                    other.hash,
+                    crate::optimistic::OwnedUser {
+                        tx: other.clone(),
+                        owner: 4,
+                        first_attempt: 4,
+                        fifo_position: 1,
+                        location: UserLocation::Composing,
+                    },
+                );
+                Ok(())
+            })
+            .unwrap();
+        let _ = pool.evict_chain_at_or_above(other.sender, other.direction, 0);
+        let status = pool.transaction_status(other.hash).unwrap();
+        assert_eq!(status["ownership"]["reason"], "PoolDiscarded");
+        assert!(status["ownership"].get("rejection").is_none());
+    }
+
+    #[test]
+    fn rejection_history_is_bounded() {
+        let mut telemetry = QueueTelemetry::default();
+        for index in 0..MAX_RECENT_REJECTIONS + 3 {
+            telemetry.rejected(
+                B256::from(alloy_primitives::U256::from(index)),
+                reverting_source(),
+            );
+        }
+        assert_eq!(telemetry.recent_rejections.len(), MAX_RECENT_REJECTIONS);
+        assert!(
+            telemetry.rejection_json(B256::ZERO).is_none(),
+            "oldest evicted first"
+        );
+        assert!(
+            telemetry
+                .rejection_json(B256::from(alloy_primitives::U256::from(
+                    MAX_RECENT_REJECTIONS + 2
+                )))
+                .is_some()
+        );
+    }
+
     #[test]
     fn service_age_excludes_source_waiting_and_survives_claiming() {
         let pool = HeldPool::new(Default::default());
@@ -719,6 +1043,7 @@ mod tests {
             direction: Direction::Inbound,
             nonce: 0,
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: 1,
             priority_fee_per_gas: 1,
         };

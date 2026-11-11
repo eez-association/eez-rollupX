@@ -1,0 +1,150 @@
+{
+  "date": "2026-10-24",
+  "status": "producer failed its example fixture tests after shipping and archive guard passed; no payload consumed",
+  "run_id": 40098162224,
+  "run_attempt": 1,
+  "run_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40098162224",
+  "producer_job_id": 120884663004,
+  "source": {
+    "created_at": "2026-10-24T13:30:17.414970+00:00",
+    "run_id": 40098162224,
+    "attempt": 1,
+    "pr_head": "0e34a326536befc31ee62a92647bfc3dca9ddee2",
+    "synthetic_checkout": "bfe39419af4414b03dc375561ac2ef0e340f4caa",
+    "parents": [
+      "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+      "0e34a326536befc31ee62a92647bfc3dca9ddee2"
+    ],
+    "tree": "89f510e696cfb3da6818bc79b0dcf33acfde3b64",
+    "pr_head_tree": "89f510e696cfb3da6818bc79b0dcf33acfde3b64",
+    "tree_equal": true,
+    "detached": true,
+    "initial_git_status": "",
+    "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "cargo_lock_sha256": "aa8b6ba7699104a5923775aa94cff71a71c7f9ecbfc11d874359704819f32058",
+    "initialized_protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "status_after_submodules": "",
+    "recursive_submodule_status_sha256": "9f0391e59ac1506e9fdcb6d415a0cdb022af7ff74c719fded391554a33bb5876"
+  },
+  "worktree_relative": "artifacts/pr-readiness/ci-candidate/40098162224/checkout",
+  "initial_checkout_evidence": {
+    "source": "completed quote trace viewer job checkout log plus run referenced_workflows",
+    "job_id": 120884662876,
+    "log_sha256": "5763d72fc07c9ff17ef86126179fe3ec89fc937c2aec1dd96fd011fb1ae19879",
+    "producer_checkout_recheck_pending": false,
+    "producer_log_contains_exact_synthetic_revision": true
+  },
+  "consumer_contract": {
+    "runtime_fetch": "scripts/ci/ci-payload.sh fetch runtime <this-run immutable digest> <new empty directory>",
+    "runtime_verify": "scripts/ci/prepare-runtime-artifacts.sh <downloaded runtime directory>",
+    "optional_test_fetch": "scripts/ci/ci-payload.sh fetch tests <this-run immutable digest> <new empty directory>",
+    "test_verify": "native-tests.py identity/build_contract, verify_e2e, runtime archive digest and per-binary cross-check",
+    "containers": "created only for extraction, never executed, no published ports",
+    "deployment": "owned by Kurtosis agent; this task does not install, restart or stop nodes"
+  },
+  "no_promotion": true,
+  "local_only_evidence": "artifacts/pr-readiness/ci-candidate/40098162224/",
+  "limits": [
+    "No runtime/test payload was published or consumed: the required producer tests failed before immutable payload publication.",
+    "The prior dependency-feature archive guard failure is fixed and passed in this run; the new failure is in the example test fixture, before replay assertions.",
+    "The debug unit lane passed1569 tests with3 explicit skips and the shutdown test passed1; example tests are selected separately and were not covered by cargo test --workspace.",
+    "Lint remains blocked by the inherited dependency advisories; its later gates and all downstream runtime lanes were skipped.",
+    "The local fixture regression is a separate subsequent correction, not a pass for this failed remote run."
+  ],
+  "gates_observed": {
+    "lint": {
+      "job_id": 120884662932,
+      "status": "completed",
+      "conclusion": "failure",
+      "failed_steps": [
+        "Check dependency policy"
+      ],
+      "skipped_steps": [
+        "Check known vulnerabilities",
+        "Install Foundry",
+        "Install pinned Docker Compose for configuration checks",
+        "Test CI scripts",
+        "Validate settlement policy configuration propagation",
+        "Clippy",
+        "Post Rust source cache"
+      ],
+      "advisories": [
+        "RUSTSEC-2026-0118",
+        "RUSTSEC-2026-0119",
+        "RUSTSEC-2026-0386",
+        "RUSTSEC-2026-0387"
+      ],
+      "log_sha256": "619ce5760a37f6915872a34fece5971094f1b2a67735859f9f8a41e29cb0adf2",
+      "blocking_advisories": [
+        "RUSTSEC-2026-0386",
+        "RUSTSEC-2026-0387"
+      ],
+      "nonblocking_advisory_not_detected": [
+        "RUSTSEC-2026-0118",
+        "RUSTSEC-2026-0119"
+      ]
+    },
+    "quote_trace_viewer": {
+      "job_id": 120884662876,
+      "conclusion": "success"
+    },
+    "producer": {
+      "job_id": 120884663004,
+      "conclusion": "failure",
+      "started_at": "2026-10-24T13:26:50Z",
+      "completed_at": "2026-10-24T14:07:08Z",
+      "log_sha256": "745e5eb83c4584290a5a898faed0ac0adb5312d82eb2658450fb5c695a7adfee",
+      "shipping_build": "passed,19m46s",
+      "archive_and_dependency_guard": "passed,12m25s archive compilation",
+      "producer_tests": {
+        "passed": 28,
+        "failed": 2,
+        "skipped": 0,
+        "selected": 30,
+        "error": "ProfileError(\"genesis reference is after bootstrap cutoff\")",
+        "location": "crates/eez-l1/examples/verify_blob_evidence/prefixes.rs:228",
+        "failed_tests": [
+          "prefixes::tests::witness_replay_preserves_the_nonzero_genesis_schedule",
+          "prefixes::tests::replay_rejects_mismatched_or_invalid_genesis_without_repair"
+        ]
+      },
+      "payload_publication": "skipped"
+    },
+    "debug_unit_tests": {
+      "job_id": 120884662706,
+      "conclusion": "success",
+      "log_sha256": "e001ec208a2058dfa0ac33cbe237c566754d20619a2983cceec721f68b8c193d",
+      "summary_lines": [
+        "2026-10-24T13:54:47.2258829Z     Starting 1569 tests across 22 binaries (3 tests skipped)",
+        "2026-10-24T13:55:18.4405221Z         PASS [   5.713s] (1034/1569) eez-proof-signer::bin/eez-proof-signer service::sessions::tests::finalize_deadline_preserves_prefix_and_allows_retry_in_the_same_epoch",
+        "2026-10-24T13:56:59.8260125Z      Summary [ 132.601s] 1569 tests run: 1569 passed, 3 skipped",
+        "2026-10-24T14:03:12.2622341Z     Starting 1 test across 1 binary (206 tests skipped)",
+        "2026-10-24T14:03:14.4168518Z      Summary [   2.155s] 1 test run: 1 passed, 206 skipped"
+      ]
+    },
+    "downstream": [
+      {
+        "name": "CI Result",
+        "job_id": 120893149129,
+        "conclusion": "failure"
+      },
+      {
+        "name": "Kurtosis E2E",
+        "job_id": 120893149891,
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Cross-Chain E2E Tests (${{ matrix.partition }})",
+        "job_id": 120893149896,
+        "conclusion": "skipped"
+      },
+      {
+        "name": "Embedded E2E Tests (${{ matrix.partition }})",
+        "job_id": 120893150166,
+        "conclusion": "skipped"
+      }
+    ]
+  },
+  "runtime_artifact_rebuild_performed": false,
+  "separate_local_fixture_regression": "ci-prefix-fixture.json"
+}

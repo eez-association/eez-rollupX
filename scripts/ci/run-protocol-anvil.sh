@@ -7,7 +7,7 @@ suite_timeout="${EEZ_ANVIL_SUITE_TIMEOUT:-2400}"
 for value in "$scenario_timeout" "$suite_timeout"; do
     [[ "$value" =~ ^[1-9][0-9]*$ ]] || { echo "Timeout must be a positive integer" >&2; exit 1; }
 done
-mapfile -t scenarios < <(find script/e2e -mindepth 3 -name 'E2E*.s.sol' -not -path '*/shared/*' | sort)
+mapfile -t scenarios < <(find script/e2e/scenarios -mindepth 3 -name 'E2E*.s.sol' -not -path '*/shared/*' | sort)
 (( ${#scenarios[@]} )) || { echo "No protocol scenarios found" >&2; exit 1; }
 declare -A names=()
 for scenario in "${scenarios[@]}"; do
@@ -51,7 +51,7 @@ for index in "${!scenarios[@]}"; do
     L2_PORT=$(( ${BASE_PORT:-18545} + 2 * index + 1 )) \
     L1_CHAIN_ID=$(( ${BASE_CHAIN_ID:-41337} + 2 * index )) \
     L2_CHAIN_ID=$(( ${BASE_CHAIN_ID:-41337} + 2 * index + 1 )) \
-        timeout --kill-after=5s "$limit" bash script/e2e/run/local.sh "$scenario" >"$logs/$name.log" 2>&1 &
+        timeout --kill-after=5s "$limit" bash script/e2e/lib/local-scenario.sh "$scenario" >"$logs/$name.log" 2>&1 &
     child=$!
     wait "$child" || status=$?
     stop_child

@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["crates/vendor/reth"]
 members = [
     "crates/eez-blob-codec",
     "crates/eez-composer",
@@ -30,7 +31,7 @@ rust-version = "1.95"
 
 [workspace.dependencies]
 # async + tracing + errors
-tokio              = { version = "1", features = ["full"] }
+tokio              = { version = "1.53.3", features = ["full"] }
 async-trait        = "0.1"
 dotenvy            = "0.15"
 futures-util       = "0.3"
@@ -65,7 +66,7 @@ mimalloc           = "0.1"
 # CLI
 clap               = { version = "4", features = ["derive"] }
 
-# Upstream Reth v2.7.0; keep every Reth consumer aligned to the release commit.
+# Upstream Reth v2.7.0; only the documented local patches below differ.
 reth-chain-state                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-chainspec                  = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-cli                        = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
@@ -78,6 +79,7 @@ reth-ethereum-payload-builder   = { git = "https://github.com/paradigmxyz/reth",
 reth-ethereum-primitives        = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-evm                        = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-evm-ethereum               = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
+reth-network-api                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-network-peers              = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-node-api                   = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-node-builder               = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
@@ -86,6 +88,8 @@ reth-node-ethereum              = { git = "https://github.com/paradigmxyz/reth",
 reth-payload-builder            = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-payload-primitives         = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-transaction-pool           = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
+reth-eth-wire-types             = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
+reth-execution-types            = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-primitives-traits          = { version = "0.8.1", default-features = false }
 reth-provider                   = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-revm                       = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
@@ -96,7 +100,7 @@ reth-codecs                     = { version = "=0.8.1" }
 reth-rpc-traits                 = { version = "=0.8.1" }
 reth-tasks                      = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-trie                       = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-trie-common                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
+reth-trie-common                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0", default-features = false, features = ["std"] }
 # libmdbx (reth's own mdbx binding) — backs the persistent witness store in a
 # DEDICATED env (never reth's node DB). Same rev so we don't link a 2nd mdbx build.
 reth-libmdbx                    = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
@@ -134,6 +138,7 @@ alloy-provider         = { version = "2", default-features = false, features = [
 alloy-rlp              = { version = "0.3", features = ["derive"] }
 alloy-rpc-types-engine = { version = "2", default-features = false }
 alloy-rpc-types-eth    = { version = "2", default-features = false }
+alloy-rpc-types-trace   = { version = "=2.5.0", default-features = false }
 alloy-signer           = { version = "2", default-features = false }
 alloy-serde            = { version = "=2.5.0", default-features = false }
 alloy-signer-local     = { version = "2", default-features = false }
@@ -286,3 +291,10 @@ clone_on_ref_ptr                 = "allow"
 # on_batch_posted 10, compose_via_evm_composer 8) need these params;
 # a refactor or dediacted crates would reduce some of this
 too_many_arguments               = "allow"
+
+# v2.7.0 shutdown ordering and shared RPC quota accessor; exact source and
+# minimal patches are recorded in crates/vendor/reth/README.md.
+[patch."https://github.com/paradigmxyz/reth"]
+reth-engine-tree = { path = "crates/vendor/reth/reth-engine-tree" }
+reth-node-builder = { path = "crates/vendor/reth/reth-node-builder" }
+reth-rpc-builder = { path = "crates/vendor/reth/reth-rpc-builder" }

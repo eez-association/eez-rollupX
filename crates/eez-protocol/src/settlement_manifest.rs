@@ -17,7 +17,7 @@ use crate::RollupId;
 use crate::abi::ExecutionEntrySol;
 use crate::blob_semantics::SemanticTransaction;
 use crate::settlement::{FifoSourceAction, composition_fifo_actions};
-use crate::system_tx::{OutboundSyncGroup, outbound_settlement_root_counts};
+use crate::system_tx::{OutboundSyncGroup, outbound_settlement_source_counts};
 
 /// Signed source transaction in original held-pool order.
 #[derive(Debug)]
@@ -81,6 +81,32 @@ pub struct UserManifest {
     pub effects: Range<usize>,
     /// Producing inbound calls in FIFO order. Lookups are validated at construction.
     pub source_actions: Vec<SourceActionManifest>,
+    /// Physical terminal-block positions, including loads, source and callbacks.
+    pub l2_transaction_range: Range<usize>,
+    /// Observations attached once the final block and signed poster exist.
+    /// These references never authorize execution or establish settlement.
+    pub transaction_references: Option<TransactionReferences>,
+}
+
+/// Chain-qualified identity. Rollup IDs are not Ethereum chain IDs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChainTransaction {
+    /// Ethereum transaction chain ID, including for native L2 transactions.
+    pub chain_id: u64,
+    /// Hash of the final encoded transaction, suitable for receipt lookup.
+    pub hash: B256,
+}
+
+/// All transaction identities for one source's proposed execution group.
+/// Receipts and canonical reconciliation determine which candidates executed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransactionReferences {
+    /// Signed L1 source for inbound work, or the poster for outbound work.
+    pub l1: ChainTransaction,
+    /// Complete physical group in execution order, including native setup.
+    pub l2: Vec<ChainTransaction>,
+    /// Poster role, which can refer to the same transaction as `l1`.
+    pub post_batch: ChainTransaction,
 }
 
 /// Local metadata retained until every signed user's ownership is accounted for.
@@ -97,6 +123,54 @@ pub struct SettlementManifest {
 }
 
 impl SettlementManifest {
+    /// Attach identities from the built block, preserving its actual encoded
+    /// transactions and group order instead of synthesizing hashes from actions.
+    ///
+    /// # Errors
+    /// Rejects incomplete/overlapping physical coverage and missing outbound
+    /// sources. No references are changed on failure.
+    pub fn attach_transaction_references(
+        &mut self,
+        post_batch: ChainTransaction,
+        transactions: &[ChainTransaction],
+    ) -> Result<(), String> {
+        let mut covered = vec![false; transactions.len()];
+        let mut references = Vec::with_capacity(self.users.len());
+        for user in &self.users {
+            let range = user.l2_transaction_range.clone();
+            let group = transactions
+                .get(range.clone())
+                .ok_or("invalid user transaction range")?;
+            for index in range {
+                if std::mem::replace(&mut covered[index], true) {
+                    return Err("overlapping user transaction ranges".into());
+                }
+            }
+            if user.source_rollup_id.0 != 0 && !group.iter().any(|tx| tx.hash == user.tx_hash) {
+                return Err("outbound transaction range omits its source".into());
+            }
+            references.push(TransactionReferences {
+                l1: if user.source_rollup_id.0 == 0 {
+                    ChainTransaction {
+                        chain_id: post_batch.chain_id,
+                        hash: user.tx_hash,
+                    }
+                } else {
+                    post_batch
+                },
+                l2: group.to_vec(),
+                post_batch,
+            });
+        }
+        if covered.iter().any(|covered| !covered) {
+            return Err("unowned transactions in terminal block".into());
+        }
+        for (user, references) in self.users.iter_mut().zip(references) {
+            user.transaction_references = Some(references);
+        }
+        Ok(())
+    }
+
     /// Manifest for an anchor-only batch, with no held users or effects.
     #[must_use]
     pub const fn empty(sync_number: u64, sync_hash: B256) -> Self {
@@ -166,12 +240,18 @@ impl SettlementManifest {
                 outbound_group: None,
                 effects: 0..0,
                 source_actions: Vec::new(),
+                l2_transaction_range: 0..0,
+                transaction_references: None,
             });
         }
         if !semantics.is_empty() {
             return Err("unowned semantic source transaction".into());
         }
-        let root_counts = outbound_settlement_root_counts(input.outbound_hosts)?;
+        let group_shapes = input
+            .outbound_groups
+            .iter()
+            .map(OutboundSyncGroup::source_shape);
+        let root_counts = outbound_settlement_source_counts(input.outbound_hosts, group_shapes)?;
         let mut effects = Vec::new();
         let mut root_cursor = 0usize;
         let mut host_cursor = 0usize;
@@ -191,6 +271,7 @@ impl SettlementManifest {
                 .checked_add(group.effects.len())
                 .ok_or("outbound root count overflow")?;
             let start = effects.len();
+            let transaction_start = transaction_end(&input, root_cursor)?;
             while root_cursor < group_end {
                 let count = *root_counts
                     .get(host_cursor)
@@ -207,6 +288,7 @@ impl SettlementManifest {
             }
             user.outbound_group = Some(group_index);
             user.effects = start..effects.len();
+            user.l2_transaction_range = transaction_start..transaction_end(&input, root_cursor)?;
         }
         if host_cursor != root_counts.len()
             || users
@@ -222,19 +304,13 @@ impl SettlementManifest {
         // outbound-first ordering in the native semantic stream.
         for (user_index, semantic) in inbound_semantics {
             let user = &mut users[user_index];
-            let composition =
-                crate::materialize_actions(user.source_rollup_id, semantic.actions.clone())
-                    .map_err(|error| error.to_string())?;
+            let composition = semantic.materialize().map_err(|error| error.to_string())?;
+            // The shared projection validates exact materialized coverage and
+            // includes recursive static-pool reads. Those observations do not
+            // consume mutable queue positions or produce physical checkpoints.
             let fifo = composition_fifo_actions(&composition)?;
-            let root_count = semantic
-                .actions
-                .iter()
-                .filter(|action| action.parent_index.is_none())
-                .count();
-            if fifo.len() != root_count {
-                return Err("source forest and FIFO action counts differ".into());
-            }
             let start = effects.len();
+            let transaction_start = transaction_end(&input, root_cursor)?;
             let mut local_mutable = 0usize;
             for kind in fifo {
                 let FifoSourceAction::Mutable { applies } = kind else {
@@ -259,6 +335,7 @@ impl SettlementManifest {
                 });
             }
             user.effects = start..effects.len();
+            user.l2_transaction_range = transaction_start..transaction_end(&input, root_cursor)?;
         }
         if root_cursor != input.checkpoint_hashes.len() {
             return Err("unowned physical checkpoints in manifest".into());
@@ -273,6 +350,17 @@ impl SettlementManifest {
             effects,
         })
     }
+}
+
+fn transaction_end(input: &ManifestInput<'_>, roots: usize) -> Result<usize, String> {
+    if roots == 0 {
+        return Ok(0);
+    }
+    input
+        .checkpoint_positions
+        .get(roots - 1)
+        .and_then(|position| position.checked_add(1))
+        .ok_or_else(|| "missing or overflowing physical transaction checkpoint".into())
 }
 
 fn push_checkpoint(
@@ -330,7 +418,7 @@ mod tests {
                 gas_used: 0,
                 success,
             },
-            revert_span: None,
+            revert_spans: vec![],
         }
     }
 
@@ -358,6 +446,7 @@ mod tests {
     #[test]
     fn manifest_keeps_static_and_reverting_lookup_users_without_effects() {
         let users = [SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId(0),
             tx_data: signed(0),
             actions: vec![
@@ -375,9 +464,46 @@ mod tests {
     }
 
     #[test]
+    fn recursive_static_reads_preserve_the_following_producing_action_position() {
+        let mut callback = action(1, CallMode::Static, true);
+        callback.parent_index = Some(0);
+        let mut recursive_read = action(0, CallMode::Static, true);
+        recursive_read.parent_index = Some(1);
+        let users = [SemanticTransaction {
+            operations_version: Default::default(),
+            origin_chain: RollupId::MAINNET,
+            tx_data: signed(0),
+            actions: vec![
+                action(0, CallMode::Static, true),
+                callback,
+                recursive_read,
+                action(0, CallMode::Mutable, true),
+            ],
+        }];
+        let hashes = [B256::repeat_byte(5)];
+        let mut proposal = input(&users, &[0]);
+        proposal.checkpoint_positions = &[0];
+        proposal.checkpoint_hashes = &hashes;
+        let manifest = SettlementManifest::build(proposal).unwrap();
+        assert_eq!(manifest.effects, hashes);
+        let user = &manifest.users[0];
+        assert_eq!(user.effects, 0..1);
+        assert_eq!(user.l2_transaction_range, 0..1);
+        assert_eq!(user.source_actions.len(), 1);
+        assert_eq!(user.source_actions[0].source_index, 0);
+        let composition =
+            crate::materialize_actions(RollupId::MAINNET, users[0].actions.clone()).unwrap();
+        assert_eq!(
+            user.source_actions[0].call_hash,
+            composition.source.batch.entries[0].proxyEntryHash
+        );
+    }
+
+    #[test]
     fn manifest_maps_multiple_inbound_actions_at_exact_fifo_positions() {
         let users = [
             SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(0),
                 tx_data: signed(0),
                 actions: vec![
@@ -388,6 +514,7 @@ mod tests {
                 ],
             },
             SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(0),
                 tx_data: signed(1),
                 actions: vec![action(0, CallMode::Mutable, true)],
@@ -401,7 +528,7 @@ mod tests {
         let mut proposal = input(&users, &[0, 1]);
         proposal.checkpoint_positions = &[0, 1, 2];
         proposal.checkpoint_hashes = &hashes;
-        let manifest = SettlementManifest::build(proposal).unwrap();
+        let mut manifest = SettlementManifest::build(proposal).unwrap();
         assert_eq!(manifest.users[0].effects, 0..2);
         assert_eq!(manifest.users[1].effects, 2..3);
         assert_eq!(
@@ -422,17 +549,55 @@ mod tests {
             })
         );
         assert_eq!(manifest.effects, hashes);
+        assert_eq!(manifest.users[0].l2_transaction_range, 0..2);
+        assert_eq!(manifest.users[1].l2_transaction_range, 2..3);
+        let post = ChainTransaction {
+            chain_id: 1,
+            hash: B256::repeat_byte(99),
+        };
+        let transactions = (0..3)
+            .map(|i| ChainTransaction {
+                chain_id: if i == 1 { 9002 } else { 9001 },
+                hash: B256::with_last_byte(i),
+            })
+            .collect::<Vec<_>>();
+        manifest
+            .attach_transaction_references(post, &transactions)
+            .unwrap();
+        for (i, range) in [0..2, 2..3].into_iter().enumerate() {
+            let refs = manifest.users[i].transaction_references.as_ref().unwrap();
+            assert_eq!(refs.l1.hash, keccak256(&users[i].tx_data));
+            assert_eq!(refs.l1.chain_id, 1);
+            assert_eq!(refs.post_batch, post);
+            assert_eq!(refs.l2, transactions[range]);
+        }
+        // Reject corrupted boundaries without publishing a partial replacement.
+        for range in [1..3, 2..4, 3..3] {
+            let mut invalid = manifest.clone();
+            invalid.users[1].l2_transaction_range = range;
+            assert!(
+                invalid
+                    .attach_transaction_references(post, &transactions)
+                    .is_err()
+            );
+            assert_eq!(
+                invalid.users[0].transaction_references,
+                manifest.users[0].transaction_references
+            );
+        }
     }
 
     #[test]
     fn lookup_only_user_keeps_fifo_identity_and_advances_mutable_queue_positions() {
         let users = [
             SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(0),
                 tx_data: signed(1),
                 actions: vec![action(0, CallMode::Mutable, true)],
             },
             SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(0),
                 tx_data: signed(0),
                 actions: vec![
@@ -447,7 +612,7 @@ mod tests {
         let mut proposal = input(&users, &[1, 0]);
         proposal.checkpoint_positions = &[0];
         proposal.checkpoint_hashes = &hashes;
-        let manifest = SettlementManifest::build(proposal).unwrap();
+        let mut manifest = SettlementManifest::build(proposal).unwrap();
         assert_eq!(manifest.users.len(), 2);
         assert_eq!(manifest.users[0].tx_hash, keccak256(&users[1].tx_data));
         assert_eq!(manifest.users[0].effects, 0..0);
@@ -457,12 +622,43 @@ mod tests {
         assert_eq!(manifest.users[1].source_actions.len(), 1);
         assert_eq!(manifest.users[1].source_actions[0].source_index, 2);
         assert_eq!(manifest.effects, hashes);
+        let post = ChainTransaction {
+            chain_id: 1,
+            hash: B256::repeat_byte(99),
+        };
+        manifest
+            .attach_transaction_references(
+                post,
+                &[ChainTransaction {
+                    chain_id: 9001,
+                    hash: B256::repeat_byte(98),
+                }],
+            )
+            .unwrap();
+        assert!(
+            manifest.users[0]
+                .transaction_references
+                .as_ref()
+                .unwrap()
+                .l2
+                .is_empty()
+        );
+        assert_eq!(
+            manifest.users[1]
+                .transaction_references
+                .as_ref()
+                .unwrap()
+                .l2
+                .len(),
+            1
+        );
     }
 
     #[test]
     fn manifest_preserves_fifo_across_outbound_first_and_whole_multiroot_groups() {
         let users = [
             SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(1),
                 tx_data: signed(9),
                 actions: vec![
@@ -471,6 +667,7 @@ mod tests {
                 ],
             },
             SemanticTransaction {
+                operations_version: Default::default(),
                 origin_chain: RollupId(0),
                 tx_data: signed(0),
                 actions: vec![action(0, CallMode::Mutable, true)],
@@ -485,7 +682,6 @@ mod tests {
                 .iter()
                 .map(|entry| OutboundSyncEffect {
                     source_entry: OutboundSourceEntry::Mutable(entry.clone()),
-                    callback_entries: vec![],
                 })
                 .collect(),
             user_tx: users[0].tx_data.clone(),
@@ -507,19 +703,60 @@ mod tests {
         let mut proposal = input(&users, &[1, 0]);
         proposal.outbound_groups = &groups;
         proposal.outbound_hosts = &hosts;
-        proposal.checkpoint_positions = &[1, 1, 2];
+        proposal.checkpoint_positions = &[4, 4, 6];
         proposal.checkpoint_hashes = &hashes;
-        let manifest = SettlementManifest::build(proposal).unwrap();
+        let mut manifest = SettlementManifest::build(proposal).unwrap();
         assert_eq!(manifest.users[0].source_rollup_id.0, 0);
         assert_eq!(manifest.users[1].outbound_group, Some(0));
         assert_eq!(manifest.users[1].effects, 0..1);
         assert_eq!(manifest.users[0].effects, 1..2);
         assert_eq!(manifest.effects, [hashes[1], hashes[2]]);
+        assert_eq!(manifest.users[1].l2_transaction_range, 0..5);
+        assert_eq!(manifest.users[0].l2_transaction_range, 5..7);
+        let post = ChainTransaction {
+            chain_id: 1,
+            hash: B256::repeat_byte(99),
+        };
+        let mut transactions = (0..7)
+            .map(|i| ChainTransaction {
+                chain_id: 9001,
+                hash: B256::with_last_byte(i),
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            manifest
+                .attach_transaction_references(post, &transactions)
+                .unwrap_err()
+                .contains("omits its source")
+        );
+        assert!(
+            manifest
+                .users
+                .iter()
+                .all(|user| user.transaction_references.is_none())
+        );
+        transactions[1].hash = keccak256(&users[0].tx_data);
+        manifest
+            .attach_transaction_references(post, &transactions)
+            .unwrap();
+        let outbound = manifest.users[1].transaction_references.as_ref().unwrap();
+        assert_eq!(outbound.l2, transactions[..5]);
+        assert_eq!(outbound.l1, post);
+        assert_eq!(outbound.post_batch, post);
+        assert_eq!(
+            manifest.users[0]
+                .transaction_references
+                .as_ref()
+                .unwrap()
+                .l2,
+            transactions[5..]
+        );
     }
 
     #[test]
     fn manifest_rejects_missing_duplicate_or_malformed_signed_users() {
         let mut users = [SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId(0),
             tx_data: signed(0),
             actions: vec![action(0, CallMode::Static, true)],
@@ -542,7 +779,7 @@ mod tests {
                 match invalid {
                     "pending" => call.outcome = ExecutionOutcome::Pending,
                     "parent" => call.parent_index = Some(0),
-                    "rollback" => call.revert_span = Some(2),
+                    "rollback" => call.revert_spans = vec![2],
                     "static value" => {
                         call.call_mode = CallMode::Static;
                         call.value = U256::from(1);
@@ -550,6 +787,7 @@ mod tests {
                     _ => {}
                 }
                 let users = [SemanticTransaction {
+                    operations_version: Default::default(),
                     origin_chain: RollupId(source),
                     tx_data: signed(0),
                     actions: if invalid == "empty" {
@@ -577,6 +815,7 @@ mod tests {
     #[test]
     fn manifest_rejects_missing_or_unowned_checkpoints() {
         let users = [SemanticTransaction {
+            operations_version: Default::default(),
             origin_chain: RollupId(0),
             tx_data: signed(0),
             actions: vec![action(0, CallMode::Mutable, true)],

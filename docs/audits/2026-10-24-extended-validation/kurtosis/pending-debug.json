@@ -1,0 +1,52 @@
+{
+  "runtime_source": "319ebc2dbfdace3d5e708a2c9881cc741529aec4",
+  "ci_run": 40104687331,
+  "transaction": {
+    "from": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+    "to": "0x7777777777777777777777777777777777777777",
+    "value": "0x1",
+    "input": "0x"
+  },
+  "broadcasts": 0,
+  "observed_at": "2026-10-24T17:29:13.108603+00:00",
+  "stable_parent": true,
+  "parent": {
+    "number": "0x300e",
+    "hash": "0x8dc385712ebf39fee9be8b000be226208423dde8ecdf65d83cf33694ae7791e2",
+    "timestamp": "0x6adceae9",
+    "stateRoot": "0x6c56a5142e47dae580650821e6e09607cc019757b44398424812ff17ee0accb9"
+  },
+  "next_cutoff": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x000000000000000000000000000000000000000000000000000000006adceae5"
+  },
+  "debug_latest": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "failed": false,
+      "gas": 21000,
+      "returnValue": "0x",
+      "structLogs": []
+    }
+  },
+  "debug_pending": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32603,
+      "message": "L1 derivation source unavailable: pending L1 history import has not executed"
+    }
+  },
+  "eth_pending": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x"
+  },
+  "evidence": {
+    "path": "artifacts/extended-validation/kurtosis/pending-debug/comparison.json",
+    "sha256": "79b28fc523a3076dd4071d0a3fd298375a6bb718338e667c53a1ae7bb14c9278",
+    "availability": "local only"
+  }
+}

@@ -7,8 +7,10 @@
 //!
 mod bundle_rpc;
 mod composer_rpc;
+mod fee_quotes;
 mod ingress;
 mod l1_embedded;
+mod l1_runtime;
 mod queue_metrics;
 mod queue_rpc;
 mod settlement_metrics;
@@ -83,8 +85,8 @@ impl WitnessCapture {
     }
 }
 
-/// Embedded L1 reth handle — owned by `main` for the node lifetime so
-/// the L1 stays alive (drop tears it down). Generic over both variants'
+/// Embedded L1 reth handle — owned by the composer launch future. Its
+/// runtime is linked to the CLI's shutdown and panic monitoring. Generic over both variants'
 /// `NodeHandle` params because the AddOns type differs between
 /// EthereumNode (Devnet/Testing) and GnosisNode (Chiado).
 ///
@@ -108,7 +110,12 @@ pub fn run_composer() -> eyre::Result<()> {
     })
 }
 
-async fn composer_proving_from_env(expected_identity: B256) -> eyre::Result<ComposerProving> {
+async fn composer_proving_from_env(
+    expected_identity: B256,
+    profile: &eez_protocol::l1_history::NetworkProfile,
+    registry: Address,
+    proof_system: Address,
+) -> eyre::Result<ComposerProving> {
     let url = env::var("EEZ_PROVER_URL")
         .map_err(|_| eyre::eyre!("EEZ_PROVER_URL is required for composer proving"))?;
     if url.trim().is_empty() {
@@ -118,17 +125,17 @@ async fn composer_proving_from_env(expected_identity: B256) -> eyre::Result<Comp
         .map_err(|_| eyre::eyre!("EEZ_ATTESTER_ADDRESS is required for composer proving"))?;
     let attester =
         Address::from_str(attester.trim()).map_err(|e| eyre::eyre!("EEZ_ATTESTER_ADDRESS: {e}"))?;
-    let remote = eez_prover_client::RemoteProver::new(url, attester, expected_identity);
+    let remote = eez_prover_client::RemoteProver::new(
+        url,
+        attester,
+        expected_identity,
+        profile.verification_key(registry, proof_system, attester),
+    );
     let capabilities = remote.capabilities().await?;
     event!(Level::INFO, validation_identity = %expected_identity,
         maximum_blocks = capabilities.max_window_blocks,
         maximum_request_bytes = capabilities.max_request_bytes,
         maximum_witness_items = capabilities.max_request_witness_items,
-        preparation_max_blocks = capabilities.preparation_max_blocks,
-        cache_max_entries = capabilities.cache_max_entries,
-        cache_max_bytes = capabilities.cache_max_bytes,
-        maximum_leases = capabilities.maximum_leases,
-        lease_lifetime_millis = capabilities.lease_lifetime_millis,
         "prover configuration agreement established");
     let (sender, receiver) = mpsc::unbounded_channel::<eez_l1::L2Endpoint>();
     let witness_db_path =
@@ -152,259 +159,58 @@ async fn composer_proving_from_env(expected_identity: B256) -> eyre::Result<Comp
     })
 }
 
+/// Best-effort session prevalidation. Durable witnesses remain the source of
+/// backfill after disconnect, expiry or restart; no cache lease owns work.
 async fn run_preparation_worker(
     mut receiver: mpsc::Receiver<eez_l1::L2Endpoint>,
     notifier: witness_source::PreparationNotifier,
     store: witness_source::WitnessStore,
     prover: eez_prover_client::RemoteProver,
     rollup_id: u64,
-    system_address: Address,
     l1_head: Arc<L1CanonicalHead>,
 ) {
-    let mut last_prepared: Option<eez_l1::L2Endpoint> = None;
-    let mut retained_settled = l1_head.policy_anchor_snapshot().endpoint;
-    let mut lease_window_full = false;
-    let renewal_interval = Duration::from_secs(30);
-    let mut renewal_due = tokio::time::Instant::now() + renewal_interval;
-    loop {
-        let next = if last_prepared.is_some() {
-            tokio::select! {
-                next = receiver.recv() => next,
-                () = tokio::time::sleep_until(renewal_due) => {
-                    if l1_head.policy_anchor_snapshot().endpoint == retained_settled {
-                        match prover.renew_preparation_lease().await {
-                            Ok(true) => {
-                                store.preparation_status(None);
-                                renewal_due = tokio::time::Instant::now() + renewal_interval;
-                                continue;
-                            }
-                            Ok(false) => {
-                                // Expiry or signer restart cleared the client's stale
-                                // hints. Rebuild the exact last durable endpoint even
-                                // when no new block has committed.
-                                lease_window_full = false;
-                                renewal_due = tokio::time::Instant::now() + renewal_interval;
-                                last_prepared.take()
-                            }
-                            Err(error) => {
-                                store.preparation_status(Some(error.to_string()));
-                                event!(name: "eez.node.witness_preparation.retry", Level::WARN,
-                                    %error, "preparation lease renewal failed");
-                                renewal_due = tokio::time::Instant::now() + Duration::from_secs(1);
-                                continue;
-                            }
-                        }
-                    } else {
-                        // Re-enter the main loop with the last known durable
-                        // endpoint so canonical advancement releases the old
-                        // lease even when no new L2 block is produced.
-                        last_prepared
-                    }
-                }
-            }
-        } else {
-            receiver.recv().await
-        };
-        let Some(mut target) = next else {
-            break;
-        };
-        // Collapse queued identities to the newest endpoint. The exact durable
-        // ancestry walk below reconstructs every skipped block without keeping
-        // a second witness copy in this channel.
-        while let Ok(queued) = receiver.try_recv() {
-            target = queued;
+    let mut last_prepared = None;
+    while let Some(mut target) = receiver.recv().await {
+        while let Ok(next) = receiver.try_recv() {
+            target = next;
         }
-        if let Some(watermark) = notifier.take_watermark() {
-            target = watermark;
+        if let Some(next) = notifier.take_watermark() {
+            target = next;
         }
-        loop {
-            if last_prepared.is_some() && tokio::time::Instant::now() >= renewal_due {
-                match prover.renew_preparation_lease().await {
-                    Ok(true) => {
-                        store.preparation_status(None);
-                        renewal_due = tokio::time::Instant::now() + renewal_interval;
-                    }
-                    Ok(false) => {
-                        last_prepared = None;
-                        lease_window_full = false;
-                        renewal_due = tokio::time::Instant::now() + renewal_interval;
-                    }
-                    Err(error) => {
-                        store.preparation_status(Some(error.to_string()));
-                        event!(name: "eez.node.witness_preparation.retry", Level::WARN,
-                            %error, "preparation lease renewal failed");
-                        renewal_due = tokio::time::Instant::now() + Duration::from_secs(1);
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                        continue;
-                    }
-                }
-            }
-            let settled = l1_head.policy_anchor_snapshot().endpoint;
-            if settled != retained_settled {
-                if let Err(error) = prover.release_preparation_lease().await {
-                    store.preparation_status(Some(error.to_string()));
-                    event!(name: "eez.node.witness_preparation.retry", Level::WARN,
-                        canonical_settled = ?settled, %error,
-                        "canonical advancement lease release failed");
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    continue;
-                }
-                retained_settled = settled;
-                last_prepared = None;
-                lease_window_full = false;
-                renewal_due = tokio::time::Instant::now() + renewal_interval;
-            }
-            let floor = settled;
-            if last_prepared == Some(target) {
-                store.preparation_status(None);
-                break;
-            }
-            let source = Arc::clone(&store);
-            let stop = last_prepared;
-            let result =
-                tokio::task::spawn_blocking(move || preparation_path(&source, target, stop, floor))
-                    .await;
-            let path = match result {
-                Ok(Ok(path)) => path,
-                Ok(Err(error @ PreparationPathError::Missing { .. })) => {
-                    // Reconciliation can replace a terminal block with an
-                    // applied prefix whose exact parent has no standalone
-                    // witness. Do not deadlock that reconciliation by making
-                    // a speculative prewarm miss globally unhealthy. If a
-                    // final proof actually needs this block, the authoritative
-                    // witness source still fails that request explicitly.
-                    store.preparation_status(None);
-                    event!(name: "eez.node.witness_preparation.retry", Level::WARN,
-                        number = target.number, hash = %target.hash, %error,
-                        "durable preparation predecessor is not yet available; retrying after reconciliation");
-                    while let Ok(queued) = receiver.try_recv() {
-                        target = queued;
-                    }
-                    if let Some(watermark) = notifier.take_watermark() {
-                        target = watermark;
-                    }
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    continue;
-                }
-                Ok(Err(error)) => {
-                    let error = error.to_string();
-                    store.preparation_status(Some(error.clone()));
-                    event!(name: "eez.node.witness_preparation.retry", Level::ERROR,
-                        number = target.number, hash = %target.hash, %error,
-                        "durable preparation path failed; admission paused");
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    continue;
-                }
-                Err(error) => {
-                    store.preparation_status(Some(error.to_string()));
-                    event!(name: "eez.node.witness_preparation.retry", Level::ERROR,
-                        number = target.number, hash = %target.hash, %error,
-                        "preparation path worker failed; admission paused");
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    continue;
-                }
-            };
-            if last_prepared.is_some() && !path.connected_to_stop {
-                if let Err(error) = prover.release_preparation_lease().await {
-                    store.preparation_status(Some(error.to_string()));
-                    event!(name: "eez.node.witness_preparation.retry", Level::WARN,
-                        number = target.number, hash = %target.hash, %error,
-                        "canonical preparation branch changed; stale lease release failed");
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    continue;
-                }
-                last_prepared = None;
-                lease_window_full = false;
-                renewal_due = tokio::time::Instant::now() + renewal_interval;
-            }
-            let prepared_endpoint = path.blocks.last().map(|block| eez_l1::L2Endpoint {
-                number: block.number,
-                hash: block.hash,
-            });
-            if lease_window_full && path.connected_to_stop {
-                // The current lease already reserves the oldest maximum-sized
-                // prefix. Newer descendants belong to the next settlement
-                // window and must wait for the authenticated floor to advance.
-                store.preparation_status(None);
-                while let Ok(queued) = receiver.try_recv() {
-                    target = queued;
-                }
-                if let Some(watermark) = notifier.take_watermark() {
-                    target = watermark;
-                }
-                tokio::time::sleep(Duration::from_secs(1)).await;
+        let floor = l1_head.policy_anchor_snapshot().endpoint;
+        if floor.is_some_and(|floor| floor.number >= target.number) {
+            continue;
+        }
+        let source = Arc::clone(&store);
+        let stop = last_prepared;
+        let path = match tokio::task::spawn_blocking(move || {
+            preparation_path(&source, target, stop, floor)
+        })
+        .await
+        {
+            Ok(Ok(path)) => path,
+            error => {
+                event!(name: "eez.node.witness_preparation.deferred", Level::DEBUG, ?error,
+                    "prevalidation ancestry unavailable; final proof retains full backfill responsibility");
                 continue;
             }
-            let mut failure = None;
-            for segment in path
-                .blocks
-                .split(|block| !ordinary_preparable(block, system_address))
-            {
-                if let Err(error) = prover.prepare_ordinary_range(rollup_id, segment).await {
-                    failure = Some(error.to_string());
-                }
-                if failure.is_some() {
-                    break;
-                }
+        };
+        if !path.connected_to_stop {
+            last_prepared = None;
+        }
+        match prover.prevalidate_range(rollup_id, &path.blocks).await {
+            Ok(()) => {
+                last_prepared = path.blocks.last().map(|block| eez_l1::L2Endpoint {
+                    number: block.number,
+                    hash: block.hash,
+                })
             }
-            if let Some(error) = failure {
-                store.preparation_status(Some(error.clone()));
-                event!(name: "eez.node.witness_preparation.retry", Level::WARN,
-                    number = target.number, hash = %target.hash, %error,
-                    "signer preparation failed; durable witnesses retained for retry");
-                // Probe the lease immediately on the next iteration. Cache
-                // publication reports both capacity and a restart-lost lease as
-                // resource exhaustion; exact renewal distinguishes them without
-                // weakening either failure.
-                renewal_due = tokio::time::Instant::now();
-                // Retry toward the newest durable endpoint. A branch switch can
-                // leave `target` on an unwound branch the signer can never
-                // accept; its canonical replacement only arrives through this
-                // queue. The ancestry walk still covers every skipped block.
-                while let Ok(queued) = receiver.try_recv() {
-                    target = queued;
-                }
-                if let Some(watermark) = notifier.take_watermark() {
-                    target = watermark;
-                }
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                continue;
+            Err(error) => {
+                event!(name: "eez.node.witness_preparation.deferred", Level::WARN, %error,
+                    "v2 prevalidation deferred; durable witnesses retained");
             }
-            store.preparation_status(None);
-            if let Some(prepared_endpoint) = prepared_endpoint {
-                last_prepared = Some(prepared_endpoint);
-                renewal_due = tokio::time::Instant::now() + renewal_interval;
-            }
-            if last_prepared == Some(target) || target.number <= floor.map_or(0, |f| f.number) {
-                lease_window_full = false;
-                break;
-            }
-            lease_window_full = true;
-            // One reservation can cover exactly one maximum ordinary window.
-            // Keep the oldest prefix ready for the next historical settlement,
-            // then observe floor advancement before replacing it with the next
-            // prefix. Continue tracking the newest durable target while waiting.
-            while let Ok(queued) = receiver.try_recv() {
-                target = queued;
-            }
-            if let Some(watermark) = notifier.take_watermark() {
-                target = watermark;
-            }
-            tokio::time::sleep(Duration::from_secs(1)).await;
         }
     }
-}
-
-fn ordinary_preparable(block: &eez_prover::BlockWitness, system_address: Address) -> bool {
-    use reth_primitives_traits::SignerRecoverable as _;
-    let Ok(block) = alloy_rlp::decode_exact::<eez_primitives::Block>(&block.rlp) else {
-        return true;
-    };
-    block.body.transactions.iter().all(|transaction| {
-        transaction
-            .recover_signer()
-            .is_ok_and(|signer| signer != system_address)
-    })
 }
 
 #[derive(Debug)]
@@ -525,36 +331,13 @@ async fn launch_composer(
     let depth = composer_settings.max_speculative_depth();
     let system_address = eez_primitives::SYSTEM_ADDRESS;
     validate_system_address(system_address)?;
-    let expected_identity = eez_control_rpc::identity::ValidationContext {
-        rollup_id: std::num::NonZeroU64::new(rollup_config.rollup_id)
-            .ok_or_else(|| eyre::eyre!("rollup ID must be nonzero"))?,
-        chain_id: builder.config().chain.chain().id(),
-        system_address,
-        eez_l2_address: eez_protocol::EEZL2_ADDRESS,
-        chain_document_digest,
-        canonical_json_version: eez_l1::chain_config::CANONICAL_JSON_VERSION,
-    }
-    .identity();
-    // Agreement is established before either node starts sequencing work.
-    let ComposerProving {
-        maximum_blocks,
-        prover,
-        witness_capture,
-    } = composer_proving_from_env(expected_identity).await?;
-    let composer_settings = composer_settings.with_prover_block_limit(maximum_blocks)?;
     // Launch the embedded L1 reth first in composer mode — its
     // `StateProviderFactory` backs `LocalChainClient::new_entry` for
     // L1 source-tx simulation. Inline (not in `l1_embedded.rs`)
     // because the `NodeHandle` AddOns type resists a typed return.
-    // Shared L1-reth tokio runtime — built once, used by whichever
-    // L1 path runs.
-    let build_l1_runtime = || {
-        reth_tasks::RuntimeBuilder::new(reth_tasks::RuntimeConfig::default().with_tokio(
-            reth_tasks::TokioConfig::existing_handle(tokio::runtime::Handle::current()),
-        ))
-        .build()
-        .map_err(|e| eyre::eyre!("L1 embedded RuntimeBuilder: {e}"))
-    };
+    // Keep the L1 worker pools independent, but register their shutdown before
+    // awaiting startup so SIGTERM during launch also reaches the embedded node.
+    let l1_runtime = l1_runtime::build(builder.task_executor())?;
     // Testing = vanilla EthereumNode (5s auto-mine); Devnet = vanilla
     // EthereumNode + external CL; Chiado = reth_gnosis::GnosisNode +
     // external CL, its provider wrapped by `GnosisL1Adapter` for the
@@ -586,7 +369,7 @@ async fn launch_composer(
                 );
                 let l1_handle = reth_node_builder::NodeBuilder::new(node_cfg)
                     .with_database(db)
-                    .with_launch_context(build_l1_runtime()?)
+                    .with_launch_context(l1_runtime.clone())
                     .node(EthereumNode::default())
                     .launch_with_debug_capabilities()
                     .await?;
@@ -619,7 +402,7 @@ async fn launch_composer(
                 );
                 let l1_handle = reth_node_builder::NodeBuilder::new(node_cfg)
                     .with_database(db)
-                    .with_launch_context(build_l1_runtime()?)
+                    .with_launch_context(l1_runtime.clone())
                     .node(EthereumNode::default())
                     .extend_rpc_modules(bundle_rpc::install_dev_bundle_rpc)
                     .launch_with_debug_capabilities()
@@ -668,7 +451,7 @@ async fn launch_composer(
                 );
                 let chiado_handle = reth_node_builder::NodeBuilder::new(node_cfg)
                     .with_database(db)
-                    .with_launch_context(build_l1_runtime()?)
+                    .with_launch_context(l1_runtime.clone())
                     .node(reth_gnosis::GnosisNode::default())
                     .extend_rpc_modules(move |ctx| {
                         if testing {
@@ -722,12 +505,57 @@ async fn launch_composer(
         EmbeddedL1::Ethereum(l1_handle) => l1_handle.node.chain_spec().chain().id(),
         EmbeddedL1::Chiado(chiado_handle) => chiado_handle.node.chain_spec().inner.chain().id(),
     };
+    let rollup_manager = composer_rpc::optional_address_from_env(composer_rpc::ROLLUP_MANAGER_ENV)?
+        .ok_or_else(|| {
+            eyre::eyre!("EEZ_ROLLUP_MANAGER_ADDRESS is required for the offline profile")
+        })?;
+    eyre::ensure!(
+        !eez_registry.is_zero() && !rollup_manager.is_zero(),
+        "offline deployment addresses must be nonzero"
+    );
+    let offline_l1_spec = match &embedded_l1 {
+        EmbeddedL1::Ethereum(handle) => handle.node.chain_spec(),
+        EmbeddedL1::Chiado(handle) => Arc::new(handle.node.chain_spec().inner.clone()),
+    };
+    let offline_rules = eez_l1::chain_config::offline_l1_rules(&offline_l1_spec)?;
+    let network_profile =
+        offline_rules.profile(derivation_schedule, builder.config().chain.chain().id())?;
+    let ecdsa_proof_system_address: Address =
+        Address::from_str(&env::var("EEZ_ECDSA_PROOF_SYSTEM_ADDRESS").map_err(|_| {
+            eyre::eyre!(
+                "EEZ_ECDSA_PROOF_SYSTEM_ADDRESS required for L1 postBatch \
+                         proofSystems[0]"
+            )
+        })?)?;
+    let expected_identity = eez_control_rpc::identity::ValidationContext {
+        rollup_id: std::num::NonZeroU64::new(rollup_config.rollup_id)
+            .ok_or_else(|| eyre::eyre!("rollup ID must be nonzero"))?,
+        chain_id: builder.config().chain.chain().id(),
+        system_address,
+        eez_l2_address: eez_protocol::EEZL2_ADDRESS,
+        chain_document_digest,
+        network_profile_hash: network_profile.commitment(),
+        registry: eez_registry,
+        manager: rollup_manager,
+    }
+    .identity();
+    // Agreement is established before L2 sequencing or proving starts.
+    let ComposerProving {
+        maximum_blocks,
+        prover,
+        witness_capture,
+    } = composer_proving_from_env(
+        expected_identity,
+        &network_profile,
+        eez_registry,
+        ecdsa_proof_system_address,
+    )
+    .await?;
+    let composer_settings = composer_settings.with_prover_block_limit(maximum_blocks)?;
     let composer_info = composer_rpc::ComposerInfo::new(
         composer_rpc::ComposerContracts {
             registry: eez_registry,
-            rollup_manager: composer_rpc::optional_address_from_env(
-                composer_rpc::ROLLUP_MANAGER_ENV,
-            )?,
+            rollup_manager: Some(rollup_manager),
             l1_bridge_sender: composer_rpc::optional_address_from_env(
                 composer_rpc::L1_BRIDGE_SENDER_ENV,
             )?,
@@ -752,26 +580,36 @@ async fn launch_composer(
     // Shared L1-confirmed L2 head. The Deriver is the sole writer; the
     // Sequencer and correlation RPC read it.
     let l1_head = Arc::new(L1CanonicalHead::default());
-    let rpc_correlations = Arc::clone(&correlations);
-    let rpc_l1_head = Arc::clone(&l1_head);
     // The L2 pool and ingress/composer consult the same source ownership.
     // Reorged cross-chain users require a Sync block, not ordinary sequencing.
     let optimistic = Arc::new(eez_composer::OptimisticallyIncluded::new());
     let held_pool = Arc::new(HeldPool::new(Arc::clone(&optimistic)));
     let reserved_sources = Arc::clone(&held_pool);
-    let rpc_held_pool = Arc::clone(&held_pool);
     // Every composer needs durable-witness backpressure.
     let data_guard = Some(Arc::new(eez_node_common::SequencingDataGuard::new(
         rollup_config.rollup_id,
     )));
+    // Fronts are HTTP-only. Enabling debug on IPC/WS must not expose expensive
+    // witness execution on the HTTP fronts as a side effect.
+    let debug = "debug"
+        .parse()
+        .map_err(|e| eyre::eyre!("debug RPC namespace: {e}"))?;
+    let front_witness_enabled = builder.config().rpc.http
+        && builder
+            .config()
+            .rpc
+            .http_api
+            .as_ref()
+            .is_some_and(|api| api.contains(&debug));
     let handle = builder
         .with_types::<eez_node_common::EezNode>()
         .with_components(
-            eez_node_common::EezNode::components()
+            eez_node_common::EezNode::components(l1_head.clone())
                 // Reorged-out system transactions must not leak from reth's
                 // reinjection path into an ordinary Live block.
                 .pool(
                     EezPoolBuilder::new(system_address)
+                        .with_displaced_transaction_recovery()
                         .with_data_guard(data_guard.clone())
                         .with_cross_chain_filter(move |hash| {
                             reserved_sources.is_cross_chain_source(hash)
@@ -787,25 +625,6 @@ async fn launch_composer(
                 Arc::clone(&correlations),
             ),
         ))
-        .extend_rpc_modules(move |ctx| {
-            ctx.modules
-                .merge_configured(queue_rpc::module(Arc::clone(&rpc_held_pool))?)?;
-            // Parsed rather than imported: `RethRpcModule` is not re-exported by
-            // this crate's Reth dependencies, and the parameter type fixes it.
-            use reth_node_api::FullNodeComponents as _;
-            let debug = "debug"
-                .parse()
-                .map_err(|e| eyre::eyre!("debug RPC namespace: {e}"))?;
-            ctx.modules.merge_if_module_configured(
-                debug,
-                witness_rpc::module(
-                    ctx.provider().clone(),
-                    ctx.node().evm_config().clone(),
-                    ctx.node().task_executor.clone(),
-                )?,
-            )?;
-            correlation_rpc::install(ctx, Arc::clone(&rpc_correlations), Arc::clone(&rpc_l1_head))
-        })
         .launch_with_debug_capabilities()
         .await?;
 
@@ -815,6 +634,26 @@ async fn launch_composer(
     let payload_builder_handle = handle.node.payload_builder_handle.clone();
     let beacon_engine_handle = handle.node.add_ons_handle.beacon_engine_handle.clone();
     let task_executor = handle.node.task_executor.clone();
+
+    // One shared module (and witness permit budget) for both fronts. None of
+    // these methods is registered on Reth's HTTP, WS, IPC or auth transports.
+    let mut composer_methods = jsonrpsee::RpcModule::new(());
+    composer_methods.merge(queue_rpc::module(
+        Arc::clone(&held_pool),
+        l1_source_chain_id,
+        chain_spec.chain().id(),
+    )?)?;
+    composer_methods.merge(correlation_rpc::module(
+        Arc::clone(&correlations),
+        Arc::clone(&l1_head),
+    )?)?;
+    if front_witness_enabled {
+        composer_methods.merge(witness_rpc::module(
+            provider.clone(),
+            handle.node.evm_config.clone(),
+            task_executor.clone(),
+        )?)?;
+    }
 
     // Live blocks share the Composer's Sync-block coinbase.
     let attributes = EthAttributesBuilder::new(chain_spec.clone())
@@ -891,7 +730,8 @@ async fn launch_composer(
         // (build_sync_block → reth-evm BlockBuilder). Same chain spec
         // the engine uses, so blocks produced here pass validation
         // when reth ingests them via newPayload.
-        let evm_config = eez_evm::EezEvmConfig::new(chain_spec.clone());
+        let evm_config =
+            eez_evm::EezEvmConfig::new(chain_spec.clone()).with_l1_history(l1_head.clone())?;
 
         // Build the cross-chain composer over the mandatory embedded L1.
         // Inlined because the `FullNode` AddOns type resists a typed helper
@@ -994,11 +834,6 @@ async fn launch_composer(
                      overwrite the L1 entry"
             ));
         }
-        // CrossChainExecCtx: signer + L2 addresses needed to wrap
-        // EvmComposer's `(load_table, execute)` calldata pairs
-        // into signed legacy L2 system txs at Sync-slot time.
-        // Constructed only when EvmComposer is constructed —
-        // both are tied to embedded L1 mode.
         // Submission RPC for postBatch and inbound source-chain reads.
         // This can differ from the embedded L1 used for local source
         // simulation (the E2E harness deliberately uses Anvil here), so
@@ -1018,13 +853,6 @@ async fn launch_composer(
             .map_err(|_| eyre::eyre!("EEZ_L1_POSTER_KEY required for L1 postBatch signing"))?;
         let l1_poster_signer =
             PrivateKeySigner::from_bytes(&B256::from_str(l1_poster_key.trim_start_matches("0x"))?)?;
-        let ecdsa_proof_system_address: Address =
-            Address::from_str(&env::var("EEZ_ECDSA_PROOF_SYSTEM_ADDRESS").map_err(|_| {
-                eyre::eyre!(
-                    "EEZ_ECDSA_PROOF_SYSTEM_ADDRESS required for L1 postBatch \
-                         proofSystems[0]"
-                )
-            })?)?;
         let blob_sidecar_encoding =
             match env::var("EEZ_L1_BLOB_SIDECAR_ENCODING")
                 .map_err(|_| {
@@ -1130,7 +958,6 @@ async fn launch_composer(
                         preparation_store,
                         preparation_prover,
                         rollup_id,
-                        system_address,
                         preparation_l1_head,
                     )
                     .await;
@@ -1143,7 +970,6 @@ async fn launch_composer(
                         store,
                         ws_provider,
                         ws_evm,
-                        Arc::clone(&correlations),
                     ))
                         as Arc<dyn eez_prover::ProvingWitnessSource>),
                     preparation_worker,
@@ -1222,12 +1048,24 @@ async fn launch_composer(
         .iter()
         .map(|(spec, _, _, provider, _)| (spec.expected_source_chain_id, provider.clone()))
         .collect();
+    let gas_estimator = ingress::EstimationService::new(
+        composer.gas_estimator(rollup_config.rollup_id)?,
+        task_executor.clone(),
+    );
     for (spec, port, url, validation_provider, dispatch_address) in xchain_fronts {
+        let gas_estimator = gas_estimator.clone();
         let pool = Arc::clone(&held_pool);
         let ready = Arc::clone(&xchain_ready);
         let composer_info = Arc::clone(&composer_info);
+        let composer_methods = composer_methods.clone();
+        let quotes = Some(fee_quotes::FeeQuotes::new(
+            composer.clone(),
+            rollup_config.rollup_id,
+            spec.direction,
+            task_executor.clone(),
+        ));
         task_executor.spawn_critical_task(spec.task, async move {
-            ingress::run_cross_chain_front(
+            ingress::run_cross_chain_front_with_estimator(
                 port,
                 url,
                 spec.direction,
@@ -1237,6 +1075,9 @@ async fn launch_composer(
                 dispatch_address,
                 ready,
                 composer_info,
+                composer_methods,
+                Some(gas_estimator),
+                quotes,
             )
             .await
             .unwrap_or_else(|e| panic!("configured cross-chain front exited: {e:#}"));
@@ -1259,6 +1100,7 @@ async fn launch_composer(
         Arc::new(provider.clone()),
         submitter.reader(),
         chain_spec,
+        offline_rules.clone(),
         deploy_block,
         Arc::clone(&l1_head),
         Arc::clone(&correlations),
@@ -1379,7 +1221,7 @@ async fn launch_composer(
     });
 
     // Start polling last: every consumer is subscribed and catch-up
-    // covered [deploy_block, seed], so the watcher owns all blocks
+    // covered [recovery anchor, seed], so the watcher owns all blocks
     // strictly after its seed — no startup scan gap.
     task_executor.spawn_critical_task(
         "eez-l1-watcher",
@@ -1568,37 +1410,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn native_blocks_are_excluded_from_ordinary_preparation() {
-        let block = eez_primitives::Block {
-            body: eez_primitives::BlockBody {
-                transactions: vec![
-                    eez_primitives::SystemTransaction {
-                        chain_id: 1,
-                        nonce: 0,
-                        to: eez_primitives::EEZL2_ADDRESS,
-                        value: Default::default(),
-                        input: Default::default(),
-                    }
-                    .into(),
-                ],
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let witness = eez_prover::BlockWitness {
-            number: 0,
-            hash: block.header.hash_slow(),
-            parent_hash: B256::ZERO,
-            rlp: alloy_rlp::encode(block).into(),
-            witness: Default::default(),
-        };
-        assert!(!ordinary_preparable(
-            &witness,
-            eez_primitives::SYSTEM_ADDRESS
-        ));
-    }
-
-    #[test]
     fn preparation_catch_up_walks_exact_durable_ancestry_and_respects_floor() {
         let directory = tempfile::tempdir().unwrap();
         let store = witness_source::WitnessDb::open(directory.path()).unwrap();
@@ -1617,6 +1428,7 @@ mod tests {
             let hash = block.header.hash_slow();
             store
                 .put(&eez_prover::BlockWitness {
+                    l1_headers_rlp: Vec::new(),
                     number,
                     hash,
                     parent_hash: parent,
@@ -1656,6 +1468,7 @@ mod tests {
             let hash = block.header.hash_slow();
             store
                 .put(&eez_prover::BlockWitness {
+                    l1_headers_rlp: Vec::new(),
                     number,
                     hash,
                     parent_hash: branch_parent,
@@ -1710,6 +1523,7 @@ mod tests {
         let child_hash = child.header.hash_slow();
         store
             .put(&eez_prover::BlockWitness {
+                l1_headers_rlp: Vec::new(),
                 number: 6,
                 hash: child_hash,
                 parent_hash: partial_floor.hash,
@@ -1747,6 +1561,7 @@ mod tests {
             let hash = block.header.hash_slow();
             store
                 .put(&eez_prover::BlockWitness {
+                    l1_headers_rlp: Vec::new(),
                     number,
                     hash,
                     parent_hash: parent,

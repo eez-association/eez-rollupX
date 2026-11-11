@@ -25,6 +25,8 @@ use reth_transaction_pool::{
 };
 use tracing::{Level, event};
 
+mod recovery;
+
 /// reth's Ethereum pool with [`SystemAddressGate`] around its validator.
 pub type EezTransactionPool<Client, S, Evm> = Pool<
     TransactionValidationTaskExecutor<
@@ -239,6 +241,7 @@ pub struct EezPoolBuilder {
     system_address: Address,
     cross_chain: Option<CrossChainFilter>,
     data_guard: Option<Arc<crate::SequencingDataGuard>>,
+    recover_displaced_as_local: bool,
 }
 
 impl fmt::Debug for EezPoolBuilder {
@@ -246,6 +249,10 @@ impl fmt::Debug for EezPoolBuilder {
         f.debug_struct("EezPoolBuilder")
             .field("system_address", &self.system_address)
             .field("cross_chain_filter", &self.cross_chain.is_some())
+            .field(
+                "recover_displaced_as_local",
+                &self.recover_displaced_as_local,
+            )
             .finish()
     }
 }
@@ -256,7 +263,18 @@ impl EezPoolBuilder {
             system_address,
             cross_chain: None,
             data_guard: None,
+            recover_displaced_as_local: false,
         }
+    }
+
+    /// Preserve displaced ordinary suffixes under local pool policy on a
+    /// Composer. Followers should retain upstream external reinsertion policy.
+    /// This also selects local fee-cap, eviction, propagation and backup rules;
+    /// it does not retain the transaction's original admission origin.
+    #[must_use]
+    pub const fn with_displaced_transaction_recovery(mut self) -> Self {
+        self.recover_displaced_as_local = true;
+        self
     }
 
     /// Consult the composer's existing source records during pool validation,
@@ -322,7 +340,22 @@ where
 
             let transaction_pool = TxPoolBuilder::new(ctx)
                 .with_validator(validator)
-                .build_and_spawn_maintenance_task(blob_store, pool_config)?;
+                .build(blob_store, pool_config.clone());
+            // Only Reth's maintenance task receives the recovery view. Public
+            // ingress retains the original pool and its external sender limits.
+            if self.recover_displaced_as_local {
+                reth_node_builder::components::spawn_maintenance_tasks(
+                    ctx,
+                    recovery::RecoveryPool(transaction_pool.clone()),
+                    &pool_config,
+                )?;
+            } else {
+                reth_node_builder::components::spawn_maintenance_tasks(
+                    ctx,
+                    transaction_pool.clone(),
+                    &pool_config,
+                )?;
+            }
 
             event!(
                 name: "eez.node.pool.ready",
@@ -362,7 +395,7 @@ mod tests {
             transaction: Self::Transaction,
         ) -> impl Future<Output = TransactionValidationOutcome<Self::Transaction>> + Send {
             std::future::ready(TransactionValidationOutcome::Valid {
-                balance: U256::ZERO,
+                balance: U256::MAX,
                 state_nonce: 0,
                 bytecode_hash: None,
                 transaction: ValidTransaction::Valid(transaction),
@@ -373,10 +406,14 @@ mod tests {
     }
 
     fn pooled_tx(sender: Address, nonce: u64) -> EezPooledTransaction {
+        pooled_tx_with_fee(sender, nonce, 1_000_000_000)
+    }
+
+    fn pooled_tx_with_fee(sender: Address, nonce: u64, gas_price: u128) -> EezPooledTransaction {
         let tx = Transaction::Legacy(TxLegacy {
             chain_id: Some(1),
             nonce,
-            gas_price: 1,
+            gas_price,
             gas_limit: 21_000,
             to: TxKind::Call(Address::ZERO),
             value: U256::ZERO,
@@ -389,6 +426,44 @@ mod tests {
         );
         EezPooledTransaction::try_from_consensus(Recovered::new_unchecked(signed.into(), sender))
             .unwrap()
+    }
+
+    #[test]
+    fn displaced_recovery_requires_composer_opt_in() {
+        assert!(!EezPoolBuilder::new(SYSTEM).recover_displaced_as_local);
+        assert!(
+            EezPoolBuilder::new(SYSTEM)
+                .with_displaced_transaction_recovery()
+                .recover_displaced_as_local
+        );
+    }
+
+    #[tokio::test]
+    async fn recovery_does_not_overwrite_a_higher_fee_replacement() {
+        use reth_transaction_pool::{PoolConfig, TransactionPool};
+        let pool = Pool::new(
+            SystemAddressGate::new(AcceptAll, SYSTEM),
+            CoinbaseTipOrdering::default(),
+            NoopBlobStore::default(),
+            PoolConfig::default(),
+        );
+        let replacement = pooled_tx_with_fee(USER, 0, 2_000_000_000);
+        let replacement_hash = *replacement.hash();
+        pool.add_transaction(TransactionOrigin::Local, replacement)
+            .await
+            .unwrap();
+        let displaced = pooled_tx(USER, 0);
+        let displaced_hash = *displaced.hash();
+        let results = recovery::RecoveryPool(pool.clone())
+            .add_external_transactions(vec![displaced])
+            .await;
+        assert!(matches!(
+            results[0].as_ref().unwrap_err().kind,
+            reth_transaction_pool::error::PoolErrorKind::ReplacementUnderpriced
+        ));
+        assert!(pool.contains(&replacement_hash));
+        assert!(!pool.contains(&displaced_hash));
+        assert_eq!(pool.pool_size().total, 1);
     }
 
     #[tokio::test]
@@ -483,5 +558,168 @@ mod tests {
             [true, false, false, true]
         );
         assert!(!CrossChainSourceRejected.is_bad_transaction());
+    }
+
+    #[tokio::test]
+    async fn recovery_preserves_large_sender_suffix_without_relaxing_public_admission() {
+        use reth_transaction_pool::{PoolConfig, TransactionPool};
+        for count in [16, 17, 20] {
+            let pool = Pool::new(
+                SystemAddressGate::new(AcceptAll, SYSTEM),
+                CoinbaseTipOrdering::default(),
+                NoopBlobStore::default(),
+                PoolConfig::default(),
+            );
+            let txs: Vec<_> = (0..count).map(|nonce| pooled_tx(USER, nonce)).collect();
+            let hashes: Vec<_> = txs.iter().map(|tx| *tx.hash()).collect();
+            assert!(
+                pool.add_transactions(TransactionOrigin::Local, txs.clone())
+                    .await
+                    .iter()
+                    .all(Result::is_ok)
+            );
+            assert_eq!(
+                pool.remove_transactions(hashes.clone()).len(),
+                count as usize
+            );
+
+            // Baseline mechanism: the unwrapped public pool still applies its
+            // per-sender external limit. This is not a global cap increase.
+            let external = pool.add_external_transactions(txs.clone()).await;
+            assert_eq!(
+                external.iter().filter(|r| r.is_ok()).count(),
+                (count as usize).min(16)
+            );
+            assert!(
+                external
+                    .iter()
+                    .filter_map(|r| r.as_ref().err())
+                    .all(|error| matches!(
+                        error.kind,
+                        reth_transaction_pool::error::PoolErrorKind::SpammerExceededCapacity(_)
+                    ))
+            );
+            assert_eq!(
+                pool.remove_transactions(hashes.clone()).len(),
+                (count as usize).min(16)
+            );
+
+            let recovery = recovery::RecoveryPool(pool.clone());
+            assert!(
+                recovery
+                    .add_external_transactions(txs)
+                    .await
+                    .iter()
+                    .all(Result::is_ok)
+            );
+            assert!(hashes.iter().all(|hash| pool.contains(hash)));
+            // No nonce gap remains; every restored predecessor is executable.
+            assert_eq!(pool.pending_transactions().len(), count as usize);
+        }
+    }
+
+    #[tokio::test]
+    async fn recovery_revalidates_and_preserves_composer_ownership() {
+        use reth_transaction_pool::{PoolConfig, TransactionPool};
+        let cross_chain = *pooled_tx(USER, 1).hash();
+        let mut gate = SystemAddressGate::new(AcceptAll, SYSTEM);
+        gate.cross_chain = Some(Arc::new(move |hash| hash == cross_chain));
+        let pool = Pool::new(
+            gate,
+            CoinbaseTipOrdering::default(),
+            NoopBlobStore::default(),
+            PoolConfig::default(),
+        );
+        let recovery = recovery::RecoveryPool(pool.clone());
+        let result = recovery
+            .add_external_transactions(vec![
+                pooled_tx(USER, 0),
+                pooled_tx(USER, 1),
+                pooled_tx(SYSTEM, 0),
+            ])
+            .await;
+        assert!(result[0].is_ok());
+        assert!(matches!(
+            &result[1].as_ref().unwrap_err().kind,
+            reth_transaction_pool::error::PoolErrorKind::InvalidTransaction(error)
+                if error.is_other::<CrossChainSourceRejected>()
+        ));
+        assert!(matches!(
+            &result[2].as_ref().unwrap_err().kind,
+            reth_transaction_pool::error::PoolErrorKind::InvalidTransaction(error)
+                if error.is_other::<SystemAddressRejected>()
+        ));
+        assert!(!pool.contains(&cross_chain));
+        assert!(pool.get_transactions_by_sender(SYSTEM).is_empty());
+
+        // Repeated notifications do not replace an already-owned transaction.
+        let duplicate = recovery
+            .add_external_transactions(vec![pooled_tx(USER, 0)])
+            .await;
+        assert!(matches!(
+            duplicate[0].as_ref().unwrap_err().kind,
+            reth_transaction_pool::error::PoolErrorKind::AlreadyImported
+        ));
+        assert_eq!(pool.pool_size().total, 1);
+    }
+
+    #[tokio::test]
+    async fn recovery_respects_explicit_no_local_exemptions() {
+        use reth_transaction_pool::{LocalTransactionConfig, PoolConfig, TransactionPool};
+        let config = PoolConfig {
+            local_transactions_config: LocalTransactionConfig {
+                no_exemptions: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let pool = Pool::new(
+            SystemAddressGate::new(AcceptAll, SYSTEM),
+            CoinbaseTipOrdering::default(),
+            NoopBlobStore::default(),
+            config,
+        );
+        let results = recovery::RecoveryPool(pool)
+            .add_external_transactions((0..20).map(|nonce| pooled_tx(USER, nonce)).collect())
+            .await;
+        assert_eq!(results.iter().filter(|r| r.is_ok()).count(), 16);
+        assert!(
+            results
+                .iter()
+                .filter_map(|r| r.as_ref().err())
+                .all(|error| matches!(
+                    error.kind,
+                    reth_transaction_pool::error::PoolErrorKind::SpammerExceededCapacity(_)
+                ))
+        );
+    }
+
+    #[tokio::test]
+    async fn recovery_unblocks_successors_accepted_while_predecessors_were_mined() {
+        use reth_transaction_pool::{PoolConfig, TransactionPool};
+        let pool = Pool::new(
+            SystemAddressGate::new(AcceptAll, SYSTEM),
+            CoinbaseTipOrdering::default(),
+            NoopBlobStore::default(),
+            PoolConfig::default(),
+        );
+        // The rolled-back state needs nonce zero, but newer local arrivals are
+        // already queued. Recovery must not compete with them for 16 slots.
+        assert!(
+            pool.add_transactions(
+                TransactionOrigin::Local,
+                (20..64).map(|nonce| pooled_tx(USER, nonce)).collect(),
+            )
+            .await
+            .iter()
+            .all(Result::is_ok)
+        );
+        assert_eq!(pool.queued_transactions().len(), 44);
+        let results = recovery::RecoveryPool(pool.clone())
+            .add_external_transactions((0..20).map(|nonce| pooled_tx(USER, nonce)).collect())
+            .await;
+        assert!(results.iter().all(Result::is_ok));
+        assert_eq!(pool.pending_transactions().len(), 64);
+        assert!(pool.queued_transactions().is_empty());
     }
 }

@@ -1,4 +1,4 @@
-//! Producer projection into the sole direct V0 operations format.
+//! Producer projection into the current direct operations format.
 //! Actions and their authorization remain in the enclosing native EEZ stream.
 
 use alloy_eips::Encodable2718 as _;
@@ -16,7 +16,7 @@ pub fn ordinary_prefix(block: &Block) -> &[TransactionSigned] {
         .body
         .transactions
         .iter()
-        .position(|tx| matches!(tx, TransactionSigned::System(_)))
+        .position(TransactionSigned::is_cross_chain_system)
         .unwrap_or(block.body.transactions.len());
     &block.body.transactions[..end]
 }
@@ -50,7 +50,6 @@ pub fn encode_operations(
     let mut parent = parent.clone();
     let mut blocks = Vec::with_capacity(block_rlps.len());
     let mut transactions = Vec::with_capacity(block_rlps.len());
-    let mut seed = None;
     for (position, rlp) in block_rlps.iter().enumerate() {
         let block: Block = alloy_rlp::decode_exact(rlp)?;
         eyre::ensure!(
@@ -62,11 +61,6 @@ pub fn encode_operations(
         eyre::ensure!(
             block.body.withdrawals.as_ref().is_none_or(|w| w.is_empty()),
             "nonempty L2 withdrawals"
-        );
-        let expected_seed = *seed.get_or_insert(block.header.mix_hash);
-        eyre::ensure!(
-            block.header.mix_hash == expected_seed,
-            "candidate changes its authenticated seed"
         );
         let prefix = ordinary_prefix(&block);
         eyre::ensure!(
@@ -92,5 +86,5 @@ pub fn encode_operations(
             transactions,
         })
         .collect::<Vec<_>>();
-    Ok(v0::encode(&runs)?)
+    Ok(v0::encode_current(&runs)?)
 }

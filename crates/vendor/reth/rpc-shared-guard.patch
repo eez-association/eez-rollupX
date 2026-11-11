@@ -1,0 +1,66 @@
+diff --git a/crates/rpc/rpc-builder/src/lib.rs b/crates/rpc/rpc-builder/src/lib.rs
+--- a/crates/rpc/rpc-builder/src/lib.rs
++++ b/crates/rpc/rpc-builder/src/lib.rs
+@@ -577,6 +577,15 @@
+     /// Returns a reference to the installed [`EthHandlers`].
+     pub const fn eth_handlers(&self) -> &EthHandlers<EthApi> {
+         &self.eth
++    }
++
++    /// Clones the admission guard shared by this registry's expensive RPC handlers.
++    ///
++    /// Custom handlers acquire and retain a permit from this guard while their
++    /// expensive work runs to share the configured tracing quota with the built-in
++    /// debug, trace, bundle and Reth handlers.
++    pub fn blocking_pool_guard(&self) -> BlockingTaskGuard {
++        self.blocking_pool_guard.clone()
+     }
+
+     /// Returns a reference to the pool
+@@ -2407,6 +2416,46 @@
+ mod tests {
+     use super::*;
+
++    #[tokio::test]
++    async fn test_exported_guard_shares_debug_quota() {
++        use reth_consensus::noop::NoopConsensus;
++        use reth_ethereum_primitives::EthPrimitives;
++        use reth_evm_ethereum::EthEvmConfig;
++        use reth_provider::test_utils::NoopProvider;
++        use reth_transaction_pool::test_utils::{TestPool, TestPoolBuilder};
++        use std::{
++            future::Future,
++            task::{Context, Poll, Waker},
++        };
++
++        let pool: TestPool = TestPoolBuilder::default().into();
++        let builder = RpcModuleBuilder::<EthPrimitives, (), (), (), (), ()>::default()
++            .with_provider(NoopProvider::default())
++            .with_pool(pool)
++            .with_network(NoopNetwork::default())
++            .with_executor(Runtime::test())
++            .with_evm_config(EthEvmConfig::mainnet())
++            .with_consensus(NoopConsensus::default());
++        let eth_api = builder.bootstrap_eth_api();
++        let config = RpcModuleConfig::new(EthConfig::default().max_tracing_requests(1));
++        let registry = builder.into_registry(config, eth_api, EventSender::new(1));
++        let permit = registry.blocking_pool_guard().acquire_owned().await.unwrap();
++        let debug = registry.debug_api();
++        // Empty bundles reject immediately after admission. No state lookup,
++        // network request or timing assumption can hide a separate quota here.
++        let mut call =
++            std::pin::pin!(DebugApiServer::debug_trace_call_many(&debug, Vec::new(), None, None));
++        let mut context = Context::from_waker(Waker::noop());
++        assert!(call.as_mut().poll(&mut context).is_pending());
++
++        drop(permit);
++        let Poll::Ready(Err(error)) = call.as_mut().poll(&mut context) else {
++            panic!("the stock debug handler must resume after the shared permit is released");
++        };
++        assert_eq!(error.code(), -32602);
++        assert_eq!(error.message(), "bundles are empty.");
++    }
++
+     #[test]
+     fn parse_eth_call_bundle_selection() {
+         let selection = "eth,admin,debug".parse::<RpcModuleSelection>().unwrap();

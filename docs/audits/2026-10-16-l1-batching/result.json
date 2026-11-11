@@ -1,0 +1,351 @@
+{
+  "status": "deployed_and_validated",
+  "baseline": "1a5a954889b8dbd9fe6ea55aac9791df1464b5b3",
+  "runtime_source": "ce6574788682c54bdd3f9742870f5dbdbd9a4a9c",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "images": {
+    "node": {
+      "tag": "eez-node:l1-batching-20261016",
+      "id": "sha256:9f65a9371ae04e2c7404487527163c204e922ce5ca004a5ac8b65e75095fb785",
+      "revision": "ce6574788682c54bdd3f9742870f5dbdbd9a4a9c",
+      "executables": {
+        "eez-composer": "96599e2e1a5f5beb7595b78b3a13d7520aa7e84c02cf9830d982aada309e3c66",
+        "eez-follower": "f8e16eded15ceb7c64d3e83fd5d084cf5084945e53b48c91594a870e74c7910f",
+        "eez-genesis-state-root": "67354b6171a7eef8d75669cbe9da77e461d56044e020195061f1d0510f8f39d6",
+        "eez-genesis-block-hash": "31873e0358bdbcc057a03176aef8104edd8c2e00e1b09d470742704f5414c5c9"
+      }
+    },
+    "signer": {
+      "tag": "eez-proof-signer:l1-batching-20261016",
+      "id": "sha256:4983fe207bea7e40b2dfd092fe8ad515ffbe111b1797f4745f1f9f3bb157a681",
+      "revision": "ce6574788682c54bdd3f9742870f5dbdbd9a4a9c",
+      "executables": {
+        "eez-proof-signer": "412bb907a79ca17b06497933973840701d96942fe7b1606d4aba838e21a9cc93"
+      }
+    },
+    "deploy": {
+      "tag": "eez-deploy:l1-batching-20261016",
+      "id": "sha256:9963acbe806bc39aed0485a123d49fafa4f37dce1ca06ac0a2c8a77ed5ec484b",
+      "revision": "ce6574788682c54bdd3f9742870f5dbdbd9a4a9c"
+    }
+  },
+  "checks": {
+    "composer_unit_passed": 358,
+    "composer_unit_ignored": 1,
+    "workspace_clippy": true,
+    "sdk_passed": 6,
+    "chiado_configuration_passed": 19,
+    "settlement_configuration": true,
+    "promtool": true,
+    "blob_da": true,
+    "affected_unit_passed": 639,
+    "affected_unit_ignored": 1,
+    "node_unit_passed": 88,
+    "l1_unit_passed": 193,
+    "workspace_clippy_final": true,
+    "workspace_fmt_final": true,
+    "exact_image_process_passed": 25
+  },
+  "first_failures": [
+    "Host build initially requested unavailable mold; rerun used the default host linker.",
+    "New selection regression failed on the baseline with l1_tip_underfunded.",
+    "Concurrent host process-harness build was killed by SIGKILL before tests ran; serial build retained as a separate attempt.",
+    "The live probe required every batch to lose money. The first did; the second was profitable. A separate read-only check verified the same receipts, state and continued quoting without rebroadcasting. The original probe remains recorded as failed."
+  ],
+  "kurtosis": {
+    "completed": true,
+    "individual_canaries": 4,
+    "individual_workloads": "nested call and standard Safe 1.4.1 creation, legacy and EIP-1559",
+    "batches": [
+      {
+        "postHash": "0x6f6bebb08d235fd53cbe7d3f13a21b503d2a5743d206861eacd0da532f104615",
+        "payoutHash": "0x71bfa117bb61c12a9bb3125e66901da8ac682748529cfffa86e49be632ae9784",
+        "selectedPayer": "0x591cf464fa28976c18d0fd59b3e919163e27de41c1cab3585ee834b4946eef35",
+        "actualPostingCostL1": "1841050964195912",
+        "receivedRefundL1": "517009664628151",
+        "shortfallL1": "1324041299567761",
+        "expectedL2Value": "902",
+        "source_count": 4,
+        "source_hashes": [
+          "0x591cf464fa28976c18d0fd59b3e919163e27de41c1cab3585ee834b4946eef35",
+          "0xd6ab728305c95451aec1eeb8f2a66cb281fd86f24c3454d994793d5b71035ba5",
+          "0x07660459f1f0c845658e6d859ba33ff773ed3c40a932f870b336f2bd9ff515af",
+          "0x8a12daa397fd4b32a78a4faeb8507ef0f5c5bd28cf34ce400235dec921ea14bb"
+        ]
+      },
+      {
+        "postHash": "0xd1b1989ac00d70d0ffcff5cf318103100a0644980b7cb7b40e68d16dfc9d6d52",
+        "payoutHash": "0xe94d31b16402f390b951743e0cfa5e24e754eacb5f88532476d852726bf595cf",
+        "selectedPayer": "0xcb8354604dba353d941da49cd193027762a68aff85856c6db12896c401d07b30",
+        "actualPostingCostL1": "684502542360924",
+        "receivedRefundL1": "462331882159212",
+        "shortfallL1": "222170660201712",
+        "expectedL2Value": "907",
+        "source_count": 4,
+        "source_hashes": [
+          "0x0742bdfe7f7c065aab1a7f56bdd27a1ea6d0ad39978ba482429b02f9e219196e",
+          "0xe0983046fef59c601e6b9be6d6cfa2decfd96d06b9d9874ed7e50cd41695a471",
+          "0xcb8354604dba353d941da49cd193027762a68aff85856c6db12896c401d07b30",
+          "0xb71a84c939ff35bcfd3cb8843841c19da09b9afc1ee6cb421f09bfb1ea537115"
+        ]
+      }
+    ],
+    "canonical_refund_reports": {
+      "qualified": 4,
+      "underfunded": 2
+    },
+    "quote_after_shortfall": true,
+    "independent_replay": {
+      "checked_blocks": 36,
+      "checked_derived_blocks": 36,
+      "checked_receipts": 3,
+      "safe_l2_block": 492,
+      "safe_l2_block_hash": "0xfa3dfe5010f0cb3731bd720acfac12164d6743cfa7f96fe25032419c1e80b6f7",
+      "source": "canonical_l1_only",
+      "verified": true
+    }
+  },
+  "monitoring": {
+    "dashboard_uid": "eez-l1-fee-recovery",
+    "provisioned": true,
+    "panels": 7,
+    "prometheus_reload_successful": true
+  },
+  "harness_source": "c695ce62270881dc7351e8153ea8ff6373f22c7b",
+  "harness_sha256": "6b54f77b719f54f62e3e92b2fc28dd475a94898a1d992f472d176a921f199e32",
+  "blob_verifier_sha256": "da99270dabdd0f2c8f3b28c5bfcdac91506149955fd40c27cdc0867b0e4b88af",
+  "build_notes": [
+    "The node/L1-only unit invocation was interrupted before running tests to use the established combined Composer/node/L1 unit feature set. Shipping executables were unchanged."
+  ],
+  "live": {
+    "runtime_deployed": true,
+    "queue_before_stop": {
+      "l2": {
+        "queued": 0,
+        "inFlight": 0,
+        "blocked": 0,
+        "unknown": 0
+      },
+      "l1": {
+        "queued": 0,
+        "inFlight": 0,
+        "blocked": 0,
+        "unknown": 0
+      }
+    },
+    "original_databases_retained": true,
+    "initial_probe_status": "failed",
+    "initial_probe_reason": "The second batch was profitable; the probe incorrectly required both batches to lose money. First-failure evidence retained.",
+    "read_only_completion": {
+      "verified": true,
+      "source": "read_only_canonical_receipts",
+      "first_probe_failure": "Second batch was profitable; the probe incorrectly required every batch to lose money.",
+      "batches": [
+        {
+          "wave": 0,
+          "source_count": 4,
+          "post_hash": "0xa474d50a794b88c70d121b5292ef70dc49cf56f1d4e1b1e9dfc977cc17db91c1",
+          "refund": "758923202047092",
+          "cost": "1038710003176733",
+          "surplus": "-279786801129641",
+          "nested_l2_block": 713085,
+          "nested_value": 1902
+        },
+        {
+          "wave": 1,
+          "source_count": 4,
+          "post_hash": "0x8caea3e1ce98d4112f3487f23152046b74012744fa98c32efe6bea07e678afd5",
+          "refund": "619320001474276",
+          "cost": "473088002394112",
+          "surplus": "146231999080164",
+          "nested_l2_block": 713110,
+          "nested_value": 1906
+        }
+      ],
+      "quote_after_shortfall": true,
+      "rebroadcast": false
+    },
+    "follower": {
+      "verified": true,
+      "source": "canonical_l1_from_pre_upgrade_checkpoint",
+      "safe_l2_block": 713110,
+      "safe_l2_block_hash": "0x6200e2b7044ac3690cda82d4d673f05036e9eb9e0a9fe02f92486da5208bc247",
+      "state_root": "0xa4177cdcc0357be585e1c2295c02a5023159df613b8ce18eb12a5eb16b80a252",
+      "nested_value": 1906,
+      "safe_contracts": [
+        "0x80d094b976e04bce9813e6f116e339479bc68b40",
+        "0xd47acd9f7dde45b1eb7555df6ae9aba71365cdd0"
+      ],
+      "sequencer_rpc_used": false
+    },
+    "public": {
+      "reopened": true,
+      "time_utc": "2026-10-15T23:28:05.380216+00:00",
+      "rpc_chain_ids": {
+        "/rpc/l1": 10200,
+        "/rpc/l2": 906969,
+        "/composer/l1": 10200,
+        "/composer/l2": 906969
+      },
+      "websocket_handshakes": {
+        "/ws/l1": 101,
+        "/ws/l2": 101
+      },
+      "quote_types_on_both_fronts": [
+        "0x0",
+        "0x2"
+      ],
+      "l2_public_quote_workload": "ordinary read; enforced cross-chain behavior covered by process regressions",
+      "refund_native": {
+        "shortfall": "0.000279786801129641",
+        "received": "0.001378243203521368",
+        "posting_cost": "0.001511798005570845"
+      },
+      "refund_reports": {
+        "underfunded": 1.0,
+        "qualified": 1.0,
+        "missing": 0.0,
+        "ambiguous": 0.0
+      },
+      "grafana_health": true
+    },
+    "batches": [
+      {
+        "postHash": "0xa474d50a794b88c70d121b5292ef70dc49cf56f1d4e1b1e9dfc977cc17db91c1",
+        "payoutHash": "0x6d38ba7c767552b3791d727a137069f7a83eb1c9fbf5daa8c5f64186f8e9ba91",
+        "selectedPayer": "0x6639f557cf24960462d625c7d030bb661548415bd95a790935ac702a14224ce5",
+        "actualPostingCostL1": "1038710003176733",
+        "receivedRefundL1": "758923202047092",
+        "shortfallL1": "279786801129641",
+        "surplusL1": "-279786801129641",
+        "expectedL2Value": "1902",
+        "source_hashes": [
+          "0x7345537a2d0627308df79e41f4142ccb63a0d5c5d8453334d144639178056026",
+          "0x6639f557cf24960462d625c7d030bb661548415bd95a790935ac702a14224ce5",
+          "0x5656f6d02c0476223ff3a59ea3e9bcb4b68bb31c32a418ce009cbf0a34917bd7",
+          "0x8086ed78eba9a5151373cb292e011a74f8ba791a8859e53c48d43e6b696a9933"
+        ],
+        "source_count": 4
+      },
+      {
+        "postHash": "0x8caea3e1ce98d4112f3487f23152046b74012744fa98c32efe6bea07e678afd5",
+        "payoutHash": "0x01f20b28b03a2658b7e32c33def630cb3f53ac80733fc2ff15764ec3fcf96641",
+        "selectedPayer": "0x6ed3938e63811148c400bfb32ef696d6e4efe3ebb043e513e8d722cd0e563044",
+        "actualPostingCostL1": "473088002394112",
+        "receivedRefundL1": "619320001474276",
+        "shortfallL1": "0",
+        "surplusL1": "146231999080164",
+        "expectedL2Value": "1906",
+        "source_hashes": [
+          "0x90cf9600612f239797d24c60b3fe3f5d4c5d4b414504d60e4a760f271a1807c3",
+          "0x3c6d4e30a4aab7cb148ce80638ec4a3bb85a51a3819723965ae6e90f38234a0d",
+          "0x6ed3938e63811148c400bfb32ef696d6e4efe3ebb043e513e8d722cd0e563044",
+          "0x26d57bf15bf1ffb199ace529f257c296967ccc2829ace269d38f786066200c3c"
+        ],
+        "source_count": 4
+      }
+    ]
+  },
+  "process_checks": [
+    {
+      "suite": "fee-process-frozen",
+      "filter": "fee_quotes::",
+      "exit_code": 0,
+      "counts": [
+        [
+          "ok",
+          "13",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "suite": "gas-process-frozen",
+      "filter": "settlement_policy_gas::",
+      "exit_code": 0,
+      "counts": [
+        [
+          "ok",
+          "8",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "suite": "cost-process-frozen",
+      "filter": "settlement_policy_cost::",
+      "exit_code": 0,
+      "counts": [
+        [
+          "ok",
+          "2",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "suite": "capacity-process-frozen",
+      "filter": "dynamic_admission::gnosis_fitting_thirty_request_wave_settles_in_one_sync",
+      "exit_code": 0,
+      "counts": [
+        [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "suite": "partial-process-frozen",
+      "filter": "partial_consumption::partial_prefix_keeps_unconsumed_users_and_receipt_costs",
+      "exit_code": 0,
+      "counts": [
+        [
+          "ok",
+          "1",
+          "0",
+          "0"
+        ]
+      ]
+    }
+  ],
+  "probe_correction_source": "4ee12c84d31c8ebc6eec39822f80db75d23cebc7",
+  "probe_correction_validation": {
+    "syntax_checked": true,
+    "recorded_private_and_live_outcomes_checked": true,
+    "new_broadcast_run": false,
+    "runtime_images_unchanged": true
+  },
+  "local_evidence_sha256": {
+    "baseline-selection-default-linker.log": "641f369194cea7a5e26e02db3bc559935e2733c398a99efca39ff695d2aaf2a3",
+    "composer-unit.log": "1b355e52fd5324cd76617c54d0552d52a833fde0dd9f5876487985c0919d0833",
+    "process-build-serial.log": "01e2a0c8f32e2c52f98b305c5aa45ce4b16834d1e5767f0544fcb3a88a289104",
+    "combined-unit.log": "4d9433e4d251a3ae9290331afa7ac0aeaa7528be4dfe8c40ded83fbc36f04e11",
+    "clippy-final.log": "59f9023f986d7a7885b9021c042dfba36b87510228a229f641eedbbc83e6144b",
+    "sdk.log": "fb28b65c8dc1e131054fb9e03f58e6b1168ce2cb26c38fa6bf038881939c7e5d",
+    "chiado-config.log": "a930162bd47f867636e64d6fc8f9214ec22254856635e392b37c696a8e9ac388",
+    "settlement-config.log": "222753303f6808349cdaced42dea80b19b22024b81d353a5634662b3653e430a",
+    "kurtosis-fees.json": "2078f396f6d4a8555fb608b0c97875d2517408e67a5e7acd26493882e8079f79",
+    "kurtosis-refund-reports.json": "149044e40f420cc65537f39e7be97622d38993363bf6fcb51d6947087c091ced",
+    "kurtosis-replay.log": "8bcea3f50d2a0323519257c664722f0db7697dd326fe857fa1abe9639d6c0fc8",
+    "live-handover.log": "78eee62b60b8f038a4cb24e5af39eefb37c569a5bd6d6420eea5a3e38e971857",
+    "live-readback.log": "a2f63758ed85f4483f11b5b291738c945c398634034b4c4509695c8b0892d985",
+    "live-public-verification.json": "46c61c1e8dea11014d4a2257a7750305224ae9f4e4f1a1e891952b0a36afdcc0",
+    "fee-process-frozen.log": "6fe19f7d7a297bebeb059e38cee836ddf0e04b49423a4da614beb3ace8437c2e",
+    "gas-process-frozen.log": "1b71391dccecfe0ee199579ca01a874c8f165e75027f67256cf6080579bc1736",
+    "cost-process-frozen.log": "2b2fb70286f080179eb6a652779f44478e55573c7ea1579fd59806da9cc2f962",
+    "capacity-process-frozen.log": "04120af5f24bbb97df0e6bfd98167b3a4853aa241c01869f4d11d6337df9c276",
+    "partial-process-frozen.log": "20bf27207a3983919328ce355f8460762c3543338d67198eea1cd992df353be3"
+  },
+  "coverage_limits": [
+    "Additional builders are not qualified.",
+    "No maximum-throughput or full protocol stress/CI release-matrix claim.",
+    "Falcon workloads and real wallet extensions were not tested in this increment.",
+    "Refund observability remains in memory; gauges reset on process restart.",
+    "The corrected reusable probe was syntax-checked and checked against retained outcomes, not rebroadcast. The original private run satisfied its stronger assertions."
+  ]
+}

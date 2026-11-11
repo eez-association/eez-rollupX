@@ -1,0 +1,98 @@
+====== Deploy ======
+--- Deploy (L1) ---
+QUOTE=0x8a8445565A52bb62056DEd1313F93f6d6e819B7E
+--- DeployReaderL2 (L2) ---
+READER=0x678C7868bDcE1367352a787Fa41432b7Bef9e716
+--- DeployCallbacks (L1) ---
+READER_PROXY=0x516f446a8b942E0bcCe478AF8F40F1F10040C06B
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+Waiting for fresh network evidence: L2 setup transactions are not canonically settled
+
+====== Create Signed Transaction ======
+target: 0x516f446a8b942E0bcCe478AF8F40F1F10040C06B
+calldata: 0xc0406226
+value: 0
+gas limit: 1000000
+nonce: 2 (rpc=2 front=2)
+
+====== Compute Expected Entries ======
+L1 expected calls: [0xed75016d3793477ed79f2e37d00e6aa93438d99607ffab28ccbeb6359d4f19cd]
+L1 expected entries: [0xb9e22404d2461e5380263204d534170c0916c0a479bde667c1b3595db1c7eafc]
+L2 table expected: [0xdb645652fae223f4c10341b32edc9ad15b9aad5f2bd2763c795b018b1de43307]
+L2 calls expected: [0xed75016d3793477ed79f2e37d00e6aa93438d99607ffab28ccbeb6359d4f19cd]
+L1 expected table: 2528 bytes (field-level checks ON)
+L2 expected table: 2016 bytes (field-level checks ON)
+
+====== Execute L1 (user tx) ======
+submitted tx: 0x028cc7f63dfeb0772e23f016f9d5193bc6bc27c8cac380099a28dccec7b2c257
+Waiting for receipt: 0x028cc7f63dfeb0772e23f016f9d5193bc6bc27c8cac380099a28dccec7b2c257 (420s remaining)
+Waiting for receipt: 0x028cc7f63dfeb0772e23f016f9d5193bc6bc27c8cac380099a28dccec7b2c257 (405s remaining)
+tx: 0x028cc7f63dfeb0772e23f016f9d5193bc6bc27c8cac380099a28dccec7b2c257
+block: 0xab (status: 0x1)
+trigger blocks: 171
+
+====== Verify L1 Posted Batch Calldata (1 candidate tx, address prefilter on) ======
+Matched settlement tx 0xfd3a90460eb590ed028c4a1556a6ce2fe0d2d6f740610913a31c63ec78f36252
+  Posted batch decoded from calldata: 3 entries, 0 static entries
+  PASS: L1 field checks on 1 entries (EntryExecuted, rollupId, rollupUpdates)
+  NOTE: rollup 1 live root diverges from our entries' cursor (batch carries foreign entries)
+  PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)
+  PASS: posted rolling hashes reproduced from posted roots (1 entries)
+L2 blocks to verify: [1020]
+
+====== Verify L2 Table ======
+L2 TABLE VERIFICATION FAILED
+
+====== Verify L2 Calls ======
+  PASS: 1/1 expected L2 calls verified
+
+====== Scenario Self-Verification (VerifyNetworkL2, L2) ======
+  VERIFY_PASS: local rate 1 -> 2 -> 1, quotes 1 -> 2 -> 1
+Waiting for fresh network evidence: transaction links or attempt changed; discarding this pass
+trigger blocks: 171
+
+====== Verify L1 Posted Batch Calldata (1 candidate tx, address prefilter on) ======
+Matched settlement tx 0xfd3a90460eb590ed028c4a1556a6ce2fe0d2d6f740610913a31c63ec78f36252
+  Posted batch decoded from calldata: 3 entries, 0 static entries
+  PASS: L1 field checks on 1 entries (EntryExecuted, rollupId, rollupUpdates)
+  NOTE: rollup 1 live root diverges from our entries' cursor (batch carries foreign entries)
+  PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)
+  PASS: posted rolling hashes reproduced from posted roots (1 entries)
+L2 blocks to verify: [1020]
+
+====== Verify L2 Table ======
+L2 TABLE VERIFICATION FAILED
+
+====== Verify L2 Calls ======
+  PASS: 1/1 expected L2 calls verified
+
+====== Scenario Self-Verification (VerifyNetworkL2, L2) ======
+  VERIFY_PASS: local rate 1 -> 2 -> 1, quotes 1 -> 2 -> 1
+
+--- L2 TABLE DIAGNOSTICS ---
+No files changed, compilation skipped
+Traces:
+  [4623112] → new VerifyL2Blocks@0x9f7cF1d1F558E57ef88a59ac3D47214eF25B6A06
+
+  [824085] VerifyL2Blocks::runLinked("/home/runner/work/eez-rollupX/eez-rollupX/eez-core-protocol/tmp/e2e-network/0x028cc7f63dfeb0772e23f016f9d5193bc6bc27c8cac380099a28dccec7b2c257/cross-chain/evidence.json", 0x4B2760F84B83d6b3829E30A7573B0172B6d6402C)
+
+
+
+== Logs ==
+  FAIL: entry 0: loaded table entry differs from expected:
+        expectedOutgoingCalls.length: actual 3 expected 2
+Error: script failed: Field verification failed
+
+
+====== FAILED ======

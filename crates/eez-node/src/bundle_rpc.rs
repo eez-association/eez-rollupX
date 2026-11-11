@@ -13,15 +13,15 @@
 //! the node builder's `extend_rpc_modules` hook in [`crate::run_composer`]). The
 //! handler forwards each signed, 2718-encoded tx through the node's own
 //! [`EthApiServer::send_raw_transaction`] — full validation + correct
-//! pool insertion — in submitted order, so the dev auto-miner lands them
-//! in the next block, postBatch first. The `Submitter` then takes its
+//! pool insertion — in submitted order. The payload builder may still reorder
+//! different senders by priority fee. The `Submitter` takes its
 //! primary bundle path and never falls back to `eth_sendRawTransaction`.
 //!
 //! This is deliberately NOT a real block builder: there is no competing
-//! builder on a single-node dev chain, so ordered mempool insertion is a
-//! faithful `eth_sendBundle` endpoint. True build-time atomic inclusion
-//! (all-or-nothing on EVM revert) would require a bundle-aware payload
-//! builder — a follow-up.
+//! builder on a single-node dev chain, but priority ordering can still place a
+//! high-tip L1 user before postBatch. Refund fields and mandatory transaction
+//! semantics are not implemented here. Successful L1 fee integration must be
+//! tested with a real bundle-aware builder in Kurtosis.
 //!
 //! The function is generic over the node + eth-api types; the dev L1 it
 //! serves is a vanilla `EthereumNode` (it would equally serve a
@@ -91,9 +91,9 @@ where
             ));
         }
 
-        // Forward in submitted order. On a single-node dev chain with
-        // no competing builder this yields postBatch-first inclusion
-        // in the next block. A rejected tx fails the whole call (the
+        // Forward in submitted order; the payload builder can reorder different
+        // senders by priority. This endpoint does not implement bundle atomicity
+        // or refunds. A rejected tx fails the call (the
         // caller treats a non-`result` reply as a bundle failure and
         // retries), which is the strictest honest behavior we can
         // offer without build-time atomicity.

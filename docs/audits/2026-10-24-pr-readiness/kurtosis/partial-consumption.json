@@ -1,0 +1,97 @@
+{
+  "scope": "Live R03 bytes; clean CI shipping/runtime replay still pending",
+  "network_uuid": "78c4b5eee3a844b99f4864b33c0d0643",
+  "first_attempt": {
+    "result": "FAIL",
+    "phase": "partial-consumption-r03",
+    "seconds": 239,
+    "reason": "The full three-user bundle was consumed; replacement receipt absent. This does not exercise partial consumption.",
+    "post": "0x256685b4e47f26820ce20945524db4b40997e6f2eee1dc323ec23603a9c2b9eb",
+    "sync_height": 6708,
+    "all_user_dispositions": [
+      "Committed",
+      "Committed",
+      "Committed"
+    ],
+    "builder_algorithm": "mp-ordering",
+    "full_bundle_priority_reward_wei": "27540930000000000",
+    "builder_net_bid_wei": "19473239999853000",
+    "replacement_priority_reward_wei": "10500000000000000",
+    "timing_limit": "RPC acceptance was asserted, but the first fixture did not retain the replacement submission timestamp or pool observation. Builder INFO recorded two mempool orders simulated before closing without identifying their hashes; exact arrival timing cannot be reconstructed."
+  },
+  "fixture_adaptation": {
+    "production_script_changed_for_bid": false,
+    "upstream_profile_source_priority_gwei": 1,
+    "audit_fee_enabled_source_priority_gwei": 100,
+    "first_replacement_priority_gwei": 500,
+    "second_replacement_priority_gwei": 10000,
+    "second_replacement_max_fee_gwei": 10001,
+    "replacement_gas": 21000,
+    "replacement_max_cost_wei": "210021000000000000",
+    "replacement_and_healthy_max_cost_wei": "810021000000000000",
+    "funded_sender_balance_wei": "1000000000000000000",
+    "unchanged_assertions": [
+      "same canonical L1 block and strict replacement/post/first/last ordering",
+      "replacement/source-first succeed; dependent-last reverts; source-second absent",
+      "exact per-source dispositions and attempt counts",
+      "canonical consumed prefix differs from full proposed hash",
+      "same replaced user succeeds with nonce1 and later safe head preserves the prefix"
+    ]
+  },
+  "second_attempt": {
+    "result": "PASS",
+    "phase": "partial-consumption-high-bid-r03",
+    "seconds": 105,
+    "builder_image": "sha256:916ba84da2690e3e368f57da5b0c73bfd919b452de8b95f64895846e0f3a8308",
+    "post": "0xdd0a827a8a212a9f0c55a6613aade1e7d0754d711eb89e214244c0bb4c40a83a",
+    "l1_block": "0xbe2a30b8c37f14024e7f7fead41f0aa5f316925f0102acaf93a872ea55c4649a",
+    "l1_number": 1183,
+    "sync_height": 7134,
+    "partial_hash": "0x362ebd6fa1c3e981e9f883a5a5b21e4751b20db4a5ba2951ab887ec95cf6c87c",
+    "proposed_full_hash": "0x1c3cb48b49bb6caada9ecee01afef767920fa1dcf9940d4dbc412f6b498500e0",
+    "users": [
+      "0x0ee5571e3a001b7994a248afb5b6f6349fc43b4dd02da4eff135e48eb422f803",
+      "0xcb5932167ecce833f9fa87d1368e2dcf1a6f759d3af5f626846c2595088b4a79",
+      "0x7f0ed54598209ffd58187cf70640485fcf9542fc03abe2504f0ccb2f39bf752f"
+    ],
+    "replacement": "0x67c7692b3a34664b750eb3debf4ffca7abd6cfcb27d7757cf6804b38d4f9a15e",
+    "dispositions": [
+      "Committed",
+      "SourceNonceSpent",
+      "SourceReverted"
+    ],
+    "attempt_counts": [
+      0,
+      0,
+      0
+    ],
+    "healthy": "0x905717f85fb9606ea17a422cac9e9edba41dd1df36b1e9b9fcd6ec7011b1d768",
+    "safe": {
+      "number": 7146,
+      "hash": "0x4784319a669c5adc1dbd808f25129ed5ed1eae8a78d84f7443fdbd6d4b6d4393"
+    },
+    "proof_dispatch_at": "2026-10-24T14:36:51.224315Z",
+    "replacement_rpc_accepted_at": "2026-10-24T14:36:51.766760+00:00",
+    "replacement_observed_pending_at": "2026-10-24T14:36:51.768633+00:00",
+    "included_post_observed_at": "2026-10-24T14:36:57.972503+00:00"
+  },
+  "local_artifact_sha256": {
+    "verify-partial-consumption-fee-enabled.py": "c81e86d55db1389bbe11df8a52d3a0e7ef95944e56e5ce0425e9ae0d5cf092bf",
+    "verify-partial-consumption-fee-enabled-high-bid.py": "173ddab1a0963ac2a8c2c30a17184f91c0925496fd7be1aa9ac2f773a85e2e44",
+    "live/phases/partial-consumption-r03.log": "d8013115d6c8ea8226e46a54049a644db81ae208667758f316e4018ab7c18199",
+    "live/phases/partial-consumption-high-bid-r03.log": "6365f15ac1b3cb1b5cb8800e13b76ebfd45d887250f8789a9563e29679323dc3",
+    "live/partial-consumption-high-bid-r03.json": "6365f15ac1b3cb1b5cb8800e13b76ebfd45d887250f8789a9563e29679323dc3",
+    "live/partial-consumption-high-bid-r03.progress.json": "f16028f0b726685423652e6b4115fd86370c343b9e39ba60676f6bc05cb075a1",
+    "live/partial-consumption-r03-diagnostic/economics.json": "10411c0add0c7126fa61117b40ff8ecadd66ec6f508711e66c1919b707ffd66c",
+    "live/partial-consumption-r03-diagnostic/builder.log": "f9a1159af80696d8d279be789cd7d4aafdf6d541579c4c58667f047cf22a4c04"
+  },
+  "replay_boundary": "Keep the original partial post claim separately. Only complete canonical later posts may enter verified_blob_batches; ancestry through the later endpoint covers partial execution, without claiming the harness explicitly compares partial-batch receipts or logs/gas.",
+  "authenticated_blob_evidence": {
+    "partial_proposal_sha256": "5d52b1159a8e8703e35cff00704a8d29ab03a54e750883ed7709372b07df3ba6",
+    "healthy_full_post_sha256": "bcfc6b34d0d6adc34f0bf1b1a8eeb1df0ac1fd338963b8343e55c13dc87504cd",
+    "canonical_receipts_sha256": "4ec968a548f45ea5c50b4b14b8fa8aed60d54e2b085334e411799f994314bbd2",
+    "partial_receipts_explicitly_in_replay_map": false,
+    "healthy_l2_receipts_explicitly_selected": 1,
+    "no_proposal_claim_rewritten": true
+  }
+}

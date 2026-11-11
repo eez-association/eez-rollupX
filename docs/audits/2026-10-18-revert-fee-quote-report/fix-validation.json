@@ -1,0 +1,417 @@
+{
+  "date": "2026-10-18",
+  "kind": "Composer source-balance diagnostic correction; local source-built validation",
+  "source": {
+    "base_commit": "7cb64b52c71083e575363ac0f73b344fca888028",
+    "base_tree": "4e977395e42348ebc55a474543f918c05c97fa54",
+    "protocol_gitlink": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+    "protocol_checkout_clean": true,
+    "source_delta_sha256": "5f3d780ce91cb7f0618553b99f5ab9bfb0e514156398f4986e7150ecc2021cc3",
+    "source_delta_command": "git diff --binary 7cb64b52c71083e575363ac0f73b344fca888028 -- crates/eez-composer crates/eez-node crates/eez-node-e2e",
+    "runtime_change": "Only Composer binary changed; follower and signer hashes equal the baseline."
+  },
+  "toolchain": {
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "foundry": "1.7.1 (4072e48705af9d93e3c0f6e29e93b5e9a40caed8)",
+    "llvm": "22"
+  },
+  "build_environment": {
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_NET_OFFLINE": "true",
+    "LLVM_SYS_221_PREFIX": "/usr/lib/llvm-22",
+    "cargo_dependency_mode": "--locked",
+    "profile": "debug/test, optimized + debuginfo"
+  },
+  "baseline": {
+    "executables_sha256": {
+      "eez-composer": "ab8e9b72129b146716ecb91b0242a55ca325e0e382395876651835a5184b501d",
+      "eez-follower": "7be7d884f34677cd1b1e653ba7e87d6e0c502358588bf1b3ff5b965746c0df79",
+      "eez-proof-signer": "d8fa1525e402eeba048196537536f4708ad058a7da57f5a0143cef630d6973dc"
+    },
+    "test_executable_sha256": {
+      "node_e2e-1e3ad82bc8bdefb9": "1d07683cb13baa7c9cdb7b57c2c1f8c280a284a8e3420dc6090a56a635cd64e5"
+    },
+    "command": "node_e2e --exact fee_quotes::insufficient_source_balance_after_pricing_preserves_quote_diagnostics --nocapture --test-threads=1",
+    "runtime_selection": "Explicit EEZ_TEST_RUNTIME_BIN_DIR and EEZ_TEST_PROOF_SIGNER_BIN point to the preserved, hash-verified baseline binaries; override scope is this shell only.",
+    "result": "Expected failure: 0 passed, 1 failed, 160 filtered out; unsupported_transaction instead of insufficient_funds.",
+    "zero_tip_affordability_assertion_passed": true,
+    "available_balance": "1000000000000000",
+    "required_priced_maximum": "13188746293590770",
+    "response": {
+      "id": "compact",
+      "jsonrpc": "2.0",
+      "result": {
+        "chainId": "0x1",
+        "expiresAt": "0x6ad51e03",
+        "nonce": "0x0",
+        "options": [
+          {
+            "error": {
+              "code": "unsupported_transaction",
+              "message": "unsupported quote: source validation or execution failed"
+            },
+            "type": "0x0"
+          },
+          {
+            "error": {
+              "code": "unsupported_transaction",
+              "message": "unsupported quote: source validation or execution failed"
+            },
+            "type": "0x2"
+          }
+        ],
+        "version": 1
+      }
+    },
+    "initial_fixture": "Earlier 10^12 wei fixture reproduced the generic error at the base-fee reservation, not the settlement-tip pass. Its first failure is retained in baseline/process.log; the final before/after test uses 10^15 wei and a zero-tip affordability assertion."
+  },
+  "candidate": {
+    "executables_sha256": {
+      "eez-composer": "c335989e79491b20329f1edb01ced097afad500cc4622471b92d5390d74a144b",
+      "eez-follower": "7be7d884f34677cd1b1e653ba7e87d6e0c502358588bf1b3ff5b965746c0df79",
+      "eez-proof-signer": "d8fa1525e402eeba048196537536f4708ad058a7da57f5a0143cef630d6973dc",
+      "node_e2e-1e3ad82bc8bdefb9": "1d07683cb13baa7c9cdb7b57c2c1f8c280a284a8e3420dc6090a56a635cd64e5"
+    },
+    "prebuilt_overrides": "EEZ_TEST_PREBUILT, EEZ_TEST_RUNTIME_BIN_DIR and EEZ_TEST_PROOF_SIGNER_BIN unset; signer helper builds from source.",
+    "checks": [
+      {
+        "command": "forge build --root contracts",
+        "result": "pass"
+      },
+      {
+        "command": "cargo +1.95.0 test --locked -p eez-composer -p eez-node --lib",
+        "result": "379 Composer and 92 node tests passed; one existing manual timing profile ignored"
+      },
+      {
+        "command": "node sdk/l2-fees.test.mjs",
+        "result": "6 passed; console output observed, no separate retained log"
+      },
+      {
+        "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+        "result": "pass"
+      },
+      {
+        "command": "cargo +1.95.0 fmt --all --check",
+        "result": "pass"
+      },
+      {
+        "command": "git diff --check; local documentation links and bash -n on 2 edited-document shell examples",
+        "result": "pass"
+      },
+      {
+        "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- --exact --nocapture --test-threads=1 cross_chain::wallet_gas_estimates_bidirectional_gnosis fee_quotes::compact_ordinary_calls_boundaries_and_fee_sensitive_rejection fee_quotes::exact_quote_with_caught_nested_revert_is_admitted_and_replayed fee_quotes::insufficient_source_balance_after_pricing_preserves_quote_diagnostics fee_quotes::l1_refund_quote_eip1559_continues_after_missing_payment fee_quotes::legacy_rpc_quote_rejects_underpayment_settles_and_replays",
+        "result": "6 passed, 0 failed, 0 ignored, 155 filtered out; 354.20 seconds including initial signer build",
+        "tests": [
+          "cross_chain::wallet_gas_estimates_bidirectional_gnosis",
+          "fee_quotes::compact_ordinary_calls_boundaries_and_fee_sensitive_rejection",
+          "fee_quotes::exact_quote_with_caught_nested_revert_is_admitted_and_replayed",
+          "fee_quotes::insufficient_source_balance_after_pricing_preserves_quote_diagnostics",
+          "fee_quotes::l1_refund_quote_eip1559_continues_after_missing_payment",
+          "fee_quotes::legacy_rpc_quote_rejects_underpayment_settles_and_replays"
+        ],
+        "retries": 0
+      }
+    ],
+    "semantic_evidence": [
+      "Both formats and quote endpoints with omitted and explicit gas return typed source-balance details.",
+      "Rejected quotes preserve sender nonce/balance and remote contract state.",
+      "Funding the same sender permits both quote formats at the same nonce.",
+      "Existing caught-revert, legacy underpayment and L1 refund process tests settle and independently replay through a follower.",
+      "Gnosis bidirectional gas estimation and true fee-sensitive execution rejection retain their behavior."
+    ],
+    "fixture_policy": "Synthetic local fee policy with fixed allowances and non-parity conversion; these amounts are not Chiado fee quotes.",
+    "failure_responses": [
+      {
+        "file": "source-balance-eez_debugQuoteFee-explicit-gas-false.json",
+        "response": {
+          "id": "compact",
+          "jsonrpc": "2.0",
+          "result": {
+            "chainId": "0x1",
+            "diagnostics": {
+              "options": [
+                {
+                  "error": {
+                    "code": "insufficient_funds",
+                    "details": {
+                      "availableBalance": "0x38d7ea4c68000",
+                      "reason": "source_balance",
+                      "requiredBalance": "0x2edb1849dcbaf2",
+                      "shortfall": "0x2b4d99a5163af2",
+                      "sourceChainId": "0x1"
+                    },
+                    "message": "insufficient funds for transaction: balance 1000000000000000, required 13188746293590770 on chain 1"
+                  },
+                  "type": "0x0"
+                },
+                {
+                  "error": {
+                    "code": "insufficient_funds",
+                    "details": {
+                      "availableBalance": "0x38d7ea4c68000",
+                      "reason": "source_balance",
+                      "requiredBalance": "0x2edb1849dcbaf2",
+                      "shortfall": "0x2b4d99a5163af2",
+                      "sourceChainId": "0x1"
+                    },
+                    "message": "insufficient funds for transaction: balance 1000000000000000, required 13188746293590770 on chain 1"
+                  },
+                  "type": "0x2"
+                }
+              ],
+              "recoveryMode": "enforced_tariff"
+            },
+            "expiresAt": "0x6ad51f01",
+            "nonce": "0x0",
+            "options": [
+              {
+                "error": {
+                  "code": "insufficient_funds",
+                  "details": {
+                    "availableBalance": "0x38d7ea4c68000",
+                    "reason": "source_balance",
+                    "requiredBalance": "0x2edb1849dcbaf2",
+                    "shortfall": "0x2b4d99a5163af2",
+                    "sourceChainId": "0x1"
+                  },
+                  "message": "insufficient funds for transaction: balance 1000000000000000, required 13188746293590770 on chain 1"
+                },
+                "type": "0x0"
+              },
+              {
+                "error": {
+                  "code": "insufficient_funds",
+                  "details": {
+                    "availableBalance": "0x38d7ea4c68000",
+                    "reason": "source_balance",
+                    "requiredBalance": "0x2edb1849dcbaf2",
+                    "shortfall": "0x2b4d99a5163af2",
+                    "sourceChainId": "0x1"
+                  },
+                  "message": "insufficient funds for transaction: balance 1000000000000000, required 13188746293590770 on chain 1"
+                },
+                "type": "0x2"
+              }
+            ],
+            "version": 1
+          }
+        }
+      },
+      {
+        "file": "source-balance-eez_debugQuoteFee-explicit-gas-true.json",
+        "response": {
+          "id": "compact",
+          "jsonrpc": "2.0",
+          "result": {
+            "chainId": "0x1",
+            "diagnostics": {
+              "options": [
+                {
+                  "error": {
+                    "code": "insufficient_funds",
+                    "details": {
+                      "availableBalance": "0x38d7ea4c68000",
+                      "reason": "source_balance",
+                      "requiredBalance": "0x2edb1849dcbaf2",
+                      "shortfall": "0x2b4d99a5163af2",
+                      "sourceChainId": "0x1"
+                    },
+                    "message": "insufficient funds for transaction: balance 1000000000000000, required 13188746293590770 on chain 1"
+                  },
+                  "type": "0x0"
+                },
+                {
+                  "error": {
+                    "code": "insufficient_funds",
+                    "details": {
+                      "availableBalance": "0x38d7ea4c68000",
+                      "reason": "source_balance",
+                      "requiredBalance": "0x2edb1849dcbaf2",
+                      "shortfall": "0x2b4d99a5163af2",
+                      "sourceChainId": "0x1"
+                    },
+                    "message": "insufficient funds for transaction: balance 1000000000000000, required 13188746293590770 on chain 1"
+                  },
+                  "type": "0x2"
+                }
+              ],
+              "recoveryMode": "enforced_tariff"
+            },
+            "expiresAt": "0x6ad51f01",
+            "nonce": "0x0",
+            "options": [
+              {
+                "error": {
+                  "code": "insufficient_funds",
+                  "details": {
+                    "availableBalance": "0x38d7ea4c68000",
+                    "reason": "source_balance",
+                    "requiredBalance": "0x2edb1849dcbaf2",
+                    "shortfall": "0x2b4d99a5163af2",
+                    "sourceChainId": "0x1"
+                  },
+                  "message": "insufficient funds for transaction: balance 1000000000000000, required 13188746293590770 on chain 1"
+                },
+                "type": "0x0"
+              },
+              {
+                "error": {
+                  "code": "insufficient_funds",
+                  "details": {
+                    "availableBalance": "0x38d7ea4c68000",
+                    "reason": "source_balance",
+                    "requiredBalance": "0x2edb1849dcbaf2",
+                    "shortfall": "0x2b4d99a5163af2",
+                    "sourceChainId": "0x1"
+                  },
+                  "message": "insufficient funds for transaction: balance 1000000000000000, required 13188746293590770 on chain 1"
+                },
+                "type": "0x2"
+              }
+            ],
+            "version": 1
+          }
+        }
+      },
+      {
+        "file": "source-balance-eez_quoteFee-explicit-gas-false.json",
+        "response": {
+          "id": "compact",
+          "jsonrpc": "2.0",
+          "result": {
+            "chainId": "0x1",
+            "expiresAt": "0x6ad51f01",
+            "nonce": "0x0",
+            "options": [
+              {
+                "error": {
+                  "code": "insufficient_funds",
+                  "details": {
+                    "availableBalance": "0x38d7ea4c68000",
+                    "reason": "source_balance",
+                    "requiredBalance": "0x2edb1849dcbaf2",
+                    "shortfall": "0x2b4d99a5163af2",
+                    "sourceChainId": "0x1"
+                  },
+                  "message": "insufficient funds for transaction: balance 1000000000000000, required 13188746293590770 on chain 1"
+                },
+                "type": "0x0"
+              },
+              {
+                "error": {
+                  "code": "insufficient_funds",
+                  "details": {
+                    "availableBalance": "0x38d7ea4c68000",
+                    "reason": "source_balance",
+                    "requiredBalance": "0x2edb1849dcbaf2",
+                    "shortfall": "0x2b4d99a5163af2",
+                    "sourceChainId": "0x1"
+                  },
+                  "message": "insufficient funds for transaction: balance 1000000000000000, required 13188746293590770 on chain 1"
+                },
+                "type": "0x2"
+              }
+            ],
+            "version": 1
+          }
+        }
+      },
+      {
+        "file": "source-balance-eez_quoteFee-explicit-gas-true.json",
+        "response": {
+          "id": "compact",
+          "jsonrpc": "2.0",
+          "result": {
+            "chainId": "0x1",
+            "expiresAt": "0x6ad51f01",
+            "nonce": "0x0",
+            "options": [
+              {
+                "error": {
+                  "code": "insufficient_funds",
+                  "details": {
+                    "availableBalance": "0x38d7ea4c68000",
+                    "reason": "source_balance",
+                    "requiredBalance": "0x2edb1849dcbaf2",
+                    "shortfall": "0x2b4d99a5163af2",
+                    "sourceChainId": "0x1"
+                  },
+                  "message": "insufficient funds for transaction: balance 1000000000000000, required 13188746293590770 on chain 1"
+                },
+                "type": "0x0"
+              },
+              {
+                "error": {
+                  "code": "insufficient_funds",
+                  "details": {
+                    "availableBalance": "0x38d7ea4c68000",
+                    "reason": "source_balance",
+                    "requiredBalance": "0x2edb1849dcbaf2",
+                    "shortfall": "0x2b4d99a5163af2",
+                    "sourceChainId": "0x1"
+                  },
+                  "message": "insufficient funds for transaction: balance 1000000000000000, required 13188746293590770 on chain 1"
+                },
+                "type": "0x2"
+              }
+            ],
+            "version": 1
+          }
+        }
+      }
+    ],
+    "funded_response_excerpt": {
+      "chainId": "0x1",
+      "nonce": "0x0",
+      "options": [
+        {
+          "estimatedFee": "0x2c218fae4abc59",
+          "gas": "0x3623b",
+          "gasPrice": "0xdd85993a7",
+          "requestHash": "0x34b9462c2434b3fba5a44d06b1a59f621a92f752e731421755b4f279bbc5b514",
+          "type": "0x0"
+        },
+        {
+          "estimatedFee": "0x2c218fae4abc59",
+          "gas": "0x3623b",
+          "maxFeePerGas": "0xdd85993a7",
+          "maxPriorityFeePerGas": "0xdbadebcbb",
+          "requestHash": "0x52bafd5fd7d99f702632407f4d0c08448a3086344927509aca388834883a929a",
+          "type": "0x2"
+        }
+      ],
+      "version": 1
+    }
+  },
+  "retained_artifacts": {
+    "local_only_root": "/home/edu/Development/rollupX/artifacts/source-balance-quote-fix-20261018",
+    "availability": "Ignored build/test artifacts, not shipped; retention not guaranteed.",
+    "files_sha256": {
+      "contracts.log": "ab346a74604da993b5fb250687e936d653132cbe3457440e8cfd37e2fe58fc83",
+      "baseline/process.log": "1a3a380fa54c281fad011c44073e6d4757432e999bd77d8b379feadfecb720ad",
+      "baseline-priced/process.log": "fcf71a3dfca4f5d58a49d29ecda6e5f247acf1a665e8ba3e516d7047c3de1c98",
+      "candidate/unit.log": "36dbeb96d7794f03d22075c8377a2f26884581c744ed6c97c4ca15797fbab6c0",
+      "candidate/process-build.log": "af980d5fa8e886d2645a812f7b1aabeb84fc2d5ff784d2c65700aa4a2b8b2033",
+      "candidate/clippy.log": "193d8abece5062d20d97bbaedc917f1ed48f7f7b8f02d6a4ee3f7c0850626d85",
+      "candidate/process.log": "d52e7087c4ef514884f9ec845fd414f493bebcd0caa01cef77de5dec56ce0b31",
+      "candidate/source.patch": "5f3d780ce91cb7f0618553b99f5ab9bfb0e514156398f4986e7150ecc2021cc3",
+      "candidate/logs/source-balance-eez_debugQuoteFee-explicit-gas-false.json": "4665289b98e1820c25ca046b85a5dfc346b9e9b054de0ed9c9f759b2a79eb420",
+      "candidate/logs/source-balance-eez_debugQuoteFee-explicit-gas-true.json": "4665289b98e1820c25ca046b85a5dfc346b9e9b054de0ed9c9f759b2a79eb420",
+      "candidate/logs/source-balance-eez_quoteFee-explicit-gas-false.json": "57c032d26b0892be7c0e36ca54d7badbac585363a1bf8a4eb0aa1480cbfb0354",
+      "candidate/logs/source-balance-eez_quoteFee-explicit-gas-true.json": "57c032d26b0892be7c0e36ca54d7badbac585363a1bf8a4eb0aa1480cbfb0354",
+      "candidate/logs/source-balance-funded.json": "736bd47c168af5a7e2668456427b0442d16e30422eb778b2f78f2574682b4e17",
+      "baseline-priced/logs/builder-stub-656042-1.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "baseline-priced/logs/eez-node-node-656042-2.log": "d34d3bd6d48c2ddd016fd194d9611cc698fdc49ac6fac7d2f931185c0d6fb97b",
+      "baseline-priced/logs/eez-proof-signer-656042-0.log": "26edf9eacb642d40212d3f5180bb8993d026330c86a887074a21cd265eee1643"
+    }
+  },
+  "not_run": [
+    "Full protocol stress matrix",
+    "Falcon Safe workloads",
+    "Kurtosis/PBS validation",
+    "Full workspace runtime tests outside the affected suites",
+    "Docker release build or Chiado deployment of this correction",
+    "Signed Chiado execution of the original reported fixture"
+  ],
+  "live_changes": "None: no Chiado funding, transaction submission, service restart or deployment during this correction."
+}

@@ -132,6 +132,53 @@ This is not an unconditional reset of retries. Active duplicate submissions
 keep their current attempts and owner. An explicitly accepted new admission
 after a local terminal disposition follows the existing new-request policy.
 
+### Excluded target slots use a separate bound
+
+Status: implemented on branch `fix/excluded-slot-attempt-budget`; unit-tested
+only. Not yet observed on a live network.
+
+An `excluded` observation means the target block was built without the bundle:
+by the proposer without MEV-Boost, by a builder that never received it, or by a
+configured builder that left it out. No postBatch gas was spent. On Ethereum
+mainnet on 2026-10-06, roughly a fifth of slots were built by validators or
+builders outside the configured set.
+
+The same day, outbound user `0x38b6…` (nonce 28) was evicted with
+`AttemptsExhausted` after six charges on the shared counter:
+- Three landed postBatches (L1 26132475–26132477) skipped its entry with
+  `RollingHashMismatch`, plus `RootMismatch` for the dependent entries. The call
+  read `slot0()` of the Uniswap V3 USDC/WETH 0.01% pool, and in each block the
+  builder placed the bundle after at least one swap on that pool. In 26132600 no
+  swap preceded it and the resubmitted call succeeded.
+- Three excluded targets followed (26132478–26132480). They were built locally or
+  by a builder outside the configured set, so no configured builder could have
+  included the bundle.
+
+The nonce gap then removed `0x293f…` (nonce 29), whose nonce stayed unspent. With
+separate bounds the source would have stood at 3/6 settlement failures and 3/12
+excluded slots, and remained eligible.
+
+Reconciliation therefore distinguishes the charge. A landed postBatch that leaves
+the user incomplete charges `attempts`, bounded by six (automatic) or three
+(numeric), because each retry spends L1 gas. An excluded target charges
+`excluded_slots`, bounded by `MAX_EXCLUDED_SLOT_ATTEMPTS = 12`, in both modes.
+Either bound exhausts the user and creates the usual dependent nonce gap. The
+prover/relay rejection bound and the per-rollup admission streak and backoff are
+unchanged. Both counters stay in memory and are lost on restart.
+
+Alternatives not taken:
+- Raising the shared bound. A source that lands but can never complete would
+  pay for more postBatches before eviction.
+- Not charging exclusions at all. A bundle that every builder keeps rejecting
+  would then never be evicted.
+- Classifying the winning builder and charging only reachable misses. That is
+  more precise, but the classification is heuristic: `extraData`, fee
+  recipient and relay data are not authenticated. It is left for later.
+
+Acceptance: a unit test shows excluded slots beyond the settlement bound neither
+evict nor charge `attempts`, the twelfth excluded slot evicts, and a landed
+failure still evicts at the settlement bound without touching `excluded_slots`.
+
 ## 2. Defer source conditions without aborting independent work
 
 The existing `Unavailable(String)` combines source transaction conditions with
@@ -237,8 +284,10 @@ Do not log every unchanged blocked request on every slot.
 The PR139 follow-up extends the existing telemetry with the most recent 1,024
 local evictions/replacements per pool. Retain only hash, sender, direction,
 nonce, reason, observation time, and optional replacement hash; never retain
-the envelope. This is a bounded diagnostic cache, not an ownership journal,
-admission limit, or source of recovery decisions.
+the envelope. Simulation rejections add a separately bounded diagnostic
+([simulation rejection diagnostics](#simulation-rejection-diagnostics)). This
+is a bounded diagnostic cache, not an ownership journal, admission limit, or
+source of recovery decisions.
 
 Live pool and settlement-ledger records take precedence. Successful explicit
 readmission clears that hash's local terminal observation; rejected admission
@@ -265,6 +314,60 @@ settled or been evicted. Recording happens under the pool lock with the pruning,
 so a read never observes the gap. The entries share the same count bound and
 restart loss, and remain observations: they never authorize execution,
 admission or recovery.
+
+Per-source L1/L2 transaction references are specified in
+[cross-chain transaction references](cross-chain-transaction-references.md).
+They follow the retained attempt, including pre-dispatch poster repricing, and
+survive finality pruning with its terminal observation. A complete candidate
+group is not evidence that every listed transaction executed. The same bounded
+retention and restart limits apply; the extension adds no ownership authority.
+
+### Simulation rejection diagnostics
+
+A source whose composition fails deterministically is evicted before any
+settlement attempt, with its higher nonces (`NonceGap`). Two causes qualify:
+- the source transaction reverts in simulation (`source transaction does not
+  execute successfully`);
+- the composition error is itself deterministic (for example a source that
+  makes no cross-chain call, or an unsupported call shape).
+
+Such a root reports `ownership.reason: "SimulationFailed"` instead of
+`PoolDiscarded`. This holds whether it was still queued, in flight, or a
+previously submitted ledger user being recomposed. `PoolDiscarded` remains for
+replacement, the other composition cuts (shape, budget, validation) and
+recovery loss.
+
+`ownership.rejection` carries a bounded diagnostic:
+
+| Field | Content |
+| --- | --- |
+| `error` | Display form of the composition error that caused the eviction |
+| `source` | `{gasUsed, output, outputLength}` when the source simulation ran, else null; `output` is the revert data, truncated to 512 bytes |
+| `calls` | Up to 16 recorded cross-chain calls in preorder: `{depth, sourceRollupId, targetRollupId, caller, target, selector, static, success, gasUsed, returnData, returnLength}`. `target` is the original address the proxy represents, `returnData` is truncated to 512 bytes, and `success`/`gasUsed` are null for a call that had not returned |
+| `omittedCalls` | Recorded calls beyond the bound |
+
+With nested calls, the failing leg is the deepest call with `success: false`.
+Its `returnData` is the target's revert data, which an application may not
+propagate to the source output.
+
+The node keeps the 256 most recent rejections per pool, separately from the
+removal records, because a previously submitted user's status is answered from
+the settlement ledger. A successful readmission of the same hash clears its
+rejection, and a rejection is shown only with a `SimulationFailed` reason.
+The diagnostics are observations derived from local simulation of the user's
+own transaction. They contain no signed envelope and never authorize
+execution, admission or recovery. They are lost on restart.
+
+The Composer also logs each intercepted call's return or revert data
+(`return_len`, `return_data` truncated to 256 bytes) on its `cross-chain proxy
+call detected` line.
+
+Compatibility: both fields are additive. A client that matches `PoolDiscarded`
+to detect any pre-settlement eviction must also accept `SimulationFailed`; one
+that treats every reason other than `Committed`/`SourceCompleted` as a failure
+needs no change. Older nodes keep reporting `PoolDiscarded` without
+`rejection`. No storage, wire, configuration or contract change is involved,
+and a rollback only removes the new reason and field.
 
 The observatory currently computes `healthy` from L1/L2 RPC health and head
 freshness in `eez-rollup-ui/network-observatory/app/server.py`. Add an explicit

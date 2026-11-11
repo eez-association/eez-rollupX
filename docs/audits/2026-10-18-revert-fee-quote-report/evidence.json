@@ -1,0 +1,709 @@
+{
+  "date": "2026-10-18",
+  "kind": "read-only report investigation",
+  "source": {
+    "review_head": "7cb64b52c71083e575363ac0f73b344fca888028",
+    "review_tree": "4e977395e42348ebc55a474543f918c05c97fa54",
+    "protocol_gitlink": "160000 commit 9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f\teez-core-protocol",
+    "protocol_checkout": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+    "runtime_ci_commit": "a5b122a743e4468a2e83e5db45713d33689d7ec8"
+  },
+  "runtime_observations": {
+    "composer": {
+      "image_id": "sha256:f84b54fdbe5887b76ea6768e72eaa5428533054742f6d68aee47a9d6eee58904",
+      "started_at": "2026-10-18T16:54:01.740210596Z"
+    },
+    "signer": {
+      "image_id": "sha256:93409b85b79f552d90ae463d3c07bb251ca0310c92b13ce55ac0d20e5e777474",
+      "started_at": "2026-10-18T16:53:56.163704233Z"
+    }
+  },
+  "report_url": "https://hackmd.io/@Yu7RfKfWRP6MwaKqIFALjw/SyPXLFMhfe",
+  "original_request": {
+    "method": "eez_quoteFee",
+    "params": [
+      {
+        "from": "0xf0208ed478e7aa5c4c1c62145e5be5c7b91fec54",
+        "to": "0x2ad716eecb0bf954be2baae4c29c6299e9604351",
+        "data": "0x61461954",
+        "value": "0x0"
+      }
+    ]
+  },
+  "original_reproduction": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "chainId": "0xdd6d9",
+      "expiresAt": "0x6ad50b4c",
+      "nonce": "0x27",
+      "options": [
+        {
+          "error": {
+            "code": "unsupported_transaction",
+            "message": "unsupported quote: source validation or execution failed"
+          },
+          "type": "0x0"
+        },
+        {
+          "error": {
+            "code": "unsupported_transaction",
+            "message": "unsupported quote: source validation or execution failed"
+          },
+          "type": "0x2"
+        }
+      ],
+      "version": 1
+    }
+  },
+  "original_debug_reproduction": {
+    "at": "2026-10-18T18:12:13.488301+00:00",
+    "request": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "eez_debugQuoteFee",
+      "params": [
+        {
+          "from": "0xf0208ed478e7aa5c4c1c62145e5be5c7b91fec54",
+          "to": "0x2ad716eecb0bf954be2baae4c29c6299e9604351",
+          "data": "0x61461954",
+          "value": "0x0"
+        }
+      ]
+    },
+    "response": {
+      "id": 1,
+      "jsonrpc": "2.0",
+      "result": {
+        "chainId": "0xdd6d9",
+        "diagnostics": {
+          "options": [
+            {
+              "error": {
+                "code": "unsupported_transaction",
+                "message": "unsupported quote: source validation or execution failed"
+              },
+              "type": "0x0"
+            },
+            {
+              "error": {
+                "code": "unsupported_transaction",
+                "message": "unsupported quote: source validation or execution failed"
+              },
+              "type": "0x2"
+            }
+          ],
+          "recoveryMode": "enforced_tariff"
+        },
+        "expiresAt": "0x6ad50c1b",
+        "nonce": "0x27",
+        "options": [
+          {
+            "error": {
+              "code": "unsupported_transaction",
+              "message": "unsupported quote: source validation or execution failed"
+            },
+            "type": "0x0"
+          },
+          {
+            "error": {
+              "code": "unsupported_transaction",
+              "message": "unsupported quote: source validation or execution failed"
+            },
+            "type": "0x2"
+          }
+        ],
+        "version": 1
+      }
+    }
+  },
+  "validation_failures": {
+    "original-node.log": [
+      {
+        "timestamp": "2026-10-18T17:32:51.241530Z",
+        "level": "WARN",
+        "fields": {
+          "message": "source tx rejected at validation; it records no cross-chain call",
+          "e": "lack of funds (999999946856400) for max fee (1204265508506016)"
+        },
+        "target": "eez_composer::local::client"
+      },
+      {
+        "timestamp": "2026-10-18T17:32:51.245468Z",
+        "level": "WARN",
+        "fields": {
+          "message": "source tx rejected at validation; it records no cross-chain call",
+          "e": "lack of funds (999999946856400) for max fee (1204265508506016)"
+        },
+        "target": "eez_composer::local::client"
+      }
+    ],
+    "probe-node.log": [
+      {
+        "timestamp": "2026-10-18T18:08:46.404432Z",
+        "level": "WARN",
+        "fields": {
+          "message": "source tx rejected at validation; it records no cross-chain call",
+          "e": "lack of funds (999999946856400) for max fee (1204280818708113)"
+        },
+        "target": "eez_composer::local::client"
+      },
+      {
+        "timestamp": "2026-10-18T18:08:46.407526Z",
+        "level": "WARN",
+        "fields": {
+          "message": "source tx rejected at validation; it records no cross-chain call",
+          "e": "lack of funds (999999946856400) for max fee (1204280818708113)"
+        },
+        "target": "eez_composer::local::client"
+      }
+    ]
+  },
+  "gas_estimation": {
+    "at": "2026-10-18T18:10:58.993600+00:00",
+    "request": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "eth_estimateGas",
+      "params": [
+        {
+          "from": "0xf0208ed478e7aa5c4c1c62145e5be5c7b91fec54",
+          "to": "0x2ad716eecb0bf954be2baae4c29c6299e9604351",
+          "data": "0x61461954",
+          "value": "0x0"
+        }
+      ]
+    },
+    "response": {
+      "id": 1,
+      "jsonrpc": "2.0",
+      "result": "0x2f3fd"
+    }
+  },
+  "funded_control": {
+    "at": "2026-10-18T18:11:35.751021+00:00",
+    "request": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "eez_debugQuoteFee",
+      "params": [
+        {
+          "from": "0x8319d1c6d4f96aa8e487fe9ae126b8f12bfb2bf6",
+          "to": "0x2ad716eecb0bf954be2baae4c29c6299e9604351",
+          "data": "0x61461954",
+          "value": "0x0"
+        }
+      ]
+    },
+    "response": {
+      "id": 1,
+      "jsonrpc": "2.0",
+      "result": {
+        "chainId": "0xdd6d9",
+        "diagnostics": {
+          "options": [
+            {
+              "context": {
+                "l1ChainId": 10200,
+                "l1ParentHash": "0xccb954d6261b0908771a287ec45474a50a557b2e116342778418c92d02d6b8c5",
+                "l1ParentNumber": 23581727,
+                "l1TargetNumber": 23581728,
+                "l1TargetTimestamp": 1792347095,
+                "l2ChainId": 906969,
+                "l2ParentHash": "0xf58cf7ce5a53d8fae16d25bd03d3d47dddcca963172da870a02785d3ff0c8afd",
+                "l2ParentNumber": 953515,
+                "l2Timestamp": 1792347096,
+                "rollupId": 1,
+                "settledL2Hash": "0xcdb2630b41e3f65b9e2fe9c370831a258aa21b5b9eb25a22dde7808078618479",
+                "settledL2Number": 953365
+              },
+              "estimate": {
+                "basis": "isolated_native_l2_and_l1_settlement",
+                "blobs": 1,
+                "daBytes": 422,
+                "grossL2Tip": "1132621206991604",
+                "iterations": 2,
+                "l1BlobCost": "131072000000000",
+                "l1BlobPrice": "1000000000",
+                "l1ExecutionCost": "812779005689453",
+                "l1ExecutionPrice": "1000000007",
+                "l1Gas": 812779,
+                "l1PostingCost": "943851005689453",
+                "l1PriorityFeePerGas": "1000000000",
+                "l1Profit": "188770201137891",
+                "l1Risk": "0",
+                "l1Subtotal": "943851005689453",
+                "l1TargetGas": 96304,
+                "l2BaseFeePerGas": "49",
+                "minimumL1": "943851005689453",
+                "minimumL2Tip": "943851005689453",
+                "nativeL2GasUsed": 77386,
+                "proof": "metered_assumed_valid",
+                "qualifiedRecoveryL1": null,
+                "requiredL1": "1132621206827344",
+                "requiredL2Tip": "1132621206827344",
+                "sourceGasUsed": 182017
+              },
+              "expiresAt": 1792347125,
+              "issuedAt": 1792347095,
+              "mode": "advisory",
+              "policy": {
+                "assumptions": {
+                  "beneficiary": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52",
+                  "excluded_senders": [],
+                  "l1_chain_id": 10200,
+                  "l1_per_l2_denominator": "1",
+                  "l1_per_l2_numerator": "1",
+                  "l2_chain_id": 906969,
+                  "operations_cost_l1": "0",
+                  "profit_bps": 2000,
+                  "proving_cost_l1": "0",
+                  "risk_bps": 0,
+                  "rollup_id": 1,
+                  "treasury_cost_l1": "0",
+                  "valid_until_l1_timestamp": 2000000000,
+                  "version": 1
+                },
+                "id": "0xe3538a35e98af86261badbf55a04e20a403b8065f3f6cba04e94160048cb7071"
+              },
+              "request": {
+                "chainId": "0xdd6d9",
+                "data": "0x61461954",
+                "from": "0x8319d1c6d4f96aa8e487fe9ae126b8f12bfb2bf6",
+                "gas": "0x2f3fd",
+                "nonce": "0x6",
+                "to": "0x2ad716eecb0bf954be2baae4c29c6299e9604351",
+                "type": "0x0",
+                "value": "0x0"
+              },
+              "requestHash": "0x78df4a9e71f1c211ecc745b4bd7dfa1847f78a26bd1041e18536760d4cfe4d9b",
+              "transaction": {
+                "chainId": "0xdd6d9",
+                "data": "0x61461954",
+                "from": "0x8319d1c6d4f96aa8e487fe9ae126b8f12bfb2bf6",
+                "gas": "0x2f3fd",
+                "gasPrice": "0x172e58725",
+                "nonce": "0x6",
+                "to": "0x2ad716eecb0bf954be2baae4c29c6299e9604351",
+                "type": "0x0",
+                "value": "0x0"
+              },
+              "version": 1
+            },
+            {
+              "context": {
+                "l1ChainId": 10200,
+                "l1ParentHash": "0xccb954d6261b0908771a287ec45474a50a557b2e116342778418c92d02d6b8c5",
+                "l1ParentNumber": 23581727,
+                "l1TargetNumber": 23581728,
+                "l1TargetTimestamp": 1792347095,
+                "l2ChainId": 906969,
+                "l2ParentHash": "0xf58cf7ce5a53d8fae16d25bd03d3d47dddcca963172da870a02785d3ff0c8afd",
+                "l2ParentNumber": 953515,
+                "l2Timestamp": 1792347096,
+                "rollupId": 1,
+                "settledL2Hash": "0xcdb2630b41e3f65b9e2fe9c370831a258aa21b5b9eb25a22dde7808078618479",
+                "settledL2Number": 953365
+              },
+              "estimate": {
+                "basis": "isolated_native_l2_and_l1_settlement",
+                "blobs": 1,
+                "daBytes": 431,
+                "grossL2Tip": "1132621206991604",
+                "iterations": 2,
+                "l1BlobCost": "131072000000000",
+                "l1BlobPrice": "1000000000",
+                "l1ExecutionCost": "812779005689453",
+                "l1ExecutionPrice": "1000000007",
+                "l1Gas": 812779,
+                "l1PostingCost": "943851005689453",
+                "l1PriorityFeePerGas": "1000000000",
+                "l1Profit": "188770201137891",
+                "l1Risk": "0",
+                "l1Subtotal": "943851005689453",
+                "l1TargetGas": 96304,
+                "l2BaseFeePerGas": "49",
+                "minimumL1": "943851005689453",
+                "minimumL2Tip": "943851005689453",
+                "nativeL2GasUsed": 77386,
+                "proof": "metered_assumed_valid",
+                "qualifiedRecoveryL1": null,
+                "requiredL1": "1132621206827344",
+                "requiredL2Tip": "1132621206827344",
+                "sourceGasUsed": 182017
+              },
+              "expiresAt": 1792347125,
+              "issuedAt": 1792347095,
+              "mode": "advisory",
+              "policy": {
+                "assumptions": {
+                  "beneficiary": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52",
+                  "excluded_senders": [],
+                  "l1_chain_id": 10200,
+                  "l1_per_l2_denominator": "1",
+                  "l1_per_l2_numerator": "1",
+                  "l2_chain_id": 906969,
+                  "operations_cost_l1": "0",
+                  "profit_bps": 2000,
+                  "proving_cost_l1": "0",
+                  "risk_bps": 0,
+                  "rollup_id": 1,
+                  "treasury_cost_l1": "0",
+                  "valid_until_l1_timestamp": 2000000000,
+                  "version": 1
+                },
+                "id": "0xe3538a35e98af86261badbf55a04e20a403b8065f3f6cba04e94160048cb7071"
+              },
+              "request": {
+                "chainId": "0xdd6d9",
+                "data": "0x61461954",
+                "from": "0x8319d1c6d4f96aa8e487fe9ae126b8f12bfb2bf6",
+                "gas": "0x2f3fd",
+                "nonce": "0x6",
+                "to": "0x2ad716eecb0bf954be2baae4c29c6299e9604351",
+                "type": "0x2",
+                "value": "0x0"
+              },
+              "requestHash": "0x39ea78768ec14decc959dc9b492276315c43f092839436ac27422e62505ef9b8",
+              "transaction": {
+                "chainId": "0xdd6d9",
+                "data": "0x61461954",
+                "from": "0x8319d1c6d4f96aa8e487fe9ae126b8f12bfb2bf6",
+                "gas": "0x2f3fd",
+                "maxFeePerGas": "0x172e58725",
+                "maxPriorityFeePerGas": "0x172e586f4",
+                "nonce": "0x6",
+                "to": "0x2ad716eecb0bf954be2baae4c29c6299e9604351",
+                "type": "0x2",
+                "value": "0x0"
+              },
+              "version": 1
+            }
+          ],
+          "recoveryMode": "enforced_tariff"
+        },
+        "expiresAt": "0x6ad50bf5",
+        "nonce": "0x6",
+        "options": [
+          {
+            "estimatedFee": "0x4061ced3d4a25",
+            "gas": "0x2f3fd",
+            "gasPrice": "0x172e58725",
+            "requestHash": "0x78df4a9e71f1c211ecc745b4bd7dfa1847f78a26bd1041e18536760d4cfe4d9b",
+            "type": "0x0"
+          },
+          {
+            "estimatedFee": "0x4061ced3d4a25",
+            "gas": "0x2f3fd",
+            "maxFeePerGas": "0x172e58725",
+            "maxPriorityFeePerGas": "0x172e586f4",
+            "requestHash": "0x39ea78768ec14decc959dc9b492276315c43f092839436ac27422e62505ef9b8",
+            "type": "0x2"
+          }
+        ],
+        "version": 1
+      }
+    }
+  },
+  "funded_control_balance": {
+    "at": "2026-10-18T18:11:35.727809+00:00",
+    "request": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "eth_getBalance",
+      "params": [
+        "0x8319d1c6d4f96aa8e487fe9ae126b8f12bfb2bf6",
+        "latest"
+      ]
+    },
+    "response": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": "0x42a5560b8ead68"
+    }
+  },
+  "preliminary_control_attempts": {
+    "unfunded_public_fixture": {
+      "at": "2026-10-18T18:10:58.994235+00:00",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_getBalance",
+        "params": [
+          "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+          "latest"
+        ]
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": "0x0"
+      }
+    },
+    "excluded_beneficiary": {
+      "at": "2026-10-18T18:11:15.323348+00:00",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eez_debugQuoteFee",
+        "params": [
+          {
+            "from": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52",
+            "to": "0x2ad716eecb0bf954be2baae4c29c6299e9604351",
+            "data": "0x61461954",
+            "value": "0x0"
+          }
+        ]
+      },
+      "response": {
+        "error": {
+          "code": -32004,
+          "data": {
+            "code": "unsupported_transaction",
+            "message": "unsupported quote: expired policy or excluded sender"
+          },
+          "message": "unsupported quote: expired policy or excluded sender"
+        },
+        "id": 1,
+        "jsonrpc": "2.0"
+      }
+    }
+  },
+  "post_probe_state": {
+    "post-probe-nonce": {
+      "at": "2026-10-18T18:12:13.717572+00:00",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_getTransactionCount",
+        "params": [
+          "0xf0208ed478e7aa5c4c1c62145e5be5c7b91fec54",
+          "latest"
+        ]
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": "0x27"
+      }
+    },
+    "source-last-result": {
+      "at": "2026-10-18T18:12:13.824003+00:00",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_call",
+        "params": [
+          {
+            "to": "0x2ad716eecb0bf954be2baae4c29c6299e9604351",
+            "data": "0xabcc11d8"
+          },
+          "latest"
+        ]
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "target-counter": {
+      "at": "2026-10-18T18:12:14.061900+00:00",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_call",
+        "params": [
+          {
+            "to": "0xaef1b3c2680a4b96e08e7d33dec9512403e1360f",
+            "data": "0x61bc221a"
+          },
+          "latest"
+        ]
+      },
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    }
+  },
+  "prior_ci_case": {
+    "protocol_commit": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+    "scenario": "revertFromOtherChainAndCallAgainL2",
+    "result": "PASS",
+    "verification_mode": "upstream-direct",
+    "claims": {
+      "upstream_completed": true,
+      "receipts_revalidated": true,
+      "scenario_tables_selected_from_canonical_calldata": true,
+      "upstream_summary_blocks_match_receipts": true,
+      "causal_graph_bijection": true,
+      "blob_kzg_authenticated": true,
+      "native_semantics_decoded": true,
+      "semantic_trigger_bound": true,
+      "l1_settlement_verified": true,
+      "posted_table_field_match": true,
+      "rolling_hashes_replayed": false,
+      "l2_table_field_match": true,
+      "l2_calls_verified": true
+    }
+  },
+  "prior_ci_case_location": {
+    "run": "https://github.com/eez-association/eez-rollupX/actions/runs/39144111982",
+    "file": "/tmp/rollupx-ci-39144111982-evidence/protocol-e2e/evidence/revertFromOtherChainAndCallAgainL2.json",
+    "sha256": "096b04d3436ce2875aa982570dc9c2ee7cc728370a32d263c4220ec5390ba07f",
+    "artifact_id": 12145030533,
+    "artifact_name": "kurtosis-e2e-39144111982-1",
+    "zip_sha256": "3db758bc0ad163012942978f8169afc84ad52f2247201e72eec07aa4fd3f5ee2"
+  },
+  "artifacts": [
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/balance.json",
+      "sha256": "395040bee2164eb4dbcfb759a9b3dc037c1a4597aabaab434f6ed46422858d10",
+      "bytes": 65,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/canary-balance.json",
+      "sha256": "38ff245ec070394336007f0ad6cd5fa00fca88b7f27cc47fbf98a539f8204704",
+      "bytes": 312,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/chain.json",
+      "sha256": "45e51875797fc8481e321329e0fad48e72edf38edb8d17b5db3bcb134dc7c7e6",
+      "bytes": 57,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/code.json",
+      "sha256": "b430e2521680c26d2b5a4e080db056b6bdfbb0d5f2f0e9655d6dead187bf539e",
+      "bytes": 1322,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/control-balance.json",
+      "sha256": "9410d35da8c534624c4a6a70fa7d1435b22a74d0a56419333f499914cdb1ca1e",
+      "bytes": 314,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/control-block.json",
+      "sha256": "08ae1ee1cb705aea621db119aa2255d2a926305a23d7fa4f06eee471087ce93d",
+      "bytes": 2168,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/control-code.json",
+      "sha256": "f201570d8243ff2d0b2af8758a343eeb1173b0c7d2c4886140866973c77418c2",
+      "bytes": 295,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/discovery.json",
+      "sha256": "449c1cc5eee725957eaa9ab10493ad730c731ec533244d467aeba1b85428e0ef",
+      "bytes": 403,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/estimated-gas.json",
+      "sha256": "57a8b50d96fdd49498d78b7e9356262954a9bbc88a035de8536344335a0532a6",
+      "bytes": 428,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/funded-canary-debug.json",
+      "sha256": "b9226fff636bf848210a408737521588b6f802f86e23d661082e89a0fd418e33",
+      "bytes": 8488,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/funded-control-debug.json",
+      "sha256": "dd38e740f41325edd2f33f9a8dbe0ea1d2f7c8acdea6b756fd730f450da6ee85",
+      "bytes": 663,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/funded-fixture-balance.json",
+      "sha256": "9881aed9960a3c06c39881c3f6cb0ccecd9a16911699df13f6ed5b0c9e4040bd",
+      "bytes": 299,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/nonce.json",
+      "sha256": "5d2d30069f7e85557e524e632f433fafa4aa6311ca93b94f9b810244e0c8d26c",
+      "bytes": 54,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/original-debug.json",
+      "sha256": "7afc013eac2fab502ac2cc00cd6ce904f0e57c06d5f1fd872f29c1670566bc34",
+      "bytes": 1523,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/original-node.log",
+      "sha256": "6c43a5e61be0541600dc1845b8b7a90a47287bfe8d278709074a323d66d86c03",
+      "bytes": 335879,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/post-probe-nonce.json",
+      "sha256": "da96710e7f64921d74ea5ffc6cbd3c773afd5f3173a2988d6b245c7664ae695d",
+      "bytes": 309,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/probe-node.log",
+      "sha256": "22d0a6fe0f93c2bf2d59d2745dd466781935e75823357316a123e511fbc2a766",
+      "bytes": 22873,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/quote.json",
+      "sha256": "5d311dbbde01bf6ebd368e86c5685e059de994d67090d96582d57525ea71c1a7",
+      "bytes": 559,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/source-last-result.json",
+      "sha256": "d04effbd2a4fa928b481ef7f4d4c3e3496f14ebdc75c76b456050c7160a109a5",
+      "bytes": 410,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/target-counter.json",
+      "sha256": "c6871c62c107fd77037094361ff5437eebdc9da1ad10a571005b53e4209de40e",
+      "bytes": 410,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/rollupx-report-SyPXLFMhfe-20261018/validation-errors.json",
+      "sha256": "e7ec4b626585edde807d53ba9f686d9392d5cc8ae3819027727adbb5705db1d6",
+      "bytes": 1354,
+      "availability": "local-only; retention not guaranteed"
+    },
+    {
+      "file": "/tmp/hackmd-SyPXLFMhfe-20261018.md",
+      "sha256": "030d9d103875897b5622f190f46ee57866e6644b874548404f6a0cf5aa42fd8a",
+      "bytes": 8747,
+      "availability": "local-only; source available at linked HackMD URL"
+    }
+  ],
+  "limitations": [
+    "No signed transaction or settlement of the reported fixture",
+    "Control changes from and resolved nonce; no original sender top-up",
+    "No independent follower replay in this review",
+    "No full stress suite or source rebuild",
+    "Reporter client revision unavailable; its diagnostic observed in report, exact helper absent at reviewed protocol pin"
+  ],
+  "mutations": {
+    "transactions_signed": 0,
+    "transactions_submitted": 0,
+    "wallets_funded": 0,
+    "services_restarted": 0,
+    "deployments": 0,
+    "production_source_changes": 0
+  }
+}

@@ -29,6 +29,7 @@ use crate::ingress::Direction;
 use crate::optimistic::{OptimisticallyIncluded, TerminalReason, UserLocation};
 
 mod status;
+pub(crate) use status::BlockingCondition;
 pub use status::{QueueCounts, QueueSnapshot, SourceState};
 
 /// A cross-chain transaction held between submission and Sync-slot
@@ -45,9 +46,16 @@ pub struct HeldTx {
     /// accepted it. Recovery increments this once per failed episode and
     /// evicts the tx at the applicable bound: three for prover/immediate relay
     /// rejection and numeric admission, six for automatic canonical settlement
-    /// failures (allowing a reduced retry after the fifth exclusion). Switching
+    /// failures (allowing a reduced retry after the fifth failure). Switching
     /// failure paths preserves this counter. Eviction requires resubmission.
+    /// Excluded target slots are counted separately in `excluded_slots`.
     pub attempts: u32,
+    /// Target slots whose block was built without this transaction's bundle
+    /// (no postBatch gas spent). Bounded by
+    /// [`crate::optimistic::MAX_EXCLUDED_SLOT_ATTEMPTS`], independently of
+    /// `attempts`, so slots the Composer cannot reach do not exhaust the
+    /// settlement bound.
+    pub excluded_slots: u32,
     /// Recovered L1 sender. Together with `nonce`, lets the pool and
     /// the eviction path keep each sender's nonce chain CONTIGUOUS:
     /// ingress rejects out-of-sequence submissions, and evicting a tx
@@ -90,6 +98,13 @@ pub enum AdmissionError {
         offered_priority_fee: u128,
         required_priority_fee: u128,
     },
+}
+
+#[derive(Debug)]
+pub(crate) enum QuotePrefixError {
+    Invalid(&'static str),
+    /// A claimed source has not yet entered its attempt's signed-byte ledger.
+    Composing,
 }
 
 /// Smallest fee a replacement must offer over `replaced`: ≥10% more,
@@ -418,7 +433,7 @@ impl HeldPool {
         id: crate::optimistic::AttemptId,
         as_of: eez_l1::L1BlockRef,
         outcomes: &[crate::optimistic::SourceOutcome],
-        charge_attempt: bool,
+        charge: crate::optimistic::AttemptCharge,
         attempt_limit: u32,
         is_canonical: impl FnOnce() -> bool,
     ) -> Result<(), String> {
@@ -428,7 +443,7 @@ impl HeldPool {
         }
         let gaps = state
             .ledger
-            .resolve(id, as_of, outcomes, charge_attempt, attempt_limit)?;
+            .resolve(id, as_of, outcomes, charge, attempt_limit)?;
         state.apply_resolution(&gaps);
         let ledger = Arc::clone(&state.ledger);
         state.telemetry.observe_completion(&ledger);
@@ -652,18 +667,53 @@ impl HeldPool {
         direction: Direction,
         nonce: u64,
     ) -> Vec<HeldTx> {
+        self.evict_chain(sender, direction, nonce, None)
+    }
+
+    /// Evict like [`Self::evict_chain_at_or_above`] because composing the
+    /// root failed deterministically. The root (queued, in flight, or a
+    /// previously submitted ledger user being recomposed) becomes
+    /// `SimulationFailed` with `rejection` retained for the status RPC; its
+    /// higher nonces become `NonceGap` as usual.
+    #[must_use]
+    pub fn evict_rejected_chain(
+        &self,
+        sender: Address,
+        direction: Direction,
+        nonce: u64,
+        rejection: crate::rejection::SourceRejection,
+    ) -> Vec<HeldTx> {
+        self.evict_chain(sender, direction, nonce, Some(rejection))
+    }
+
+    fn evict_chain(
+        &self,
+        sender: Address,
+        direction: Direction,
+        nonce: u64,
+        rejection: Option<crate::rejection::SourceRejection>,
+    ) -> Vec<HeldTx> {
+        let root_reason = if rejection.is_some() {
+            TerminalReason::SimulationFailed
+        } else {
+            TerminalReason::PoolDiscarded
+        };
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        let mut root_hash = None;
         let mut evicted = Vec::new();
         let queued = std::mem::take(&mut state.txs);
         let mut kept = VecDeque::with_capacity(queued.len());
         for tx in queued {
             if tx.sender == sender && tx.direction == direction && tx.nonce >= nonce {
                 state.by_hash.remove(&tx.hash);
+                if tx.nonce == nonce {
+                    root_hash = Some(tx.hash);
+                }
                 state.telemetry.removed(
                     tx.hash,
                     (tx.sender, tx.direction, tx.nonce),
                     if tx.nonce == nonce {
-                        TerminalReason::PoolDiscarded
+                        root_reason
                     } else {
                         TerminalReason::NonceGap
                     },
@@ -683,11 +733,14 @@ impl HeldPool {
         in_flight.retain(|hash, identity| {
             let remove = identity.0 == sender && identity.1 == direction && identity.2 >= nonce;
             if remove {
+                if identity.2 == nonce {
+                    root_hash = Some(*hash);
+                }
                 telemetry.removed(
                     *hash,
                     *identity,
                     if identity.2 == nonce {
-                        TerminalReason::PoolDiscarded
+                        root_reason
                     } else {
                         TerminalReason::NonceGap
                     },
@@ -697,6 +750,29 @@ impl HeldPool {
             !remove
         });
         state.update_recovery_ownership();
+        if let (Some(hash), Some(rejection)) = (root_hash, rejection) {
+            // A previously submitted root is a ledger user, which recovery
+            // ownership has just marked PoolDiscarded; name the actual cause.
+            state
+                .ledger
+                .update(|data| {
+                    if let Some(user) = data.users.get_mut(&hash)
+                        && user.location
+                            == (UserLocation::Terminal {
+                                reason: TerminalReason::PoolDiscarded,
+                                canonical: None,
+                            })
+                    {
+                        user.location = UserLocation::Terminal {
+                            reason: TerminalReason::SimulationFailed,
+                            canonical: None,
+                        };
+                    }
+                    Ok(())
+                })
+                .expect("cannot record a rejected transaction's ownership; held pool stopped");
+            state.telemetry.rejected(hash, rejection);
+        }
         evicted
     }
 
@@ -862,9 +938,101 @@ impl HeldPool {
     /// Includes newly admitted users, which enter the submission ledger only
     /// when an attempt begins. Replacement, eviction and release remove this
     /// ownership, while draining/requeueing preserves it.
-    pub(crate) fn owns(&self, hash: TxHash) -> bool {
+    pub fn owns(&self, hash: TxHash) -> bool {
         let state = self.state.lock().expect("held_pool mutex poisoned");
         state.by_hash.contains(&hash) || state.in_flight.contains_key(&hash)
+    }
+
+    /// An isolated source-chain trace cannot classify a call whose effects may
+    /// depend on an owned predecessor. This is only a routing hint; admission
+    /// still requires a contiguous, replayable prefix and validates the fees.
+    pub fn owns_predecessor(&self, sender: Address, direction: Direction, nonce: u64) -> bool {
+        let state = self.state.lock().expect("held_pool mutex poisoned");
+        state
+            .txs
+            .iter()
+            .any(|tx| tx.sender == sender && tx.direction == direction && tx.nonce < nonce)
+            || state.in_flight.values().any(|&(owner, axis, previous)| {
+                owner == sender && axis == direction && previous < nonce
+            })
+    }
+
+    /// Read-only quote guard against reusing a nonce already owned by the pool.
+    /// Predecessor replay is separate and this lookup does not reserve a nonce.
+    pub(crate) fn owns_nonce(&self, sender: Address, direction: Direction, nonce: u64) -> bool {
+        let state = self.state.lock().expect("held_pool mutex poisoned");
+        state
+            .txs
+            .iter()
+            .any(|tx| tx.sender == sender && tx.direction == direction && tx.nonce == nonce)
+            || state
+                .in_flight
+                .values()
+                .any(|owner| *owner == (sender, direction, nonce))
+    }
+
+    /// Copy a bounded, contiguous owned prefix for a disposable quote replay.
+    /// Read queued bytes and in-flight ledger bytes under the ownership lock;
+    /// a reservation without available signed bytes cannot authorize replay.
+    pub(crate) fn quote_predecessors(
+        &self,
+        sender: Address,
+        direction: Direction,
+        canonical: u64,
+        requested: Option<u64>,
+        maximum: usize,
+    ) -> Result<(u64, Vec<HeldTx>), QuotePrefixError> {
+        let state = self.state.lock().expect("held_pool mutex poisoned");
+        let nonce = requested.unwrap_or_else(|| {
+            state
+                .next_expected_nonce(sender, direction, canonical)
+                .unwrap_or(u64::MAX)
+        });
+        let count = nonce
+            .checked_sub(canonical)
+            .ok_or(QuotePrefixError::Invalid(
+                "nonce precedes canonical source state",
+            ))?;
+        if count > maximum as u64 {
+            return Err(QuotePrefixError::Invalid(
+                "queued nonce prefix exceeds quote limit",
+            ));
+        }
+        let mut prefix = Vec::with_capacity(count as usize);
+        for next in canonical..nonce {
+            let tx = state
+                .txs
+                .iter()
+                .find(|tx| tx.sender == sender && tx.direction == direction && tx.nonce == next)
+                .cloned()
+                .or_else(|| {
+                    state.ledger.read(|data| {
+                        data.users
+                            .values()
+                            .find(|user| {
+                                let tx = &user.tx;
+                                tx.sender == sender
+                                    && tx.direction == direction
+                                    && tx.nonce == next
+                                    && state.in_flight.contains_key(&tx.hash)
+                            })
+                            .map(|user| user.tx.clone())
+                    })
+                })
+                .ok_or_else(|| {
+                    if state
+                        .in_flight
+                        .values()
+                        .any(|owner| *owner == (sender, direction, next))
+                    {
+                        QuotePrefixError::Composing
+                    } else {
+                        QuotePrefixError::Invalid("queued nonce prefix has a gap")
+                    }
+                })?;
+            prefix.push(tx);
+        }
+        Ok((nonce, prefix))
     }
 
     /// Cross-chain sources must not enter ordinary L2 sequencing when Reth
@@ -886,6 +1054,76 @@ mod tests {
     use super::*;
     use alloy_primitives::B256;
 
+    #[test]
+    fn quote_prefix_requires_contiguous_owned_bytes_and_tracks_replacements() {
+        let pool = HeldPool::new(Default::default());
+        let first = tx(1);
+        let mut second = tx(2);
+        second.sender = first.sender;
+        second.nonce = first.nonce + 1;
+        pool.push_contiguous(first.clone(), first.nonce).unwrap();
+        pool.push_contiguous(second.clone(), first.nonce).unwrap();
+        let read = |requested, limit| {
+            pool.quote_predecessors(first.sender, first.direction, first.nonce, requested, limit)
+        };
+        let (next, prefix) = read(None, 8).unwrap();
+        assert_eq!(next, second.nonce + 1);
+        assert_eq!(prefix, [first.clone(), second.clone()]);
+        assert!(read(Some(next + 1), 8).is_err());
+        assert!(read(Some(next), 1).is_err());
+        assert!(matches!(
+            read(None, 1),
+            Err(QuotePrefixError::Invalid(
+                "queued nonce prefix exceeds quote limit"
+            ))
+        ));
+        let mut replacement = first.clone();
+        replacement.hash = B256::repeat_byte(3);
+        replacement.raw_tx = Bytes::from_static(b"replacement");
+        replacement.max_fee_per_gas *= 2;
+        replacement.priority_fee_per_gas *= 2;
+        pool.push_contiguous(replacement.clone(), first.nonce)
+            .unwrap();
+        assert_eq!(read(Some(next), 8).unwrap().1, [replacement, second]);
+        assert!(
+            pool.quote_predecessors(
+                first.sender,
+                Direction::Outbound,
+                first.nonce,
+                Some(next),
+                8
+            )
+            .is_err()
+        );
+        let claimed = pool.pop_all();
+        assert!(matches!(read(None, 8), Err(QuotePrefixError::Composing)));
+        assert!(claimed.iter().all(|tx| pool.owns(tx.hash)));
+        pool.release_in_flight_batch(&claimed);
+        assert_eq!(read(None, 8).unwrap(), (first.nonce, Vec::new()));
+    }
+
+    #[test]
+    fn quote_nonce_guard_tracks_queued_and_in_flight_ownership() {
+        let pool = HeldPool::new(Default::default());
+        let tx = tx_dir(1, Direction::Outbound);
+        assert!(!pool.owns_nonce(tx.sender, tx.direction, tx.nonce));
+        pool.push_contiguous(tx.clone(), tx.nonce).unwrap();
+        assert!(!pool.owns_predecessor(tx.sender, tx.direction, tx.nonce));
+        assert!(pool.owns_predecessor(tx.sender, tx.direction, tx.nonce + 1));
+        assert!(pool.owns_predecessor(tx.sender, tx.direction, tx.nonce + 3));
+        assert!(!pool.owns_predecessor(tx.sender, Direction::Inbound, tx.nonce + 1));
+        assert!(!pool.owns_predecessor(Address::ZERO, tx.direction, tx.nonce + 1));
+        assert!(pool.owns_nonce(tx.sender, tx.direction, tx.nonce));
+        assert!(!pool.owns_nonce(tx.sender, Direction::Inbound, tx.nonce));
+        assert!(!pool.owns_nonce(tx.sender, tx.direction, tx.nonce + 1));
+        let claimed = pool.pop_all();
+        assert!(pool.owns_predecessor(tx.sender, tx.direction, tx.nonce + 1));
+        assert!(pool.owns_nonce(tx.sender, tx.direction, tx.nonce));
+        pool.release_in_flight_batch(&claimed);
+        assert!(!pool.owns_predecessor(tx.sender, tx.direction, tx.nonce + 1));
+        assert!(!pool.owns_nonce(tx.sender, tx.direction, tx.nonce));
+    }
+
     fn insert(pool: &HeldPool, tx: HeldTx, on_chain: u64) {
         pool.push_contiguous(tx, on_chain).unwrap();
     }
@@ -899,6 +1137,7 @@ mod tests {
             raw_tx: Bytes::from(vec![byte; 32]),
             hash: TxHash::from(B256::repeat_byte(byte)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(byte),
             priority_fee_per_gas: u128::from(byte),
             sender: Address::repeat_byte(byte),
@@ -1285,6 +1524,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,
@@ -1326,6 +1566,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,
@@ -1374,6 +1615,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,
@@ -1410,6 +1652,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,
@@ -1449,6 +1692,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,
@@ -1477,6 +1721,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,
@@ -1622,6 +1867,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,
@@ -1671,6 +1917,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,

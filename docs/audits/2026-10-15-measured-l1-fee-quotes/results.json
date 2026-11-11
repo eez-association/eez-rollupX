@@ -1,0 +1,253 @@
+{
+  "recordedAt": "2026-10-15T10:59:57.027619+00:00",
+  "status": "deployed_and_verified",
+  "images": {
+    "node": {
+      "tag": "eez-node:l2-fee-measured-20261015",
+      "id": "sha256:e3523c5bcde2a8c059ac97209f5f6f2a83b7604fbd4065769bf5af2026b7520f",
+      "source": "246514ed1da11eb9fe51616f0b65eddaccbaea4d",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+      "executables": {
+        "eez-composer": "575ad928860880fde85134f15962c617257e63984a84870c22f8687662516111",
+        "eez-follower": "0ab2cc04629b35307180bafba84c34091228f6181aec67174ee6320a8691ba1b",
+        "eez-genesis-state-root": "67354b6171a7eef8d75669cbe9da77e461d56044e020195061f1d0510f8f39d6",
+        "eez-genesis-block-hash": "009b36e55f920fd47700cb627704fd93fe780b1563bca35c488bfe52eb83738d"
+      }
+    },
+    "signer": {
+      "tag": "eez-proof-signer:l2-fee-measured-20261015",
+      "id": "sha256:35392d3ae29ce68237b507bd6498f3d83724c681d1bd73126e5c5bd1b3191443",
+      "source": "246514ed1da11eb9fe51616f0b65eddaccbaea4d",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+      "executables": {
+        "eez-proof-signer": "06a6b51cf90fc7fb36550249fd125171bcf60517577cb77476987f9a36aab9a2"
+      }
+    },
+    "deploy": {
+      "tag": "eez-deploy:l2-fee-measured-20261015",
+      "id": "sha256:7a699b603df0f47e485e3b5f77bac59da75997ffa3889922843400e982c710ac",
+      "source": "246514ed1da11eb9fe51616f0b65eddaccbaea4d",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+      "executables": {}
+    },
+    "ui": {
+      "tag": "eez-rollup-ui:l2-fee-measured-20261015",
+      "id": "sha256:3b468afe167f6749dd678005c93524e293a36baf209fd81fef3d6b8b4280ec6a",
+      "source": "d67d16ba8a539a7806fe8702c4796907704d45f2",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+      "executables": {}
+    }
+  },
+  "previousDeployment": {
+    "node": {
+      "id": "sha256:90ce7c64132496aed50f52702d90a09d22e5d8001f6559db7b25f1ee794bfc38",
+      "source": "d2e0a24d043c052c77f3556670014aa988896004"
+    },
+    "signer": {
+      "id": "sha256:429164a1d815ad6a1aa4a496713ee8a0b806bcb914f31f76cc48e6ada38191be",
+      "source": "d2e0a24d043c052c77f3556670014aa988896004"
+    },
+    "ui": {
+      "id": "sha256:75ca25f68491bd46bddd973eb0fa896e5f385355e73da71b5434c760a7ead886",
+      "source": "80c51458d49384aa2c9a752465af4512b7539f95"
+    }
+  },
+  "policy": {
+    "l1PerL2Numerator": "1",
+    "l1PerL2Denominator": "1",
+    "riskBps": 2000,
+    "profitBps": 0,
+    "fixedProvingOperationsTreasuryL1": "0"
+  },
+  "baselineQuote": {
+    "basis": "isolated_native_l2_replay_and_projected_l1_post",
+    "l1Gas": 1035395,
+    "l1ExecutionPrice": "1000000007",
+    "l1BlobPrice": "1000000000",
+    "l1ExecutionCost": "1035395007247765",
+    "l1BlobCost": "131072000000000",
+    "l1PostingCost": "1166467007247765",
+    "l1Risk": "233293401449553",
+    "requiredL2Tip": "1399760408697318",
+    "sourceGasUsed": 115373
+  },
+  "deployedBridgeQuote": {
+    "basis": "isolated_native_l2_and_l1_settlement",
+    "l1Gas": 182957,
+    "l1ExecutionPrice": "1000000007",
+    "l1BlobPrice": "1000000000",
+    "l1ExecutionCost": "182957001280699",
+    "l1BlobCost": "131072000000000",
+    "l1PostingCost": "314029001280699",
+    "l1Risk": "62805800256140",
+    "requiredL2Tip": "376834801536839",
+    "sourceGasUsed": 115373
+  },
+  "comparison": {
+    "oldTipWei": "1399760408697318",
+    "newTipWei": "376834801536839",
+    "oldL1Gas": 1035395,
+    "newL1Gas": 182957,
+    "reductionPercent": 73.07862122721853
+  },
+  "sameBridgeIntent": true,
+  "kurtosisBridgeReceipts": [
+    {
+      "sourceHash": "0x6462a76852bb0b94626fc7fadb5355112738750db41e2558012320229ce2defd",
+      "l1Hash": "0xfbfe4eb1d5ed3a4ec0e54707d9d34083d34ef204becbd8ecfd661fd8310e3745",
+      "sourceType": "0x2",
+      "estimatedL1Gas": 492835,
+      "actualL1Gas": 492835,
+      "sourceGas": 404208,
+      "actualL1Cost": "494310077956482",
+      "grossL2Tip": "593172093644928",
+      "paidCostRatio": 1.2000000001965359
+    },
+    {
+      "sourceHash": "0x6ab2bd0d508d77f11d6ab4ed131f5a3c709426a0426f54cb513c4c1a6a1516bc",
+      "l1Hash": "0x31aab71b41d1ccd7a7ec926b23f49ed41bcfcae701b3726bd41effd22d90dbc6",
+      "sourceType": "0x0",
+      "estimatedL1Gas": 182957,
+      "actualL1Gas": 182957,
+      "sourceGas": 115373,
+      "actualL1Cost": "183437361052852",
+      "grossL2Tip": "220155936327584",
+      "paidCostRatio": 1.2001695568666224
+    }
+  ],
+  "kurtosisMixed": {
+    "sameNativeBlock": true,
+    "sources": [
+      "0x5a95a88043fe2374bb2e3992ae4052d237c14b20a2e7d0198ba0e2d4821783c8",
+      "0xf3c98599f06800eb16314aabfb4ebb6ad44c7e7d1a72177b25738b488ba457d1"
+    ],
+    "postings": [
+      {
+        "hash": "0x9ac476d4faf6f9f90a30bcb450f9a7e1857f43c2ecc29e691e05eff2ea23d0b9",
+        "actualPostingCostL1": "837075869696426",
+        "requiredL2": "1004491043635712",
+        "paidL2": "1149237708879100"
+      }
+    ]
+  },
+  "kurtosisIndependentReplay": {
+    "checked_blocks": 84,
+    "checked_derived_blocks": 84,
+    "checked_receipts": 6,
+    "safe_l2_block": 312,
+    "safe_l2_block_hash": "0x9b1d237a2f8cb586edb2295cd9eb1dc89da4bf29b2cbc8a14d224d5cd6e50bc3",
+    "source": "canonical_l1_only",
+    "verified": true
+  },
+  "liveCanary": {
+    "sourceHash": "0x813b4ea77749a6a20c6c334673d40a66c6b19d2a30ff77806bf45ee78ac32d3e",
+    "l1Hash": "0xdadbaecce1d01eb185524c6bac53005fa1994f480791bdffd66876f2147ed6e3",
+    "sourceType": "0x0",
+    "estimatedL1Gas": 173707,
+    "actualL1Gas": 173683,
+    "sourceGas": 99149,
+    "actualL1Cost": "304755001215781",
+    "grossL2Tip": "365734801552714",
+    "canonical": {
+      "hash": "0xdb09dfb5f0e981164df8b9e17fabe7323da2cae289d9ebda5157c35944d41485",
+      "number": 23531375
+    },
+    "targetValue": "101526",
+    "completedNestedCalls": "4",
+    "paidCostRatio": 1.2000945024483993,
+    "underpaymentCode": "l2_tip_underfunded"
+  },
+  "publicChecks": {
+    "checkedAt": "2026-10-15T10:54:12.506028+00:00",
+    "routes": {
+      "/rpc/l1": "0x27d8",
+      "/composer/l1": "0x27d8",
+      "/rpc/l2": "0xdd6d9",
+      "/composer/l2": "0xdd6d9"
+    },
+    "discoveryTags": [
+      "latest",
+      "pending",
+      "0x1"
+    ],
+    "discoveryIdentical": true,
+    "acceptedQueueEmpty": true,
+    "dashboardAssets": [
+      {
+        "path": "/dashboard/assets/index-BQvHGogc.js",
+        "sha256": "7fb911bb927a0b5c764bc693aef48c3f4d7af155ecdba005692a150f59991c1f"
+      }
+    ],
+    "genesisSha256": "ec2ca22f45a8801ca4e955c4ab4dd6f2cea268bd85a63a85a22d755cf48cc7bf",
+    "genesisUnchanged": true,
+    "containers": {
+      "node": {
+        "id": "sha256:e3523c5bcde2a8c059ac97209f5f6f2a83b7604fbd4065769bf5af2026b7520f",
+        "status": "running",
+        "health": null,
+        "restarts": 0
+      },
+      "signer": {
+        "id": "sha256:35392d3ae29ce68237b507bd6498f3d83724c681d1bd73126e5c5bd1b3191443",
+        "status": "running",
+        "health": "healthy",
+        "restarts": 0
+      },
+      "ui": {
+        "id": "sha256:3b468afe167f6749dd678005c93524e293a36baf209fd81fef3d6b8b4280ec6a",
+        "status": "running",
+        "health": "healthy",
+        "restarts": 0
+      }
+    },
+    "sdkVerified": true
+  },
+  "nativeExecutableSha256": {
+    "node_e2e": "37387ac5c1403483c092b5a9f6b4cbf85480baaacbdb6b72cd78dc2f66bd148b",
+    "eez-composer": "6d08c9384c7d498565ccf34c065c4dc9f129bed99bd52ac39ef474f121cb3711",
+    "eez-follower": "ba4b1bb70882080f52267ef2295bb3e2421cdc0e24c7e5cf29d3ce6d95f253b7",
+    "eez-proof-signer": "b79384ccb7b585a19eb5f58ac510b27eddf4e08090849d675314a7606ef8a950"
+  },
+  "artifactAvailability": "Local-only ignored artifacts in operator checkout; hashes identify retained files, not an externally available archive.",
+  "artifactSha256": {
+    "candidate-images.json": "05ef3730b50eaef3a217baad210437a00cc062a70ccab93eace219bdb03ad3ed",
+    "baseline-intent.json": "b40353bcc4f78bb67ce80fbcc1c5ca75067a2df6be3e50ebd71afe3d088e0560",
+    "baseline-quote.json": "fe2cb926ad3ab6b12dd51a01a7d69753cd990c2046bca79deb7fbd9e31894773",
+    "deployed-bridge-intent.json": "b40353bcc4f78bb67ce80fbcc1c5ca75067a2df6be3e50ebd71afe3d088e0560",
+    "deployed-bridge-quote.json": "1960978dd893ad6013f2642ce4516daa16e93bb1bcfeead954c964b81fafab00",
+    "unit-tests.log": "a96c4b67c1908e6a03a19cfce6ee878e439ed32f99497f4d08bae205796e975c",
+    "node-unit-tests.log": "13b0b82bf9c3ad6abdb266a76d6531173018cd3c13638c420696b1246a7c44bd",
+    "clippy.log": "27eab6ba2b030f34d388f3115bda62d07a46ee55b6ea95b4630169dee33e251b",
+    "clippy-fixed.log": "fb2632c117a30c6b3a2f7f0b0d7ee590afb257e5565c8751907c6119b88d6f2d",
+    "fee-quotes-e2e.log": "ebfb9d48137a3175f5f257fb0edd42adcb8d33ea7743dd08f2d81815a715203d",
+    "fee-quotes-e2e-serial-build.log": "9b6ff8ba02f668346e6392a3c6bd8c633d2e91feb20e7165d613a4e833090c64",
+    "fee-quotes-e2e-prepared-executables.log": "5050489233bcc8de148986b0d5bd937f7c72cd4c6fbcfa9e9eb6dfe109b16a04",
+    "settlement-cost-e2e.log": "1bbbcb1a3d24b6ae2cf0acefe869fc61f12ead68bd0ac6b4d2b1df1ba236224c",
+    "docker-node-final.log": "d7e41cb18a40ffe4344c26ede6212c3a23179f9408469bb87df54f625e699a3f",
+    "docker-signer-final.log": "c9d8c90514bc8e91c20b508fee4f2ff75e55a558cbd01654d73ce718df971258",
+    "docker-deploy-final.log": "9ee3261c1276ab33d17ad7044cc872df8e3096ef3edca301185fa96899cf41d9",
+    "docker-ui-build.log": "3589a15e973f643a677a809757becd10fa2eb681256b5cc21af07fb3bb5100b4",
+    "browser-image-fees-final.log": "ae8e8e2be6e9648f2cd88b507774ee6c97766f255e2ea227449d42d00563fc5e",
+    "kurtosis-running-images.json": "66a5229ed6b6582a0cd99748106253e3fe0ff833d314ad662bc3e9d2fe3f0459",
+    "kurtosis-deployment-check.log": "0b4bc82e27dda57767f65cef1afd75ed3719ea236c6fe12831bfa6155369efe9",
+    "kurtosis-bridge-fees.json": "4b3cc0c157cb41e13fe23b5a32fa88ab7266fd0b9bea78f71a574e146e947462",
+    "kurtosis-mixed-fees.json": "58915bffc6733b6a27213bf5e3ae47f0fd645b49ac2aa6e85d970f89ef00664b",
+    "kurtosis-browser-type2.json": "1255e2dffa7a0a0bea4b963db7981c8345217eb555ad2034355c087163c8f095",
+    "kurtosis-browser-legacy.json": "446d51a046dc32dc0c91081e3b0a43d0cb343ab5a922528fe8b6cd1655006e84",
+    "semantic-blobs.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "independent-replay.json": "97736f6b80ce4181d89d89b6ef8dc272b693cf326fe07fa4ae492995912d8ab0",
+    "kurtosis-independent-replay.log": "5812a4e48803390ba7e88b4828e5b8688373d30986cda2c29160ed3d6f7ca99c",
+    "kurtosis-stop.log": "25d40c306c50eee32053b7fa2ae02526eecd6e9de0761445669ad3e948a83cd2",
+    "live-handover.log": "a9feb387019d2dc5acbc971eeb2441e8b94795fd0ffe293baceb12982f86aec5",
+    "live-handover-resume.log": "f77fa5fae13a093585017ee93fbccd5d6979ee4dfc48adb3531b2562c0908e5f",
+    "live-canary.json": "28cb5f652aec807b84418773182b9804217ef6dcd40c68dd485a80fdcd17d9f8",
+    "deployment-public-checks.json": "e2033931c4e15c232062ce12d8bbbe36709c1bdae4b7371c16d58469094c52c9",
+    "config-preservation.json": "b3978e6941550f2eab3ef1e1a2cc0015f30fbd696db8e666723f676c8ddfc2aa",
+    "public-sdk-check.json": "e33207eb49f611ef255658a20387d3201a3347edd9ff940821d9c40d9c4e7e8a",
+    "kurtosis-blob-0.verified.json": "ec53e1d55721f85f0d5052b75bf78a5851489534555da167baead410291be81a",
+    "kurtosis-blob-1.verified.json": "9de088435350e32549415539fd5d021cb9c427fb2e1ba4e60115b7f65cc066cd",
+    "kurtosis-blob-2.verified.json": "ecb881c05f993cabdd308e4e9345ff5b634c523d1223fb9e68d439fa67ef2100",
+    "kurtosis-blob-3.verified.json": "9ef9c29c5eccd660e45c87c14dabc25dca9169da615d85fa0627393666331de0",
+    "kurtosis-blob-4.verified.json": "0df8a5134f2a5bbf45fed1702e156331c641eb7df0e5761c2abed6071854b699"
+  }
+}

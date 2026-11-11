@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import {VerifyL1BatchCalldata} from "eez-core-protocol/script/e2e/shared/Verify.s.sol";
+import {VerifyL1BatchCalldata} from "eez-core-protocol/script/e2e/scenarios/shared/Verify.s.sol";
 import {Script} from "forge-std/Script.sol";
 
 /// @notice File transport for calldata too large for an operating-system argument.

@@ -1,0 +1,38 @@
+{
+  "at": "2026-10-16T11:13:11.292914+00:00",
+  "canonicalSafePreserved": "0xc432f8da2784441adae3f53777a1ac1cf4b9bac0b4b39d7b0b7d3b903c1bc6af",
+  "queue": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": null,
+    "inFlight": 0,
+    "lastCanonicalCompletion": null,
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": null,
+    "unknown": 0
+  },
+  "runtime": [
+    {
+      "name": "eez-node-chiado",
+      "id": "639c95bfc374be02a876647f474fca6741a146fe15121bb2bc724fe8158a3081",
+      "image": "sha256:59dad838cfc6a8d349e668f4a0d63d89d74327e5abb82676ec7d8271ddf69e2f",
+      "started": "2026-10-16T11:13:05.936571925Z"
+    },
+    {
+      "name": "eez-proof-signer-chiado",
+      "id": "eb45f3e28f474d16e9be0e3b5b27d8f79a7daf4fa60492c412d678937ae49e13",
+      "image": "sha256:5095ca5db298a49f3c555a265b515689589e07e6db2c189c95be4257cc03017b",
+      "started": "2026-10-16T11:13:00.340341741Z"
+    }
+  ],
+  "publicRoutes": {
+    "/rpc/l1": 10200,
+    "/rpc/l2": 906969,
+    "/composer/l1": 10200,
+    "/composer/l2": 906969
+  },
+  "reopened": true
+}

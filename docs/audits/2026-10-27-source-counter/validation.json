@@ -1,0 +1,531 @@
+{
+  "source_baseline": "9c1ab488e1b421cdc59c7e82bd95f080f7332b3e",
+  "pr_base": "af0a000f12b0772892058066706465c84a00fd17",
+  "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "implementation_revision": "The commit containing this record; final source digests below include its uncommitted implementation at recording.",
+  "scope": "Local debug/test source validation, not shipping artifact provenance or operator-network deployment.",
+  "toolchain": {
+    "rust": "1.95.0",
+    "foundry": "1.7.1",
+    "locked": true,
+    "cargo_jobs": 1
+  },
+  "unchanged": [
+    "eez-core-protocol",
+    "Cargo.toml",
+    "Cargo.lock",
+    "prove.v2 protobuf"
+  ],
+  "runtime_sha256": {
+    "eez-genesis-state-root": "f8886ad4d937ac36ff3fba19d2649f7b7043f25d204c34b898787c34c7108e34",
+    "eez-proof-signer": "c53372833e7e6299ef835026eb10703c152def9ccf5b90379d542283f8272e30",
+    "eez-composer": "16bb8a005bb8655a94739de8ab6cd80058798348ea8e8a2925ea21e4ce492b67",
+    "eez-follower": "7602b0a57d1174e421ce721791d20a2419f1f1465df2f0016e9ecca8f5b39035"
+  },
+  "runtime_note": "Frozen before subsequent test-only oracle/literal/lint corrections; production behavior unchanged. Fresh final-head shipping artifacts require CI.",
+  "source_sha256": {
+    "Cargo.lock": "1c23d3d99586a6799e90b17b90724bbee949f4de8f6ef99eee197857eee6b644",
+    "Cargo.toml": "e3ef19389d09937d96918a32e8c0a9fd7c96fe0050e564f20500f3c8c97a5c69",
+    "contracts/src/OfflineRollup.sol": "5787a3f11feb4a069960c06f0c0e8157031fb9ad61adb7a6563864159a61fac2",
+    "contracts/test/OfflineRollup.t.sol": "ff0d6eaa9ce285b3c1a26523db3d1a48c0b3dc90145303d2566cf776b2dc261e",
+    "crates/eez-composer/src/composer/estimate/deployment.rs": "76f4183d38c5e4ec8d4703db047911402d45ccbbb685ab3a293a17870b90a1e0",
+    "crates/eez-composer/src/composer/estimate/preparation.rs": "7ea6d8233900288a288645f04a142934d9d0c6953a5b444fe583ab45cfac797d",
+    "crates/eez-composer/src/composer/estimate/testdata/offline-rollup.hex": "4a6985eae0fc0e2de93e736c16b80d74a186320662ce9ce2ce0e4ec9076401f4",
+    "crates/eez-composer/src/composer/fees/quote/tests.rs": "617e9feb502501fb0ab221cf96c5a50c101cbb16e3d4e70b9dc1c081c9e4e71e",
+    "crates/eez-composer/src/composer/fees.rs": "abc2269272b3a26ebda16ead7093b661867985291b07c601d2fc005cadfdb275",
+    "crates/eez-composer/src/composer.rs": "3c9c466f43a1ca2986b5c0434f386fe037b090b2e2babaf031c2a9233d4d63a8",
+    "crates/eez-composer/src/local/build/prefix.rs": "dc3e9c2167bfd3976a9e62a2af26ab160d411b623d048f57a7070574d4e97383",
+    "crates/eez-composer/src/local/build.rs": "3c37b37a3c0a8fcba34b6db035b4471edab25de794d5e7386a3f3a63280983df",
+    "crates/eez-control-rpc/proto/prove.proto": "e27d7a44a252608cdbf9b738110924cbbb86ff01fbbeeca1365088a4dcbc1887",
+    "crates/eez-control-rpc/src/identity.rs": "32da99df57168bf24c2d9b383e672825808d756e1d811f0a2a1ea0762410b3a0",
+    "crates/eez-deriver/src/deriver.rs": "6ad63eaffad5916bc99f2fdb952a042c761e6ed54558dfd47c0bb378d573e5b7",
+    "crates/eez-driver/src/derivation.rs": "f80b00fb2204019989f8cc28963936a5e89f8636c5b347864ae3bf4a0bed90ef",
+    "crates/eez-evm/src/block/tests/groups.rs": "7636658acbb756a32b29226fcc593f64dfabc0a520208ad9466358abc410d06c",
+    "crates/eez-evm/src/tests.rs": "a9f826f43f4bb02aafcba25c51837ec3ff3ad0d979b69216a99a97585b053e22",
+    "crates/eez-l1/examples/verify_blob_evidence/prefixes.rs": "30e6c0bcaaa8167d3f5ba1a961bf3c91864e5d48ce34d3695093e96f4568e451",
+    "crates/eez-node-common/src/pool_transaction.rs": "65dd3ceda66113900c7afd954c1069b849aed4b0fd6e17063f9f281e61dfaab4",
+    "crates/eez-node-e2e/tests/native_system.rs": "aa1ee4875497aa6ea21ef6071a6fac808e3861d951010aac7d390079e6c46563",
+    "crates/eez-node-e2e/tests/partial_consumption.rs": "cf58cf96703a2a448606240a5a7d2257ef4110d7ef10be29ea4f9ee358501f8e",
+    "crates/eez-payload-codec/src/v0/tests.rs": "cb8a0a730e86e213316427c4bed55136164c933d56ccd5798b44dd295895a06e",
+    "crates/eez-primitives/src/lib.rs": "0842ee298fa581ed7e6be854952830ad8e75e22c1e30586b17dde1de05cc9002",
+    "crates/eez-primitives/src/tests.rs": "33a9dfb33feeb5dcae130a08ac5b2e7d85f1c933518fea56b384172c5c0e06ba",
+    "crates/eez-proof-signer/src/service/tests/derivation/synthetic.rs": "53b7d6c71d69c37d8df14caec6233596001ec5e48198718081504fce65830ecc",
+    "crates/eez-proof-signer/src/service/tests.rs": "4acb468978ddacc696d69cd8f984f99f9b1109bfe4ed8745183c7933be9c533c",
+    "crates/eez-proof-signer/src/settlement/da.rs": "1932d799e45339cdf91545a918be636e2ab835c2f47d37035a473e65f75335c6",
+    "crates/eez-proof-signer/src/settlement/tests/blocks.rs": "42183b6a6b7ad49f0aa4680a608de3ffe919ea43c42248f9c1d9bd419aeeddf2",
+    "crates/eez-proof-signer/src/settlement/tests/da.rs": "abe3399aca104b7411f92d5f73576aae87e7d136f066326fd1600ab742483484",
+    "crates/eez-proof-signer/src/testkit/history_observations.rs": "c30b585929df00188d62e6a303cc915e09f5164a826ba1f445067c02224f04b2",
+    "crates/eez-proof-signer/src/testkit.rs": "532d39bf364ef507f2bac7d2e53eb3c7dbc8a3a89707f2b4e4da4bd68859267e",
+    "crates/eez-proof-signer/src/validate/stateless/tests.rs": "a2ab704417fb9e2fff6adee3b62adbfa677b140ab8494aedb0011749da52f414",
+    "crates/eez-protocol/src/blob_semantics/reconstruction/tests.rs": "4beec4360425f5915fa80353997ccfb732fd0d6fa35b077368b4cdfad689f741",
+    "crates/eez-protocol/src/blob_semantics/reconstruction.rs": "dd98b844084660aae07dda4bd92dd8835c81c92bc6b0559bb9a03530b653c6ab",
+    "crates/eez-protocol/src/l1_history/context.rs": "6744924039599635be889e153bf291cdb2ac5124f76c3306cd8a82da8657ba16",
+    "crates/eez-protocol/src/l2.rs": "c057b6926cf53a07883f6d18cff4cb7e61d31a8c23fa5456c0b0bf600c3a1e26",
+    "crates/eez-protocol/src/native_source.rs": "89aaad128b55233f075298c488ecbe3cdcbf7d62ea901eae380839b8adcce0ed",
+    "crates/eez-protocol/src/system_tx.rs": "84f36baf962dacedf0488e2c7679bb6e984ce6b255960876f4092c155dd6aa77"
+  },
+  "successful_distinct_process_scenarios": 11,
+  "process_runs": [
+    {
+      "test": "cross_chain::outbound_multiple_proxy_calls_in_one_transaction_preserve_ordered_results",
+      "log": "artifacts/source-counter-20261027/logs/final-process-cross_chain-outbound_multiple_proxy_calls_in_one_transaction_preserve_ordered_results.log",
+      "result": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 36.96s"
+    },
+    {
+      "test": "cross_chain::overlay_failed_l1_call_discards_its_callback_state",
+      "log": "artifacts/source-counter-20261027/logs/final-process-cross_chain-overlay_failed_l1_call_discards_its_callback_state.log",
+      "result": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 42.70s"
+    },
+    {
+      "test": "cross_chain::overlay_inbound_round_trip_reenters_suspended_l1",
+      "log": "artifacts/source-counter-20261027/logs/final-process-cross_chain-overlay_inbound_round_trip_reenters_suspended_l1.log",
+      "result": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 46.85s"
+    },
+    {
+      "test": "partial_consumption::valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "log": "artifacts/source-counter-20261027/logs/final-process-partial_consumption-valid_blob_batch_resumes_at_middle_group_in_same_l1_block.log",
+      "result": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 51.53s"
+    },
+    {
+      "test": "queue_reorg::native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order",
+      "log": "artifacts/source-counter-20261027/logs/final-process-queue_reorg-native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order.log",
+      "result": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 62.75s"
+    },
+    {
+      "test": "cross_chain::minimal_bidirectional_cross_chain_smoke",
+      "log": "artifacts/source-counter-20261027/logs/process-bidirectional.log",
+      "result": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 36.88s"
+    },
+    {
+      "test": "cross_chain::history_observations::scheduled_history_observations_are_bound_before_offline_signing",
+      "log": "artifacts/source-counter-20261027/logs/process-cross_chain-history_observations-scheduled_history_observations_are_bound_before_offline_signing.log",
+      "result": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 2.31s"
+    },
+    {
+      "test": "cross_chain::inbound_reverting_destination_preserves_caught_result_without_destination_writes",
+      "log": "artifacts/source-counter-20261027/logs/process-lookup.log",
+      "result": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 65.26s"
+    },
+    {
+      "test": "native_system::two_composers_two_keyless_followers",
+      "log": "artifacts/source-counter-20261027/logs/process-native_system-two_composers_two_keyless_followers.log",
+      "result": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 48.56s"
+    },
+    {
+      "test": "partial_consumption::restart_after_partial_keeps_accounting_and_rebuilds_intent",
+      "log": "artifacts/source-counter-20261027/logs/process-partial_consumption-restart_after_partial_keeps_accounting_and_rebuilds_intent.log",
+      "result": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 75.13s"
+    },
+    {
+      "test": "partial_consumption::valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "log": "artifacts/source-counter-20261027/logs/process-partial_consumption-valid_blob_batch_resumes_at_middle_group_in_same_l1_block.log",
+      "result": "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 186 filtered out; finished in 46.42s"
+    },
+    {
+      "test": "cross_chain::outbound_changing_static_reads_and_write_settle_and_replay",
+      "log": "artifacts/source-counter-20261027/logs/process-static.log",
+      "result": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 40.01s"
+    }
+  ],
+  "selected_cold_captures": [
+    {
+      "fixture": "native-offline-bidirectional",
+      "blocks": 30,
+      "entries": [
+        {
+          "destination": 1,
+          "l1_to_l2": 0,
+          "l2_to_l1": 0,
+          "success": true
+        },
+        {
+          "destination": 1,
+          "l1_to_l2": 0,
+          "l2_to_l1": 1,
+          "success": true
+        },
+        {
+          "destination": 1,
+          "l1_to_l2": 0,
+          "l2_to_l1": 0,
+          "success": true
+        }
+      ],
+      "file": "aefdb086b271c4be7f8c09155236994a2f71cd797e9d7232373f415fdae93459.v2.protobuf",
+      "from": 1,
+      "operations_bytes": 4167,
+      "ordinary_transactions": 12,
+      "static_entries": 0,
+      "to": 30
+    },
+    {
+      "fixture": "native-osaka-lookup",
+      "blocks": 45,
+      "entries": [
+        {
+          "destination": 1,
+          "l1_to_l2": 0,
+          "l2_to_l1": 0,
+          "success": true
+        },
+        {
+          "destination": 1,
+          "l1_to_l2": 0,
+          "l2_to_l1": 0,
+          "success": false
+        }
+      ],
+      "file": "7181a9155672a23627ba0373c4ed7daec313ffabf64b58a99589484949a9f19c.v2.protobuf",
+      "from": 1,
+      "operations_bytes": 5943,
+      "ordinary_transactions": 18,
+      "static_entries": 0,
+      "to": 45
+    },
+    {
+      "fixture": "native-osaka-changing-static",
+      "blocks": 30,
+      "entries": [
+        {
+          "destination": 1,
+          "l1_to_l2": 0,
+          "l2_to_l1": 0,
+          "success": true
+        },
+        {
+          "destination": 1,
+          "l1_to_l2": 0,
+          "l2_to_l1": 5,
+          "success": true
+        }
+      ],
+      "file": "a7f7d1d42ddbbcda8fb21b87fa817205f0cc67a667610d9048a46e5cedfb953f.v2.protobuf",
+      "from": 1,
+      "operations_bytes": 4167,
+      "ordinary_transactions": 12,
+      "static_entries": 0,
+      "to": 30
+    }
+  ],
+  "logs_local_only": [
+    {
+      "path": "artifacts/source-counter-20261027/logs/affected-unit-tests-second.log",
+      "sha256": "7cbd11289baf6e1cfa3dad9456e5ff7c01a1c50573771d9a1fbfb399731b42da",
+      "test_results": [
+        "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.61s",
+        "test result: ok. 418 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.29s",
+        "test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 74 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s",
+        "test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s",
+        "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s",
+        "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 211 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/affected-unit-tests.log",
+      "sha256": "92ae597380f79d3bdb3dd2d8b488adce50fb08424ecf643c5780bfc2733bab97",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/cargo-fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/check-initial.log",
+      "sha256": "5b2b7e30df7d86164989a32cee145cdc7aade687f6578d2315038655eb461432",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/check-versionless.log",
+      "sha256": "df3b63d1896736fb51162849b08ff2d2c81d674d3ccd47feaa9abe1b35ed5f16",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/commitment-oracles.log",
+      "sha256": "f8c9728daab1ff4f896d8468504da79a782cc85aef718fc19b4d89e49c8db5a3",
+      "test_results": [
+        "test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/contracts-final.log",
+      "sha256": "32692bfb80cd6c04f3229cb90e499a4db9e799419d2eee944ba4d75d3d500435",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/contracts-first.log",
+      "sha256": "bc28a08c2dbb11eec4e60c559547fcbb9cfc4a86a9b67c0b59c906c6771b48b4",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/final-process-cross_chain-outbound_multiple_proxy_calls_in_one_transaction_preserve_ordered_results.log",
+      "sha256": "dd29db163840b3604360f22d6df742d5138821c2fa1d9aea383f95116579d498",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 36.96s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/final-process-cross_chain-overlay_failed_l1_call_discards_its_callback_state.log",
+      "sha256": "a9c88dfb52690fa19e61bc49d15133353c36f1845e0c8ca116cb7e523c4e4c7d",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 42.70s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/final-process-cross_chain-overlay_inbound_round_trip_reenters_suspended_l1.log",
+      "sha256": "2c194c94a5888951b803030babbc65e4373f91c5d25da5c32553bde7454444e2",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 46.85s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/final-process-partial_consumption-valid_blob_batch_resumes_at_middle_group_in_same_l1_block.log",
+      "sha256": "d7ed847ae19fc6a10a61f5a6e1a162e353fe08565508ec9f14272ca87421a487",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 51.53s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/final-process-queue_reorg-native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order.log",
+      "sha256": "c28c5b15a8c253ebacc5c3eed2013ae229b91ad410ab9dbafef030234b2c67a4",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 62.75s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/forge-build.log",
+      "sha256": "5fa9014defc41e0596a789b4fdc2b4aff72b00abab71b80eda0e2456b70ba756",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/forge-fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/genesis-check.log",
+      "sha256": "f186304700fad2cf52b845477dd2681397ec43c57d667f0a86ddf9861198912e",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/genesis-helper-build.log",
+      "sha256": "1183f9fb2c94b375846279bf58d3e03400277045ed985af15a9a7fae4d2ee655",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/history-fixtures-regenerated.log",
+      "sha256": "99780ad37aca996fd8af0312c20330fafef29eddf6de23e0afdf31f0b1ac2c94",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 331 filtered out; finished in 2.04s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/inventory-bidirectional.log",
+      "sha256": "7e01c249311472eec9c84ffb62f9d4e5f5abc2545b7c7a6c89ef1070fa596572",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 331 filtered out; finished in 2.00s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/inventory-lookup.log",
+      "sha256": "0c57cf2a590acc1356879d97cc1744292ba785022413cc2798510d3401cd044f",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 331 filtered out; finished in 2.06s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/inventory-static.log",
+      "sha256": "2dd4a2696b46c8cd54d6973966722b913182db3ba1bfe1f7e4c3ee64c986c8ae",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 331 filtered out; finished in 2.15s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/kzg-oracles-workspace-features.log",
+      "sha256": "4e521a95de7b7d7aa2558d0f2a459e9fbedb1f3d518717430d99d463aafcd72e",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.55s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/kzg-oracles.log",
+      "sha256": "22e0f1a1a7a57a71017560a7090b024b7b358a8bf233696a236dac0787bbe92c",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/portable-encodings.log",
+      "sha256": "5091f73af3c0cd7f22431f75324c6d24eb9672eba5a02e59732ab795a3d40806",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/prefix-oracles-chain-spec.log",
+      "sha256": "3d7740ccfd4e02d42f982aa42b3be9175b9005f6cfd7a412c40a6461fc23dfc1",
+      "test_results": [
+        "test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.02s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/prefix-oracles.log",
+      "sha256": "613c1717bcfcf7dc8df04f7ad90d359896cf18ac4372cb25c8cf886ebd60bddf",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/process-bidirectional.log",
+      "sha256": "f7040540e93c39f51c12fb40facfc651392fb4806eaa1275cc75818f7d28e929",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 36.88s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/process-cross_chain-history_observations-scheduled_history_observations_are_bound_before_offline_signing.log",
+      "sha256": "97088493a30189ead324a7c951b71df110f615be1e3ad2c0a584481b550b1920",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 2.31s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/process-lookup.log",
+      "sha256": "3f3835fa314917e9b0509f62a5d3cec9a1807138a5e2d1f3f3f3e31bceca0bf1",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 65.26s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/process-native_system-two_composers_two_keyless_followers.log",
+      "sha256": "22b7b8e30e5ec2c639df20b58cddb2719c5034f04882c005a808e3bf511e9b0f",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 48.56s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/process-partial_consumption-restart_after_partial_keeps_accounting_and_rebuilds_intent.log",
+      "sha256": "36039a7137bd2f3cdc1a7c05519dd2f2d1db37c9b195ac33be7849c7c75350f2",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 75.13s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/process-partial_consumption-valid_blob_batch_resumes_at_middle_group_in_same_l1_block.log",
+      "sha256": "733b592ebceff8ce7c85b26209d3438b8764aae2c63383dabdb633d07624b58e",
+      "test_results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 186 filtered out; finished in 46.42s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/process-static.log",
+      "sha256": "928123c8bb99343eca973e92e2397439186e4f01d0d8f0ed81e08b7fbc48a256",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 40.01s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/protocol-final.log",
+      "sha256": "6104108925bd3e6461949cd944eb38f54b104fd34850bb42504c0e4005bfca4b",
+      "test_results": [
+        "test result: ok. 211 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/protocol-primitives-first.log",
+      "sha256": "3d738ee80157ea220f2f7f71a36499d84f34580fa71abdf5db18fc6cf43fc980",
+      "test_results": [
+        "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: FAILED. 210 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/signer-build.log",
+      "sha256": "11348d63e3a6240bac5ce25fadb3c0023cc5a484bac1c711d4837211af31ef3a",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/signer-clippy.log",
+      "sha256": "19cf4e4953a4f906ce1e659c7713e9e6d309ea4bc2a3743bb67840611bebe3b4",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/signer-da-final.log",
+      "sha256": "1d4a9f600ad58cea5ea21f2f6b0aeec121c06d6b66dc597d32032ff7ef19ec2d",
+      "test_results": [
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 321 filtered out; finished in 0.01s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/signer-doc.log",
+      "sha256": "88e9ee1ad34eee86561b3bc2be36f10e0501f8f6b4d5cf1905b6aef107e00631",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/signer-rpc-client-tests-second.log",
+      "sha256": "7994da4cd80a4beb494b1719ea8a4e1aac0e429a781f26bc28ba1908d0f71a38",
+      "test_results": [
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 329 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 2.46s",
+        "test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.56s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/signer-rpc-client-tests.log",
+      "sha256": "74445b176f2c799b21f8314fe1728e01bc0d57fee35940e95efdbea7cce2eea3",
+      "test_results": [
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: FAILED. 318 passed; 11 failed; 3 ignored; 0 measured; 0 filtered out; finished in 2.48s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/source-build-oracle-fix.log",
+      "sha256": "a764cfeea1d03e3b4530ff90d50444b2b1f2c26a7b9b48edd2050c504ab48b4a",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/source-build.log",
+      "sha256": "5d1fe7bec83422d3726eed959e9df31d53870ee3ac6ed2cfe49c02098c9f00c1",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/vector-manifest-final.log",
+      "sha256": "73a2cb93772fd532e22005ecd61c22035395d290df17042d4a2376539412a426",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/vector-manifest.log",
+      "sha256": "73a2cb93772fd532e22005ecd61c22035395d290df17042d4a2376539412a426",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/vectors-final-generation.log",
+      "sha256": "0fc47a3cfe91c00421941c8fd4e26f06ab8d0b7656247546ea7508a369732cde",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 331 filtered out; finished in 2.37s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/vectors-regenerated.log",
+      "sha256": "167fead0c4b915e068383583d0f3615309e40c38f9f925dfc4f15f7bc6de621c",
+      "test_results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 331 filtered out; finished in 2.40s"
+      ]
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/workspace-clippy-second.log",
+      "sha256": "7afaf977a7203d373260dd48228473fe5d186e270a9a1a8ae95a5eb40ff28b65",
+      "test_results": []
+    },
+    {
+      "path": "artifacts/source-counter-20261027/logs/workspace-clippy.log",
+      "sha256": "2a79f42f8ac8d58913385d5c54783ea62afb2ef5f48e03a2e4848ac2ee26f489",
+      "test_results": []
+    }
+  ],
+  "remaining": [
+    "Final-head full CI and release-artifact provenance",
+    "No new local full Kurtosis/Gnosis/workspace matrix run",
+    "No external Nethermind implementation execution"
+  ]
+}

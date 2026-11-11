@@ -32,6 +32,7 @@ source "$ENV_FILE"
 : "${EEZ_L1_RPC_URL:?EEZ_L1_RPC_URL not set in .env}"
 : "${EEZ_L1_POSTER_KEY:?EEZ_L1_POSTER_KEY not set in .env}"
 : "${EEZ_PROOF_SIGNER_KEY:?EEZ_PROOF_SIGNER_KEY not set in .env}"
+: "${EEZ_L2_TREASURY_RECIPIENT:?EEZ_L2_TREASURY_RECIPIENT must select the initial L2 treasury recipient}"
 
 configured_initial_block_hash="${EEZ_INITIAL_BLOCK_HASH:-}"
 
@@ -41,7 +42,6 @@ EEZ_DEPLOY_KEY="${EEZ_DEPLOY_KEY:-$EEZ_L1_POSTER_KEY}"
 
 # Derive addresses from keys.
 AUTHORIZED_SIGNER="$(cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY")"
-PROOF_SYSTEM_VKEY="0x000000000000000000000000${AUTHORIZED_SIGNER#0x}"
 OWNER="$(cast wallet address --private-key "$EEZ_DEPLOY_KEY")"
 POSTER_ADDRESS="$(cast wallet address --private-key "$EEZ_L1_POSTER_KEY")"
 # EEZ, the Rollup and the EEZL2 genesis predeploy sit behind transparent
@@ -51,10 +51,11 @@ POSTER_ADDRESS="$(cast wallet address --private-key "$EEZ_L1_POSTER_KEY")"
 EEZ_UPGRADE_OWNER="${EEZ_UPGRADE_OWNER:-$OWNER}"
 EEZ_ROLLUP_UPGRADE_OWNER="${EEZ_ROLLUP_UPGRADE_OWNER:-$OWNER}"
 EEZ_L2_UPGRADE_OWNER="${EEZ_L2_UPGRADE_OWNER:-$OWNER}"
+EEZ_L2_TREASURY_OWNER="${EEZ_L2_TREASURY_OWNER-$OWNER}"
 # EEZL2 sweeps ether found at a proxy address during deployment to this L2
 # account. It is baked into the genesis predeploy; default to the L1 poster.
 EEZ_L2_RECOVERY_ADDRESS="${EEZ_L2_RECOVERY_ADDRESS:-$POSTER_ADDRESS}"
-EEZ_L2_SYSTEM_ADDRESS="0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076"
+EEZ_L2_SYSTEM_ADDRESS="0xfffffffffffffffffffffffffffffffffffffffe"
 if [[ "${AUTHORIZED_SIGNER,,}" == "${EEZ_L2_SYSTEM_ADDRESS,,}" ]]; then
     echo "deploy: proof attestation address must differ from the reserved native system address" >&2
     exit 1
@@ -118,7 +119,7 @@ compute_genesis_state_root() {
     else
         (
             cd "$REPO"
-            cargo run --quiet --locked --package eez-node --example genesis_state_root -- "$genesis"
+            cargo +1.95.0 run --quiet --locked --package eez-node --example genesis_state_root -- "$genesis"
         )
     fi
 }
@@ -126,11 +127,11 @@ compute_genesis_state_root() {
 compute_genesis_block_hash() {
     local genesis="$1"
     if command -v eez-genesis-block-hash >/dev/null 2>&1; then
-        eez-genesis-block-hash "$genesis"
+        eez-genesis-block-hash "$genesis" "${@:2}"
     else
         (
             cd "$REPO"
-            cargo run --quiet --locked --package eez-node --example genesis_block_hash -- "$genesis"
+            cargo +1.95.0 run --quiet --locked --package eez-node --example genesis_block_hash -- "$genesis" "${@:2}"
         )
     fi
 }
@@ -145,27 +146,11 @@ GENESIS_PROFILE_OUT="${EEZ_GENESIS_PROFILE_OUT:-${GENESIS_OUT%.json}.profile.jso
 # Development networks select genesis.dev.json, which funds public test keys.
 GENESIS_BASE="${EEZ_GENESIS_BASE:-$REPO/genesis.json}"
 
-echo "      rendering L2 genesis (rollupId=$EXPECTED_ROLLUP_ID, system=$EEZ_L2_SYSTEM_ADDRESS, recovery=$EEZ_L2_RECOVERY_ADDRESS)"
-"$REPO/scripts/update-eezl2-genesis.sh" --render \
-    --rollup-id "$EXPECTED_ROLLUP_ID" \
-    --system-address "$EEZ_L2_SYSTEM_ADDRESS" \
-    --recovery-address "$EEZ_L2_RECOVERY_ADDRESS" \
-    --upgrade-owner "$EEZ_L2_UPGRADE_OWNER" \
-    --base "$GENESIS_BASE" \
-    --output "$GENESIS_OUT" \
-    --profile-output "$GENESIS_PROFILE_OUT"
-
-EEZ_L2_GENESIS_STATE_ROOT="$(jq -er '.genesisStateRoot' "$GENESIS_PROFILE_OUT")"
-EEZ_L2_EEZL2_CODE_HASH="$(jq -er '.runtimeCodeHash' "$GENESIS_PROFILE_OUT")"
-EEZL2_ADDRESS="$(jq -er '.eezL2Address' "$GENESIS_PROFILE_OUT")"
-EEZ_L2_IMPLEMENTATION_ADDRESS="$(jq -er '.eezL2ImplementationAddress' "$GENESIS_PROFILE_OUT")"
-EEZ_L2_PROXY_ADMIN="$(jq -er '.eezL2ProxyAdminAddress' "$GENESIS_PROFILE_OUT")"
-
 # One explicit new-network profile. The finalized L1 reference fixes the initial
-# seed and slot phase; it is not inferred from the later deployment receipt.
+# origin, PREVRANDAO and slot phase before the later deployment receipt.
 # EEZ_L1_REFERENCE=genesis pins L1 block zero instead. It is final by
 # definition, so a fresh private devnet need not wait for its first finalized
-# checkpoint. Genesis inherits the reference timestamp, so this is rejected on
+# checkpoint. L2 genesis starts one interval after the reference, so this is rejected on
 # public networks whose block zero would leave years of L2 blocks to catch up.
 REFERENCE_CHAIN_ID="$(cast chain-id --rpc-url "$EEZ_L1_RPC_URL")"
 case "${EEZ_L1_REFERENCE-finalized}" in
@@ -196,10 +181,19 @@ case "$REFERENCE_CHAIN_ID" in
         : "${EEZ_L2_BLOCK_TIME_MS:?private L2 genesis requires an explicit block cadence}"
         ;;
 esac
+[[ ! -e "$OUT_FILE" && ! -e "$GENESIS_OUT" && ! -e "$GENESIS_PROFILE_OUT" ]] || {
+    echo "deploy: fresh-network output files already exist; choose unused paths" >&2
+    exit 1
+}
+if [[ ${EEZ_L2_HISTORY_UPDATE_OFFSET+x} && -z "$EEZ_L2_HISTORY_UPDATE_OFFSET" ]]; then
+    echo "deploy: EEZ_L2_HISTORY_UPDATE_OFFSET cannot be empty" >&2
+    exit 1
+fi
+mkdir -p "$(dirname "$GENESIS_OUT")"
 GENESIS_TIMESTAMP_TMP="$(mktemp "${GENESIS_OUT}.tmp.XXXXXX")"
 cast block "$REFERENCE_BLOCK" --rpc-url "$EEZ_L1_RPC_URL" --json | python3 -c '
 import json, re, sys
-base, output, chain, l1_ms, l2_ms = sys.argv[1:]
+base, output, chain, l1_ms, l2_ms, configured_q = sys.argv[1:]
 chain, l1_ms, l2_ms = int(chain), int(l1_ms), int(l2_ms)
 if chain <= 0 or l1_ms <= 0 or l2_ms <= 0 or l2_ms % 1000 or l1_ms % l2_ms:
     raise SystemExit("deploy: invalid whole-second genesis cadence")
@@ -208,6 +202,9 @@ if positions < 2 or positions > 0xffffffff or step > 0xffffffffffffffff:
     raise SystemExit("deploy: invalid Sync interval")
 if (chain == 1 and (step, positions) != (2, 6)) or (chain == 10200 and (step, positions) != (1, 5)):
     raise SystemExit("deploy: cadence conflicts with the settlement network profile")
+q = int(configured_q) if configured_q else min(2, positions - 1)
+if not 0 <= q < positions:
+    raise SystemExit("deploy: history update offset must be less than the Sync interval")
 reference = json.load(sys.stdin)
 if not isinstance(reference, dict):
     raise SystemExit("deploy: finalized reference is unavailable")
@@ -228,19 +225,71 @@ if int(hash_value, 16) == 0:
     raise SystemExit("deploy: zero finalized reference hash")
 with open(base) as source:
     genesis = json.load(source)
-genesis["timestamp"], genesis["mixHash"] = hex(timestamp), seed
+t0 = timestamp + step * positions
+if t0 + (q + 1) * step > 0xffffffffffffffff:
+    raise SystemExit("deploy: history schedule overflow")
+genesis["timestamp"], genesis["mixHash"] = hex(t0), seed
 genesis["config"]["rollupX"] = {
-    "blockIntervalSeconds": step, "syncIntervalBlocks": positions,
+    "blockIntervalSeconds": step, "syncIntervalBlocks": positions, "historyUpdateOffset": q,
     "l1Reference": {"chainId": chain, "number": number, "hash": hash_value,
                     "timestamp": timestamp, "prevRandao": seed}}
 with open(output, "w") as destination:
     json.dump(genesis, destination, indent=2)
     destination.write("\n")
-' "$GENESIS_OUT" "$GENESIS_TIMESTAMP_TMP" "$REFERENCE_CHAIN_ID" "$EEZ_L1_BLOCK_TIME_MS" "$EEZ_L2_BLOCK_TIME_MS"
-chmod --reference="$GENESIS_OUT" "$GENESIS_TIMESTAMP_TMP"
-mv "$GENESIS_TIMESTAMP_TMP" "$GENESIS_OUT"
+' "$GENESIS_BASE" "$GENESIS_TIMESTAMP_TMP" "$REFERENCE_CHAIN_ID" "$EEZ_L1_BLOCK_TIME_MS" "$EEZ_L2_BLOCK_TIME_MS" "${EEZ_L2_HISTORY_UPDATE_OFFSET-}"
+
+# The renderer preserves its base mode; mktemp's 0600 would hide a public genesis
+# from the non-root signer. Keep the operator-selected base permissions.
+chmod --reference="$GENESIS_BASE" "$GENESIS_TIMESTAMP_TMP"
+
+echo "      rendering L2 genesis (rollupId=$EXPECTED_ROLLUP_ID, system=$EEZ_L2_SYSTEM_ADDRESS, recovery=$EEZ_L2_RECOVERY_ADDRESS)"
+"$REPO/scripts/update-eezl2-genesis.sh" --render \
+    --rollup-id "$EXPECTED_ROLLUP_ID" \
+    --system-address "$EEZ_L2_SYSTEM_ADDRESS" \
+    --recovery-address "$EEZ_L2_RECOVERY_ADDRESS" \
+    --upgrade-owner "$EEZ_L2_UPGRADE_OWNER" \
+    --treasury-owner "$EEZ_L2_TREASURY_OWNER" \
+    --treasury-recipient "$EEZ_L2_TREASURY_RECIPIENT" \
+    --base "$GENESIS_TIMESTAMP_TMP" \
+    --output "$GENESIS_OUT" \
+    --profile-output "$GENESIS_PROFILE_OUT"
+
+rendered_collector="$(jq -er '.config.rollupX.feeCollector' "$GENESIS_OUT")"
+profile_collector="$(jq -er '.feeCollector' "$GENESIS_PROFILE_OUT")"
+if [[ "$rendered_collector" != "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078" || "$profile_collector" != "$rendered_collector" ]] ||
+    ! jq -e --arg owner "${EEZ_L2_TREASURY_OWNER,,}" --arg recipient "${EEZ_L2_TREASURY_RECIPIENT,,}" \
+        '.treasuryOwner == $owner and .treasuryRecipient == $recipient' "$GENESIS_PROFILE_OUT" >/dev/null; then
+    echo "deploy: rendered treasury profile differs from the explicit deployment inputs" >&2
+    exit 1
+fi
+
+EEZ_L2_GENESIS_STATE_ROOT="$(jq -er '.genesisStateRoot' "$GENESIS_PROFILE_OUT")"
+EEZ_L2_EEZL2_CODE_HASH="$(jq -er '.runtimeCodeHash' "$GENESIS_PROFILE_OUT")"
+EEZL2_ADDRESS="$(jq -er '.eezL2Address' "$GENESIS_PROFILE_OUT")"
+EEZ_L2_IMPLEMENTATION_ADDRESS="$(jq -er '.eezL2ImplementationAddress' "$GENESIS_PROFILE_OUT")"
+EEZ_L2_PROXY_ADMIN="$(jq -er '.eezL2ProxyAdminAddress' "$GENESIS_PROFILE_OUT")"
+
+rm -f "$GENESIS_TIMESTAMP_TMP"
 GENESIS_TIMESTAMP_TMP=""
-compute_genesis_block_hash "$GENESIS_OUT" >/dev/null
+EEZ_INITIAL_BLOCK_HASH="$(compute_genesis_block_hash "$GENESIS_OUT")"
+if [[ -n "$configured_initial_block_hash" && "${configured_initial_block_hash,,}" != "${EEZ_INITIAL_BLOCK_HASH,,}" ]]; then
+    echo "deploy: configured EEZ_INITIAL_BLOCK_HASH does not match rendered genesis" >&2
+    exit 1
+fi
+# The same strict, local L1 rules are loaded by deployment, node and signer.
+# Private networks must provide their complete genesis/profile document.
+if [[ ! ${EEZ_L1_CHAIN_CONFIG+x} ]]; then
+    case "$REFERENCE_CHAIN_ID" in
+        1) EEZ_L1_CHAIN_CONFIG=mainnet ;;
+        10200) EEZ_L1_CHAIN_CONFIG=chiado ;;
+        11155111) EEZ_L1_CHAIN_CONFIG=sepolia ;;
+        560048) EEZ_L1_CHAIN_CONFIG=hoodi ;;
+        *) echo "deploy: private L1 requires EEZ_L1_CHAIN_CONFIG" >&2; exit 1 ;;
+    esac
+fi
+[[ -n "$EEZ_L1_CHAIN_CONFIG" ]] || { echo "deploy: empty L1 profile" >&2; exit 1; }
+NETWORK_PROFILE="$(compute_genesis_block_hash "$GENESIS_OUT" --network-profile "$EEZ_L1_CHAIN_CONFIG")"
+[[ "$NETWORK_PROFILE" =~ ^0x[0-9a-fA-F]{64}$ ]] || { echo "deploy: invalid network profile output" >&2; exit 1; }
 
 # ── 1/4 DeployEEZ ────────────────────────────────────────────────────
 echo "[1/4] DeployEEZ"
@@ -263,11 +312,18 @@ EEZ_ECDSA_PROOF_SYSTEM_ADDRESS="$(extract ECDSA_PS "$OUT")"
 [[ -n "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" ]] || { echo "$OUT" >&2; echo "deploy: failed to capture ECDSA_PS address" >&2; exit 1; }
 echo "      ECDSA_PS   = $EEZ_ECDSA_PROOF_SYSTEM_ADDRESS"
 
+# The registered key binds configuration and deployment identity into Core's
+# public-input accumulator. Incompatible upgrades rotate this key.
+PROOF_SYSTEM_VKEY_PREIMAGE="$(cast abi-encode 'f(bytes32,bytes32,address,address,address)' \
+    "$(cast keccak EEZ_ROLLUPX_VERIFICATION_KEY_V1)" "$NETWORK_PROFILE" \
+    "$EEZ_REGISTRY_ADDRESS" "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" "$AUTHORIZED_SIGNER")"
+PROOF_SYSTEM_VKEY="$(cast keccak "$PROOF_SYSTEM_VKEY_PREIMAGE")"
+
 # ── 3/4 DeployRollup ────────────────────────────────────────────────
 echo "[3/4] DeployRollup"
 run_forge "DeployRollup" forge script script/DeployRollup.s.sol:DeployRollup \
-    --sig "run(address,address,address,address,address)" \
-    "$EEZ_REGISTRY_ADDRESS" "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" "$AUTHORIZED_SIGNER" "$OWNER" \
+    --sig "run(address,address,bytes32,address,address)" \
+    "$EEZ_REGISTRY_ADDRESS" "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" "$PROOF_SYSTEM_VKEY" "$OWNER" \
     "$EEZ_ROLLUP_UPGRADE_OWNER" $RPC $KEY --broadcast
 EEZ_ROLLUP_MANAGER_ADDRESS="$(extract ROLLUP_CONTRACT "$OUT")"
 EEZ_ROLLUP_IMPLEMENTATION="$(extract ROLLUP_IMPLEMENTATION "$OUT")"
@@ -302,10 +358,14 @@ then
     echo "rendered:   $EEZ_INITIAL_BLOCK_HASH" >&2
     exit 1
 fi
+[[ "$(compute_genesis_block_hash "$GENESIS_OUT" --network-profile "$EEZ_L1_CHAIN_CONFIG")" == "$NETWORK_PROFILE" ]] || {
+    echo "deploy: network profile changed after its verification key was registered" >&2
+    exit 1
+}
 echo "      blockHash  = $EEZ_INITIAL_BLOCK_HASH"
 echo "      stateRoot  = $EEZ_L2_GENESIS_STATE_ROOT"
 echo "      runtimeHash= $EEZ_L2_EEZL2_CODE_HASH"
-echo "      genesis.ts = $(jq -r .timestamp "$GENESIS_OUT") (finalized L1 reference)"
+echo "      genesis.ts = $(jq -r .timestamp "$GENESIS_OUT") (first cutoff after bootstrap reference)"
 
 # ── 4/4 RegisterRollup ──────────────────────────────────────────────
 echo "[4/4] RegisterRollup(initialBlockHash=$EEZ_INITIAL_BLOCK_HASH)"
@@ -352,6 +412,7 @@ EEZL2_ADDRESS=$EEZL2_ADDRESS
 EEZ_L2_IMPLEMENTATION_ADDRESS=$EEZ_L2_IMPLEMENTATION_ADDRESS
 EEZ_L2_PROXY_ADMIN=$EEZ_L2_PROXY_ADMIN
 EEZ_L2_UPGRADE_OWNER=$EEZ_L2_UPGRADE_OWNER
+# Deployment record only; runtime execution reads the authenticated genesis.
 # Reserved native system identity; no L2 system key is used.
 EEZ_L2_SYSTEM_ADDRESS=$EEZ_L2_SYSTEM_ADDRESS
 EEZ_L2_RECOVERY_ADDRESS=$EEZ_L2_RECOVERY_ADDRESS

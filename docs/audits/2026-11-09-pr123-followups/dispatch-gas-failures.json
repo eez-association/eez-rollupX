@@ -1,0 +1,152 @@
+[
+  [
+    {
+      "type": "CALL",
+      "error": "execution reverted",
+      "gas": "0x1157c9",
+      "gasUsed": "0x10d6ac",
+      "output": null,
+      "depth": 0,
+      "selector": "0xe4a480e4"
+    },
+    {
+      "type": "CALL",
+      "error": "execution reverted",
+      "gas": "0x101706",
+      "gasUsed": "0xfd721",
+      "output": null,
+      "depth": 1,
+      "selector": "0xe4a480e4"
+    },
+    {
+      "type": "DELEGATECALL",
+      "error": "out of gas: not enough gas for reentrancy sentry",
+      "gas": "0xfc103",
+      "gasUsed": "0xfc103",
+      "output": null,
+      "depth": 2,
+      "selector": "0xe4a480e4"
+    }
+  ],
+  [
+    {
+      "type": "CALL",
+      "error": "execution reverted",
+      "gas": "0x116260",
+      "gasUsed": "0x10def3",
+      "output": null,
+      "depth": 0,
+      "selector": "0xe4a480e4"
+    },
+    {
+      "type": "CALL",
+      "error": "execution reverted",
+      "gas": "0x1021a2",
+      "gasUsed": "0xfdf98",
+      "output": null,
+      "depth": 1,
+      "selector": "0xe4a480e4"
+    },
+    {
+      "type": "DELEGATECALL",
+      "error": "execution reverted",
+      "gas": "0xfcb75",
+      "gasUsed": "0xfc97a",
+      "output": null,
+      "depth": 2,
+      "selector": "0xe4a480e4"
+    },
+    {
+      "type": "CALL",
+      "error": "execution reverted",
+      "gas": "0x7c6f",
+      "gasUsed": "0x7c38",
+      "output": null,
+      "depth": 3,
+      "selector": "0x455d16c7"
+    },
+    {
+      "type": "CALL",
+      "error": "out of gas",
+      "gas": "0x1e9f",
+      "gasUsed": "0x1e9f",
+      "output": null,
+      "depth": 4,
+      "selector": "0x5ca2af88"
+    },
+    {
+      "type": "STATICCALL",
+      "error": "out of gas",
+      "gas": "0x12a1",
+      "gasUsed": "0x12a1",
+      "output": null,
+      "depth": 5,
+      "selector": "0x787028b8"
+    },
+    {
+      "type": "CALL",
+      "error": "StateChangeDuringStaticCall",
+      "gas": "0x3e8",
+      "gasUsed": "0x3e8",
+      "output": null,
+      "depth": 6,
+      "selector": "0x9f149e1b"
+    },
+    {
+      "type": "STATICCALL",
+      "error": "out of gas",
+      "gas": "0x5db",
+      "gasUsed": "0x5db",
+      "output": null,
+      "depth": 6,
+      "selector": "0x31344ade"
+    },
+    {
+      "type": "DELEGATECALL",
+      "error": "out of gas",
+      "gas": "0x45b",
+      "gasUsed": "0x45b",
+      "output": null,
+      "depth": 7,
+      "selector": "0x31344ade"
+    }
+  ],
+  [
+    {
+      "type": "CALL",
+      "error": "execution reverted",
+      "gas": "0x651b8",
+      "gasUsed": "0x6253d",
+      "output": null,
+      "depth": 0,
+      "selector": "0xe4a480e4"
+    },
+    {
+      "type": "CALL",
+      "error": "execution reverted",
+      "gas": "0x57eb9",
+      "gasUsed": "0x56869",
+      "output": null,
+      "depth": 1,
+      "selector": "0xe4a480e4"
+    },
+    {
+      "type": "DELEGATECALL",
+      "error": "execution reverted",
+      "gas": "0x55478",
+      "gasUsed": "0x553b1",
+      "output": null,
+      "depth": 2,
+      "selector": "0xe4a480e4"
+    },
+    {
+      "type": "CALL",
+      "error": "out of gas: not enough gas for reentrancy sentry",
+      "gas": "0x3e32",
+      "gasUsed": "0x3e32",
+      "output": null,
+      "depth": 3,
+      "selector": "0x455d16c7"
+    }
+  ]
+]

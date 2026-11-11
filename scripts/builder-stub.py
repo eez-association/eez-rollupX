@@ -28,6 +28,7 @@ import json
 import os
 import socketserver
 import tempfile
+import threading
 import urllib.request
 import time
 
@@ -37,6 +38,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     capture_dir = None
     passthrough_bundles = False
     test_control_dir = None
+    control_lock = threading.Lock()
 
     def log_message(self, *_):
         pass
@@ -106,21 +108,91 @@ class Handler(http.server.BaseHTTPRequestHandler):
         errors = (os.path.join(self.test_control_dir, "rpc-errors.json")
                   if self.test_control_dir else None)
         failed_methods = []
+        pruned_before = 0
+        reported_head = None
         if errors:
             try:
                 with open(errors) as source:
                     failed_methods = json.load(source)
             except FileNotFoundError:
                 pass
+            try:
+                with open(os.path.join(self.test_control_dir, "pruned-before.json")) as source:
+                    pruned_before = int(json.load(source))
+            except FileNotFoundError:
+                pass
+            try:
+                with open(os.path.join(self.test_control_dir, "reported-head.json")) as source:
+                    reported_head = json.load(source)
+            except FileNotFoundError:
+                pass
+        # Model Reth's historical bodies/receipts boundary: full-block reads
+        # and even empty address-filtered log queries fail below it, while
+        # debug_getRawHeader still serves the retained canonical header.
+        pruned_history = False
+        if pruned_before:
+            start = "latest"
+            if body.get("method") == "eth_getLogs":
+                start = body["params"][0].get("fromBlock", "latest")
+            elif body.get("method") in ("eth_getBlockByNumber", "eth_getHeaderByNumber"):
+                start = body["params"][0]
+            pruned_history = start == "earliest" or (
+                start.startswith("0x") and int(start, 16) < pruned_before)
         if body.get("method") in failed_methods:
             resp = json.dumps({
                 "jsonrpc": "2.0", "id": body.get("id"),
                 "error": {"code": -32000, "message": "injected temporary RPC failure"},
             }).encode()
+        # Cap only the scan head; exact header reads still reach the real chain.
+        elif body.get("method") == "eth_blockNumber" and reported_head is not None:
+            resp = json.dumps({
+                "jsonrpc": "2.0", "id": body.get("id"), "result": hex(reported_head),
+            }).encode()
+        elif pruned_history:
+            resp = json.dumps({
+                "jsonrpc": "2.0", "id": body.get("id"),
+                "error": {"code": 4444, "message": "pruned history unavailable"},
+            }).encode()
         elif body.get("method") == "eth_sendBundle":
             params = body["params"][0]
             txs = params.get("txs", [])
             if self.passthrough_bundles:
+                # A restart barrier must also stop later recompositions after
+                # the first held request's transport deadline has expired.
+                pause_path = (os.path.join(self.test_control_dir, "pause-after.json")
+                              if self.test_control_dir else None)
+                paused = False
+                if pause_path:
+                    with self.control_lock:
+                        try:
+                            with open(pause_path) as source:
+                                skip = json.load(source)["skip"]
+                            if not isinstance(skip, int) or skip < 0:
+                                raise ValueError("pause skip must be a non-negative integer")
+                            if skip:
+                                with open(pause_path + ".new", "w") as output:
+                                    json.dump({"skip": skip - 1}, output)
+                                os.replace(pause_path + ".new", pause_path)
+                            else:
+                                paused = True
+                                captured = os.path.join(self.test_control_dir, "paused-bundle.json")
+                                if not os.path.exists(captured):
+                                    with open(captured + ".new", "w") as output:
+                                        json.dump(body, output)
+                                    os.replace(captured + ".new", captured)
+                        except FileNotFoundError:
+                            pass
+                if paused:
+                    resp = json.dumps({
+                        "jsonrpc": "2.0", "id": body.get("id"),
+                        "error": {"code": -32000, "message": "test relay paused"},
+                    }).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
                 drop_path = (os.path.join(self.test_control_dir, "drop-next.json")
                              if self.test_control_dir else None)
                 drop_next = False
@@ -233,18 +305,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # forwarding; the Beacon fixture exposes canonical receipts only.
                 for raw in txs:
                     self._capture_blob(raw)
-                single = (self.test_control_dir and os.path.exists(
-                    os.path.join(self.test_control_dir, "single-transaction.json")))
-                # The controlled-consensus native fixture uses a standard EL
-                # Engine API. Keep the same proof/hold/Beacon barriers, but use
-                # the existing single-transaction relay semantics on that EL.
-                if single and len(txs) != 1:
-                    resp = json.dumps({"jsonrpc": "2.0", "id": body.get("id"),
-                        "error": {"code": -32602, "message": "controlled native relay requires exactly one transaction"}}).encode()
-                else:
-                    forwarded = {"jsonrpc": "2.0", "id": body.get("id"),
-                        "method": "eth_sendRawTransaction", "params": txs} if single else body
-                    resp = urllib.request.urlopen(
+                controlled = (self.test_control_dir and os.path.exists(
+                    os.path.join(self.test_control_dir, "raw-transactions.json")))
+                # Engine-controlled fixtures use the real EL pool, without a
+                # bundle endpoint. Forward in order and stop on the first error;
+                # acceptance is non-atomic and does not guarantee block order.
+                # Tests must set fees and verify actual inclusion/order/effects.
+                requests = [{"jsonrpc": "2.0", "id": body.get("id"),
+                    "method": "eth_sendRawTransaction", "params": [raw]}
+                    for raw in txs] if controlled else [body]
+                resp = json.dumps({"jsonrpc": "2.0", "id": body.get("id"),
+                    "error": {"code": -32602, "message": "empty controlled bundle"}}).encode()
+                for forwarded in requests:
+                    reply = urllib.request.urlopen(
                         urllib.request.Request(
                             self.upstream,
                             data=json.dumps(forwarded).encode(),
@@ -252,6 +325,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         ),
                         timeout=10,
                     ).read()
+                    if "error" in json.loads(reply):
+                        resp = reply
+                        break
+                    # The postBatch is first; preserve its acknowledgement.
+                    if forwarded is requests[0]:
+                        resp = reply
             elif len(txs) != 1:
                 resp = json.dumps({
                     "jsonrpc": "2.0",

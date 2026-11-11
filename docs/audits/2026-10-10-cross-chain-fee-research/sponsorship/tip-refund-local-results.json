@@ -1,0 +1,748 @@
+{
+  "scope": "Isolated native-blob, operator-value and sponsored-tip experiments; no public RPC.\n\nUses the pinned EEZ bytecode, a hash-checking mock proof system, and synthetic\nL1 companions. This does not run Composer, an L2 prover, or a production builder.\nRetained to reproduce the funding/fee boundary without operator wallets/state.\n",
+  "cases": [
+    {
+      "name": "zero_balance_without_funding",
+      "result": {
+        "error": {
+          "code": -32003,
+          "message": "Insufficient funds for gas * price + value"
+        }
+      }
+    },
+    {
+      "name": "execution_cap_only",
+      "balance_wei": 1000000000000000,
+      "result": {
+        "error": {
+          "code": -32003,
+          "message": "Insufficient funds for gas * price + value"
+        }
+      }
+    },
+    {
+      "name": "one_wei_below_full_reserve",
+      "balance_wei": 1131071999999999,
+      "result": {
+        "error": {
+          "code": -32003,
+          "message": "Insufficient funds for gas * price + value"
+        }
+      }
+    },
+    {
+      "name": "wrong_slot_reverts",
+      "status": "0x0",
+      "blob_gas_used": 131072
+    },
+    {
+      "name": "sponsored_first_batch",
+      "funding_wei": 1131072000000000,
+      "poster_balance_before_wei": 0,
+      "poster_balance_after_wei": 1047905999868928,
+      "post_cost_wei": 83166000131072,
+      "post_gas_used": 83166,
+      "blob_cost_wei": 131072,
+      "customer_tips_wei": 5948850000000000,
+      "builder_net_wei": 4796778000000000,
+      "txpool_only_balance_override": true,
+      "transaction_count": 5,
+      "transaction_hashes": [
+        "0xb9e3ad98d1dae21327b273244ff22207d158c2952c9ac11b5d5fb32330fb9752",
+        "0x5ae57f70613db4cfda6969ee4bd7e6c094bd4a9338e77066e191c3992323afea",
+        "0xd37ae76f301c6b808e1777c61be6984880b7a7fac254af4f66a9e8a5f6b0bd91",
+        "0x1acb7aab33400063c59e25db37b521fb114f8ac11c6924dbfdcc3bce39916ce1",
+        "0xfe46900b93cd1efece24b18b1299b642c855119f0fdce227b879470a90757b19"
+      ]
+    },
+    {
+      "name": "sponsored_residual_balance",
+      "funding_wei": 83166000131072,
+      "poster_balance_before_wei": 1047905999868928,
+      "poster_balance_after_wei": 1065005999868928,
+      "post_cost_wei": 66066000131072,
+      "post_gas_used": 66066,
+      "blob_cost_wei": 131072,
+      "customer_tips_wei": 5093850000000000,
+      "builder_net_wei": 4989683999868928,
+      "txpool_only_balance_override": true,
+      "transaction_count": 5,
+      "transaction_hashes": [
+        "0xbdf51924e671064e96012b60e5dd6671c7f5165adeb44bc2d83fdda9a35e9187",
+        "0x092a784853dee9251e2cbb7e664458dd8ba513df31e1ba66088a31a1632a38f8",
+        "0x5fa8a8bb5f13ff181a9c6e1769085b76a2f90b3032c39da233546e387136d2c5",
+        "0xac19e9939ea82275f7d35599e9aa55c5b897a62dfd3ab085001a5c16e6611af5",
+        "0x14dd21242107bfb5552504874560359496e6c47bbf45f34b1b885762e03d8000"
+      ]
+    },
+    {
+      "name": "funded_poster_no_topup",
+      "funding_wei": 0,
+      "poster_balance_before_wei": 2262144000000000,
+      "poster_balance_after_wei": 2196077999868928,
+      "post_cost_wei": 66066000131072,
+      "post_gas_used": 66066,
+      "blob_cost_wei": 131072,
+      "customer_tips_wei": 5093850000000000,
+      "builder_net_wei": 5093850000000000,
+      "txpool_only_balance_override": false,
+      "transaction_count": 4,
+      "transaction_hashes": [
+        "0x2060ea39ffa78f0b30e5ce571d8e47f9f1fe0187412272767441e8010bc5a1d6",
+        "0xc1210ef2fcd0f257daef64dcbf05594c0b769ce474f5154031e1d652855dd307",
+        "0x1ee669b737e9c949d8f80f28172a8bf56ac5454b2003c2e8c7742a5c7abca5b7",
+        "0x44db660da4ff849f0c7a24b4b669bbe82365d5580be93cf3c7c58e5b2bbeb751"
+      ]
+    },
+    {
+      "name": "payout_zero_balance_rejected",
+      "balance_wei": 0,
+      "result": {
+        "error": {
+          "code": -32003,
+          "message": "Insufficient funds for gas * price + value"
+        }
+      }
+    },
+    {
+      "name": "payout_gas_only_rejected",
+      "balance_wei": 42000000000000,
+      "result": {
+        "error": {
+          "code": -32003,
+          "message": "Insufficient funds for gas * price + value"
+        }
+      }
+    },
+    {
+      "name": "payout_one_wei_below_value_and_gas_rejected",
+      "balance_wei": 2441999999999999,
+      "result": {
+        "error": {
+          "code": -32003,
+          "message": "Insufficient funds for gas * price + value"
+        }
+      }
+    },
+    {
+      "name": "post_with_service_value_reverts",
+      "paired_controls": [
+        {
+          "value_wei": 2400000000000000,
+          "status": "0x0",
+          "transaction_hash": "0xef2e6193e971c8b65e5d7e01c390d3fed7e10cd1754deb9eaf5d865a04f05126"
+        },
+        {
+          "value_wei": 0,
+          "status": "0x1",
+          "transaction_hash": "0xa604172f02fb916f7fc9f6fdc138c65fd6db0d5c0dc57937ebd759f46ba83d29"
+        }
+      ],
+      "parent_hash": "0xddafa00f2d57b90fbd6676af7fe478ac2bd76f22a73df5dd3bc9b0a338f28340",
+      "blob_gas_charged_each": 131072
+    },
+    {
+      "name": "value_sponsored_first_batch",
+      "requested_value_wei": 2400000000000000,
+      "builder_funding_wei": 2442000000000000,
+      "treasury_receipt_wei": 2400000000000000,
+      "post_cost_wei": 66066000131072,
+      "payout_cost_wei": 21000000000000,
+      "funding_tx_cost_wei": 21000000000000,
+      "user_tips_wei": 5093850000000000,
+      "operator_combined_balance_change_wei": 2354933999868928,
+      "contribution_after_assumed_non_gas_cost_wei": 2154933999868928,
+      "builder_balance_change_wei": 2630850000000000,
+      "builder_economically_positive": true,
+      "local_only_negative_control": false,
+      "payout_sender_balance_before_wei": 0,
+      "payout_sender_balance_after_wei": 21000000000000,
+      "balances_before_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100014880311999868928,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 2196077999868928,
+        "0xd41c057fd1c78805AAC12B0A94a405c0461A6FBb": 0,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 0,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99993932173000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99994804273000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99994804273000000000
+      },
+      "balances_after_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100017511161999868928,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 2130011999737856,
+        "0xd41c057fd1c78805AAC12B0A94a405c0461A6FBb": 21000000000000,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 2400000000000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99992200264000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99993072364000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99993072364000000000
+      },
+      "txpool_only_balance_override": true,
+      "transaction_hashes": [
+        "0x3b4e65bc7fb65abdf3ced1b70535294bb4af6ad617b412b77447283ef237b914",
+        "0xa604172f02fb916f7fc9f6fdc138c65fd6db0d5c0dc57937ebd759f46ba83d29",
+        "0x4dc3fcd3135c0b81831f52e4ee2e98c3ba290bc54770918fb8424f61af190fea",
+        "0x4173000bec704f14b01759a988386f25784f79430bf43e6bb971fe53c6fe3669",
+        "0x8b99992a74ce5c134819379a9335612d2048d18cfc04ebed5323656b9b01f6eb",
+        "0xa48e7413377901196588bd53b1c96376eb73670b64a2a3c0ca66042abca865e0"
+      ],
+      "post_hash": "0xa604172f02fb916f7fc9f6fdc138c65fd6db0d5c0dc57937ebd759f46ba83d29",
+      "payout_hash": "0xa48e7413377901196588bd53b1c96376eb73670b64a2a3c0ca66042abca865e0",
+      "funding_hash": "0x3b4e65bc7fb65abdf3ced1b70535294bb4af6ad617b412b77447283ef237b914",
+      "block_hash": "0xf806cba0c8041f501eae57611967ca84ba1d115859b095be53408e4986269994",
+      "target_timestamp": 1791651049
+    },
+    {
+      "name": "value_sponsored_residual_balance",
+      "requested_value_wei": 2400000000000000,
+      "builder_funding_wei": 2421000000000000,
+      "treasury_receipt_wei": 2400000000000000,
+      "post_cost_wei": 66066000131072,
+      "payout_cost_wei": 21000000000000,
+      "funding_tx_cost_wei": 21000000000000,
+      "user_tips_wei": 5093850000000000,
+      "operator_combined_balance_change_wei": 2333933999868928,
+      "contribution_after_assumed_non_gas_cost_wei": 2133933999868928,
+      "builder_balance_change_wei": 2651850000000000,
+      "builder_economically_positive": true,
+      "local_only_negative_control": false,
+      "payout_sender_balance_before_wei": 21000000000000,
+      "payout_sender_balance_after_wei": 21000000000000,
+      "balances_before_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100017511161999868928,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 2130011999737856,
+        "0xd41c057fd1c78805AAC12B0A94a405c0461A6FBb": 21000000000000,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 2400000000000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99992200264000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99993072364000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99993072364000000000
+      },
+      "balances_after_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100020163011999868928,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 2063945999606784,
+        "0xd41c057fd1c78805AAC12B0A94a405c0461A6FBb": 21000000000000,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 4800000000000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99990468355000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99991340455000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99991340455000000000
+      },
+      "txpool_only_balance_override": true,
+      "transaction_hashes": [
+        "0x8f703263003717e531fd8bc5442f0824f930e10f2e7a51dde19a3333ee4d03c1",
+        "0x3aaaca6cfb25d382f960dd9a140562c8fbbf87c068a38af753ab7b29e988d096",
+        "0x58b1231483368071d278b7e85acdb54614b3d7b3f8d78388e6e57096dad757bc",
+        "0x6928326e9fe1aec6572c4808d5c00465335a13956f53fa309f629bb7be0f2d34",
+        "0xd798a6dd58bd7b828a5e3065d444ed8f1ba1d66df939e4c27f66e181010159a7",
+        "0x48023889153e26733ae2efdf9c02acb78699bb5c3a990669aab37cb60e6b0231"
+      ],
+      "post_hash": "0x3aaaca6cfb25d382f960dd9a140562c8fbbf87c068a38af753ab7b29e988d096",
+      "payout_hash": "0x48023889153e26733ae2efdf9c02acb78699bb5c3a990669aab37cb60e6b0231",
+      "funding_hash": "0x8f703263003717e531fd8bc5442f0824f930e10f2e7a51dde19a3333ee4d03c1",
+      "block_hash": "0x91a85cca95a17e0821007f5bda84a0fd651ceddda3404e4b4ec0272aba22d2ff",
+      "target_timestamp": 1791651061
+    },
+    {
+      "name": "value_prefunded_self_payment",
+      "requested_value_wei": 2400000000000000,
+      "builder_funding_wei": 0,
+      "treasury_receipt_wei": 2400000000000000,
+      "post_cost_wei": 66066000131072,
+      "payout_cost_wei": 21000000000000,
+      "funding_tx_cost_wei": 0,
+      "user_tips_wei": 5093850000000000,
+      "operator_combined_balance_change_wei": -87066000131072,
+      "contribution_after_assumed_non_gas_cost_wei": -287066000131072,
+      "builder_balance_change_wei": 5093850000000000,
+      "builder_economically_positive": true,
+      "local_only_negative_control": false,
+      "payout_sender_balance_before_wei": 2442000000000000,
+      "payout_sender_balance_after_wei": 21000000000000,
+      "balances_before_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100020163011999868928,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 2063945999606784,
+        "0xd41c057fd1c78805AAC12B0A94a405c0461A6FBb": 2442000000000000,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 4800000000000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99990468355000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99991340455000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99991340455000000000
+      },
+      "balances_after_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100025256861999868928,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 1997879999475712,
+        "0xd41c057fd1c78805AAC12B0A94a405c0461A6FBb": 21000000000000,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 7200000000000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99988736446000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99989608546000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99989608546000000000
+      },
+      "txpool_only_balance_override": false,
+      "transaction_hashes": [
+        "0x3745e29bacba85c1ce176d9f69030f73adb7a437c3300fede72a79bfc58aa2cf",
+        "0x7b72774fb75e0d5ff580e4459c2c300912f4e072dd819904077d6efa000f612c",
+        "0x74fb9b812b16cd50002261d739b1b85a154eb9d8adf0980ba7e8a01c7847b61c",
+        "0x77cb3172545da68ec516427659c27f4aa3030f424830cfcfc08531b8ab3501b6",
+        "0xca50b9eb37c8107c18c55995e401b92d4743071ea4634675b84fb1f7f2aadc8a"
+      ],
+      "post_hash": "0x3745e29bacba85c1ce176d9f69030f73adb7a437c3300fede72a79bfc58aa2cf",
+      "payout_hash": "0xca50b9eb37c8107c18c55995e401b92d4743071ea4634675b84fb1f7f2aadc8a",
+      "funding_hash": null,
+      "block_hash": "0x136170f7b8d1879c47c4dedc52b375e7fe7c5f03acd92a137fae7f530c2aabf5",
+      "target_timestamp": 1791651073
+    },
+    {
+      "name": "value_oversized_payout_builder_loss",
+      "requested_value_wei": 10000000000000000,
+      "builder_funding_wei": 10021000000000000,
+      "treasury_receipt_wei": 10000000000000000,
+      "post_cost_wei": 66066000131072,
+      "payout_cost_wei": 21000000000000,
+      "funding_tx_cost_wei": 21000000000000,
+      "user_tips_wei": 5093850000000000,
+      "operator_combined_balance_change_wei": 9933933999868928,
+      "contribution_after_assumed_non_gas_cost_wei": 9733933999868928,
+      "builder_balance_change_wei": -4948150000000000,
+      "builder_economically_positive": false,
+      "local_only_negative_control": true,
+      "payout_sender_balance_before_wei": 21000000000000,
+      "payout_sender_balance_after_wei": 21000000000000,
+      "balances_before_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100025256861999868928,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 1997879999475712,
+        "0xd41c057fd1c78805AAC12B0A94a405c0461A6FBb": 21000000000000,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 7200000000000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99988736446000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99989608546000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99989608546000000000
+      },
+      "balances_after_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100020308711999868928,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 1931813999344640,
+        "0xd41c057fd1c78805AAC12B0A94a405c0461A6FBb": 21000000000000,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 17200000000000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99987004537000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99987876637000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99987876637000000000
+      },
+      "txpool_only_balance_override": true,
+      "transaction_hashes": [
+        "0x9100b7e2c0d35577dd22192179b109e5766d63d698dfc010f10914c5307f824e",
+        "0xcaa7c845d11bc3a91adee57a36c0d570ee199f4b885613b9a96fec1f2affeadc",
+        "0xbb5bcbb43ebf22bab5fb10599a4c02968fcd714fd56e39930a3758510ada6789",
+        "0x0fc2dfe5ad0323c34a09b05e10a510eaa011909ca3f2d55900921b5ef9a6ea7a",
+        "0xc8174246da60f49a883a0c021a8b29838a9d2e560296274f3806dacc0a6fcabc",
+        "0xd0584f9daeca6ee78a6b7738fd12dae6aec9a5bb8b19427080f5ed76f0fd97ff"
+      ],
+      "post_hash": "0xcaa7c845d11bc3a91adee57a36c0d570ee199f4b885613b9a96fec1f2affeadc",
+      "payout_hash": "0xd0584f9daeca6ee78a6b7738fd12dae6aec9a5bb8b19427080f5ed76f0fd97ff",
+      "funding_hash": "0x9100b7e2c0d35577dd22192179b109e5766d63d698dfc010f10914c5307f824e",
+      "block_hash": "0xe882cbd09a92ce0b030f146d3c356ef91464e47883c283b91d0dddfe1bed7eae",
+      "target_timestamp": 1791651085
+    },
+    {
+      "name": "tip_refund_sponsored_first",
+      "manual_builder_funding_and_refund": true,
+      "gross_post_tip_wei": 1321320000000000,
+      "refund_basis_wei": 1321320000000000,
+      "net_sponsorship_from_source_assumption": false,
+      "builder_funding_wei": 2231072000000000,
+      "refund_wei": 1287316800000000,
+      "refund_recipient": "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C",
+      "poster_fee_cap_reserve_wei": 2231072000000000,
+      "post_cost_wei": 1387386000131072,
+      "funding_cost_wei": 21000000000000,
+      "refund_transfer_cost_wei": 21000000000000,
+      "external_user_tips_wei": 5093850000000000,
+      "operator_combined_balance_change_wei": 2131002799868928,
+      "contribution_after_assumed_non_gas_cost_wei": 1931002799868928,
+      "treasury_receipt_wei": 1287316800000000,
+      "poster_balance_change_wei": 843685999868928,
+      "builder_balance_change_wei": 2854781200000000,
+      "builder_economically_positive": true,
+      "local_only_negative_control": false,
+      "balances_before_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100020308711999868928,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 0,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 17200000000000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99987004537000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99987876637000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99987876637000000000
+      },
+      "balances_after_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100023163493199868928,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 843685999868928,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 18487316800000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99985272628000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99986144728000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99986144728000000000
+      },
+      "txpool_only_balance_override": true,
+      "transaction_hashes": [
+        "0x47114f205f238a44f9c53526e0d1354f2f13e9a5ca41b364d839616bd197dd1e",
+        "0x2a49650a89689ea5b31bba90ae9e12c44ca53b5dfa2b8fbaaa9edc5716fb6e6d",
+        "0x3c95383cd9b8217d9c587ba0ac14dd5fc3103497d223beb9739291cbf1eebdd9",
+        "0x5888d8b3cbf3a9479f1e6f7d81cc42ab2c3a23dbb831d6a3328d1d19a2cd2eba",
+        "0x9cb9e9526a16f9207f261040ddad673f63c831585829a2682621cac001f9a3ea",
+        "0x86db04007dea2e94af8d5ee600f0a1dab9275a0c97c7fd90390cce69f3a8ce63"
+      ],
+      "post_hash": "0x2a49650a89689ea5b31bba90ae9e12c44ca53b5dfa2b8fbaaa9edc5716fb6e6d",
+      "funding_hash": "0x47114f205f238a44f9c53526e0d1354f2f13e9a5ca41b364d839616bd197dd1e",
+      "refund_hash": "0x86db04007dea2e94af8d5ee600f0a1dab9275a0c97c7fd90390cce69f3a8ce63",
+      "block_hash": "0x6a9a8c61a641857faf9e564dd4c7e1d72939d59bde7eadc6f4b9ea3904ce549f",
+      "target_timestamp": 1791651097
+    },
+    {
+      "name": "tip_refund_sponsored_repeat",
+      "manual_builder_funding_and_refund": true,
+      "gross_post_tip_wei": 1321320000000000,
+      "refund_basis_wei": 1321320000000000,
+      "net_sponsorship_from_source_assumption": false,
+      "builder_funding_wei": 1387386000131072,
+      "refund_wei": 1287316800000000,
+      "refund_recipient": "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C",
+      "poster_fee_cap_reserve_wei": 2231072000000000,
+      "post_cost_wei": 1387386000131072,
+      "funding_cost_wei": 21000000000000,
+      "refund_transfer_cost_wei": 21000000000000,
+      "external_user_tips_wei": 5093850000000000,
+      "operator_combined_balance_change_wei": 1287316800000000,
+      "contribution_after_assumed_non_gas_cost_wei": 1087316800000000,
+      "treasury_receipt_wei": 1287316800000000,
+      "poster_balance_change_wei": 0,
+      "builder_balance_change_wei": 3698467199868928,
+      "builder_economically_positive": true,
+      "local_only_negative_control": false,
+      "balances_before_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100023163493199868928,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 843685999868928,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 18487316800000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99985272628000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99986144728000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99986144728000000000
+      },
+      "balances_after_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100026861960399737856,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 843685999868928,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 19774633600000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99983540719000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99984412819000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99984412819000000000
+      },
+      "txpool_only_balance_override": true,
+      "transaction_hashes": [
+        "0xd85a8e7cb3bf19af9343f84561628ffd24803de9617e08872ccf976d6a53a11f",
+        "0xc8d0277d4bb898672d0dbd2a613d9a299c952a4c1a7aa22b555186ffc9e872b3",
+        "0xfaee8192e06f3ff313e7e66ddafc199cbf63dd7af181004768b4cf7ed769bb5c",
+        "0x77cb314520488abbbfbf534829cba89e1cd7e2a3cfa5c631aa8b981fe9d24144",
+        "0x9fd65e5f511fbca42d59a423b711ca7a41e98fc04b8792d463b458ad36aafb24",
+        "0x722f3edb6d1d07c143fd60c7b5067a0f1a4c49747fd7e481bd9347f8e3485f11"
+      ],
+      "post_hash": "0xc8d0277d4bb898672d0dbd2a613d9a299c952a4c1a7aa22b555186ffc9e872b3",
+      "funding_hash": "0xd85a8e7cb3bf19af9343f84561628ffd24803de9617e08872ccf976d6a53a11f",
+      "refund_hash": "0x722f3edb6d1d07c143fd60c7b5067a0f1a4c49747fd7e481bd9347f8e3485f11",
+      "block_hash": "0x6bf284365f4e1b4e9ae9668e2fcd055d25f13db10c7d27c941949b6dbeb5be36",
+      "target_timestamp": 1791651109
+    },
+    {
+      "name": "tip_refund_sponsorship_deducted_from_source",
+      "manual_builder_funding_and_refund": true,
+      "gross_post_tip_wei": 1321320000000000,
+      "refund_basis_wei": 0,
+      "net_sponsorship_from_source_assumption": true,
+      "builder_funding_wei": 1387386000131072,
+      "refund_wei": 0,
+      "refund_recipient": "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C",
+      "poster_fee_cap_reserve_wei": 2231072000000000,
+      "post_cost_wei": 1387386000131072,
+      "funding_cost_wei": 21000000000000,
+      "refund_transfer_cost_wei": 0,
+      "external_user_tips_wei": 5093850000000000,
+      "operator_combined_balance_change_wei": 0,
+      "contribution_after_assumed_non_gas_cost_wei": -200000000000000,
+      "treasury_receipt_wei": 0,
+      "poster_balance_change_wei": 0,
+      "builder_balance_change_wei": 5006783999868928,
+      "builder_economically_positive": true,
+      "local_only_negative_control": false,
+      "balances_before_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100026861960399737856,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 843685999868928,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 19774633600000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99983540719000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99984412819000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99984412819000000000
+      },
+      "balances_after_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100031868744399606784,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 843685999868928,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 19774633600000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99981808810000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99982680910000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99982680910000000000
+      },
+      "txpool_only_balance_override": true,
+      "transaction_hashes": [
+        "0x35bdd62fe8d27818e76c069ecbd4242e2ebdd1bd68dbab3562218e2d594da261",
+        "0xf2e168c746c92033d037c514c01a7dc908e25d95ef5e3fcce919b87825eccb83",
+        "0xb9ca7481af2507accd74cdb61bfd47766c69802302cdd9edd5ddcfc6ccc42ae1",
+        "0x9b0424c528f26c32a3c90ed6503906d7d7a8c434d7ebcdde502d92e54abeff34",
+        "0xae21b6a5a3748d62d20a5956e4c982c2cb942c60f6a93fa3c0eb59c7302ce293"
+      ],
+      "post_hash": "0xf2e168c746c92033d037c514c01a7dc908e25d95ef5e3fcce919b87825eccb83",
+      "funding_hash": "0x35bdd62fe8d27818e76c069ecbd4242e2ebdd1bd68dbab3562218e2d594da261",
+      "refund_hash": null,
+      "block_hash": "0x2c91d8505ddf5ef12bc61b353209d6b4f205f98ab2087f9f61c7f60a32afdb08",
+      "target_timestamp": 1791651121
+    },
+    {
+      "name": "tip_refund_prefunded_no_sponsor",
+      "manual_builder_funding_and_refund": true,
+      "gross_post_tip_wei": 1321080000000000,
+      "refund_basis_wei": 1321080000000000,
+      "net_sponsorship_from_source_assumption": false,
+      "builder_funding_wei": 0,
+      "refund_wei": 1287079200000000,
+      "refund_recipient": "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C",
+      "poster_fee_cap_reserve_wei": 2231072000000000,
+      "post_cost_wei": 1387134000131072,
+      "funding_cost_wei": 0,
+      "refund_transfer_cost_wei": 21000000000000,
+      "external_user_tips_wei": 5093850000000000,
+      "operator_combined_balance_change_wei": -100054800131072,
+      "contribution_after_assumed_non_gas_cost_wei": -300054800131072,
+      "treasury_receipt_wei": 1287079200000000,
+      "poster_balance_change_wei": -1387134000131072,
+      "builder_balance_change_wei": 5106850800000000,
+      "builder_economically_positive": true,
+      "local_only_negative_control": false,
+      "balances_before_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100031868744399606784,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 4462144000000000,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 19774633600000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99981808810000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99982680910000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99982680910000000000
+      },
+      "balances_after_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100036975595199606784,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 3075009999868928,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 21061712800000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99980076901000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99980949001000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99980949001000000000
+      },
+      "txpool_only_balance_override": false,
+      "transaction_hashes": [
+        "0xe8a27ca1501f67448b2bba1d5bb07759ca25ffdd46643d35bd869110886a128d",
+        "0x8966b7ec1e34d624017f0458c6021812c29fff959c16596dfabbf38828c1dcdc",
+        "0xc0ea9e0a996def0048dd17f72e25bc8f000a697609054cdc9b1867ebb83bede5",
+        "0x7b1c00c1c881c6101c85dc36a0c53786785ed43a2223649101a3c3b3d50ac1f5",
+        "0x0933b76e91b53cbf48001d5dbe0d6320ee9411db8a239966163a550252af8bdd"
+      ],
+      "post_hash": "0xe8a27ca1501f67448b2bba1d5bb07759ca25ffdd46643d35bd869110886a128d",
+      "funding_hash": null,
+      "refund_hash": "0x0933b76e91b53cbf48001d5dbe0d6320ee9411db8a239966163a550252af8bdd",
+      "block_hash": "0xbb9d28b2c7635fac1564caaef3b6eb310be7b7dbd2321e1059189208eddbebbf",
+      "target_timestamp": 1791651133
+    },
+    {
+      "name": "tip_refund_same_poster_first",
+      "manual_builder_funding_and_refund": true,
+      "gross_post_tip_wei": 1321320000000000,
+      "refund_basis_wei": 1321320000000000,
+      "net_sponsorship_from_source_assumption": false,
+      "builder_funding_wei": 2231072000000000,
+      "refund_wei": 1287316800000000,
+      "refund_recipient": "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF",
+      "poster_fee_cap_reserve_wei": 2231072000000000,
+      "post_cost_wei": 1387386000131072,
+      "funding_cost_wei": 21000000000000,
+      "refund_transfer_cost_wei": 21000000000000,
+      "external_user_tips_wei": 5093850000000000,
+      "operator_combined_balance_change_wei": 2131002799868928,
+      "contribution_after_assumed_non_gas_cost_wei": 1931002799868928,
+      "treasury_receipt_wei": 0,
+      "poster_balance_change_wei": 2131002799868928,
+      "builder_balance_change_wei": 2854781200000000,
+      "builder_economically_positive": true,
+      "local_only_negative_control": false,
+      "balances_before_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100036975595199606784,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 0,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 21061712800000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99980076901000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99980949001000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99980949001000000000
+      },
+      "balances_after_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100039830376399606784,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 2131002799868928,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 21061712800000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99978344992000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99979217092000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99979217092000000000
+      },
+      "txpool_only_balance_override": true,
+      "transaction_hashes": [
+        "0x08e8d6936e022eb1a2db19d568e2752f4650098f613deae6fcf9f1e6e7ffc77b",
+        "0xb0e9f2b972ec5683a157836f8773b67a98c50ee53cd95d5212a3266d7680d91c",
+        "0x011e65efe4a9d04f7f56f3bb63d65f4c6bf052a46d1f1230655db4ef55c64d82",
+        "0x956a8d47540fbc04777756cf173a7980b661af0d8b9a3028639ccefe1a3bd8e6",
+        "0xe716195fe59a76334c8e9a0bcdf2a966f3da6a4f245fef2d95f1aed6030dd2c4",
+        "0x518bfa1db6c3ce347e510f8eea0e5c7cc85936df14bee17a47391fbfa09b4afc"
+      ],
+      "post_hash": "0xb0e9f2b972ec5683a157836f8773b67a98c50ee53cd95d5212a3266d7680d91c",
+      "funding_hash": "0x08e8d6936e022eb1a2db19d568e2752f4650098f613deae6fcf9f1e6e7ffc77b",
+      "refund_hash": "0x518bfa1db6c3ce347e510f8eea0e5c7cc85936df14bee17a47391fbfa09b4afc",
+      "block_hash": "0x806c30f5989d3bf5c42732a36979485795bcfe52913c491891c1da64520ef1c1",
+      "target_timestamp": 1791651145
+    },
+    {
+      "name": "tip_refund_same_poster_repeat",
+      "manual_builder_funding_and_refund": true,
+      "gross_post_tip_wei": 1321320000000000,
+      "refund_basis_wei": 1321320000000000,
+      "net_sponsorship_from_source_assumption": false,
+      "builder_funding_wei": 100069200131072,
+      "refund_wei": 1287316800000000,
+      "refund_recipient": "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF",
+      "poster_fee_cap_reserve_wei": 2231072000000000,
+      "post_cost_wei": 1387386000131072,
+      "funding_cost_wei": 21000000000000,
+      "refund_transfer_cost_wei": 21000000000000,
+      "external_user_tips_wei": 5093850000000000,
+      "operator_combined_balance_change_wei": 0,
+      "contribution_after_assumed_non_gas_cost_wei": -200000000000000,
+      "treasury_receipt_wei": 0,
+      "poster_balance_change_wei": 0,
+      "builder_balance_change_wei": 4985783999868928,
+      "builder_economically_positive": true,
+      "local_only_negative_control": false,
+      "balances_before_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100039830376399606784,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 2131002799868928,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 21061712800000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99978344992000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99979217092000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99979217092000000000
+      },
+      "balances_after_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100044816160399475712,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 2131002799868928,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 21061712800000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99976613083000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99977485183000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99977485183000000000
+      },
+      "txpool_only_balance_override": true,
+      "transaction_hashes": [
+        "0xbe0b914f99a087a13ea49d316407991556fb570cf2339bfc46b58dae7cc21a3b",
+        "0xd59d95120c55afb9cd733062e2f6e1b6db39871147bfcb0870661ebf74e4314c",
+        "0xd3b6f92af8170e6d2e4ae31b77c6cd4db66861b21436bb4ea77f1315c58b04b4",
+        "0xadac483120cb7fe12e00e787fe0b752846f5049d440b9f223b0f234db58e45fc",
+        "0x822866b5b022e64945de835d4517d92f911d854ceaa553e8c1e4b27cee67d6ab",
+        "0xd04339ab109391aef3d236befdaf7ae7feaad6f390cbafa44ed2c045c6394fdb"
+      ],
+      "post_hash": "0xd59d95120c55afb9cd733062e2f6e1b6db39871147bfcb0870661ebf74e4314c",
+      "funding_hash": "0xbe0b914f99a087a13ea49d316407991556fb570cf2339bfc46b58dae7cc21a3b",
+      "refund_hash": "0xd04339ab109391aef3d236befdaf7ae7feaad6f390cbafa44ed2c045c6394fdb",
+      "block_hash": "0x6ce76f4b340b45aa183004887f5d61b2b14c525dfdefdac4a6a760c45b19d070",
+      "target_timestamp": 1791651157
+    },
+    {
+      "name": "tip_refund_oversized_reserve_builder_loss",
+      "manual_builder_funding_and_refund": true,
+      "gross_post_tip_wei": 1321080000000000,
+      "refund_basis_wei": 1321080000000000,
+      "net_sponsorship_from_source_assumption": false,
+      "builder_funding_wei": 10631072000000000,
+      "refund_wei": 1287079200000000,
+      "refund_recipient": "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C",
+      "poster_fee_cap_reserve_wei": 10631072000000000,
+      "post_cost_wei": 1387134000131072,
+      "funding_cost_wei": 21000000000000,
+      "refund_transfer_cost_wei": 21000000000000,
+      "external_user_tips_wei": 5093850000000000,
+      "operator_combined_balance_change_wei": 10531017199868928,
+      "contribution_after_assumed_non_gas_cost_wei": 10331017199868928,
+      "treasury_receipt_wei": 1287079200000000,
+      "poster_balance_change_wei": 9243937999868928,
+      "builder_balance_change_wei": -5545221200000000,
+      "builder_economically_positive": false,
+      "local_only_negative_control": true,
+      "balances_before_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100044816160399475712,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 0,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 21061712800000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99976613083000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99977485183000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99977485183000000000
+      },
+      "balances_after_wei": {
+        "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf": 100039270939199475712,
+        "0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF": 9243937999868928,
+        "0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C": 22348792000000000,
+        "0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69": 99974881174000000000,
+        "0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718": 99975753274000000000,
+        "0xe1AB8145F7E55DC933d51a18c793F901A3A0b276": 99975753274000000000
+      },
+      "txpool_only_balance_override": true,
+      "transaction_hashes": [
+        "0xaf7d9fed83e3563dce2590ac7d27f147f398234879499df728e308b369a5606f",
+        "0xa96184d036d3ddc4e4e2c888e79c443cc65f7f93a7ee4fde99b347c6707be685",
+        "0x0b1f96205be7802ba273652c30e955416e2ff0e75911d8c543b9fe7b4d8af184",
+        "0x9b7df89f5add76453fb38131cdd886d4aaa4048a5ed61ed55fd2012724b51fe0",
+        "0xaca198501959dfc4709c5cd0e59ef887b0a249da37bdd6d0790fccd1a64e009b",
+        "0x2402bda73c4f5d1d1d2de52ba9248958b4c2ad9dbd28e9bf958f657a4fe6759c"
+      ],
+      "post_hash": "0xa96184d036d3ddc4e4e2c888e79c443cc65f7f93a7ee4fde99b347c6707be685",
+      "funding_hash": "0xaf7d9fed83e3563dce2590ac7d27f147f398234879499df728e308b369a5606f",
+      "refund_hash": "0x2402bda73c4f5d1d1d2de52ba9248958b4c2ad9dbd28e9bf958f657a4fe6759c",
+      "block_hash": "0x0007b0c6dc558f7afeb84fbcfabf7df665f08c28807038d5d8a5bd87752074c9",
+      "target_timestamp": 1791651169
+    }
+  ],
+  "local_evidence_directory": "/tmp/rollupx-sponsorship-gzx7_x0x",
+  "source": "fa916b13254a36423cad130080dde367bb18a7d6",
+  "protocol": "855fe0602484750861b4c31502a1a91355d33ed6",
+  "fixture_sha256": {
+    "Probe.sol": "4a5e5d9029005702c42ef8b4bb778e0ea814d909612de6cdf22ce8fa55d84756",
+    "verify-local.py": "50de3a0dc38c37d23ed2e70df92890e353a3b2a17020b4d7f27c88eb7455a88d"
+  },
+  "executables": {
+    "forge": {
+      "sha256": "4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c",
+      "version": "forge Version: 1.7.1\nCommit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8\nBuild Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)\nBuild Profile: dist"
+    },
+    "cast": {
+      "sha256": "ccd95a4607ca3ebfcb88bb90e7235cdb7f0564f5f1afa17478d5fccabbb222cb",
+      "version": "cast Version: 1.7.1\nCommit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8\nBuild Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)\nBuild Profile: dist"
+    },
+    "anvil": {
+      "sha256": "10c1c727d6c1de973aeb160e59875b9a9a23464d6e74149ee8abb30b3500311b",
+      "version": "anvil Version: 1.7.1\nCommit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8\nBuild Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)\nBuild Profile: dist"
+    }
+  },
+  "eez_artifact_sha256": "d3a0d29d34b7c1e67a7f7828aaa13e4aa6204fadb0f2a69e10e92b212398dd96",
+  "eez_metadata_source_files_verified": 10,
+  "probe_bytecode_sha256": "c370d4f0853bf80528a02bb41f9b97dfa1a0fa2de8e624f91b9429fdcae0f2ea",
+  "blob_hash": "0x018b37b74ce5c153db8ef031128a05ea076b13184b329a092f0fb992b3cb2611",
+  "reserve_wei": 1131072000000000,
+  "registry": "0xbffd8af45475e4206173724903979b68ea1b1e85",
+  "probe": "0xdc394460413c930e98a5ac641c56fc0d3e5277a9",
+  "value_payout_assumptions": {
+    "requested_value_wei": 2400000000000000,
+    "payout_gas_limit": 21000,
+    "assumed_non_gas_cost_wei": 200000000000000,
+    "non_gas_cost_note": "Illustrative arithmetic input, not measured proving or operating expense.",
+    "funding_policy_note": "Harness uses full fee-cap shortfall; a live builder may use another policy."
+  },
+  "sponsored_tip_assumptions": {
+    "post_priority_fee_wei": 20000000000,
+    "post_gas_limit": 100000,
+    "refund_percent": 99,
+    "refund_formula": "floor(max(0, refund_base - refund_transfer_cost) * percent / 100)",
+    "refund_formula_note": "Titan's displayed deduction order, not a verified combined sponsorship policy.",
+    "funding_policy": "Full signed execution/blob fee-cap shortfall; manually funded by the harness.",
+    "assumed_non_gas_cost_wei": 200000000000000,
+    "unverified": "Automatic sponsorship, selected-post eligibility, and refund accounting at any live builder."
+  },
+  "status": "passed"
+}

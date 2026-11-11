@@ -1,11 +1,5 @@
-//! Re-export of the tonic-generated module tree for `prove.v1`.
-//!
-//! Contents:
-//! * `ProveChunk`, `ProveHeader`, `PostBatch`, `BlockWitness`,
-//!   `ExecutionWitness`, `ProveResponse` message structs.
-//! * `prover_server::{Prover, ProverServer}` — the async trait
-//!   `eez-proof-signer` implements and its tonic service adapter.
-//! * `prover_client::ProverClient` — the composer side (`eez-prover-client`).
-pub mod v1 {
-    include!(concat!(env!("OUT_DIR"), "/prove.v1.rs"));
+//! Generated messages and the single v2 proving/discovery service.
+//! Edit `proto/prove.proto`; Cargo invokes protoc.
+pub mod v2 {
+    include!(concat!(env!("OUT_DIR"), "/prove.v2.rs"));
 }

@@ -16,12 +16,12 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 REPO = Path(__file__).resolve().parents[3]
 RUNNER = REPO / "scripts/ci/run-protocol-network.py"
-UPSTREAM = REPO / "eez-core-protocol/script/e2e/run"
+UPSTREAM = REPO / "eez-core-protocol/script/e2e"
 SPEC = importlib.util.spec_from_file_location("protocol_network", RUNNER)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
@@ -60,6 +60,7 @@ FUNDING = '''
 # Offline boundary: retain the real expand_jobs, replace only chain funding.
 fund_workers() {
     [[ "$FRESH" == true && "$SOURCE_PK" == source-key ]] || exit 31
+    [[ -z "${FUND_TRACE:-}" ]] || printf %s "$FUND_ETH" > "$FUND_TRACE"
     WALLET_PKS=()
     for ((i=0; i<NJOBS; i++)); do WALLET_PKS+=("worker-${RUN_DIR##*/}-$i"); done
     echo 'DO-NOT-UPLOAD-WALLET-KEYS' > "$RUN_DIR/wallets.csv"
@@ -68,18 +69,41 @@ fund_workers() {
 
 
 class ProtocolNetworkRunnerTest(unittest.TestCase):
+    def test_progress_wait_does_not_change_exit_status_or_deadline(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            process = Mock()
+            process.wait.side_effect = [subprocess.TimeoutExpired('fixture', 30), 17]
+            with patch.object(MODULE.subprocess, 'Popen', return_value=process), \
+                    patch.object(MODULE, 'stop_process_group') as stop, \
+                    patch.object(MODULE, 'collect_logs'), \
+                    patch.object(MODULE.time, 'monotonic', side_effect=[0, 0, 30, 30, 35]), \
+                    patch('builtins.print') as output:
+                result = MODULE.run_network(root, root, [], {'MAX_PARALLEL': '1'}, 40)
+            self.assertEqual(result['exit_code'], 17)
+            self.assertEqual(result['seconds'], 35)
+            self.assertEqual([call.kwargs['timeout'] for call in process.wait.call_args_list], [30, 10])
+            stop.assert_called_once_with(process)
+            self.assertTrue(any('still running' in str(call) for call in output.call_args_list))
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="eez-network-runner.")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.protocol = self.root / "eez-core-protocol"
-        self.upstream = self.protocol / "script/e2e/run"
+        self.upstream = self.protocol / "script/e2e/run/network"
         self.upstream.mkdir(parents=True)
-        for name in ("network-parallel.sh", "orchestrator-lib.sh"):
-            shutil.copy2(UPSTREAM / name, self.upstream / name)
-        with (self.upstream / "orchestrator-lib.sh").open("a") as file:
+        shutil.copy2(UPSTREAM / "run/network/parallel.sh", self.upstream / "parallel.sh")
+        lib = self.protocol / "script/e2e/lib"
+        lib.mkdir()
+        for name in ("orchestrator.sh", "network-config.sh"):
+            shutil.copy2(UPSTREAM / "lib" / name, lib / name)
+        with (lib / "orchestrator.sh").open("a") as file:
             file.write(FUNDING)
-        (self.upstream / "network.sh").write_text('exec python3 "$WORKER" "$@"\n')
+        (lib / "network-scenario.sh").write_text('exec python3 "$WORKER" "$@"\n')
+        # Offline boundary: the real network-config.sh asks the L1 front's
+        # eez_composerInfo for the deployment; answer with the fixture's.
+        (lib / "composer-info.sh").write_text('printf "ROLLUPS=registry\\nMANAGER_L2=manager\\n"\n')
         worker = self.root / "worker.py"
         worker.write_text(WORKER)
         self.tools = self.root / "bin"
@@ -106,7 +130,7 @@ class ProtocolNetworkRunnerTest(unittest.TestCase):
 
     def add_scenarios(self, *names):
         for name in names:
-            path = self.protocol / "script/e2e/fixtures/L1_to_L2" / name / "E2EFixture.s.sol"
+            path = self.protocol / "script/e2e/scenarios/fixtures/L1_to_L2" / name / "E2EFixture.s.sol"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("contract ExecuteNetwork {}\n")
 
@@ -340,13 +364,18 @@ print("RESULT injected: PASS")'''))
         (scripts / "runtime-tools.sh").write_text('resolve_runtime_tool() { echo /bin/true; }\n')
         (scripts.parent / "ports.sh").write_text(
             "EEZ_DEVNET_L1_RPC=l1\nEEZ_DEVNET_L2_RPC=l2\nEEZ_DEVNET_L1_FRONT=f1\nEEZ_DEVNET_L2_FRONT=f2\n")
-        (self.upstream / "prepare-network.sh").write_text('touch "$FIXTURE_PREPARED"\n')
+        (self.upstream / "setup.sh").write_text('printf %s "${SOURCE_PK:-}" > "$FIXTURE_PREPARED"\n')
         self.tool("git", '#!/bin/sh\ncase "$*" in *ls-files*) echo "160000 aaaa 0 file";; *) echo aaaa;; esac\n')
         self.tool("curl", '#!/bin/sh\nexit 0\n')
         self.tool("kurtosis", '''#!/bin/sh
 case "$1 $2" in
     'port print') echo 'http://beacon';;
     'files download')
+        mkdir -p "$5"
+        if [ "$4" = el_cl_genesis_data ]; then
+            echo '{"source":"l1-deployment-fixture"}' > "$5/genesis.json"
+            exit 0
+        fi
         echo 'EEZ_REGISTRY_ADDRESS=registry' > "$5/deployments.env"
         if [ "${OMIT_DEPLOYED_GENESIS:-0}" != 1 ]; then
             echo '{"source":"deployment-fixture"}' > "$5/l2-genesis.json"
@@ -368,6 +397,9 @@ esac
         (scripts / "collect-protocol-e2e-evidence.sh").write_text('''set -eu
 [[ -s "$3" && "$3" == */network.*/* ]] || exit 9
 jq -e '.source == "deployment-fixture"' "$EEZ_L2_GENESIS" >/dev/null
+if [[ "${EEZ_USE_LOCAL_DEPLOYMENTS:-0}" != 1 || "$EEZ_L1_CHAIN_CONFIG" != chiado ]]; then
+    jq -e '.source == "l1-deployment-fixture"' "$EEZ_L1_CHAIN_CONFIG" >/dev/null
+fi
 [[ "$1" != "${BAD_EVIDENCE:-}" ]] || exit 17
 jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified: true},
     blob_da: {verified: true}, claims: {blob_kzg_authenticated: true,
@@ -376,7 +408,8 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
         self.env.update(EEZ_CI_RESULT_DIR=str(self.root / "artifacts"), PK="source-key",
                         EEZ_PROTOCOL_MAX_PARALLEL="2",
                         FIXTURE_PREPARED=str(self.root / "prepared"),
-                        EEZ_L2_GENESIS=str(self.root / "unrelated-genesis.json"))
+                        EEZ_L2_GENESIS=str(self.root / "unrelated-genesis.json"),
+                        EEZ_L1_CHAIN_CONFIG="chiado")
         return scripts / "run-protocol-e2e.sh"
 
     def run_outer(self, wrapper):
@@ -404,33 +437,62 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
                 self.assertIn("genesis", result.stderr)
                 self.assertFalse((self.root / "prepared").exists())
 
+    def test_local_l1_profile_is_required_and_reaches_the_collector(self):
+        self.add_scenarios("one")
+        wrapper = self.set_up_outer_wrapper()
+        deployments = self.root / "local-deployments.env"
+        deployments.write_text("EEZ_REGISTRY_ADDRESS=registry\n")
+        genesis = self.root / "deployed-genesis.json"
+        genesis.write_text('{"source":"deployment-fixture"}')
+        l1_genesis = self.root / "deployed-l1-genesis.json"
+        l1_genesis.write_text('{"source":"l1-deployment-fixture"}')
+        self.env.update(EEZ_USE_LOCAL_DEPLOYMENTS="1", EEZ_DEPLOYMENTS_FILE=str(deployments),
+                        EEZ_L2_GENESIS=str(genesis))
+        for supplied in (None, "", "missing.json", str(self.root)):
+            with self.subTest(supplied=supplied):
+                self.env.pop("EEZ_L1_CHAIN_CONFIG", None)
+                if supplied is not None:
+                    self.env["EEZ_L1_CHAIN_CONFIG"] = supplied
+                result = self.run_outer(wrapper)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("L1", result.stderr)
+                self.assertFalse((self.root / "prepared").exists())
+        for index, supplied in enumerate(("chiado", str(l1_genesis))):
+            with self.subTest(supplied=supplied):
+                # The pinned runner names logs to second precision. Give each
+                # invocation its own directory without relaxing stale-log checks.
+                self.tool("date", f"#!/bin/sh\necho 20000101-00004{index}\n")
+                self.env["EEZ_L1_CHAIN_CONFIG"] = supplied
+                result = self.run_outer(wrapper)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(self.summary()["passed"], ["one"])
+
     def test_full_wrapper_accounts_for_every_pinned_scenario_and_keeps_evidence_gate(self):
-        # Discovery and default eligibility follow the current pin.
-        paths = sorted((REPO / "eez-core-protocol/script/e2e").rglob("E2E*.s.sol"))
+        # Upstream integration markers must not reduce RollupX's full inventory.
+        paths = sorted((REPO / "eez-core-protocol/script/e2e/scenarios").rglob("E2E*.s.sol"))
         names = [p.parent.name for p in paths if "shared" not in p.parts]
         excluded = [p.parent.name for p in paths if "shared" not in p.parts
                     and any(line.startswith("// E2E_EXCLUDE_FROM_ALL:")
                             for line in p.read_text().splitlines())]
-        eligible = [name for name in names if name not in excluded]
         self.add_scenarios(*names)
         for name in excluded:
-            scenario = self.protocol / "script/e2e/fixtures/L1_to_L2" / name / "E2EFixture.s.sol"
+            scenario = self.protocol / "script/e2e/scenarios/fixtures/L1_to_L2" / name / "E2EFixture.s.sol"
             scenario.write_text("// E2E_EXCLUDE_FROM_ALL: NOT LIVE YET\n" + scenario.read_text())
         wrapper = self.set_up_outer_wrapper()
         result = self.run_outer(wrapper)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         summary = self.summary()
-        self.assertEqual(summary["suite"], dict(discovered=len(names), eligible=len(eligible),
-                                                selected=len(eligible), excluded_from_all=sorted(excluded),
+        self.assertEqual(summary["suite"], dict(discovered=len(names), eligible=len(names),
+                                                selected=len(names), excluded_from_all=[],
                                                 complete=True))
-        self.assertCountEqual(summary["passed"], eligible)
+        self.assertCountEqual(summary["passed"], names)
         self.assertTrue(summary["accounting"]["valid"])
         self.assertTrue(summary["evidence_complete"])
         self.assertTrue(summary["semantic_blob_coverage"]["complete"])
         self.assertEqual(summary["execution"]["runner"], "network-parallel")
         self.assertEqual([p["phase"] for p in summary["execution"]["phases"]],
                          ["bridge-prerequisite", "parallel"])
-        self.assert_schedule(2, eligible)
+        self.assert_schedule(2, names)
 
     def test_outer_selection_is_expanded_once_and_incomplete_coverage_is_explicit(self):
         self.add_scenarios("one", "two", "revertCounter")
@@ -443,18 +505,51 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
         self.assertCountEqual(self.summary()["passed"], ["one", "revertCounter"])
         self.assert_schedule(2, ["one", "revertCounter"])
 
-    def test_default_suite_respects_upstream_network_exclusions(self):
+    def test_setup_uses_the_wrapper_wallet_over_an_ambient_source_key(self):
+        self.add_scenarios("one")
+        wrapper = self.set_up_outer_wrapper()
+        wallet = "source-key"  # the funding fake requires this scenario wallet
+        for index, ambient in enumerate(("ambient-key", wallet, None)):
+            with self.subTest(ambient=ambient):
+                (self.root / "prepared").unlink(missing_ok=True)
+                self.env["PK"] = wallet
+                if ambient is None:
+                    self.env.pop("SOURCE_PK", None)
+                else:
+                    self.env["SOURCE_PK"] = ambient
+                self.tool("date", f"#!/bin/sh\necho 20000101-00002{index}\n")
+                result = self.run_outer(wrapper)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual((self.root / "prepared").read_text(), wallet)
+
+    def test_wrapper_funds_fee_enabled_workers_and_preserves_explicit_override(self):
+        self.add_scenarios("one")
+        wrapper = self.set_up_outer_wrapper()
+        trace = self.root / "fund-eth"
+        self.env["FUND_TRACE"] = str(trace)
+        for index, (override, expected) in enumerate(((None, "1"), ("0.02", "0.02"))):
+            with self.subTest(override=override):
+                if override is None:
+                    self.env.pop("EEZ_PROTOCOL_FUND_ETH", None)
+                else:
+                    self.env["EEZ_PROTOCOL_FUND_ETH"] = override
+                self.tool("date", f"#!/bin/sh\necho 20000101-00003{index}\n")
+                result = self.run_outer(wrapper)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(trace.read_text(), expected)
+
+    def test_default_suite_includes_upstream_explicit_only_scenarios(self):
         self.add_scenarios("one", "two", "staticLocalWrite")
-        scenario = self.protocol / "script/e2e/fixtures/L1_to_L2/staticLocalWrite/E2EFixture.s.sol"
+        scenario = self.protocol / "script/e2e/scenarios/fixtures/L1_to_L2/staticLocalWrite/E2EFixture.s.sol"
         scenario.write_text("// E2E_EXCLUDE_FROM_ALL: NOT LIVE YET\n" + scenario.read_text())
         wrapper = self.set_up_outer_wrapper()
 
         result = self.run_outer(wrapper)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertCountEqual(self.summary()["passed"], ["one", "two"])
-        self.assertEqual(self.summary()["suite"], dict(discovered=3, eligible=2, selected=2,
-                                                       excluded_from_all=["staticLocalWrite"], complete=True))
-        self.assert_schedule(2, ["one", "two"])
+        self.assertCountEqual(self.summary()["passed"], ["one", "two", "staticLocalWrite"])
+        self.assertEqual(self.summary()["suite"], dict(discovered=3, eligible=3, selected=3,
+                                                       excluded_from_all=[], complete=True))
+        self.assert_schedule(2, ["one", "two", "staticLocalWrite"])
 
         self.env["EEZ_PROTOCOL_SCENARIOS"] = "staticLocalWrite"
         self.tool("date", "#!/bin/sh\necho 20000101-000001\n")
@@ -468,10 +563,10 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
         result = self.run_outer(wrapper)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse(self.summary()["suite"]["complete"],
-                         "replacing a live scenario with an excluded one is incomplete")
+                         "selecting only two of three discovered scenarios is incomplete")
 
     def test_outer_all_parallel_still_accounts_for_every_pinned_scenario(self):
-        paths = sorted((REPO / "eez-core-protocol/script/e2e").rglob("E2E*.s.sol"))
+        paths = sorted((REPO / "eez-core-protocol/script/e2e/scenarios").rglob("E2E*.s.sol"))
         names = [p.parent.name for p in paths if "shared" not in p.parts]
         self.add_scenarios(*names)
         wrapper = self.set_up_outer_wrapper()
@@ -528,7 +623,7 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
     def test_outer_wrapper_rejects_bad_results_or_evidence(self):
         self.add_scenarios("one", "two")
         wrapper = self.set_up_outer_wrapper()
-        parallel = self.upstream / "network-parallel.sh"
+        parallel = self.upstream / "parallel.sh"
         original = parallel.read_text()
         cases = {
             "duplicate": original + "\necho 'RESULT one-1: PASS'\n",

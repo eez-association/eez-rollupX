@@ -30,3 +30,64 @@ The revert trigger is
 Both traces include the pinned proxy's `STATIC_CHECK_GAS()` registry read,
 self-probe, and actual registry lookup. The old one-registry-frame assertion
 rejects both. These are public transaction traces without operator credentials.
+
+## Static round-trip logs
+
+`topLevelStaticReentrantCounter.txt` and `topLevelStaticReentrantCounterL2.txt`
+are the upstream scenario logs from the Kurtosis run
+https://github.com/eduadiez/rollupX/actions/runs/37822814018 (trailing
+whitespace normalized):
+
+- PR 77 head: `434bfda07ed0bcc183bd8211bbb45cb2e747feb0`
+- Protocol revision: `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f` (v0.1.0-rc.2)
+- Artifact paths: `protocol-e2e/network.*/topLevelStaticReentrantCounter.log`
+  and `protocol-e2e/network.*/topLevelStaticReentrantCounterL2.log`
+
+Each static entry carries one static callback. The collector must bind it in
+the posted or loaded table, in the semantic blob and, for the L1 read, in the
+traced lookup.
+
+`topLevelStaticReentrantCounter-trace.json` is the actual `callTracer` result
+of that scenario's user transaction, captured during review on fresh local
+Anvil fixture chains at protocol rc.2 (SHA-256
+`d7c6a16681b88ea984df5cd1b7950f5264f43718fa3a9f5bc5d655e3f8218dad`). Before
+the read, its reader queries the registry for the callback source proxy's
+address (`computeCrossChainProxyAddress`), so the trace has three registry
+frames. Addresses are local fixture identities, not operator credentials.
+
+## Static reads around L1 local writes
+
+`staticLocalWrite.txt` and `staticLocalWrite-trace.json` were captured from the
+isolated Kurtosis network on 2026-10-24, using RollupX PR #101's R03 runtime and
+protocol `84a5b5207880f192a6a5896cbfe0bac5249db47f`. The log is the original
+upstream success whose independent collector initially failed because this
+scenario had no lookup oracle. Its transaction is
+`0xbdcb4a911b1b2a2657a0164fdbf9c903ef0eb85a78dec481e216fbbf3b2bd1bc`.
+
+The captured trace contains three `quote()` lookups returning 1, 2, 1. Their
+`rate()` callback attempts return 1; 2, 2; 1: the middle lookup rejects candidate
+A before selecting B, and the last lookup reuses A. The posted table contains
+A/B/A, including an identical repeated row; two distinct outcomes do not imply
+exactly two serialized rows. The regression uses independently encoded expected
+calldata, and mutations must fail the real shell/jq consumer. RPC, KZG and Forge
+boundaries are mocked in unit tests; the audit records their separate live
+read-only validation.
+
+## Nested lookup semantic traces
+
+`catchRemoteRevertAfterCallback-trace.json`,
+`staticReadCallsBackAndReadsAgain-trace.json` and
+`topLevelStaticReentrantMissingProxy-trace.json` come from the task-owned Kurtosis
+network running fork `f091f437594581ca7c9302471002fe5b4cfdc721` and protocol
+`84a5b5207880f192a6a5896cbfe0bac5249db47f`, captured on 2026-10-31. Each fixture
+includes its trigger identity, one decoded native semantic bracket, the matching
+deferred settlement entries (unrelated batch entries omitted), and registry
+proxy mappings queried at the trigger's historical block. Addresses are public
+local test identities. Gas diagnostics are removed. The CREATE2 frame's initcode
+is omitted and its runtime output is reduced to a nonempty byte: these tests
+check creation identity and ordering, not proxy bytecode authentication.
+
+The fixtures test exact trace ancestry, registry dispatch, forwarding identities,
+callback results, recursive static context and the missing-proxy probe/create/retry
+sequence. They do not independently prove canonicality, KZG authentication or
+execution soundness; the live collector and signer perform those separate checks.

@@ -11,7 +11,7 @@ use eez_driver::{BlockCommitterHandle, RollupTiming};
 use eez_l1::{L1CanonicalHead, L1Reader, L1ReaderConfig, L1Watcher, L1WatcherConfig};
 use eez_node_common::EezNode;
 use eez_node_common::{
-    EezPayloadBuilder, EezPoolBuilder, L2NodeBuilder, correlation_rpc, correlation_store,
+    EezPayloadBuilder, EezPoolBuilder, L2NodeBuilder, correlation_store,
     node_cli_with_chain_document, read_checkpoint_dir, validate_system_address, wait_for_l1_ready,
     warn_on_deprecated_env,
 };
@@ -80,31 +80,28 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
     // transactions byte-for-byte. Read every required value before launching
     // reth so a misconfigured follower never appears healthy.
     let system_config = read_system_config()?;
-    let l1_chain_spec = ext
-        .l1_chain_config
-        .as_deref()
-        .map(eez_l1::chain_config::load_l1_chain_spec)
-        .transpose()?;
+    let l1_chain_spec = eez_l1::chain_config::load_l1_chain_spec(
+        ext.l1_chain_config
+            .as_deref()
+            .ok_or_else(|| eyre::eyre!("offline-profile follower requires --l1-chain-config"))?,
+    )?;
     let expected_l1_chain_id = read_l1_chain_id()?;
-    if let Some(spec) = &l1_chain_spec {
-        eyre::ensure!(
-            spec.chain().id() == expected_l1_chain_id,
-            "L1 chain configuration ID {} differs from EEZ_L1_CHAIN_ID {expected_l1_chain_id}",
-            spec.chain().id()
-        );
-    }
+    eyre::ensure!(
+        l1_chain_spec.chain().id() == expected_l1_chain_id,
+        "L1 chain configuration ID differs from EEZ_L1_CHAIN_ID"
+    );
+    let offline_rules = eez_l1::chain_config::offline_l1_rules(&l1_chain_spec)?;
+    offline_rules.profile(derivation_schedule, builder.config().chain.chain().id())?;
     let system_address = eez_primitives::SYSTEM_ADDRESS;
     validate_system_address(system_address)?;
     let l2_data_dir = read_checkpoint_dir();
     let correlations = correlation_store(l2_data_dir.as_deref())?;
     let l1_head = Arc::new(L1CanonicalHead::default());
-    let rpc_correlations = Arc::clone(&correlations);
-    let rpc_l1_head = Arc::clone(&l1_head);
 
     let handle = builder
         .with_types::<EezNode>()
         .with_components(
-            EezNode::components()
+            EezNode::components(l1_head.clone())
                 // Reorged-out system transactions must not leak from reth's
                 // reinjection path into an ordinary Live block.
                 .pool(EezPoolBuilder::new(system_address))
@@ -116,9 +113,6 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
                 Arc::clone(&correlations),
             ),
         ))
-        .extend_rpc_modules(move |ctx| {
-            correlation_rpc::install(ctx, Arc::clone(&rpc_correlations), Arc::clone(&rpc_l1_head))
-        })
         .launch_with_debug_capabilities()
         .await?;
 
@@ -136,14 +130,10 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
     let deploy_block = l1_reader_config.deploy_block;
     let mut l1_reader = L1Reader::new(l1_reader_config);
     let l1_watcher_config = L1WatcherConfig::from_env()?;
-    let l1_watcher = if let Some(spec) = l1_chain_spec {
-        let rules: eez_l1::BlobRuleSource =
-            Arc::new(move |timestamp| spec.blob_params_at_timestamp(timestamp));
-        l1_reader = l1_reader.with_blob_rules(Arc::clone(&rules));
-        L1Watcher::new_with_blob_rules(l1_watcher_config, rules)
-    } else {
-        L1Watcher::new(l1_watcher_config)
-    };
+    let rules: eez_l1::BlobRuleSource =
+        Arc::new(move |timestamp| l1_chain_spec.blob_params_at_timestamp(timestamp));
+    l1_reader = l1_reader.with_blob_rules(Arc::clone(&rules));
+    let l1_watcher = L1Watcher::new_with_blob_rules(l1_watcher_config, rules);
     let system_tx_cfg = system_config.into_context(chain_spec.chain().id());
     event!(
         name: "eez.node.follower.system_tx_cfg",
@@ -165,6 +155,7 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
         Arc::new(provider.clone()),
         l1_reader.clone(),
         chain_spec,
+        offline_rules.clone(),
         deploy_block,
         Arc::clone(&l1_head),
         Arc::clone(&correlations),

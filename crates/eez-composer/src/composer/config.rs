@@ -18,11 +18,16 @@ pub struct ComposerSettings {
     /// the existing operator count limit, including the unset default of 50.
     pub(super) max_user_txs_per_bundle: Option<usize>,
     pub(super) posting_fees: PostingFeeConfig,
+    pub(super) fees: super::fees::config::FeeConfig,
     pub(super) gas_trace: Option<super::gas_trace::Config>,
     pub(super) emission: super::EmissionLimits,
     /// Coinbase of every L2 block this node builds, Live and Sync alike, so
     /// priority fees are not split across recipients.
     pub(super) fee_recipient: Address,
+    /// Destination of the postBatch transaction (`EEZ_L1_POSTBATCH_TARGET`).
+    /// `None` posts directly to the registry. A wrapper must expose EEZ's
+    /// `postAndVerifyBatch` with identical calldata; registry reads never use it.
+    pub(super) post_batch_target: Option<Address>,
     max_speculative_depth: u64,
 }
 
@@ -59,6 +64,15 @@ impl ComposerSettings {
         timing
             .validate()
             .map_err(|error| PolicyError::Config(error.to_string()))?;
+        if timing.proof_time() + timing.submission_slack() + crate::prover_retry::POST_PROOF_RESERVE
+            >= timing
+                .l1_block_time()
+                .saturating_sub(timing.proof_window_open())
+        {
+            return Err(PolicyError::Config(
+                "EEZ_SETTLEMENT_START_AFTER_BLOCK plus EEZ_SETTLEMENT_START_DELAY_MS leaves no preparation time after the proof seed, submission slack and post-proof reserve".into(),
+            ));
+        }
         let mut snapshot: HashMap<String, Option<String>> = HashMap::new();
         let mut get = |name: &str| {
             if let Some(value) = snapshot.get(name) {
@@ -130,7 +144,28 @@ impl ComposerSettings {
                 PolicyError::Config("EEZ_L2_FEE_RECIPIENT must be a 20-byte hex address".into())
             })?,
         };
+        // Unset posts to the registry. A supplied value must be a nonzero
+        // address; whether it forwards to the registry is checked on L1 at startup.
+        let post_batch_target = match get("EEZ_L1_POSTBATCH_TARGET")? {
+            None => None,
+            Some(value) => Some(
+                value
+                    .trim()
+                    .parse::<Address>()
+                    .ok()
+                    .filter(|address| !address.is_zero())
+                    .ok_or_else(|| {
+                        PolicyError::Config(
+                            "EEZ_L1_POSTBATCH_TARGET must be a nonzero 20-byte hex address".into(),
+                        )
+                    })?,
+            ),
+        };
         let max_speculative_depth = policy.max_speculative_depth;
+        let fees = super::fees::config::FeeConfig::parse(|name| {
+            get(name).map_err(|error| error.to_string())
+        })
+        .map_err(PolicyError::Config)?;
         let gas_trace = super::gas_trace::Config::parse_with_address(
             get("EEZ_COMPOSER_GAS_TRACE_TX_HASH")?,
             get("EEZ_COMPOSER_GAS_TRACE_ADDRESS")?,
@@ -143,9 +178,11 @@ impl ComposerSettings {
             max_blobs_per_batch,
             max_user_txs_per_bundle,
             posting_fees,
+            fees,
             gas_trace,
             emission,
             fee_recipient,
+            post_batch_target,
             max_speculative_depth,
         })
     }
@@ -164,8 +201,37 @@ impl ComposerSettings {
 mod tests {
     use super::*;
 
+    #[test]
+    fn position_requires_positive_preparation_after_the_shared_post_reserve() {
+        for (proof, delay) in [
+            (749, 0),
+            (750, 0),
+            (751, 0),
+            (449, 300),
+            (450, 300),
+            (451, 300),
+        ] {
+            // K=5/P=4: 1000ms left, 100ms slack, 150ms inclusive post reserve.
+            let timing = RollupTiming::new(5000, 1000, proof, 100, 4).with_start_delay_ms(delay);
+            let mut reached_policy = false;
+            let result = ComposerSettings::parse(timing, |_| {
+                reached_policy = true;
+                Ok(None)
+            });
+            assert_eq!(reached_policy, proof + delay < 750);
+            if proof + delay >= 750 {
+                assert!(
+                    result
+                        .unwrap_err()
+                        .to_string()
+                        .contains("leaves no preparation time")
+                );
+            }
+        }
+    }
+
     fn timing() -> RollupTiming {
-        RollupTiming::new(12_000, 1_000, 2_000, 100)
+        RollupTiming::new(12_000, 1_000, 2_000, 100, 9)
     }
 
     fn settings(extra: &[(&str, &str)]) -> Result<ComposerSettings, PolicyError> {
@@ -243,7 +309,7 @@ mod tests {
     #[test]
     fn invalid_timing_fails_before_configuration_can_reach_runtime() {
         assert!(
-            ComposerSettings::parse(RollupTiming::new(0, 1_000, 2_000, 100), |_| panic!(
+            ComposerSettings::parse(RollupTiming::new(0, 1_000, 2_000, 100, 1), |_| panic!(
                 "invalid timing must be rejected before reading settings"
             ))
             .is_err()
@@ -253,6 +319,15 @@ mod tests {
     #[test]
     fn operational_defaults_have_no_implicit_blob_or_gas_cap() {
         let config = settings(&[]).unwrap();
+        assert!(
+            config
+                .fees
+                .clone()
+                .bind(1, 9, [1], Address::ZERO)
+                .unwrap()
+                .pricing
+                .is_none()
+        );
         assert_eq!(config.max_blobs_per_batch, None);
         assert_eq!(config.max_speculative_depth(), 0);
         assert_eq!(config.emission.max_blocks, u64::from(u32::MAX));
@@ -262,6 +337,52 @@ mod tests {
         assert_eq!(fees.priority_max, 2_000_000_000);
         assert_eq!(fees.gas_margin_bps, 500);
         assert_eq!(fees.declared_gas(100_000, 105_000).unwrap(), 105_000);
+    }
+
+    #[test]
+    fn fee_configuration_reaches_runtime_with_independent_direction_switches() {
+        use super::super::fees::pricing::tests::{policy_json, settings as fee_settings};
+        let model = fee_settings(&policy_json());
+        let recipient = Address::repeat_byte(4).to_string();
+        let refund_recipient = Address::repeat_byte(9).to_string();
+        for l1 in [false, true] {
+            for l2 in [false, true] {
+                let mut values: Vec<_> = model.iter().map(|(k, v)| (*k, v.as_str())).collect();
+                values.extend([
+                    ("EEZ_L2_FEE_RECIPIENT", recipient.as_str()),
+                    ("EEZ_FEES_L1_REFUND_RECIPIENT", refund_recipient.as_str()),
+                    ("EEZ_FEES_L1_REFUND_PERCENT", "90"),
+                    (
+                        "EEZ_FEES_L1_TO_L2_ENABLED",
+                        if l1 { "true" } else { "false" },
+                    ),
+                    (
+                        "EEZ_FEES_L2_TO_L1_ENABLED",
+                        if l2 { "true" } else { "false" },
+                    ),
+                ]);
+                let settings = settings(&values).unwrap();
+                let runtime = settings
+                    .fees
+                    .bind(10200, 906969, [7], settings.fee_recipient)
+                    .unwrap();
+                assert_eq!(runtime.l2_to_l1_enabled, l2);
+                assert_eq!(runtime.l1_refund.is_some(), l1);
+                if let Some(refund) = runtime.l1_refund {
+                    assert_eq!(refund.percent, 90);
+                    assert_eq!(refund.recipient, Address::repeat_byte(9));
+                }
+                let details = runtime.pricing.unwrap().details();
+                let assumptions = &details["assumptions"];
+                assert_eq!(assumptions["l1_chain_id"], 10200);
+                assert_eq!(assumptions["l2_chain_id"], 906969);
+                assert_eq!(assumptions["rollup_id"], 7);
+                assert_eq!(
+                    assumptions["beneficiary"],
+                    serde_json::json!(Address::repeat_byte(4))
+                );
+            }
+        }
     }
 
     #[test]
@@ -388,6 +509,31 @@ mod tests {
             ],
         ] {
             assert!(settings(&invalid).is_err(), "{invalid:?}");
+        }
+    }
+
+    #[test]
+    fn post_batch_target_defaults_to_the_registry_and_rejects_unusable_values() {
+        assert_eq!(settings(&[]).unwrap().post_batch_target, None);
+        let target = "0x5f531064587c3e4D08145a6f564Ce06Bf33D3E84";
+        assert_eq!(
+            settings(&[("EEZ_L1_POSTBATCH_TARGET", &format!(" {target} "))])
+                .unwrap()
+                .post_batch_target,
+            Some(target.parse().unwrap())
+        );
+        for value in [
+            "",
+            " ",
+            "0x0000000000000000000000000000000000000000",
+            "0x1234",
+            "not-an-address",
+        ] {
+            let error = settings(&[("EEZ_L1_POSTBATCH_TARGET", value)]).unwrap_err();
+            assert!(
+                error.to_string().contains("EEZ_L1_POSTBATCH_TARGET"),
+                "{value:?}: {error}"
+            );
         }
     }
 }

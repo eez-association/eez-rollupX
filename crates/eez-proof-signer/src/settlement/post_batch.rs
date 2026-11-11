@@ -29,8 +29,39 @@ pub(crate) enum PostBatchDecodeError {
 pub(crate) struct CanonicalPostBatch(EvmBatch);
 
 impl CanonicalPostBatch {
-    pub(super) const fn as_batch(&self) -> &EvmBatch {
+    pub(crate) const fn as_batch(&self) -> &EvmBatch {
         &self.0
+    }
+
+    /// Reject forwarding into the executing L1 EEZ itself. Under delegatecall,
+    /// Solidity compares against the deployed registry proxy, not its implementation
+    /// or the separate RollupX manager. The identity must come from local configuration.
+    pub(crate) fn validate_l1_destinations(
+        &self,
+        registry: Address,
+    ) -> Result<(), PublicInputError> {
+        let mut calls = self
+            .0
+            .entries
+            .iter()
+            .flat_map(|entry| {
+                entry.l2ToL1Calls.iter().chain(
+                    entry
+                        .expectedL1ToL2Calls
+                        .iter()
+                        .flat_map(|row| row.l2ToL1Calls.iter()),
+                )
+            })
+            .chain(
+                self.0
+                    .staticEntries
+                    .iter()
+                    .flat_map(|entry| entry.l2ToL1Calls.iter()),
+            );
+        if calls.any(|call| call.targetAddress == registry) {
+            return Err(PublicInputError::ManagerDestination { manager: registry });
+        }
+        Ok(())
     }
 
     /// Independently profile-checked static entries used by native semantic
@@ -94,6 +125,8 @@ pub(crate) fn decode_canonical_post_batch(
 
 #[derive(Debug, Error)]
 pub(crate) enum PublicInputError {
+    #[error("L1 forwarded call targets the executing EEZ manager {manager}")]
+    ManagerDestination { manager: Address },
     #[error("invalid public-input structure: {0}")]
     InvalidStructure(String),
     #[error("public-input hash computation failed: {0}")]
@@ -134,13 +167,13 @@ impl<'a> CheckedPublicInputProfile<'a> {
         &self,
         proof_system_vkey: NonZeroProofSystemVkey,
         transaction_blob_hashes: &[B256],
-        posting_context: eez_protocol::public_inputs::L1PostingContext,
+        posting_context: &eez_protocol::l1_history::ProofContext,
     ) -> Result<RecomputedPublicInputsHash, PublicInputError> {
         let hashes = public_inputs_hashes_with_blob_hashes(
             self.canonical_batch.as_batch(),
             proof_system_vkey.get(),
             transaction_blob_hashes,
-            posting_context,
+            *posting_context,
         )
         .map_err(|error| PublicInputError::Computation(error.to_string()))?;
         let [hash] = hashes.as_slice() else {
@@ -173,7 +206,11 @@ pub(crate) fn recompute_public_input_hash(
 ) -> Result<B256, PublicInputError> {
     let canonical = CanonicalPostBatch(batch.clone());
     CheckedPublicInputProfile::new(&canonical, expected_rollup_id, expected_proof_system)?
-        .recompute_public_inputs_hash(proof_system_vkey, &[], crate::testkit::l1_target())
+        .recompute_public_inputs_hash(
+            proof_system_vkey,
+            &[],
+            &crate::testkit::proof_context(batch, crate::testkit::l1_target()),
+        )
         .map(RecomputedPublicInputsHash::into_inner)
 }
 
@@ -214,9 +251,12 @@ fn validate_public_input_structure(
             "rollup assignment proof-system indices must be exactly [0]",
         ));
     }
-    if !batch.expectedRootPerRollup.is_empty() {
+    if batch.expectedRootPerRollup.len() != 1
+        || batch.expectedRootPerRollup[0].rollupId != expected_rollup_id.get()
+        || batch.expectedRootPerRollup[0].root.is_zero()
+    {
         return Err(invalid_structure(
-            "expectedRootPerRollup must be empty in the supported profile",
+            "expectedRootPerRollup must contain the sole nonzero configured rollup commitment",
         ));
     }
 
@@ -276,9 +316,9 @@ fn validate_public_input_structure(
         )));
     }
 
-    if batch.blockNumber != u64::MAX {
+    if batch.blockNumber == 0 {
         return Err(invalid_structure(format!(
-            "blockNumber must be uint64.max, got {}",
+            "blockNumber must identify actual-parent or a historical anchor, got {}",
             batch.blockNumber
         )));
     }

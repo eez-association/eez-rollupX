@@ -144,7 +144,12 @@ pub fn correlation_store(datadir: Option<&std::path::Path>) -> eyre::Result<Arc<
     Ok(Arc::new(store))
 }
 
-/// Wait until L1 serves history and finality needed to authenticate the genesis reference.
+/// Wait for the expected L1 chain, deployment height, and genesis-reference finality.
+///
+/// This is only a preflight. The deriver authenticates the reference and selects
+/// a validated persistent checkpoint (or deployment for a fresh node), then
+/// reads the required history before either role starts L1-active tasks. Probing
+/// deployment receipts here would prevent a valid restart on a pruned source.
 ///
 /// # Errors
 ///
@@ -182,59 +187,52 @@ pub async fn wait_for_l1_ready(
             }
         }
 
-        let (progressing, status) = match l1_reader.readiness().await {
+        let (progressing, status) = match l1_reader.head_block_number().await {
             Err(err) => {
                 last_err = Some(err.to_string());
                 (false, format!("unreachable: {err}"))
             }
-            Ok(state) if state.head_block_number < deploy_block => {
-                let remaining = deploy_block - state.head_block_number;
+            Ok(head) if head < deploy_block => {
+                let remaining = deploy_block - head;
                 let closer = remaining < best_remaining;
                 best_remaining = best_remaining.min(remaining);
                 (closer, format!("{remaining} blocks below the deploy block"))
             }
-            Ok(state) => match l1_reader.serves_history(deploy_block).await {
-                Ok(true) if chain_verified => {
-                    // Block zero needs no finality probe (see `reference_is_final`);
-                    // a fresh devnet reports no `finalized` block for 20+ minutes.
-                    let finalized = if genesis_reference_number == 0 {
-                        Ok(None)
-                    } else {
-                        l1_reader.finalized_block().await
-                    };
-                    match finalized {
-                        Ok(finalized)
-                            if reference_is_final(
-                                genesis_reference_number,
-                                finalized.map(|(number, _)| number),
-                            ) =>
-                        {
-                            event!(
-                                name: "eez.node.l1_ready",
-                                Level::INFO,
-                                head = state.head_block_number,
-                                deploy_block,
-                                genesis_reference_number,
-                                "L1 source can serve our history and final reference",
-                            );
-                            // Readiness is not authentication: the deriver separately
-                            // checks the exact canonical reference hash and seed.
-                            return Ok(());
-                        }
-                        Ok(_) => (false, "genesis reference is not finalized yet".to_string()),
-                        Err(err) => {
-                            last_err = Some(err.to_string());
-                            (false, "finality probe failed".to_string())
-                        }
+            Ok(head) if chain_verified => {
+                // Block zero needs no finality probe (see `reference_is_final`);
+                // a fresh devnet reports no `finalized` block for 20+ minutes.
+                let finalized = if genesis_reference_number == 0 {
+                    Ok(None)
+                } else {
+                    l1_reader.finalized_block().await
+                };
+                match finalized {
+                    Ok(finalized)
+                        if reference_is_final(
+                            genesis_reference_number,
+                            finalized.map(|(number, _)| number),
+                        ) =>
+                    {
+                        event!(
+                            name: "eez.node.l1_ready",
+                            Level::INFO,
+                            head,
+                            deploy_block,
+                            genesis_reference_number,
+                            "L1 chain and finality ready; history validation deferred to deriver recovery anchor",
+                        );
+                        // Readiness is not authentication: the deriver separately
+                        // checks the exact canonical reference hash and seed.
+                        return Ok(());
+                    }
+                    Ok(_) => (false, "genesis reference is not finalized yet".to_string()),
+                    Err(err) => {
+                        last_err = Some(err.to_string());
+                        (false, "finality probe failed".to_string())
                     }
                 }
-                Ok(true) => (false, "chain id not read yet".to_string()),
-                Ok(false) => (state.syncing, "does not serve the deploy block".to_string()),
-                Err(err) => {
-                    last_err = Some(err.to_string());
-                    (false, format!("history probe failed: {err}"))
-                }
-            },
+            }
+            Ok(_) => (false, "chain id not read yet".to_string()),
         };
 
         stalled = if progressing { 0 } else { stalled + 1 };
@@ -246,13 +244,13 @@ pub async fn wait_for_l1_ready(
                 deploy_block,
                 stalled_polls = stalled,
                 status,
-                "waiting for L1 to serve our history",
+                "waiting for L1 chain, deployment height and finality",
             );
         }
         if stalled >= STALLED_POLLS || waited >= MAX_POLLS {
             let cause = last_err.unwrap_or(status);
             return Err(eyre::eyre!(
-                "L1 never became able to serve block {deploy_block}: {cause}"
+                "L1 preflight never became ready at deployment block {deploy_block}: {cause}"
             ));
         }
         tokio::time::sleep(POLL).await;
@@ -302,6 +300,98 @@ pub fn validate_system_address(system_address: alloy_primitives::Address) -> eyr
 #[cfg(all(test, feature = "l1-startup"))]
 mod tests {
     use super::reference_is_final;
+    use std::time::Duration;
+
+    /// Serve headers but reject receipts, as a synced, receipt-pruned Reth does.
+    async fn pruned_source(
+        chain_id: u64,
+        finalized: u64,
+    ) -> (eez_l1::L1Reader, jsonrpsee::server::ServerHandle) {
+        use jsonrpsee::{RpcModule, server::ServerBuilder, types::ErrorObjectOwned};
+        let server = ServerBuilder::default()
+            .build((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let rpc_url = format!("http://{}", server.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        let mut module = RpcModule::new(());
+        module
+            .register_method("eth_chainId", move |_, _, _| format!("{chain_id:#x}"))
+            .unwrap();
+        module
+            .register_method("eth_blockNumber", |_, _, _| "0x64")
+            .unwrap();
+        module
+            .register_method("eth_getBlockByNumber", move |params, _, _| {
+                let (tag, _): (String, bool) = params.parse()?;
+                let mut block: alloy_rpc_types_eth::Block = Default::default();
+                block.header.inner.number = if tag == "finalized" { finalized } else { 5 };
+                Ok::<_, ErrorObjectOwned>(block)
+            })
+            .unwrap();
+        module
+            .register_method("eth_getLogs", |_, _, _| {
+                Err::<serde_json::Value, _>(ErrorObjectOwned::owned(
+                    4444,
+                    "pruned history unavailable",
+                    None::<()>,
+                ))
+            })
+            .unwrap();
+        let handle = server.start(module);
+        let reader = eez_l1::L1Reader::new(eez_l1::L1ReaderConfig {
+            rpc_url,
+            beacon_url: None,
+            eez: alloy_primitives::Address::repeat_byte(1),
+            rollup_id: 1,
+            deploy_block: 5,
+        });
+        (reader, handle)
+    }
+
+    #[tokio::test]
+    async fn readiness_defers_pruned_history_to_checkpoint_aware_derivation() {
+        let (reader, server) = pruned_source(1, 80).await;
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            super::wait_for_l1_ready(&reader, 5, 1, 40),
+        )
+        .await;
+        server.stop().unwrap();
+        result
+            .expect("deployment receipts must not block checkpoint selection")
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn pruned_source_still_requires_correct_chain() {
+        let (reader, server) = pruned_source(2, 80).await;
+        let error = tokio::time::timeout(
+            Duration::from_secs(5),
+            super::wait_for_l1_ready(&reader, 5, 1, 40),
+        )
+        .await
+        .expect("wrong-chain readiness must terminate")
+        .unwrap_err();
+        assert!(error.to_string().contains("serves chain 2, expected 1"));
+        server.stop().unwrap();
+    }
+
+    #[tokio::test]
+    async fn pruned_source_still_requires_final_reference() {
+        let (reader, server) = pruned_source(1, 39).await;
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(100),
+                super::wait_for_l1_ready(&reader, 5, 1, 40),
+            )
+            .await
+            .is_err(),
+            "an unfinalized reference must not pass readiness"
+        );
+        server.stop().unwrap();
+    }
 
     #[test]
     fn block_zero_reference_needs_no_finalized_report() {

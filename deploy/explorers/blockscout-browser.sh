@@ -16,5 +16,10 @@ Object.assign(window.__envs, {
   NEXT_PUBLIC_API_WEBSOCKET_PROTOCOL: window.location.protocol === "https:" ? "wss" : "ws",
   NEXT_PUBLIC_USE_NEXT_JS_PROXY: "false"
 });
+// Blockscout's implicit contract-read RPC URL ignores API_BASE_PATH.
+window.__envs.NEXT_PUBLIC_NETWORK_RPC_URL ||= new URL(
+  window.__envs.NEXT_PUBLIC_API_BASE_PATH + "/api/eth-rpc",
+  window.location.origin
+).href;
 JS
 exec node server.js

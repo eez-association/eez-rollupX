@@ -17,7 +17,7 @@ pub(crate) struct SettlementMetrics {
     deadline: Gauge,
     target: Gauge,
     evaluated: Gauge,
-    submission: [(&'static str, Gauge); 6],
+    submission: [(&'static str, Gauge); 7],
 }
 
 impl SettlementMetrics {
@@ -49,7 +49,7 @@ impl SettlementMetrics {
             deadline: gauge("eez_composer_settlement_pure_interval_deadline_timestamp_seconds", Unit::Seconds, "Conditional pure-L2 interval deadline; NaN in always mode or without pending pure activity"),
             target: gauge("eez_composer_settlement_target_timestamp_seconds", Unit::Seconds, "Selected L1 target used for policy evaluation, not guaranteed submission or inclusion"),
             evaluated: gauge("eez_composer_settlement_evaluation_timestamp_seconds", Unit::Seconds, "Local time of the last successful canonical-generation-valid policy evaluation"),
-            submission: ["none", "prepared", "dispatched", "included", "excluded", "uncertain"].map(|state|
+            submission: ["none", "prepared", "dispatched", "included", "excluded", "preflight_rejected", "uncertain"].map(|state|
                 (state, metrics::gauge!("eez_composer_settlement_submission", "rollup_id" => rollup.clone(), "state" => state))),
         }
     }
@@ -86,6 +86,7 @@ impl SettlementMetrics {
             Some(SubmissionObservation::Dispatched { .. }) => "dispatched",
             Some(SubmissionObservation::Included { .. }) => "included",
             Some(SubmissionObservation::Excluded { .. }) => "excluded",
+            Some(SubmissionObservation::PreflightRejected { .. }) => "preflight_rejected",
             Some(SubmissionObservation::Uncertain) => "uncertain",
         });
         for (name, gauge) in &self.submission {
@@ -217,6 +218,10 @@ mod tests {
                     charge_attempt: false,
                 },
             ),
+            (
+                "preflight_rejected",
+                SubmissionObservation::PreflightRejected { source: None },
+            ),
             ("uncertain", SubmissionObservation::Uncertain),
         ] {
             status.pending_submission = Some(observation);
@@ -238,7 +243,7 @@ mod tests {
                     && line.contains("rollup_id=\"2\"")
             })
             .collect::<Vec<_>>();
-        assert_eq!(other_lines.len(), 22);
+        assert_eq!(other_lines.len(), 23);
         assert!(other_lines.iter().all(|line| line.ends_with(" NaN")));
     }
 }

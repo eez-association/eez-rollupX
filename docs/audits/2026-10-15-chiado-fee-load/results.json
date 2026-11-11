@@ -1,0 +1,637 @@
+{
+  "date": "2026-10-15",
+  "runtime": [
+    {
+      "name": "/eez-node-chiado",
+      "id": "63bc57e5784f06b5f2290d35ce63c725bb598f94f3ba6db1c42f12345664ff13",
+      "image": "sha256:712c027cd6ee482adb449d53783dc75353e5feca2b0d8ab50962875a0d5cac09",
+      "started": "2026-10-15T19:56:45.549197975Z",
+      "restarts": 0,
+      "running": true,
+      "source": "b2a82536e87d2543ce9839eb3ba15a9ceefdaefc",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f"
+    },
+    {
+      "name": "/eez-proof-signer-chiado",
+      "id": "f9aa1f163a1b5bc38247a0c9fcfb285f5fbc52e66719d0b3bc8802be5c525116",
+      "image": "sha256:00cdbf0a414b3bfeaaf028c38901d84c7286fbae778cffc2d60c9d6687303250",
+      "started": "2026-10-15T19:56:39.960352201Z",
+      "restarts": 0,
+      "running": true,
+      "source": "b2a82536e87d2543ce9839eb3ba15a9ceefdaefc",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f"
+    }
+  ],
+  "harnessBase": "110874fc559b8f3fba2a7e1e6c0e18f3f2e9c6ca",
+  "environment": {
+    "cpu": "Intel Core Ultra 9 185H",
+    "logicalCPUs": 22,
+    "hostMemoryGiB": 60.91,
+    "sharedHost": true,
+    "node": "26.7.0",
+    "viem": "2.47.0",
+    "l1ChainId": 10200,
+    "l2ChainId": 906969,
+    "transport": "local Composer HTTP front",
+    "quoteTypes": [
+      "0x0",
+      "0x2"
+    ],
+    "gas": "internally estimated",
+    "quoteProfitBps": 2000,
+    "riskBps": 0,
+    "nativeCurrencyConversion": "1:1",
+    "configuredFixedProvingOperationsTreasuryCosts": "0"
+  },
+  "runs": [
+    {
+      "name": "ramp_64_senders",
+      "stages": [
+        {
+          "name": "q10-tx0.5",
+          "quoteRate": 10,
+          "txRate": 0.5,
+          "durationSeconds": 60,
+          "begin": 1792096337847,
+          "end": 1792096397847,
+          "stopped": null,
+          "drained": 1792096418877,
+          "actualWindowSeconds": 60.0,
+          "quoteResponses": 600,
+          "quoteCodes": {
+            "ok": 600
+          },
+          "successfulQuotesPerSecond": 10.0,
+          "successfulQuoteLatencyMs": {
+            "count": 600,
+            "p50": 33.43927350000013,
+            "p95": 124.5769169999985,
+            "p99": 185.65167999998084,
+            "maximum": 204.49069099999906
+          },
+          "submissionQuoteCodes": {
+            "ok": 30
+          },
+          "admissionCodes": {
+            "ok": 30
+          },
+          "successfulAdmissionLatencyMs": {
+            "count": 30,
+            "p50": 5.560899000003701,
+            "p95": 6.797933999972884,
+            "p99": 7.291836999997031,
+            "maximum": 7.291836999997031
+          },
+          "accepted": 30,
+          "settled": 30,
+          "settledDuringArrivalWindow": 23,
+          "settledInWindowPerSecond": 0.38333333333333336,
+          "cohortIncludingDrainPerSecond": 0.3748641117594872,
+          "settlementObservationLatencyMs": {
+            "count": 30,
+            "p50": 8835.5,
+            "p95": 32011,
+            "p99": 33905,
+            "maximum": 33905
+          },
+          "generatorSkips": {},
+          "maxPendingTestSources": 10,
+          "maxQueue": 9
+        },
+        {
+          "name": "q25-tx1",
+          "quoteRate": 25,
+          "txRate": 1,
+          "durationSeconds": 60,
+          "begin": 1792096418878,
+          "end": 1792096478878,
+          "stopped": null,
+          "drained": 1792096487896,
+          "actualWindowSeconds": 60.0,
+          "quoteResponses": 1500,
+          "quoteCodes": {
+            "ok": 1500
+          },
+          "successfulQuotesPerSecond": 25.0,
+          "successfulQuoteLatencyMs": {
+            "count": 1500,
+            "p50": 32.8224360000022,
+            "p95": 61.02269300000626,
+            "p99": 70.16545400000177,
+            "maximum": 254.79240299999947
+          },
+          "submissionQuoteCodes": {
+            "ok": 60
+          },
+          "admissionCodes": {
+            "ok": 60
+          },
+          "successfulAdmissionLatencyMs": {
+            "count": 60,
+            "p50": 5.321960500004934,
+            "p95": 6.373976000002585,
+            "p99": 7.85650799999712,
+            "maximum": 7.85650799999712
+          },
+          "accepted": 60,
+          "settled": 60,
+          "settledDuringArrivalWindow": 54,
+          "settledInWindowPerSecond": 0.9,
+          "cohortIncludingDrainPerSecond": 0.8746228189093453,
+          "settlementObservationLatencyMs": {
+            "count": 60,
+            "p50": 8209.5,
+            "p95": 16555,
+            "p99": 19602,
+            "maximum": 19602
+          },
+          "generatorSkips": {},
+          "maxPendingTestSources": 20,
+          "maxQueue": 19
+        },
+        {
+          "name": "q50-tx2",
+          "quoteRate": 50,
+          "txRate": 2,
+          "durationSeconds": 60,
+          "begin": 1792096487896,
+          "end": 1792096547895,
+          "stopped": null,
+          "drained": 1792096562908,
+          "actualWindowSeconds": 59.999,
+          "quoteResponses": 3000,
+          "quoteCodes": {
+            "ok": 3000
+          },
+          "successfulQuotesPerSecond": 50.00083334722245,
+          "successfulQuoteLatencyMs": {
+            "count": 3000,
+            "p50": 20.696172999989358,
+            "p95": 32.21250700001838,
+            "p99": 37.18404999998165,
+            "maximum": 247.91329699999187
+          },
+          "submissionQuoteCodes": {
+            "ok": 120
+          },
+          "admissionCodes": {
+            "ok": 120
+          },
+          "successfulAdmissionLatencyMs": {
+            "count": 120,
+            "p50": 5.365814999997383,
+            "p95": 6.716585999995004,
+            "p99": 7.809580000001006,
+            "maximum": 8.083689999999478
+          },
+          "accepted": 120,
+          "settled": 120,
+          "settledDuringArrivalWindow": 109,
+          "settledInWindowPerSecond": 1.8166969449490824,
+          "cohortIncludingDrainPerSecond": 1.6103923989478768,
+          "settlementObservationLatencyMs": {
+            "count": 120,
+            "p50": 7723.5,
+            "p95": 12896,
+            "p99": 15002,
+            "maximum": 15376
+          },
+          "generatorSkips": {},
+          "maxPendingTestSources": 31,
+          "maxQueue": 29
+        },
+        {
+          "name": "q100-tx4",
+          "quoteRate": 100,
+          "txRate": 4,
+          "durationSeconds": 60,
+          "begin": 1792096562909,
+          "end": 1792096622908,
+          "stopped": null,
+          "drained": 1792096643929,
+          "actualWindowSeconds": 59.999,
+          "quoteResponses": 6000,
+          "quoteCodes": {
+            "ok": 6000
+          },
+          "successfulQuotesPerSecond": 100.0016666944449,
+          "successfulQuoteLatencyMs": {
+            "count": 6000,
+            "p50": 13.746797499974491,
+            "p95": 21.477020999998786,
+            "p99": 24.795172000012826,
+            "maximum": 323.92788199998904
+          },
+          "submissionQuoteCodes": {
+            "ok": 225
+          },
+          "admissionCodes": {
+            "ok": 225
+          },
+          "successfulAdmissionLatencyMs": {
+            "count": 225,
+            "p50": 5.337839999992866,
+            "p95": 6.838347000011709,
+            "p99": 7.96650000003865,
+            "maximum": 9.663235999993049
+          },
+          "accepted": 225,
+          "settled": 225,
+          "settledDuringArrivalWindow": 175,
+          "settledInWindowPerSecond": 2.916715278587976,
+          "cohortIncludingDrainPerSecond": 2.811797050737316,
+          "settlementObservationLatencyMs": {
+            "count": 225,
+            "p50": 12854,
+            "p95": 21257,
+            "p99": 22488,
+            "maximum": 22747
+          },
+          "generatorSkips": {
+            "q100-tx4:actor": 15
+          },
+          "maxPendingTestSources": 64,
+          "maxQueue": 64
+        },
+        {
+          "name": "q25-tx8",
+          "quoteRate": 25,
+          "txRate": 8,
+          "durationSeconds": 30,
+          "begin": 1792096643930,
+          "end": 1792096673930,
+          "stopped": null,
+          "drained": 1792096768991,
+          "actualWindowSeconds": 30.0,
+          "quoteResponses": 750,
+          "quoteCodes": {
+            "ok": 750
+          },
+          "successfulQuotesPerSecond": 25.0,
+          "successfulQuoteLatencyMs": {
+            "count": 750,
+            "p50": 25.11318400001619,
+            "p95": 55.29227500001434,
+            "p99": 81.52683599997545,
+            "maximum": 289.79172700003255
+          },
+          "submissionQuoteCodes": {
+            "ok": 148
+          },
+          "admissionCodes": {
+            "ok": 148
+          },
+          "successfulAdmissionLatencyMs": {
+            "count": 148,
+            "p50": 5.446466499968665,
+            "p95": 6.562658999988344,
+            "p99": 8.89121700002579,
+            "maximum": 9.512263000011444
+          },
+          "accepted": 148,
+          "settled": 148,
+          "settledDuringArrivalWindow": 92,
+          "settledInWindowPerSecond": 3.066666666666667,
+          "cohortIncludingDrainPerSecond": 1.192971142995325,
+          "settlementObservationLatencyMs": {
+            "count": 148,
+            "p50": 17159.0,
+            "p95": 94409,
+            "p99": 95169,
+            "maximum": 95292
+          },
+          "generatorSkips": {
+            "q25-tx8:actor": 92
+          },
+          "maxPendingTestSources": 64,
+          "maxQueue": 64
+        }
+      ],
+      "byKind": {
+        "nested": {
+          "quoteCodes": {
+            "ok": 2963
+          },
+          "successfulQuoteLatencyMs": {
+            "count": 2963,
+            "p50": 16.155237999977544,
+            "p95": 49.95397899998352,
+            "p99": 110.95628499999293,
+            "maximum": 267.8017380000092
+          },
+          "settled": 146,
+          "settlementObservationLatencyMs": {
+            "count": 146,
+            "p50": 9813.5,
+            "p95": 26004,
+            "p99": 94543,
+            "maximum": 95042
+          }
+        },
+        "safe_create": {
+          "quoteCodes": {
+            "ok": 2963
+          },
+          "successfulQuoteLatencyMs": {
+            "count": 2963,
+            "p50": 16.089211000013165,
+            "p95": 51.38999999995576,
+            "p99": 111.50134300001082,
+            "maximum": 273.92113000003155
+          },
+          "settled": 146,
+          "settlementObservationLatencyMs": {
+            "count": 146,
+            "p50": 9939.0,
+            "p95": 25875,
+            "p99": 94409,
+            "maximum": 94915
+          }
+        },
+        "safe_nested": {
+          "quoteCodes": {
+            "ok": 2962
+          },
+          "successfulQuoteLatencyMs": {
+            "count": 2962,
+            "p50": 17.751977499981876,
+            "p95": 53.63434399999096,
+            "p99": 124.94169999999576,
+            "maximum": 295.5544340000488
+          },
+          "settled": 145,
+          "settlementObservationLatencyMs": {
+            "count": 145,
+            "p50": 10011,
+            "p95": 27982,
+            "p99": 94788,
+            "maximum": 95292
+          }
+        },
+        "safe_transfer": {
+          "quoteCodes": {
+            "ok": 2962
+          },
+          "successfulQuoteLatencyMs": {
+            "count": 2962,
+            "p50": 16.729172999970615,
+            "p95": 48.80109600001015,
+            "p99": 111.53850100000273,
+            "maximum": 323.92788199998904
+          },
+          "settled": 146,
+          "settlementObservationLatencyMs": {
+            "count": 146,
+            "p50": 10639.5,
+            "p95": 28122,
+            "p99": 94664,
+            "maximum": 95169
+          }
+        }
+      },
+      "sourceKinds": {
+        "nested": 147,
+        "safe_create": 147,
+        "safe_nested": 146,
+        "safe_transfer": 147
+      },
+      "sourceTypes": {
+        "0x2": 295,
+        "0x0": 292
+      },
+      "validation": {
+        "pass": true,
+        "sources": 587,
+        "postings": 53,
+        "createdSafes": 877,
+        "nestedRoundTrips": 147,
+        "independentL1": true,
+        "independentL2Replay": false,
+        "postingAndBlobCost": "257971915177236748",
+        "collectedTestTips": "474230871269890515",
+        "l1Snapshot": "0x47f97bee96261d9141b3a72df9b1d03c2f1efe17a8e25a4915effd2aa95328c0",
+        "l2Snapshot": "0xe6fa438d6c3f1c63b1c28eca8b6f03f1c7bb18f0b6bd97d1920d64d299613783"
+      },
+      "nativeBlobVerification": {
+        "verified": true,
+        "postings": 53,
+        "sources": 587,
+        "verifierSha256": "da99270dabdd0f2c8f3b28c5bfcdac91506149955fd40c27cdc0867b0e4b88af"
+      },
+      "workloadRun": {
+        "at": 1792096770039,
+        "stopped": null,
+        "monitorError": null,
+        "accepted": 587,
+        "settled": 587,
+        "budgetReserved": "508181799019908640"
+      }
+    },
+    {
+      "name": "burst_256_senders",
+      "stages": [
+        {
+          "name": "q25-tx8",
+          "quoteRate": 25,
+          "txRate": 8,
+          "durationSeconds": 30,
+          "begin": 1792097293627,
+          "end": 1792097323626,
+          "stopped": null,
+          "drained": 1792097378672,
+          "actualWindowSeconds": 29.999,
+          "quoteResponses": 750,
+          "quoteCodes": {
+            "ok": 750
+          },
+          "successfulQuotesPerSecond": 25.000833361112036,
+          "successfulQuoteLatencyMs": {
+            "count": 750,
+            "p50": 21.46625800000038,
+            "p95": 53.03304699998989,
+            "p99": 66.03492400000687,
+            "maximum": 75.4671859999944
+          },
+          "submissionQuoteCodes": {
+            "ok": 240
+          },
+          "admissionCodes": {
+            "ok": 240
+          },
+          "successfulAdmissionLatencyMs": {
+            "count": 240,
+            "p50": 5.571259499993175,
+            "p95": 7.23151099999086,
+            "p99": 9.074609000002965,
+            "maximum": 19.07500899999286
+          },
+          "accepted": 240,
+          "settled": 240,
+          "settledDuringArrivalWindow": 42,
+          "settledInWindowPerSecond": 1.400046668222274,
+          "cohortIncludingDrainPerSecond": 2.855681020430018,
+          "settlementObservationLatencyMs": {
+            "count": 240,
+            "p50": 41070.0,
+            "p95": 54775,
+            "p99": 56026,
+            "maximum": 56250
+          },
+          "generatorSkips": {},
+          "maxPendingTestSources": 211,
+          "maxQueue": 203
+        }
+      ],
+      "byKind": {
+        "nested": {
+          "quoteCodes": {
+            "ok": 188
+          },
+          "successfulQuoteLatencyMs": {
+            "count": 188,
+            "p50": 21.370572999992874,
+            "p95": 51.831409000005806,
+            "p99": 68.19078799999261,
+            "maximum": 69.17126899999857
+          },
+          "settled": 60,
+          "settlementObservationLatencyMs": {
+            "count": 60,
+            "p50": 40752.5,
+            "p95": 54511,
+            "p99": 56026,
+            "maximum": 56026
+          }
+        },
+        "safe_create": {
+          "quoteCodes": {
+            "ok": 188
+          },
+          "successfulQuoteLatencyMs": {
+            "count": 188,
+            "p50": 19.60213350000413,
+            "p95": 51.54752799999551,
+            "p99": 65.71494099999836,
+            "maximum": 75.4671859999944
+          },
+          "settled": 60,
+          "settlementObservationLatencyMs": {
+            "count": 60,
+            "p50": 40503.0,
+            "p95": 54391,
+            "p99": 55896,
+            "maximum": 55896
+          }
+        },
+        "safe_nested": {
+          "quoteCodes": {
+            "ok": 187
+          },
+          "successfulQuoteLatencyMs": {
+            "count": 187,
+            "p50": 25.179624000011245,
+            "p95": 62.47162899999239,
+            "p99": 66.93738999999186,
+            "maximum": 67.16192800000135
+          },
+          "settled": 60,
+          "settlementObservationLatencyMs": {
+            "count": 60,
+            "p50": 42002.0,
+            "p95": 54775,
+            "p99": 56250,
+            "maximum": 56250
+          }
+        },
+        "safe_transfer": {
+          "quoteCodes": {
+            "ok": 187
+          },
+          "successfulQuoteLatencyMs": {
+            "count": 187,
+            "p50": 20.6941599999991,
+            "p95": 51.13394800000242,
+            "p99": 53.72815700000501,
+            "maximum": 59.33504000000539
+          },
+          "settled": 60,
+          "settlementObservationLatencyMs": {
+            "count": 60,
+            "p50": 41878.5,
+            "p95": 54629,
+            "p99": 56142,
+            "maximum": 56142
+          }
+        }
+      },
+      "sourceKinds": {
+        "nested": 61,
+        "safe_create": 61,
+        "safe_nested": 61,
+        "safe_transfer": 61
+      },
+      "sourceTypes": {
+        "0x2": 124,
+        "0x0": 120
+      },
+      "validation": {
+        "pass": true,
+        "sources": 244,
+        "postings": 16,
+        "createdSafes": 366,
+        "nestedRoundTrips": 61,
+        "independentL1": true,
+        "independentL2Replay": false,
+        "postingAndBlobCost": "170162063769265719",
+        "collectedTestTips": "274510075714069322",
+        "l1Snapshot": "0x2cf0bcfdecc24a83008769cab3d469983cc1b1b8f647c9187f1cb6c8bcf202b9",
+        "l2Snapshot": "0xb37391ef648872aaf4af02d8a37195f232edfa17fc648b8c1b59dc4903b1716f"
+      },
+      "nativeBlobVerification": {
+        "verified": true,
+        "postings": 16,
+        "sources": 244,
+        "verifierSha256": "da99270dabdd0f2c8f3b28c5bfcdac91506149955fd40c27cdc0867b0e4b88af"
+      },
+      "workloadRun": {
+        "at": 1792097379685,
+        "stopped": null,
+        "monitorError": null,
+        "accepted": 244,
+        "settled": 244,
+        "budgetReserved": "294294239640507561"
+      }
+    }
+  ],
+  "totals": {
+    "acceptedAndCanonicallySettled": 831,
+    "postings": 69,
+    "createdSafesDuringMeasuredSources": 1243,
+    "postingAndBlobCostWei": "428133978946502467",
+    "collectedTipsWei": "748740946983959837"
+  },
+  "retainedFailures": [
+    {
+      "phase": "expanded setup, outside measurements",
+      "transaction": "0xe6398348df8039175399eea11bd839d97b82306fe507418381b3e9f7035873a3",
+      "cause": "CREATE2 out of gas while creating 64 proxies in one Safe MultiSend; Safe reverted the complete batch",
+      "correction": "Four groups of 16; original reverted receipt and trace retained; no duplicate funding or contract deployment"
+    },
+    {
+      "phase": "expanded independent verification, after all transactions settled",
+      "initialRunExit": 1,
+      "error": "Required independent L1 block lookup returned null",
+      "followup": "Provider heads subsequently matched. Added a bounded wait for availability, retained hash equality and all semantic assertions, repeated verification only; exit 0. Initial exact null cause was not established."
+    }
+  ],
+  "limits": [
+    "No matched pre-fee baseline; no causal performance speedup/regression claim.",
+    "Bounded one-minute ramps and a 30-second burst, not a long production soak or maximum-capacity search.",
+    "64-sender runs omitted 15 and 92 arrivals at the highest two rates; the 256-sender follow-up omitted none.",
+    "Canonical settlement observations are polled; these are canonical-at-read results, not finalized-at-read guarantees.",
+    "Independent L1 and native blob/semantic verification passed; no independent L2 follower replay in this benchmark.",
+    "Standard Safe 1.4.1, not Falcon-specific cryptographic execution or real wallet extensions.",
+    "Loopback backend measurement; public gateway/Internet latency and capacity were not measured.",
+    "Expanded validation passed only on the retained verification retry after the availability-wait correction; measured sends were never repeated."
+  ]
+}

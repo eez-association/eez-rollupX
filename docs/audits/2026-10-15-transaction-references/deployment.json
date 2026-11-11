@@ -1,0 +1,255 @@
+{
+  "timestamp_utc": "2026-10-15T13:48:18Z",
+  "runtime_source": "712f713f3601d9ecbf678e69db67eb656cad0fb1",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "build": {
+    "profile": "release",
+    "dockerfiles": [
+      "Dockerfile",
+      "Dockerfile.signer",
+      "testing/kurtosis/Dockerfile.deploy"
+    ],
+    "source_clean": true,
+    "dependencies_locked": true,
+    "ci_release_matrix": false,
+    "images": {
+      "node": {
+        "tag": "eez-node:transaction-references-712f713f",
+        "id": "sha256:c8ad0faa6cb415bc101917c4194aa1456686b894df1854ec80ab6cb7e03d0af8",
+        "source": "712f713f3601d9ecbf678e69db67eb656cad0fb1",
+        "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+        "executables": {
+          "eez-composer": "8cfb96dfe2b602a4e4b22f8157eabd84d2954f3b8930d1cdb2a2561463329d7f",
+          "eez-follower": "9b57a417e1da89380de49c979505f35b0260253a2c1fca366eb66c24132b5cc6",
+          "eez-genesis-state-root": "67354b6171a7eef8d75669cbe9da77e461d56044e020195061f1d0510f8f39d6",
+          "eez-genesis-block-hash": "43384a827e5d12b15acb990aa71974d1cfe9ca8f77301813d9498dd77d951242"
+        }
+      },
+      "signer": {
+        "tag": "eez-proof-signer:transaction-references-712f713f",
+        "id": "sha256:ea6c1977080d98fc5c671f1c6d26a7974558287c5c9f00eaf390cf1ab2c623f8",
+        "source": "712f713f3601d9ecbf678e69db67eb656cad0fb1",
+        "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+        "executables": {
+          "eez-proof-signer": "a52b15731dd6c1b59791494435a54139a91140ce03f5033fb9d86cc383ed87d5"
+        }
+      },
+      "deploy": {
+        "tag": "eez-deploy:transaction-references-712f713f",
+        "id": "sha256:2f434056f21b885aa5bbc06d1dcab970b5e16a78380465b624218d47056766ee",
+        "source": "712f713f3601d9ecbf678e69db67eb656cad0fb1",
+        "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+        "executables": {}
+      }
+    },
+    "blob_verifier_sha256": "da99270dabdd0f2c8f3b28c5bfcdac91506149955fd40c27cdc0867b0e4b88af",
+    "replay_harness_sha256": "f2f6949e7d53f6683e35b869cf06836975e69d51e4c1819c81aa64b4cb7c494e"
+  },
+  "kurtosis": {
+    "enclave": "eez-tx-references-20261015",
+    "status": "stopped; state and service dump retained",
+    "deployment_bindings_verified": true,
+    "startup_note": "Initial readiness waited for relay proposer duties; first canonical settlement at L1 block 34. No workload assertion was retried.",
+    "nested_sources": 2,
+    "nested_shared_native_block": true,
+    "underpayment_rejected_without_execution": true,
+    "bridge_cases": [
+      {
+        "type": "0x2",
+        "source": "0xe6fc1e419cba642c48a7ef3463facb01350b84add48422f44b8e4a60a66e5aa5",
+        "posting": "0x37d62a6046442f4bb71f21a8921af0646e41e834aaebb44e5240bab4cd4ebe23",
+        "quoted_l1_gas": 492835,
+        "actual_l1_gas": 492823,
+        "l1_posting_and_blob_cost": "495024781012765",
+        "paid_l2_tip": "594044201912112",
+        "tip_to_l1_cost": "1.200029220146846804028636095"
+      },
+      {
+        "type": "0x0",
+        "source": "0x627e5710a202735ea799d448879005eab809859380e8043cfd69058bc4700ecb",
+        "posting": "0x10bdce1b49e99a400247fdc5f06c21732bb49b26c50b2c3f6cc3b4b960159c17",
+        "quoted_l1_gas": 182957,
+        "actual_l1_gas": 182957,
+        "l1_posting_and_blob_cost": "183674024897245",
+        "paid_l2_tip": "220453573631643",
+        "tip_to_l1_cost": "1.200243604151289391870003075"
+      }
+    ],
+    "reference_source_groups": 5,
+    "physical_l2_references": 9,
+    "both_fronts_agree": true,
+    "unknown_source_is_null": true,
+    "authenticated_blob_postings": 4,
+    "independent_replay": {
+      "checked_blocks": 48,
+      "checked_derived_blocks": 48,
+      "checked_receipts": 4,
+      "safe_l2_block": 252,
+      "safe_l2_block_hash": "0xe3f0a081bbb6eb10b0dc5bc77e3b4b673559b5e4d6d8e6ceeccd40986584b1d0",
+      "source": "canonical_l1_only",
+      "verified": true
+    },
+    "failed_checks": 0,
+    "assertion_reruns": 0
+  },
+  "deployment": {
+    "previous_runtime_source": "14d9eac364d92d316da4f00a4cb44154d9c28661",
+    "l1_chain_id": 10200,
+    "l2_chain_id": 906969,
+    "public_transaction_routes_paused_and_restored": true,
+    "drained_queue": {
+      "queued": 0,
+      "inFlight": 0,
+      "blocked": 0,
+      "unknown": 0
+    },
+    "both_writers_exited_cleanly": true,
+    "stopped_original_databases_retained": true,
+    "candidate_writes_separate_database_copies": true,
+    "genesis_and_bindings_unchanged": true,
+    "runtime_environment_and_commands_unchanged": true,
+    "fee_policy_unchanged": true,
+    "ui_unchanged": true,
+    "exact_tested_image_and_executable_identity": true,
+    "public_fronts_verified": true,
+    "live_canary": {
+      "source": "0x38c45e6e479f770694abbbf09f5f6bf8c643aaf07b4c3f1747ac4d61788d1eba",
+      "posting": "0xacbebf6c98f85a4e2e377017fd01ddf7f666ff45e3e4ab9239beaebdaaa2536b",
+      "type": "0x0",
+      "canonical": true,
+      "l2_gas_used": 99149,
+      "quoted_l1_gas": 173695,
+      "actual_l1_gas": 173695,
+      "posting_and_blob_cost_l1": "304767001215865",
+      "required_tip_l2": "365720401459038",
+      "paid_tip_l2": "365720401548550",
+      "tip_to_l1_cost": "1.200000000293706338425396263",
+      "transactions": {
+        "attemptGeneration": "0x0",
+        "basis": "attempt",
+        "complete": true,
+        "l1": {
+          "chainId": "0x27d8",
+          "hash": "0xacbebf6c98f85a4e2e377017fd01ddf7f666ff45e3e4ab9239beaebdaaa2536b"
+        },
+        "l2": [
+          {
+            "chainId": "0xdd6d9",
+            "hash": "0xd4af001e1cf0ff4804ce9350e7db8c1857c299ba49a9e006adc4c428f61280cb"
+          },
+          {
+            "chainId": "0xdd6d9",
+            "hash": "0x38c45e6e479f770694abbbf09f5f6bf8c643aaf07b4c3f1747ac4d61788d1eba"
+          }
+        ],
+        "postBatch": {
+          "chainId": "0x27d8",
+          "hash": "0xacbebf6c98f85a4e2e377017fd01ddf7f666ff45e3e4ab9239beaebdaaa2536b"
+        }
+      },
+      "underpayment_rejected": true,
+      "target_state_verified": true,
+      "no_new_wallet_funding": true,
+      "no_new_contracts": true
+    },
+    "quote_gas_checks": [
+      {
+        "type": "0x0",
+        "gas": 200000,
+        "accepted": true
+      },
+      {
+        "type": "0x0",
+        "gas": 6050247,
+        "accepted": true
+      },
+      {
+        "type": "0x0",
+        "gas": 6037754,
+        "accepted": true
+      },
+      {
+        "type": "0x0",
+        "gas": 16777216,
+        "accepted": true
+      },
+      {
+        "type": "0x0",
+        "gas": 16777217,
+        "accepted": false
+      },
+      {
+        "type": "0x2",
+        "gas": 200000,
+        "accepted": true
+      },
+      {
+        "type": "0x2",
+        "gas": 6050247,
+        "accepted": true
+      },
+      {
+        "type": "0x2",
+        "gas": 6037754,
+        "accepted": true
+      },
+      {
+        "type": "0x2",
+        "gas": 16777216,
+        "accepted": true
+      },
+      {
+        "type": "0x2",
+        "gas": 16777217,
+        "accepted": false
+      }
+    ],
+    "final_health": {
+      "timestamp_utc": "2026-10-15T13:51:23Z",
+      "safe_l2_block": 678615,
+      "latest_l2_block": 678700,
+      "canonical_settlement_verified": true,
+      "l2_head_advancing": true,
+      "embedded_l1_syncing": false,
+      "beacon_syncing": false,
+      "beacon_optimistic": false,
+      "beacon_execution_offline": false,
+      "queue": {
+        "queued": 0,
+        "inFlight": 0,
+        "blocked": 0,
+        "unknown": 0
+      },
+      "node_and_signer_error_events": 0,
+      "signer_healthy": true,
+      "ui_healthy": true,
+      "indexer_running": true
+    }
+  },
+  "evidence": {
+    "availability": "local-only; ignored artifacts are unavailable from a fresh checkout",
+    "root": "artifacts/transaction-references-deployment-20261015",
+    "sha256": {
+      "kurtosis-args.yaml": "aad6aae9b11f6fc0582c719547b5785db8bae97d0c0e58f448faab72ff0d234c",
+      "kurtosis-nested-fees.json": "baab174f84c47e426bc3e15ec81c5a8a2f11fb75abffd76b9ee9f609a9c3548e",
+      "kurtosis-bridge-fees.json": "4b8bb44e3e36755b4c3fa5c688c876ae8f013666dc195131a8bf85e65e800f6b",
+      "kurtosis-references.json": "8ef21dcda09963187682781f23d2855efe443ba125a62b02e9fe3e6e50d5d985",
+      "fee-replay-summary.json": "304998b117220256fae0c5cb41b40e6e079d5fc0936fce0f41d94adcc518dd9f",
+      "independent-replay.json": "a1c6887e10703a3fd28b7915894aeae47ded69eee68cc7d361ed8af99be8b9b4",
+      "live-canary.json": "b109ff60e886708ab738c1418718558b5aba67037a1c9e40606b5b4d25cd96f3",
+      "deployment-public-checks.json": "1d827bc16a471d472b4d79714da504e5aea27ef79de0806a7242c52bc556fcd2",
+      "verify-references.py": "0ddde6e53a688c68644ffa9b9653efe90a4a8fbb67621688662b18d749919102",
+      "verify-blobs.py": "b7f06ed0ad3682885d31465e006434478771141c6106e35a7b5b3063e362236b",
+      "verify-live-references.py": "ba9a5a73a0b93b58ca84d426c989347e18f85be1a14c9880222d6b881044cd7d",
+      "final-health.json": "805293ac8ee10a33dfbdff38750f4bbcd1ffec05095228d7ac754d2af323c2dc"
+    }
+  },
+  "not_run": [
+    "full protocol staged/stress suite",
+    "full CI release-artifact matrix",
+    "Falcon signature workload",
+    "fresh full Chiado history replay",
+    "rollback rehearsal"
+  ],
+  "fee_api_proposal_implemented": false
+}

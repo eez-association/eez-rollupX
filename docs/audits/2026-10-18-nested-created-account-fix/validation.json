@@ -1,0 +1,243 @@
+{
+  "source": {
+    "sourceBase": "0bb1396d9cb660738b17d43a6cdbf9a564177823",
+    "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+    "files": {
+      "Cargo.lock": "d9267d9747e252b41514b3805932ff1101ca0d1855197b97e0a193b929c3fa39",
+      "contracts/foundry.toml": "e1d3b3bbf3db9a3c497cb1c9b47cc2cb3eb4142d50f0a0ae50f3b5436d1fbcbf",
+      "crates/eez-evm-inspector/src/inspector.rs": "24841d69e2ecfc72e98ea47216ddc5e037f02e895eac2c0f8367fe3f308f984c",
+      "crates/eez-evm-inspector/src/overlay.rs": "cd617d5a3d08843b6317cec0f649eb5f3744aa8f1ac1e065d96842220705781f",
+      "crates/eez-node-e2e/tests/main.rs": "0c59d18e44a596722c1aaa5e1d984c7289f5d3fb3cd6033ab7b2d31fa2b45c33",
+      "crates/eez-node-e2e/tests/cross_chain.rs": "9cdfb4fdd0c3e589db33e2c182711ccd826f07b47b2d512ba4d8df8c908fb222",
+      "contracts/src/NestedContractCreation.sol": "e25ea3e425de90da5d15d7ecd1e0cd365c2493f96668a1d86cdc5448204422d8",
+      "contracts/test/NestedContractCreation.t.sol": "4138402fd9f4d2859f082524e92238d47db05d7e693692a9add007d070248b1c",
+      "crates/eez-node-e2e/tests/cross_chain/nested_creation.rs": "eafb904a5d4c56c0e9e8792ad313cf65c8616daa61831564dcd32e737702c33e",
+      "crates/eez-composer/src/local/session.rs": "accb0c30900e16acbf06c5976fab83ad25a9f88c8da636b1fb1efd04960be46b"
+    }
+  },
+  "toolchain": {
+    "rust": "1.95.0 (59807616e 2026-04-14)",
+    "cargo": "1.95.0 (f2d3ce0bd 2026-03-21)",
+    "foundry": "1.7.1 (4072e48705af9d93e3c0f6e29e93b5e9a40caed8)",
+    "solc": "0.8.34",
+    "profile": "Cargo dev/test: optimized + debuginfo",
+    "cargoBuildJobs": 2
+  },
+  "executables": {
+    "eez-composer": {
+      "bytes": 852480568,
+      "sha256": "ab8e9b72129b146716ecb91b0242a55ca325e0e382395876651835a5184b501d"
+    },
+    "eez-follower": {
+      "bytes": 711863080,
+      "sha256": "7be7d884f34677cd1b1e653ba7e87d6e0c502358588bf1b3ff5b965746c0df79"
+    },
+    "node_e2e-1e3ad82bc8bdefb9": {
+      "bytes": 606577928,
+      "sha256": "064a7cecfa9320600f88a20e30974109977d5e04b3314dd2d346447a7dc74eaf"
+    },
+    "eez-proof-signer": {
+      "bytes": 480734936,
+      "sha256": "d8fa1525e402eeba048196537536f4708ad058a7da57f5a0143cef630d6973dc"
+    }
+  },
+  "checks": {
+    "inspectorUnits": {
+      "passed": 28,
+      "failed": 0,
+      "ignored": 0
+    },
+    "composerUnits": {
+      "passed": 378,
+      "failed": 0,
+      "ignored": 1,
+      "ignoredTest": "held_pool::tests::profile_blocked_backlog_discovery (manual timing profile)"
+    },
+    "integrationContracts": {
+      "passed": 89,
+      "failed": 0,
+      "skipped": 0
+    },
+    "processTests": {
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "filteredOut": 154,
+      "seconds": 401.54,
+      "exitCode": 0,
+      "retries": 0,
+      "profiles": {
+        "nestedCreation": "GnosisPrague",
+        "existingOverlayControls": "EthereumOsaka"
+      },
+      "semanticsAsserted": true,
+      "independentFollowerReplay": true
+    },
+    "workspaceClippyAllTargetsDenyWarnings": "passed",
+    "cargoFmt": "passed",
+    "forgeFmt": "passed",
+    "gitDiffCheck": "passed",
+    "markdownLinks": "passed",
+    "ciModuleSelection": {
+      "passed": 1,
+      "failed": 0
+    }
+  },
+  "cases": {
+    "create": {
+      "caller": "0x6179fbb91b239b574a4565e2c55a6fd38c3372d3",
+      "deterministic": false,
+      "existingChild": "0xaaaa9ffaa5c3800a704afb48bd564a8b372f39d2",
+      "expectedSecondChild": "0x73f3b9e2eb2e1a82573438837b60d783c6b036d1",
+      "factory": "0x673cd70fa883394a1f3deb3221937ceb7c2618d7",
+      "factoryNonceBeforeReentry": 3,
+      "factoryProxy": "0x1acd6c6ae904b53f8d974215bab73407eca2057c",
+      "profile": "GnosisPrague",
+      "relay": "0xcba6b9a951749b8735c603e7ffc5151849248772",
+      "relayProxy": "0x137855252e66042fc5d0c9d794f1ebdbfb24addf",
+      "sources": {
+        "existing": {
+          "hash": "0x5edc4d9c353834ea14cedfbad2576d2b2d964f0894b0089f5bfe2c0fb01d5d79",
+          "nonce": 0,
+          "lifecycle": "terminal",
+          "ownership": {
+            "canonical": {
+              "hash": "0xdec7dddfeb45f9ef8865b02e7c433878936511588a809dcb646decc0e885a752",
+              "number": 9
+            },
+            "reason": "Committed",
+            "state": "terminal"
+          },
+          "postBatch": {
+            "chainId": "0x539",
+            "hash": "0xe395e773ef656f208813722bfe9af4adf213860f177d139ed8dda343b8b75ed6"
+          }
+        },
+        "fresh": {
+          "hash": "0xeff4d13cb7e8f602e465c5181d2b556d58c2aea873b8e7a7c88d976da580916a",
+          "nonce": 1,
+          "lifecycle": "terminal",
+          "ownership": {
+            "canonical": {
+              "hash": "0x1ad5a553af2d8832c153f335c3025d244fa53c9209298c9d19a7fa02f82f3b8f",
+              "number": 10
+            },
+            "reason": "Committed",
+            "state": "terminal"
+          },
+          "postBatch": {
+            "chainId": "0x539",
+            "hash": "0xc603318d7eb5a8500a0cc631b15069efdba88c62b8a90f3ec82c674ac9078c19"
+          }
+        },
+        "reentry": {
+          "hash": "0x73b588bc89d369aa6fe1a469feb6a3ecff91964b1361b6e519989962e2789ebf",
+          "nonce": 2,
+          "lifecycle": "terminal",
+          "ownership": {
+            "canonical": {
+              "hash": "0x97b335c91a3133ee3b4cef310eedb27f4176b394d8ec22e950754811a9231485",
+              "number": 11
+            },
+            "reason": "Committed",
+            "state": "terminal"
+          },
+          "postBatch": {
+            "chainId": "0x539",
+            "hash": "0x0ed8a34e25ce598db1ef98f971fd36731ebbff1287d86b9679adac82633b9433"
+          }
+        }
+      }
+    },
+    "create2": {
+      "caller": "0x6179fbb91b239b574a4565e2c55a6fd38c3372d3",
+      "deterministic": true,
+      "existingChild": "0xaaaa9ffaa5c3800a704afb48bd564a8b372f39d2",
+      "expectedSecondChild": "0x73f3b9e2eb2e1a82573438837b60d783c6b036d1",
+      "factory": "0x673cd70fa883394a1f3deb3221937ceb7c2618d7",
+      "factoryNonceBeforeReentry": 3,
+      "factoryProxy": "0x1acd6c6ae904b53f8d974215bab73407eca2057c",
+      "profile": "GnosisPrague",
+      "relay": "0xcba6b9a951749b8735c603e7ffc5151849248772",
+      "relayProxy": "0x137855252e66042fc5d0c9d794f1ebdbfb24addf",
+      "sources": {
+        "existing": {
+          "hash": "0xe835512ce338e7f8fd1ba4a34bc8c10b80728c3182f68785bf40ba97fdec4ade",
+          "nonce": 0,
+          "lifecycle": "terminal",
+          "ownership": {
+            "canonical": {
+              "hash": "0x4bc0364810b67dedb1733302cdf178544bcae5226112fce485e628a50aace4c4",
+              "number": 9
+            },
+            "reason": "Committed",
+            "state": "terminal"
+          },
+          "postBatch": {
+            "chainId": "0x539",
+            "hash": "0x73cb71de7a07a1177c0406e59f245750cad963cdf86578aa995098ffb3de2e2d"
+          }
+        },
+        "fresh": {
+          "hash": "0x37942e08fa1070469d4823003dcee4ed81d7c589995f962ce130da1d4ca6789e",
+          "nonce": 1,
+          "lifecycle": "terminal",
+          "ownership": {
+            "canonical": {
+              "hash": "0x2597eb0a5b69285b3a7ef4534ec137002a2265749855dd6eb43c94fe21dae09f",
+              "number": 10
+            },
+            "reason": "Committed",
+            "state": "terminal"
+          },
+          "postBatch": {
+            "chainId": "0x539",
+            "hash": "0x693a7c26fd6e7690bbcac12b46cac991a990ce6afd380b77f6f919f57684567c"
+          }
+        },
+        "reentry": {
+          "hash": "0xee96a09c1d9a9194e4e54ad8b0fa0d33628243c750a9423f750246d2b50958af",
+          "nonce": 2,
+          "lifecycle": "terminal",
+          "ownership": {
+            "canonical": {
+              "hash": "0x96188cf2447fd9b2d0ef1b9dbf3d59a4497bb6ea3fe161c09ccebcb5b6c5c6d6",
+              "number": 11
+            },
+            "reason": "Committed",
+            "state": "terminal"
+          },
+          "postBatch": {
+            "chainId": "0x539",
+            "hash": "0xa1dc99273c43e598124308d7503ea08a444bafff3a870e226090847611579891"
+          }
+        }
+      }
+    }
+  },
+  "artifactDirectory": "artifacts/issue208-fix-20261018.qpjwsswd",
+  "artifactAvailability": "Full logs and failed first-candidate datadirs are local-only in the operator workspace. Successful datadirs are cleaned by the testkit. Compact observations and executable/source hashes are checked in here.",
+  "sha256": {
+    "final-unit.log": "7a4c3f508019cc99637f2c4b544f68e40dd6d4ccb449412a4af4c6f8aca0a9b3",
+    "final-clippy.log": "69ed628d3ff660b8bc2cf49e5172f4edc08630869a72820eeda3007f2ced431b",
+    "final-process.log": "0cae2c38e861b4c5440df043e9efb11a52a48f6dc817a70aa87bc911e650c0ba",
+    "forge-tests.log": "96d8fda45226922d256fe665fbaea0c9f6d42bdc837c9ccdd01646ffc0563d06",
+    "ci-selection.log": "ae8f7fd746572949c63589357438d9a65d20fe3082398ea584bbc6cfffadd311",
+    "process-selection.log": "4f02db95fde4c89c97052fb0a8ae0b340d214bcfd1fae3b0d039bd67a9a6a665",
+    "inspector-first.log": "9ddc5f39904c513e3343cd3d79b0400dbc9a851fe005294783522457ff952c83",
+    "inspector-expanded.log": "8e29a959455e8b30861573b342f2fe6e58d785aa6a6303326bbdc629def31113",
+    "composer-unit.log": "40eee65e3fbc7d661a8148f66b87271976835047240a4699696341d276dcabf7",
+    "clippy.log": "7aee384dd8b5655ef50666d8389103e447286b30aad2c8026bb3cfe026ccb043",
+    "nested-creation.log": "c55226e62a148f656bb83eb00e61af8e1140d3c142a8cc1228f6858b123e0795",
+    "final/logs/eez-node-nested-creation-GnosisPrague-create-follower-229042-7.log": "f2725f389c9762b20a183c68a2d541ec0c24a79ed5a62dac45b2bcde2cf14c66",
+    "final/logs/eez-node-nested-creation-GnosisPrague-create2-follower-229042-3.log": "8cb063c656615776ab3732775ffcee151047dfe4295e5220bbf9fec439f6879d",
+    "final/logs/nested-creation-GnosisPrague-create.json": "3231b1ef7df9b0194d07540a06cfb7a4b090a3df6d13850582e8892c6296112a",
+    "final/logs/nested-creation-GnosisPrague-create2.json": "e118f57313bf16091e2276022b5a08a554816a76b11ec41ed320be22ca76ee53"
+  },
+  "limits": [
+    "Required CI on the new PR head is pending.",
+    "No public network deployment or transaction was performed.",
+    "Full protocol stress, Kurtosis and the full fee/Safe process matrix were not repeated.",
+    "The historical GPv2 transaction body is unavailable; attribution remains unconfirmed."
+  ]
+}

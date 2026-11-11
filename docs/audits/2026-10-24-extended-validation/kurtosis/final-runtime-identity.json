@@ -1,0 +1,241 @@
+{
+  "status": "Verified final release artifacts deployed and validated on the fresh comparison enclave; see candidate-load.json and enclave-closure.json.",
+  "verified_at": "2026-10-24T19:48:57.757563+00:00",
+  "run_id": 40123208325,
+  "run_attempt": 1,
+  "pr_head": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+  "producer_checkout": "c35cf5bc71548f74b8d72e3fa2a0a66113eab0c8",
+  "producer_tree": "b3d62f2c772bb2d3f6c250aa1907b17dbb62afc4",
+  "producer_tree_equals_pr_head": true,
+  "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "cargo_lock_sha256": "0f527b5f3d8e27d237d63759e7392a87c894001805549d6271ccef9da4449306",
+  "profile": "release",
+  "platform": "linux/amd64",
+  "producer_checks": "38/38 PASS; other CI lanes are tracked separately.",
+  "runtime_archive_sha256": "142c4be7935fb7a0144873f0d36d2d83cf5159d08c2075843247d48ea7a9a106",
+  "payloads": {
+    "runtime": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-ci-runtime@sha256:febdaee5231a003eab19c6444fed8f1b521264119b5786e043f60f4839c56357",
+      "manifest_sha256": "0ed0f484ef7dff3e8aa8ff03889732e00dbe0143d214e6821bcdf2e777882bde"
+    },
+    "tests": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-ci-tests@sha256:b5b1ee20cbbc75d5ebd3656147c4c609bd67efb37da85817982f189ee4eb01f4",
+      "manifest_sha256": "0bd5499d45f18e2dd6b1595c49229692eba74ae144aacb1b7ac467839bf2d0d8"
+    }
+  },
+  "images": {
+    "node": "ghcr.io/eez-association/eez-rollupx-node@sha256:3b7ba4efb57e2b0a51c47534ddb7703cfb8ac65a3a65515a69d0c8f13ada9633",
+    "signer": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:995266fa4b8756b73e4d533163729531bbf2731aa53c7cbe7e07f96bcfae82fa",
+    "deploy": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:9352d2367768e32af6b6905248eb010ceb49029015e62bd54bc08784b7c7d8f9"
+  },
+  "binaries": {
+    "eez-composer": {
+      "sha256": "8dd137a877ee837f3f37c9182e3cb5a8642aa20923d77c95e9d635edadd57704",
+      "bytes": 197262232,
+      "previous_319_sha256": "3e76308c0c9017b23c6dcb10ac29d0b78fdd2c5abe7a3a857778f2256df825fd",
+      "changed": true
+    },
+    "eez-follower": {
+      "sha256": "3ebfb9d5f4d54f2e49b3e72553c1812d4aecb69cdfb19ca8614ef451e92fc9cd",
+      "bytes": 161688024,
+      "previous_319_sha256": "a3e01ef1f53aeea2d2084a7b2467496d2e071fc9db1820b1068ebeebadf6350f",
+      "changed": true
+    },
+    "eez-proof-signer": {
+      "sha256": "332597c24b1de4d9722e42abd3fe212297c501db555e265a477f44eb6625599c",
+      "bytes": 17499096,
+      "previous_319_sha256": "f00afb27148cc64711db5592aa7cbe2f67c884ae5f33abd70a9b95986ca357ff",
+      "changed": true
+    },
+    "eez-genesis-state-root": {
+      "sha256": "87c0463218c4af9457411e9e8b51cdfe097234ec84c3e1a4f406e3e2c719df31",
+      "bytes": 925944,
+      "previous_319_sha256": "971e5f617d860d3b50d04b9c821dea67b1f6830af7e9a3dacc3a130a44f53a6b",
+      "changed": true
+    },
+    "eez-genesis-block-hash": {
+      "sha256": "852368677738bf66477ed338aaf44d1f04b2cdcf4d401c01927990117669ad5c",
+      "bytes": 3315536,
+      "previous_319_sha256": "443681ad4c1726241c3510fec436104e110a047c8bf5755907de62c56cd99e98",
+      "changed": true
+    },
+    "e2e-causal-verify": {
+      "sha256": "f7ad179e91db4d7b245a1da3574a906446af86e1e0b941a2f3929cd8258e8dfd",
+      "bytes": 833656,
+      "previous_319_sha256": "fef7c1afb25b626cca3e44196e2db6d5934b984bc04325897c2596f4ff13da7b",
+      "changed": true
+    },
+    "verify_blob_evidence": {
+      "sha256": "d595b92f9e32527c7c7943c06b152ab61194dd1e151373e800c28c1da250cc1b",
+      "bytes": 12227512,
+      "previous_319_sha256": "e7e3ddab13bc6d1829ae39e9eb9d85a72a72f7fffc0a9966a04bfa6c4a910489",
+      "changed": true
+    }
+  },
+  "node_e2e": {
+    "sha256": "d61f9bc69873cb9dec3d091ee20b252831abad70c0c3b8d00763f0349618995a",
+    "bytes": 30564576,
+    "native_inventory_files": 30
+  },
+  "host_glibc": "glibc 2.43",
+  "producer_glibc": "glibc 2.36",
+  "checks": {
+    "ci_payload_identity_and_platform": "passed for runtime and tests",
+    "runtime_manifest_archive_oci_images": "passed",
+    "native_identity_inventory_paths_and_hashes": "passed",
+    "native_and_runtime_archive_digest": "equal",
+    "three_frozen_roles_and_runtime_package": "equal",
+    "image_and_archive_binary_byte_comparison": "passed: seven comparisons across node/signer/deploy",
+    "no_payload_container_execution": true,
+    "no_build_or_node_lifecycle": true,
+    "no_tag_promotion": true,
+    "genesis_and_profile": "passed: nine exact outputs match previous verified source/network"
+  },
+  "image_copy_checks": {
+    "node": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-node@sha256:3b7ba4efb57e2b0a51c47534ddb7703cfb8ac65a3a65515a69d0c8f13ada9633",
+      "never_started": true,
+      "container_removed": true,
+      "binary_sha256": {
+        "eez-composer": "8dd137a877ee837f3f37c9182e3cb5a8642aa20923d77c95e9d635edadd57704",
+        "eez-follower": "3ebfb9d5f4d54f2e49b3e72553c1812d4aecb69cdfb19ca8614ef451e92fc9cd",
+        "eez-genesis-state-root": "87c0463218c4af9457411e9e8b51cdfe097234ec84c3e1a4f406e3e2c719df31",
+        "eez-genesis-block-hash": "852368677738bf66477ed338aaf44d1f04b2cdcf4d401c01927990117669ad5c"
+      },
+      "assets": {}
+    },
+    "signer": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:995266fa4b8756b73e4d533163729531bbf2731aa53c7cbe7e07f96bcfae82fa",
+      "never_started": true,
+      "container_removed": true,
+      "binary_sha256": {
+        "eez-proof-signer": "332597c24b1de4d9722e42abd3fe212297c501db555e265a477f44eb6625599c"
+      },
+      "assets": {}
+    },
+    "deploy": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:9352d2367768e32af6b6905248eb010ceb49029015e62bd54bc08784b7c7d8f9",
+      "never_started": true,
+      "container_removed": true,
+      "binary_sha256": {
+        "eez-genesis-state-root": "87c0463218c4af9457411e9e8b51cdfe097234ec84c3e1a4f406e3e2c719df31",
+        "eez-genesis-block-hash": "852368677738bf66477ed338aaf44d1f04b2cdcf4d401c01927990117669ad5c"
+      },
+      "assets": {
+        "genesis.json": {
+          "sha256": "89ce9464197f532a9d0ab19751dcffe9890c6ffed23d921adde6c8a29144d577",
+          "matches_candidate_source": true
+        },
+        "genesis.dev.json": {
+          "sha256": "c8482bb23415684f039d9831efabb7285843645575f7e34c52dd0da504e09ff5",
+          "matches_candidate_source": true
+        },
+        "crates/eez-protocol/src/l1_history/runtime.bin": {
+          "sha256": "0e8a8f4671d83bd3416500fb606b73b1208083b9c1eece16085bf52eddde4bb1",
+          "matches_candidate_source": true
+        }
+      }
+    }
+  },
+  "genesis_checks": [
+    {
+      "genesis": "genesis.json",
+      "genesis_sha256": "89ce9464197f532a9d0ab19751dcffe9890c6ffed23d921adde6c8a29144d577",
+      "helper": "eez-genesis-state-root",
+      "arguments": [],
+      "output": "0xcff0e3af7bf52bef627498f011bd8a05007826354613b9dab459376feea2e9ac",
+      "equal_to_previous_verified_output": true,
+      "candidate_helper_sha256": "87c0463218c4af9457411e9e8b51cdfe097234ec84c3e1a4f406e3e2c719df31"
+    },
+    {
+      "genesis": "genesis.json",
+      "genesis_sha256": "89ce9464197f532a9d0ab19751dcffe9890c6ffed23d921adde6c8a29144d577",
+      "helper": "eez-genesis-block-hash",
+      "arguments": [],
+      "output": "0x17f1048393d57be5c44541f86494cc352692f43c8c87ab4ea948b5f4ac377ef5",
+      "equal_to_previous_verified_output": true,
+      "candidate_helper_sha256": "852368677738bf66477ed338aaf44d1f04b2cdcf4d401c01927990117669ad5c"
+    },
+    {
+      "genesis": "genesis.dev.json",
+      "genesis_sha256": "c8482bb23415684f039d9831efabb7285843645575f7e34c52dd0da504e09ff5",
+      "helper": "eez-genesis-state-root",
+      "arguments": [],
+      "output": "0x76df720c92bb7bf7ff3a42031b3af51b9a2db7d91abf2da3a810ca00a89273bf",
+      "equal_to_previous_verified_output": true,
+      "candidate_helper_sha256": "87c0463218c4af9457411e9e8b51cdfe097234ec84c3e1a4f406e3e2c719df31"
+    },
+    {
+      "genesis": "genesis.dev.json",
+      "genesis_sha256": "c8482bb23415684f039d9831efabb7285843645575f7e34c52dd0da504e09ff5",
+      "helper": "eez-genesis-block-hash",
+      "arguments": [],
+      "output": "0x49c3f3eca2c873a1eedea5d4c4c56d0803f7e5dab4e4480302cb048c5d4fbd3a",
+      "equal_to_previous_verified_output": true,
+      "candidate_helper_sha256": "852368677738bf66477ed338aaf44d1f04b2cdcf4d401c01927990117669ad5c"
+    },
+    {
+      "genesis": "crates/eez-node-e2e/tests/fixtures/genesis.json",
+      "genesis_sha256": "15c21ee15372c34eeecaf3f3a3fc925cfbf031789739aeb2afcbebd3903c2a48",
+      "helper": "eez-genesis-state-root",
+      "arguments": [],
+      "output": "0x39515a373e185e5960a2e4ffa73fa5a51778185ef460719fcde52a624d3d2fbf",
+      "equal_to_previous_verified_output": true,
+      "candidate_helper_sha256": "87c0463218c4af9457411e9e8b51cdfe097234ec84c3e1a4f406e3e2c719df31"
+    },
+    {
+      "genesis": "crates/eez-node-e2e/tests/fixtures/genesis.json",
+      "genesis_sha256": "15c21ee15372c34eeecaf3f3a3fc925cfbf031789739aeb2afcbebd3903c2a48",
+      "helper": "eez-genesis-block-hash",
+      "arguments": [],
+      "output": "0x285a1c0106f98440dc97cb584084e7e5dd090568c63ec1a493161c36bdb0d14b",
+      "equal_to_previous_verified_output": true,
+      "candidate_helper_sha256": "852368677738bf66477ed338aaf44d1f04b2cdcf4d401c01927990117669ad5c"
+    },
+    {
+      "genesis": "artifacts/pr-readiness/kurtosis/deployment/l2-genesis.json",
+      "genesis_sha256": "6640e38a41cd28be8723cd7e83321ccc971810a36c8c804de0975e3651b43109",
+      "helper": "eez-genesis-state-root",
+      "arguments": [],
+      "output": "0x03e2f6250cde7bd5453cba9cc1f9d6c3fcd66e8bca3257798ab28fc9be2fb256",
+      "equal_to_previous_verified_output": true,
+      "candidate_helper_sha256": "87c0463218c4af9457411e9e8b51cdfe097234ec84c3e1a4f406e3e2c719df31"
+    },
+    {
+      "genesis": "artifacts/pr-readiness/kurtosis/deployment/l2-genesis.json",
+      "genesis_sha256": "6640e38a41cd28be8723cd7e83321ccc971810a36c8c804de0975e3651b43109",
+      "helper": "eez-genesis-block-hash",
+      "arguments": [],
+      "output": "0xdd2a6c2ad7f382305c6a0e13e38e9dc4d952bd3a3bc78daa672859354a0ee41f",
+      "equal_to_previous_verified_output": true,
+      "candidate_helper_sha256": "852368677738bf66477ed338aaf44d1f04b2cdcf4d401c01927990117669ad5c"
+    },
+    {
+      "genesis": "artifacts/pr-readiness/kurtosis/deployment/l2-genesis.json",
+      "genesis_sha256": "6640e38a41cd28be8723cd7e83321ccc971810a36c8c804de0975e3651b43109",
+      "helper": "eez-genesis-block-hash",
+      "arguments": [
+        "--offline-profile",
+        "artifacts/pr-readiness/kurtosis/l1-network/genesis.json"
+      ],
+      "output": "0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000001ca300000000000000000000000000000000000000000000000000000000000aa29edd2a6c2ad7f382305c6a0e13e38e9dc4d952bd3a3bc78daa672859354a0ee41f000000000000000000000000000000000000000000000000000000006adc8acd0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000029bbf848999bfd7a7bd6344ee74123d5bfe50ac686fdcc3acac8a28e21a12835488192d264757958a6e14725aa40c875814def72c1f8710e5f72c768356f8afa0000000000000000000000000eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078000000000000000000000000000000000000000000000000000000000000016000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000",
+      "equal_to_previous_verified_output": true,
+      "candidate_helper_sha256": "852368677738bf66477ed338aaf44d1f04b2cdcf4d401c01927990117669ad5c"
+    }
+  ],
+  "local_only_evidence": {
+    "artifacts/extended-validation/ci-candidate/40123208325/verified-handoff.json": "9b53a2e9e1b4fafa0b1d43c21592e00b36bcd82298bb368ade9228ad2e72a2b4",
+    "artifacts/extended-validation/ci-candidate/40123208325/image-byte-comparison/result.json": "4cdf98ed3e470cdaefb47c1d6eaeb3a6be8d059e39c89a60c09194d286fc8f73",
+    "artifacts/extended-validation/ci-candidate/40123208325/fetch-runtime.log": "0cd9b03f5cfbf842164bea181d9f0b58d0af0933d11c0ec3b738a9b4566990e3",
+    "artifacts/extended-validation/ci-candidate/40123208325/fetch-tests.log": "43c5c754f7c532a5cc672bd7919497892afa7e62a5d17cc58472d2aa96c374e6",
+    "artifacts/extended-validation/ci-candidate/40123208325/prepare-runtime.log": "4ab2f0def6700dffe62d59f8478c1894c15bd11be79e091ada056f8efe02d452"
+  },
+  "reproduction_scope": "The public immutable payloads carry the exact release binaries and tests; local extraction logs and datadirs remain ignored. Image containers were only created, copied from, and removed; no service was started and no Cargo/Forge build ran.",
+  "remaining": [
+    "Root-controlled source-process window must finish before lifecycle operations.",
+    "Snapshot and install/copy-back verification in the existing owned containers.",
+    "Comparable mixed/pipeline load, three recovery controls, fee/history oracles and cold replay."
+  ],
+  "status_at_initial_record": "Verified final release artifacts; not yet installed or live-tested in this campaign.",
+  "final_validation": "candidate-load.json"
+}

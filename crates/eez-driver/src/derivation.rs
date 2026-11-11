@@ -1,4 +1,4 @@
-//! Profile-1 execution inputs and canonical block reconstruction.
+//! Offline-profile execution inputs and canonical block reconstruction.
 //!
 //! This adapter does not validate execution or authorize settlement. The caller
 //! must authenticate the parent, transactions and execution outputs, execute
@@ -29,12 +29,11 @@ mod encoding;
 mod no_state;
 pub use encoding::{encode_operations, operations_size, ordinary_prefix};
 
-/// Variable execution inputs. Metadata comes from V0; the seed must come from
-/// authenticated settlement history. Fixed fields and time come from genesis.
+/// Published variable metadata from V0. The source of PREVRANDAO and the
+/// fixed timing fields come exclusively from checked L1 evidence and genesis.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Environment {
     pub fee_recipient: Address,
-    pub prev_randao: B256,
     pub extra_data: Bytes,
 }
 
@@ -47,6 +46,7 @@ pub fn next_attributes(
     config: &EezEvmConfig,
     parent: &Header,
     environment: &Environment,
+    first_transaction: Option<&TransactionSigned>,
 ) -> eyre::Result<NextBlockEnvAttributes> {
     ensure!(
         environment.extra_data.len() <= 32,
@@ -62,7 +62,7 @@ pub fn next_attributes(
     Ok(NextBlockEnvAttributes {
         timestamp,
         suggested_fee_recipient: environment.fee_recipient,
-        prev_randao: environment.prev_randao,
+        prev_randao: config.history_prev_randao(parent, timestamp, first_transaction)?,
         gas_limit: eez_protocol::l2::GAS_LIMIT,
         parent_beacon_block_root: chain_spec
             .is_cancun_active_at_timestamp(timestamp)
@@ -95,7 +95,7 @@ pub fn reassemble(
     post_state_root: B256,
     state_provider: &dyn StateProvider,
 ) -> eyre::Result<Block> {
-    let attributes = next_attributes(config, parent, environment)?;
+    let attributes = next_attributes(config, parent, environment, transactions.first())?;
     assemble(
         config,
         parent,
@@ -134,10 +134,13 @@ pub fn full_attributes(
     eez_protocol::l2::validate_header(header)?;
     let env = Environment {
         fee_recipient: header.beneficiary,
-        prev_randao: header.mix_hash,
         extra_data: header.extra_data.clone(),
     };
-    let attributes = next_attributes(config, parent, &env)?;
+    let attributes = next_attributes(config, parent, &env, block.body.transactions.first())?;
+    ensure!(
+        attributes.prev_randao == header.mix_hash,
+        "full block PREVRANDAO differs from its scheduled L1 origin"
+    );
     ensure!(
         attributes.timestamp == header.timestamp,
         "full block timestamp differs from genesis schedule"
