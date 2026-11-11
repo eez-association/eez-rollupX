@@ -425,13 +425,20 @@ def landed_after(rpc_url, post_tx, start, horizon):
     """Locate the exact post; partial or failed scans do not prove absence."""
     for number in range(start, start + horizon):
         try:
-            summary = block_summary(rpc_url, number)
+            # Later inclusion needs only hashes, not transaction bodies or fee statistics.
+            block = rpc(rpc_url, "eth_getBlockByNumber", [hex(number), False])
+            if block is None:
+                return {"status": "pending", "through_block": number - 1}
+            if not isinstance(block, dict) or not correlation_hash(block.get("hash")):
+                raise ValueError("invalid block hash")
+            transactions = block.get("transactions")
+            if not isinstance(transactions, list) or any(
+                    not correlation_hash(tx_hash) for tx_hash in transactions):
+                raise ValueError("invalid transaction hash list")
+            if post_tx in (tx_hash.lower() for tx_hash in transactions):
+                return {"status": "included", "block": number, "block_hash": block["hash"]}
         except (OSError, ValueError, RuntimeError, KeyError, TypeError) as error:
             return {"status": "unavailable", "through_block": number - 1, "error": str(error)}
-        if summary is None:
-            return {"status": "pending", "through_block": number - 1}
-        if post_tx in summary["transactions"]:
-            return {"status": "included", "block": number, "block_hash": summary["hash"]}
     return {"status": "not_found", "through_block": start + horizon - 1}
 
 
@@ -511,13 +518,14 @@ def stats_simulation_failed(stats):
     """Recognize explicit failure states without reinterpreting detail strings.
 
     Quasar serializes states in lowercase; keep the raw response untouched and
-    recognize both casing styles and snake_case. Builder-reported inclusion is
+    recognize both casing styles and snake_case. Invalid denotes validation failure,
+    not a simulation failure. Builder-reported inclusion is
     never used as canonical inclusion evidence.
     """
     if stats.get("availability") != "available":
         return False
     status = stats.get("result", {}).get("status")
-    return isinstance(status, str) and status.replace("_", "").lower() in ("invalid", "simulationfail")
+    return isinstance(status, str) and status.replace("_", "").lower() == "simulationfail"
 
 
 def analyze(target, info, args, builders):

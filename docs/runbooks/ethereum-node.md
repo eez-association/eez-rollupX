@@ -176,7 +176,7 @@ with zero counts, which does not establish reachability or health.
 | `included` | An accepted observation's exact post is present in the current canonical target block |
 | `excluded` | An accepted observation's exact post is absent from that block and its timestamp matches the logged target timestamp |
 | `unresolved` | Accepted, but target inclusion/exclusion cannot be established: missing post hash/timestamp, changed slot, pending block, or RPC failure |
-| `simulation_failed` | An acknowledged bundle's available stats explicitly report `Invalid` or `SimulationFail` (including lowercase/snake_case variants); acceptance is retained |
+| `simulation_failed` | An acknowledged bundle's available stats explicitly report `SimulationFail` (including lowercase/snake_case variants); acceptance is retained |
 | `unsupported`, `transport_error`, `deadline_exceeded`, `abandoned_after_acknowledgement`, `unknown` | Typed submission outcomes, kept separate from rejection and canonical exclusion |
 | `uncorrelated` | No exact post hash was available; the observation is grouped by target and builder only |
 | `omitted_from_own_block` | An accepted post was excluded from its matching target slot, and published relay keys identify that builder as the block producer; currently supported for BuilderNet |
@@ -296,7 +296,8 @@ cannot increment `simulation_failed`.
 
 | Builder result | Interpretation |
 | --- | --- |
-| `Invalid` / `SimulationFail` | The builder reports a validation or simulation failure. Inspect its complete `error` field and the exact captured bundle. |
+| `Invalid` | The builder reports a validation failure, such as malformed bundle encoding. Inspect its complete `error` field and the exact captured bundle; this does not increment `simulation_failed`. |
+| `SimulationFail` | The builder reports a simulation failure. Inspect its complete `error` field and the exact captured bundle. |
 | `SimulationPass` | The builder reports a successful simulation. This does not establish why it omitted the bundle. |
 | `IncludedInBlock` / `Submitted` | Included in a builder candidate / submitted to a relay. Neither establishes canonical inclusion. |
 | `ExcludedFromBlock` / `Landed` | Builder-reported omission / inclusion; canonical target counters still come from the exact post check on the L1 RPC. |

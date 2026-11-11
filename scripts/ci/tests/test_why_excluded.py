@@ -348,7 +348,7 @@ class StatsTest(unittest.TestCase):
         request.assert_not_called()
 
     def test_quasar_failure_status_variants_are_counted_without_changing_result(self):
-        for status, expected in (("invalid", True), ("simulation_fail", True),
+        for status, expected in (("invalid", False), ("Invalid", False), ("simulation_fail", True),
                                  ("SimulationFail", True), ("submitted", False),
                                  ("landed", False), ("excluded_from_block", False),
                                  ("not_found", False), (None, False), ({}, False)):
@@ -506,7 +506,9 @@ class AnalyzeTest(unittest.TestCase):
         self.assertEqual(set(report["builder_bundle_stats"]), set(submissions))
 
     def test_unrelated_poster_transaction_is_not_post_inclusion(self):
-        with patch.object(MODULE, "rpc", return_value=block(transactions=[transaction(OTHER_HASH)])), \
+        with patch.object(MODULE, "rpc", side_effect=[block(transactions=[transaction(OTHER_HASH)]),
+                {"hash": BLOCK_HASH, "transactions": [OTHER_HASH]},
+                {"hash": BLOCK_HASH, "transactions": [OTHER_HASH]}]), \
                 patch.object(MODULE, "relay_deliveries", return_value=([], [])):
             report = MODULE.analyze(100, self.info, self.args, BUILDERS)
         self.assertFalse(report["post_in_target"])
@@ -523,7 +525,7 @@ class AnalyzeTest(unittest.TestCase):
 
     def test_later_exact_hash_is_reported_without_poster_option(self):
         self.args.poster = None
-        with patch.object(MODULE, "rpc", side_effect=[block(), block(101, [transaction(POST_HASH)])]), \
+        with patch.object(MODULE, "rpc", side_effect=[block(), {"hash": BLOCK_HASH, "transactions": [POST_HASH]}]), \
                 patch.object(MODULE, "relay_deliveries", return_value=([], [])):
             report = MODULE.analyze(100, self.info, self.args, BUILDERS)
         self.assertFalse(report["post_in_target"])
@@ -554,6 +556,27 @@ class AnalyzeTest(unittest.TestCase):
             report = MODULE.analyze(100, self.info, self.args, BUILDERS)
         self.assertEqual(report["landed"], {"status": "not_found", "through_block": 100})
         self.assertEqual(rpc.call_count, 1)
+
+
+class LaterInclusionTest(unittest.TestCase):
+    def test_hash_only_blocks_need_no_fee_or_sender_fields(self):
+        replies = [{"hash": BLOCK_HASH, "transactions": [OTHER_HASH]},
+                   {"hash": BLOCK_HASH, "transactions": [POST_HASH.upper().replace("0X", "0x")]}]
+        with patch.object(MODULE, "rpc", side_effect=replies) as rpc:
+            result = MODULE.landed_after("fixture", POST_HASH, 101, 12)
+        self.assertEqual(result, {"status": "included", "block": 102, "block_hash": BLOCK_HASH})
+        self.assertEqual([call.args[2] for call in rpc.call_args_list],
+                         [[hex(101), False], [hex(102), False]])
+
+    def test_malformed_block_is_unavailable_not_absence(self):
+        for reply in ({}, [], {"hash": BLOCK_HASH, "transactions": None},
+                      {"hash": BLOCK_HASH, "transactions": [transaction(POST_HASH)]},
+                      {"hash": BLOCK_HASH, "transactions": ["bad hash"]},
+                      {"hash": None, "transactions": []}):
+            with self.subTest(reply=reply), patch.object(MODULE, "rpc", return_value=reply):
+                result = MODULE.landed_after("fixture", POST_HASH, 101, 12)
+            self.assertEqual(result["status"], "unavailable")
+            self.assertEqual(result["through_block"], 100)
 
 
 class SummaryTest(unittest.TestCase):
@@ -708,6 +731,8 @@ class CliTest(unittest.TestCase):
                         number = int(request["params"][0], 16)
                         result = fixture.target if number == 100 else fixture.later_blocks.get(
                             number, block(number, [transaction(OTHER_HASH)]))
+                        if result is not None and request["params"][1] is False:
+                            result = {**result, "transactions": [tx["hash"] for tx in result["transactions"]]}
                     else:
                         self.reply({"error": {"code": -32601}}, 400)
                         return
@@ -974,7 +999,7 @@ class CliTest(unittest.TestCase):
         self.assertEqual(summary["builders"]["eurekabuilder.xyz"]["simulation_failed"], 0)
         self.assertEqual(summary["builders"]["quasar.win"]["accepted"], 1)
 
-    def test_cli_quasar_lowercase_failures_are_counted_and_raw_status_is_preserved(self):
+    def test_cli_quasar_distinguishes_invalid_from_simulation_failure(self):
         self.use_new_builder_logs()
         for status in ("invalid", "simulation_fail"):
             with self.subTest(status=status):
@@ -984,7 +1009,7 @@ class CliTest(unittest.TestCase):
                 report, summary = map(json.loads, result.stdout.splitlines())
                 self.assertEqual(report["builder_bundle_stats"]["quasar.win"][0]["result"]["status"], status)
                 counts = summary["builders"]["quasar.win"]
-                self.assertEqual(counts["simulation_failed"], 1)
+                self.assertEqual(counts["simulation_failed"], int(status == "simulation_fail"))
                 self.assertEqual(counts["accepted"], 1)
                 self.assertEqual(counts["rejected"], 0)
 
@@ -1086,6 +1111,9 @@ class CliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         report, summary = map(json.loads, result.stdout.splitlines())
         self.assertEqual(report["landed"]["block"], 101)
+        reads = [request["params"] for path, request in self.requests
+                 if path == "/l1" and request["method"] == "eth_getBlockByNumber"]
+        self.assertEqual(reads, [[hex(100), True], [hex(101), False]])
         self.assertEqual(summary["builders"]["titanbuilder.xyz"]["included"], 0)
         self.assertEqual(summary["builders"]["titanbuilder.xyz"]["excluded"], 1)
 
