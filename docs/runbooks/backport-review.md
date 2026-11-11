@@ -13,8 +13,14 @@ confidential context into public issues.
 
 The review issue or task records source and target repos, exact revisions and protocol
 pins, comparison range or candidate list, relevant scope, known exclusions, and
-expected output. Resolve moving branch names to SHAs. If the range is unspecified,
-state the range you examined and any coverage gaps; do not claim a complete audit.
+expected output. Resolve moving branch names to SHAs and report any coverage gaps.
+
+Unless the task specifies otherwise, review `eez-association/eez-rollup0` into
+`eez-association/eez-rollupX`: pin both current `main` tips and their protocol gitlinks,
+then review source commits since their merge base and unresolved source issues at
+a recorded cutoff. Record these baselines and scope before reviewing; keep them fixed.
+The default is read-only; no issue is required.
+Explicit task inputs take precedence over these defaults.
 
 Use separate checkouts with Git and access to both repos and their relevant
 issues/PRs. Preserve local edits. Follow [AGENTS.md](../../AGENTS.md#establish-the-baseline-and-read-the-applicable-contract)
@@ -48,8 +54,8 @@ Separate source inspection from tests actually run. If unfinished, mark the revi
 partial and state what remains unexamined. Review completion does not mean the
 findings are implemented.
 
-Post the report on the review issue; for a read-only task, return it for a maintainer
-to post.
+For a read-only task, return the report to the requester; otherwise post it on the
+review issue.
 
 ## 3. Track and implement selected work
 
