@@ -1,0 +1,47 @@
+{
+  "manifest_sha256": "152c9901c84792eafba938815024e355d9625f73a97491b090bd0927862965a6",
+  "resolutions": [
+    {
+      "finding": "F1",
+      "action": "drafts",
+      "drafts": [
+        "N1"
+      ]
+    }
+  ],
+  "drafts": [
+    {
+      "id": "N1",
+      "kind": "investigation",
+      "issue": null,
+      "issue_type": "Task",
+      "title": "Example: compare documented project setup",
+      "summary": "Illustrative draft only. Compare the documented setup and identify any relevant differences without assuming a defect.",
+      "evidence": [
+        {
+          "label": "Source README",
+          "url": "https://github.com/eez-association/eez-rollup0/blob/1b66d9bda675e6f8e83f514153a97136909acc06/README.md"
+        },
+        {
+          "label": "Target README",
+          "url": "https://github.com/eez-association/eez-rollupX/blob/28147fd3f5962727d45c32669e32705ef1f7f142/README.md"
+        }
+      ],
+      "done_when": [
+        "Relevant differences have a documented disposition and supporting evidence."
+      ],
+      "evidence_needed": [
+        "Compare the pinned READMEs and follow relevant setup references; state which steps were not executed."
+      ],
+      "dependencies": [],
+      "priority": {
+        "value": "P3",
+        "reason": "Illustrative optional comparison; no established defect."
+      },
+      "effort": {
+        "value": "S",
+        "reason": "Bounded documentation comparison; implementation is excluded."
+      }
+    }
+  ]
+}

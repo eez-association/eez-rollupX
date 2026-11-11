@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "baselines": {
+    "source": {
+      "repository": "eez-association/eez-rollup0",
+      "commit": "1b66d9bda675e6f8e83f514153a97136909acc06",
+      "protocol_commit": "143d87e62cade98bfc122d612638dcaaf1c85633"
+    },
+    "target": {
+      "repository": "eez-association/eez-rollupX",
+      "commit": "28147fd3f5962727d45c32669e32705ef1f7f142",
+      "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f"
+    },
+    "merge_base": "d8a7547b311260fdc3262769429a68212fb18bf9"
+  },
+  "scope": "Format example only, not a real backport finding or a claim of complete review coverage.",
+  "findings": [
+    {
+      "id": "F1",
+      "title": "Example: compare documented project setup",
+      "origin": "source"
+    }
+  ]
+}

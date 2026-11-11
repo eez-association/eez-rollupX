@@ -65,8 +65,12 @@ Verify code claims before recommending implementation; if evidence is insufficie
 draft a focused investigation instead. List needed human decisions separately.
 Do not create or update issues without authorization.
 
-Before handoff, check that each draft stands alone, referenced issues are linked,
-and completion criteria, dependencies, and proposed estimates are included.
+Use the [structured handoff format and validator](../backport-handoff-format.md).
+Freeze the complete finding inventory and baselines before drafting. Run the
+validator, fix errors, and render the final Markdown from the validated files.
+Return those files with the validation result. Check that each draft stands alone
+and its evidence supports the claim; structural validation does not verify code
+or permit replacing existing scope and acceptance criteria.
 
 For a read-only task, return the report to the requester; otherwise post it on the
 review issue.
