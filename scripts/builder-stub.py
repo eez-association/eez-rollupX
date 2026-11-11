@@ -110,10 +110,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         failed_methods = []
         pruned_before = 0
         reported_head = None
+        omitted_log_field = None
         if errors:
             try:
                 with open(errors) as source:
                     failed_methods = json.load(source)
+            except FileNotFoundError:
+                pass
+            try:
+                with open(os.path.join(self.test_control_dir, "omit-log-field.json")) as source:
+                    omitted_log_field = json.load(source)
             except FileNotFoundError:
                 pass
             try:
@@ -384,6 +390,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 ),
                 timeout=10,
             ).read()
+        if body.get("method") == "eth_getLogs" and omitted_log_field:
+            reply = json.loads(resp)
+            for log in reply.get("result", []):
+                if log.get("topics") and log["topics"][0] == omitted_log_field["topic"]:
+                    # Alloy requires the JSON key even when mined metadata is unavailable.
+                    log[omitted_log_field["field"]] = None
+            resp = json.dumps(reply).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(resp)))

@@ -164,6 +164,15 @@ async fn delayed_start_admits_cross_chain_arrival_after_position_and_replays() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn delayed_settlement_preserves_ordinary_history_and_replays() {
+    delayed_settlement_history(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn incomplete_settlement_log_retains_ownership_and_replays() {
+    delayed_settlement_history(true).await;
+}
+
+async fn delayed_settlement_history(omit_log_index: bool) {
     use eez_testkit::{IValue, NativeL1Profile, onchain_nonce, sign_and_send, wait_for};
 
     let mut env = policy_env(Vec::new(), "interval");
@@ -177,11 +186,11 @@ async fn delayed_settlement_preserves_ordinary_history_and_replays() {
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
 
-    // Hold submission only long enough to close the canonical log reader.
+    // Hold submission only long enough to arm the canonical reader fault.
     // The real batch must still land in its exact target slot; delaying its
     // observation must not change the independent history/RANDAO schedule.
     world.hold_next_bundle().unwrap();
-    sign_and_send(
+    let source = sign_and_send(
         &world.l1_xchain(),
         ANVIL_KEY_1,
         eez_testkit::DEV_CHAIN_ID,
@@ -202,7 +211,23 @@ async fn delayed_settlement_preserves_ordinary_history_and_replays() {
         .parse()
         .unwrap();
     let post = eez_blob_codec::pooled_blob_transaction_hash(&raw).unwrap();
-    world.fail_rpc_methods(&["eth_getLogs"]).unwrap();
+    let front = ProviderBuilder::new().connect_http(world.l2_xchain().parse().unwrap());
+    let before_status: serde_json::Value = front
+        .client()
+        .request("eez_getCrossChainTransaction", (source,))
+        .await
+        .unwrap();
+    assert!(!before_status["ownerGeneration"].is_null());
+    if omit_log_index {
+        world
+            .omit_rpc_log_field(Some((
+                eez_protocol::abi::L2ExecutionPerformed::SIGNATURE_HASH,
+                "logIndex",
+            )))
+            .unwrap();
+    } else {
+        world.fail_rpc_methods(&["eth_getLogs"]).unwrap();
+    }
     world.release_bundle(&held).unwrap();
     let posted = wait_for(TIMEOUT, || async {
         Ok(l1.get_transaction_receipt(post).await?)
@@ -210,6 +235,17 @@ async fn delayed_settlement_preserves_ordinary_history_and_replays() {
     .await
     .unwrap();
     assert!(posted.status());
+    if omit_log_index {
+        wait_for(TIMEOUT, || async {
+            Ok((world
+                .node
+                .log_count_matching(&["L2ExecutionPerformed log missing log_index"])?
+                >= 2)
+                .then_some(()))
+        })
+        .await
+        .expect("canonical scanner must retry incomplete log metadata");
+    }
     let posting_block = l1
         .get_block_by_number(posted.block_number.unwrap().into())
         .await
@@ -258,13 +294,40 @@ async fn delayed_settlement_preserves_ordinary_history_and_replays() {
         safe.header.number < endpoint,
         "log-reader fault must delay acceptance"
     );
-
+    let status: serde_json::Value = front
+        .client()
+        .request("eez_getCrossChainTransaction", (source,))
+        .await
+        .unwrap();
+    assert_eq!(status["ownerGeneration"], before_status["ownerGeneration"]);
+    assert_eq!(status["ownership"]["state"], "awaiting_evidence");
+    let signals = world.node.signals_since(0).unwrap();
+    assert!(
+        !signals
+            .iter()
+            .any(|event| event.name == "eez.composer.settlement.reconciled"
+                && event.fields["post_batch_hash"] == serde_json::json!(post)),
+        "incomplete observation cannot reach retry charging"
+    );
     // Settlement observation no longer selects randomness. These already
     // executed descendants must keep their exact block hashes after acceptance.
-    world.fail_rpc_methods(&[]).unwrap();
+    if omit_log_index {
+        world.omit_rpc_log_field(None).unwrap();
+    } else {
+        world.fail_rpc_methods(&[]).unwrap();
+    }
     wait_for_safe_prefix_convergence(&[&world.node], endpoint, TIMEOUT)
         .await
         .unwrap();
+    wait_for(TIMEOUT, || async {
+        let status: serde_json::Value = front
+            .client()
+            .request("eez_getCrossChainTransaction", (source,))
+            .await?;
+        Ok((status["ownership"]["reason"] == "Committed").then_some(()))
+    })
+    .await
+    .unwrap();
     let mut after = Vec::new();
     for (hash, before) in hashes.iter().zip(&before) {
         let receipt = l2
