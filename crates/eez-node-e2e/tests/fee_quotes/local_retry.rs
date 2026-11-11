@@ -24,7 +24,7 @@ async fn inbound_local_revert_retry_settles_once_and_replays() {
     .await
     .unwrap();
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
-    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let replay = ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap());
     let hash = sign_and_send(
         &world.l1_xchain(),
         INBOUND_USER,
@@ -69,11 +69,11 @@ async fn inbound_local_revert_retry_settles_once_and_replays() {
         );
     }
     wait_for(TIMEOUT, || async {
-        Ok((l2_value(&world.l2_rpc(), world.value_l2).await? == U256::from(6)).then_some(()))
+        Ok((l2_value(&follower.l2_rpc_url(), world.value_l2).await? == U256::from(6)).then_some(()))
     })
     .await
     .unwrap();
-    let height = l2.get_block_number().await.unwrap();
+    let height = replay.get_block_number().await.unwrap();
     wait_for_safe_prefix_convergence(&[&world.node, &follower], height, TIMEOUT)
         .await
         .unwrap();
