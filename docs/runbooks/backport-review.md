@@ -58,6 +58,8 @@ For each actionable gap, include a new-issue draft or proposed update to an exis
 issue, following [Writing issues](../issue-guidelines.md). Include pinned source and
 target evidence links and proposed Priority/Effort with brief reasons, for human
 confirmation under [CONTRIBUTING.md](../../CONTRIBUTING.md#issues-and-triage).
+Include completion criteria and any dependencies in each draft; for investigations,
+specify the evidence needed to answer the question.
 Verify code claims before recommending implementation; if evidence is insufficient,
 draft a focused investigation instead. List needed human decisions separately.
 Do not create or update issues without authorization.
