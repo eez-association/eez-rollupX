@@ -3,6 +3,9 @@
 Run commands from the repository root unless stated otherwise. Review this fork
 and its pinned protocol revision; upstream `main` is not a substitute.
 
+For issues and board updates, follow [CONTRIBUTING.md](CONTRIBUTING.md#issues-and-triage)
+and its linked shared workflow, including human confirmation of Priority and Effort.
+
 ## Scope and shared resources
 
 - Inspect `git status --short` before editing; preserve existing work and operator
