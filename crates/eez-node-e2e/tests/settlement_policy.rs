@@ -2662,7 +2662,12 @@ async fn assert_pruned_boot_waits(node: &NodeHandle) {
         Ok((node
             .log_count_matching(&["boot-time catch_up could not read all L1 source data yet"])?
             > 0
-            && node.log_count_matching(&["pruned history unavailable"])? > 0)
+            // Remote error text is deliberately redacted. Bind the retained
+            // pruning code to this acquisition failure, not an unrelated RPC.
+            && node.log_count_matching(&[
+                "L1 catch-up scan error",
+                "get_logs(BatchPosted): RPC error 4444",
+            ])? > 0)
             .then_some(()))
     })
     .await
