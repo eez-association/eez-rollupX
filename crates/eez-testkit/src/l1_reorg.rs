@@ -158,6 +158,48 @@ impl L1ReorgControl {
         Ok(())
     }
 
+    /// Hold the canonical parent until the caller submits and releases an exact slot.
+    pub async fn hold(&mut self) -> Result<()> {
+        self.check_running()?;
+        for name in ["held.json", "resumed.json"] {
+            let path = self.control.path().join(name);
+            if path.exists() {
+                std::fs::remove_file(path)?;
+            }
+        }
+        std::fs::write(self.control.path().join("hold.json"), b"{}")?;
+        wait_for(Duration::from_secs(10), || async {
+            Ok(self.control.path().join("held.json").exists().then_some(()))
+        })
+        .await?;
+        self.check_running()
+    }
+
+    /// Build the selected slot from the real pool, then resume wall-clock consensus.
+    pub async fn resume_slot(&mut self, parent: B256, timestamp: u64) -> Result<()> {
+        self.check_running()?;
+        ensure!(
+            self.control.path().join("held.json").exists(),
+            "consensus is not held"
+        );
+        let request = self.control.path().join("resume.new.json");
+        std::fs::write(
+            &request,
+            serde_json::to_vec(&json!({"parent": parent, "timestamp": timestamp}))?,
+        )?;
+        std::fs::rename(request, self.control.path().join("resume.json"))?;
+        wait_for(Duration::from_secs(90), || async {
+            Ok(self
+                .control
+                .path()
+                .join("resumed.json")
+                .exists()
+                .then_some(()))
+        })
+        .await?;
+        self.check_running()
+    }
+
     /// Omit one future consensus slot while preserving the current branch.
     /// The next block still comes from the real Engine API payload builder.
     pub async fn skip_slot(&mut self, timestamp: u64) -> Result<()> {

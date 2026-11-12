@@ -679,7 +679,7 @@ async fn prove_native_window(
     if !post_and_follow {
         return Ok(());
     }
-    post_native_proof(world, batch, sidecar, target, terminal_hash).await;
+    post_native_proof(world, batch, sidecar, target, terminal_hash, None).await;
     let follower = NodeHandle::start(
         "derivable-clean-follower",
         &NodeConfig {
@@ -717,6 +717,7 @@ async fn post_native_proof(
     sidecar: eez_blob_codec::PreparedBlobSidecar,
     target: L1PostingContext,
     terminal_hash: B256,
+    control: Option<&mut eez_testkit::L1ReorgControl>,
 ) {
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let poster: alloy_signer_local::PrivateKeySigner = world.cfg.poster_key.parse().unwrap();
@@ -771,6 +772,31 @@ async fn post_native_proof(
         )
         .await
         .unwrap();
+    if let Some(control) = control {
+        control
+            .resume_slot(
+                B256::from_slice(&target.parent_hash),
+                target.target_timestamp,
+            )
+            .await
+            .unwrap();
+        let receipt = l1
+            .get_transaction_receipt(signed.transaction_hash)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(receipt.block_number, Some(target_number));
+        let included = l1
+            .get_block_by_number(target_number.into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(included.header.timestamp, target.target_timestamp);
+        assert_eq!(
+            included.header.parent_hash.as_slice(),
+            target.parent_hash.as_slice()
+        );
+    }
     assert!(
         wait_for(TIMEOUT, || async {
             receipt_ok(&world.l1_rpc(), signed.transaction_hash).await
