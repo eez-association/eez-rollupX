@@ -1,5 +1,8 @@
 # Ponytail review
 
+This is the original same-agent review of `25efd38c`. Its documentation verdict
+was superseded by the confirmed [Claude Opus finding and follow-up](claude-opus-followup.md).
+
 What this change does: Adds receiver-closure characterization tests at the real
 committer and capture-task boundaries, and records a diagnostic recommendation
 for #141. It changes no production behavior and does not claim a permanent

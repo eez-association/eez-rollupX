@@ -1151,7 +1151,7 @@ mod witness_receiver_tests {
             assert_eq!(actor.unsafe_head_hash, header.hash());
             assert_eq!(actor.safe_header, initial);
             assert_eq!(actor.finalized_hash, initial.hash());
-            // Failed delivery neither terminates the actor nor prevents the next command.
+            // Failed delivery neither returns an error nor blocks a subsequent refresh.
             actor.process_refresh_forkchoice().await.unwrap();
         };
         let services = async {
@@ -1193,6 +1193,12 @@ mod witness_receiver_tests {
                             );
                         } else {
                             assert_eq!(state.head_block_hash, header.hash());
+                            if calls.last() == Some(&"new_payload") {
+                                assert!(
+                                    witness.is_empty(),
+                                    "witness notification preceded canonicalization"
+                                );
+                            }
                             calls.push("canonicalize_or_refresh");
                             tx.send(Ok(OnForkChoiceUpdated::valid(valid))).unwrap();
                         }

@@ -19,7 +19,12 @@ scan or performance measurements were part of that review.
 | Frozen N7 source | rollup0 `1b66d9bda675e6f8e83f514153a97136909acc06` | `143d87e62cade98bfc122d612638dcaaf1c85633` |
 | Frozen N7 target | rollupX `31e148f50dd79730b17d113ac78795eb377eb5c5` | `84a5b5207880f192a6a5896cbfe0bac5249db47f` |
 | Issue's later code check | rollupX `716a8a3bad4415ade7e9a6bc3af4a1b35419b232` | same target pin |
-| Fresh investigation / branch base | rollupX `20243f70839ec69df9312731e960cd311e060050` | same target pin |
+| Frozen investigation snapshot | rollupX `20243f70839ec69df9312731e960cd311e060050` | same target pin |
+
+The actual PR base and original investigation commit's parent are
+`dbe1cdb9047e7f3502505f381aaa602e6ebf552f`. Its only change from the frozen
+investigation snapshot is board-status wording in `CONTRIBUTING.md`; it is
+already on main and is not part of this PR's diff. Production sources are identical.
 
 The dedicated worktree initially contained clean `bad8d7eef7e16ac872f354d31af257f8646b2fac`
 with an uninitialized submodule. It was switched to the requested main revision;
@@ -41,8 +46,10 @@ a direct diagnostic for a closed witness receiver. A permanent settlement stall
 is not established by the send failures or by this investigation.
 
 Recommend a separate, diagnostic-only change: report
-`eez.committer.witness_feed.send_failed` at ERROR with the exact block number/hash
-and which commit path attempted delivery. Suggested message:
+`eez.committer.witness_feed.send_failed` with the exact block number/hash
+and which commit path attempted delivery. Reserve ERROR for an unexpected
+closure outside shutdown; the separate implementation should decide whether to
+lower severity or suppress this event once shutdown starts. Suggested message:
 
 > Witness-feed receiver closed; block is already canonical, background capture was not notified.
 
@@ -52,7 +59,9 @@ result. At this point returning an error would report
 a failure after canonicalization, without undoing the block. Do not claim that
 proof generation or settlement has stopped. Do not mark users complete, charge a
 retry, evict requests, silently reconnect, or restart the node from this event.
-Normal shutdown can also close the receiver; correlate with lifecycle logs.
+The current lifecycle permits failed sends during shutdown or the window between
+a capture-task panic and runtime exit, as traced below. Correlate with lifecycle
+logs; do not treat a shutdown-time send failure as an independent service fault.
 Rate limiting repeated events can be reviewed in that implementation if needed;
 this assessment adds no diagnostic framework or configuration.
 
@@ -142,6 +151,26 @@ manager. A normal return or cancellation is not a panic report. The finished
 critical-task counter also covers completion/drop; it does not identify the lost
 block or independently prove capture health. The receiver is not respawned here.
 
+**Process-level source trace:** `run_composer` calls `Cli::run`. The pinned
+[CLI interface](https://github.com/paradigmxyz/reth/blob/3d592ece6de8c4559987416a544fc215fd6d6921/crates/ethereum/cli/src/interface.rs#L158)
+and [node dispatch](https://github.com/paradigmxyz/reth/blob/3d592ece6de8c4559987416a544fc215fd6d6921/crates/ethereum/cli/src/app.rs#L180)
+route this to `CliRunner::run_command_until_exit`. Its
+[panic monitor](https://github.com/paradigmxyz/reth/blob/3d592ece6de8c4559987416a544fc215fd6d6921/crates/cli/runner/src/lib.rs#L231)
+returns a critical-task panic as the command error. The
+[runner](https://github.com/paradigmxyz/reth/blob/3d592ece6de8c4559987416a544fc215fd6d6921/crates/cli/runner/src/lib.rs#L81)
+then shuts down the runtime; that error branch does not run its normal graceful
+shutdown branch. A capture-task panic therefore does not leave a normally
+supervised Composer running indefinitely with a dead receiver.
+
+During normal shutdown, the task wrapper's `select(on_shutdown, task)` can drop
+the capture future. The committer actor uses plain `tokio::spawn`, so an in-flight
+commit can still attempt delivery before the runtime stops. Normal receiver
+exhaustion requires the senders to be gone and cannot itself produce a later
+failed send through those senders. Explicit receiver close and isolated task
+abort in the tests are fault injections, not production recovery operations.
+The tests do not run the CLI or demonstrate a live process exit; this paragraph
+is source-traced behavior, not process-test evidence.
+
 The following log inventory is source inspection, not an assertion that a
 tracing sink emitted each event in these tests. The lifecycle test observes the
 public task-manager error. Existing signals are useful but not substitutes for
@@ -155,7 +184,7 @@ the missing send diagnostic:
 | Optional preparation deferred | `eez.node.witness_preparation.deferred` |
 | PostBatch construction fails | `eez.composer.phase2.prepare_failed` |
 | Backlog exceeds configured threshold | `eez.composer.settlement.backlog`; not a cause attribution |
-| Capture future panics | Named Reth critical-task error and task-manager event |
+| Capture future panics | Named Reth critical-task error, task-manager event and CLI error/runtime shutdown |
 | Send to closed receiver after canonicalization | No committer event or commit error |
 
 Normal capture return requires channel termination (or a capture error with a
@@ -172,8 +201,8 @@ mock only the external Engine/payload-builder responses instead.
 
 | Check | Evidence and boundary |
 | --- | --- |
-| `produced_commit_survives_closed_witness_receiver` | Real `process_sequence`, mocked Engine and payload builder; open receiver control must receive exact number/hash. Closed receiver still returns success, updates head, leaves safe/finalized intact, and permits a subsequent refresh. |
-| `derived_commit_survives_closed_witness_receiver` | Real `process_derive`; open/closed receiver crossed with true/false feed flag, same head and subsequent-command assertions. No execution engine or L1 network. |
+| `produced_commit_survives_closed_witness_receiver` | Real `process_sequence`, mocked Engine and payload builder; open receiver control must receive exact number/hash, with no notification before the canonicalizing FCU is acknowledged. Closed receiver still returns success, updates head, leaves safe/finalized intact, and permits a subsequent refresh. |
+| `derived_commit_survives_closed_witness_receiver` | Real `process_derive`; open/closed receiver crossed with true/false feed flag, same pre-FCU emptiness, head and subsequent-command assertions. No execution engine or L1 network. |
 | `closed_witness_receiver_lifecycle_and_retained_store` | Real `run_capture`, Reth critical-task wrapper and temporary MDBX witness store. Explicit receiver close/normal return, task abort, and panic injected at the capture floor callback. Tests named panic reporting versus no panic event for normal return/abort; closure alone leaves store readiness unchanged. Exact retained witness remains readable, missing provider data returns an error, retained data is not deleted. |
 
 The lifecycle test's stored witness is an existing synthetic unit-test fixture.
@@ -204,8 +233,11 @@ do not cover receiver closure.
 
 ## Follow-up boundary
 
-No new functional defect is established here. A dead background receiver with
-otherwise usable state is observable degradation, not proof of failed settlement.
+No new functional defect is established here. The injections establish commit
+and store behavior when delivery fails; they do not establish a persistent
+production state with a dead capture task and a running Composer. In the current
+supervised lifecycle, panic-exit and shutdown windows must be distinguished from
+the isolated test runtime. Neither establishes a permanent settlement stall.
 If receiver loss is later reproduced leaving an unsettled exact block without
 reconstructible state, track it separately from #141: preserve the first missing
 number/hash, capture/store errors, retained ancestry, canonical L1 consumption,
@@ -238,7 +270,10 @@ CARGO_INCREMENTAL=0 cargo +1.95.0 clippy --locked --offline --workspace --all-ta
 
 The first committer run executed both new send-site tests against unchanged
 production code: **5 passed, 0 failed, 0 ignored, 50 filtered out**. This is a
-characterization baseline, not a before/after recovery fix. There is no production
+characterization baseline, not a before/after recovery fix. The isolated driver
+run has 55 available tests; the combined driver/node invocation enables additional
+`derivation` and `witness` feature modules, yielding 76. The #86 ancestry tests
+are included only with the witness feature in that combined run. There is no production
 behavior change to compare. The initial formatting check failed on the newly
 added test formatting; `cargo fmt --all` corrected it and the repeated check
 passed. The first full-package attempt stopped at compile error E0616: the new
@@ -262,7 +297,7 @@ artifacts. The committed validation summary records selected tests, statuses,
 source and executable identities. The [Ponytail review](ponytail-review.md) records
 scope, corrections and remaining limitations.
 
-### Unit results (2026-11-12)
+### Initial unit results (2026-11-12, original head `25efd38c`)
 
 | Run | Driver | Node | Outcome |
 | --- | --- | --- | --- |
@@ -277,7 +312,7 @@ application failure was inferred from this controlled environment difference.
 The full driver run freshly passed all three #86 ancestry unit regressions; the
 old cross-chain process suite was **not** rerun.
 
-### Final static checks
+### Initial static checks (original head `25efd38c`)
 
 Workspace Clippy (`--locked --offline --workspace --all-targets -- -D warnings`)
 passed with `CARGO_INCREMENTAL=0`. Its first attempt failed on the `/tmp`
@@ -292,3 +327,33 @@ SHA-256 hashes, log digests, statuses and the 16 initial socket-denied test name
 Investigation status: complete within the recorded unit/static evidence scope.
 The diagnostic implementation is a recommendation, not an implemented fix;
 real-state proving recovery and live ownership observations remain unverified.
+
+
+## Claude review follow-up (2026-11-12)
+
+The [independent Opus review and dispositions](claude-opus-followup.md) prompted
+the process-level lifecycle trace and shutdown-aware diagnostic recommendation,
+more precise baseline/test-count language, and the stronger send-order oracle.
+Production code, protocol and dependencies remain unchanged.
+
+To validate the new assertion, both witness sends were temporarily moved before
+the canonicalizing forkchoice request, using the retained
+[diagnostic mutation](early-notification-mutation.patch) (a zero-context patch
+for `git apply --unidiff-zero`). With the old oracle
+(the new pre-FCU emptiness assertion removed), both tests passed. With the new
+oracle, both failed specifically with `witness notification preceded canonicalization`.
+The mutation was restored before validating the candidate; it is an evidence
+fixture, not an applied production change. Both selections executed exactly two
+tests, with 53 filtered out and none ignored. These deliberate mutation failures
+are not flakes.
+
+The restored candidate passed all 76 driver and 104 node unit tests, with no
+ignored or filtered tests, using the same locked/offline command and loopback
+permission described above. The three investigation tests and the #86 ancestry
+unit regressions were selected. No live process/proving experiment was added.
+Fresh source/executable identities and log digests are recorded separately in
+[followup-validation.json](followup-validation.json); the original
+[validation.json](validation.json) remains evidence for the older test revision.
+
+The follow-up also passed formatting, workspace Clippy with warnings denied,
+local-link resolution, shell-example syntax and diff whitespace checks.
