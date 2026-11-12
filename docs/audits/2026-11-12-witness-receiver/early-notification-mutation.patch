@@ -1,0 +1,32 @@
+--- a/crates/eez-driver/src/block_committer.rs
++++ b/crates/eez-driver/src/block_committer.rs
+@@ -791,0 +792,6 @@
++        if feed_witness && let Some(sender) = &self.witness_sender {
++            let _ = sender.send(eez_l1::L2Endpoint {
++                number: block_number,
++                hash: block_hash,
++            });
++        }
+@@ -811,6 +817 @@
+-        if feed_witness && let Some(sender) = &self.witness_sender {
+-            let _ = sender.send(eez_l1::L2Endpoint {
+-                number: block_number,
+-                hash: block_hash,
+-            });
+-        }
++
+@@ -876,0 +878,6 @@
++        if let Some(sender) = &self.witness_sender {
++            let _ = sender.send(eez_l1::L2Endpoint {
++                number: header.number(),
++                hash: header.hash(),
++            });
++        }
+@@ -892,6 +899 @@
+-        if let Some(sender) = &self.witness_sender {
+-            let _ = sender.send(eez_l1::L2Endpoint {
+-                number: header.number(),
+-                hash: header.hash(),
+-            });
+-        }
++

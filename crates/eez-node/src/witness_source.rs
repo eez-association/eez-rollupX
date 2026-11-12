@@ -905,6 +905,105 @@ mod tests {
     }
 
     #[test]
+    fn closed_witness_receiver_lifecycle_and_retained_store() {
+        use reth_chainspec::ChainSpecBuilder;
+        use reth_provider::test_utils::MockEthProvider;
+        use reth_tasks::Runtime;
+
+        // Receiver closure is not a capture error. Compare normal return,
+        // cancellation, and a panic through the production critical-task wrapper.
+        for exit in ["return", "abort", "panic"] {
+            let runtime = Runtime::test();
+            let mut manager = runtime.take_task_manager_handle().unwrap();
+            let directory = tempfile::tempdir().unwrap();
+            let store = Arc::new(WitnessDb::open(directory.path()).unwrap());
+            let retained = sample(1);
+            store.put(&retained).unwrap();
+            let provider = MockEthProvider::<EezPrimitives>::new();
+            let config = EezEvmConfig::new(Arc::new(
+                ChainSpecBuilder::mainnet().shanghai_activated().build(),
+            ));
+            let source =
+                NodeWitnessSource::new(Arc::clone(&store), provider.clone(), config.clone());
+            let (tx, mut rx) = mpsc::unbounded_channel();
+            if exit == "return" {
+                rx.close();
+            } else if exit == "panic" {
+                tx.send(eez_l1::L2Endpoint {
+                    number: 1,
+                    hash: retained.hash,
+                })
+                .unwrap();
+            }
+            let task = runtime.spawn_critical_task(
+                "eez-witness-capture",
+                run_capture(
+                    rx,
+                    Arc::clone(&store),
+                    provider,
+                    config,
+                    move || {
+                        assert_ne!(exit, "panic", "injected capture panic");
+                        0
+                    },
+                    None,
+                ),
+            );
+            runtime.handle().block_on(async {
+                if exit == "abort" {
+                    task.abort();
+                    assert!(task.await.unwrap_err().is_cancelled());
+                } else {
+                    tokio::time::timeout(std::time::Duration::from_secs(5), task)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                }
+                assert!(tx.is_closed());
+                assert!(
+                    tx.send(eez_l1::L2Endpoint {
+                        number: 2,
+                        hash: sample(2).hash
+                    })
+                    .is_err()
+                );
+                // A sentinel panic proves the monitor is still servicing events;
+                // unlike a timing snapshot, its identity excludes an earlier report.
+                if exit != "panic" {
+                    runtime
+                        .spawn_critical_task("receiver-close-monitor-probe", async {
+                            panic!("injected monitor probe");
+                        })
+                        .await
+                        .unwrap();
+                }
+                let error = tokio::time::timeout(std::time::Duration::from_secs(5), &mut manager)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap_err();
+                let expected = if exit == "panic" {
+                    "Critical task `eez-witness-capture` panicked:"
+                } else {
+                    "Critical task `receiver-close-monitor-probe` panicked:"
+                };
+                assert!(error.to_string().starts_with(expected), "{error}");
+            });
+            // Health is unchanged by closure alone; the source still serves exact
+            // retained witnesses, but absent provider data is a real error.
+            source.ensure_ready().unwrap();
+            assert_eq!(
+                source.block_witness(1, retained.hash).unwrap().rlp,
+                retained.rlp
+            );
+            let missing = source.block_witness(2, sample(2).hash).unwrap_err();
+            assert!(missing.contains("not captured yet"), "{missing}");
+            assert!(store.get(2, sample(2).hash).unwrap().is_none());
+            assert!(store.get(1, retained.hash).unwrap().is_some());
+        }
+    }
+
+    #[test]
     fn canonical_witness_hit_reorg_and_missing_input_preserve_retained_data() {
         use eez_evm::EezEvmConfig;
         use reth_chainspec::ChainSpecBuilder;
