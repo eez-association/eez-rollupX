@@ -142,7 +142,7 @@ pub async fn replay(vector: &Value, endpoint: &str, expected_identity: B256) -> 
     let mut client = ProverClient::connect(endpoint.to_owned())
         .await?
         .max_encoding_message_size(eez_control_rpc::MAX_MESSAGE_BYTES)
-        .max_decoding_message_size(eez_control_rpc::MAX_MESSAGE_BYTES);
+        .max_decoding_message_size(eez_control_rpc::MAX_STREAMING_RESPONSE_BYTES);
     for (index, row) in events.iter().enumerate() {
         let transport = row["transport"].as_u64().ok_or("missing transport")?;
         match row["direction"].as_str().ok_or("missing direction")? {

@@ -16,6 +16,10 @@ use prost::Message;
 /// can impose a smaller bound.
 pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024 * 1024;
 
+/// Maximum protobuf payload of a streaming reply, including rejection diagnostics.
+/// Independent of the negotiated witness-upload limit.
+pub const MAX_STREAMING_RESPONSE_BYTES: usize = 64 * 1024;
+
 /// Fresh-network L1 history, synchronized randomness and offline v2 proving.
 pub const OFFLINE_PROFILE_ID: u32 = 2;
 

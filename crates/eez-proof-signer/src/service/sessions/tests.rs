@@ -933,3 +933,87 @@ async fn incompatible_validation_identity_is_rejected_before_session_creation() 
     assert_eq!(fixture.service.state.attester.signing_calls(), 0);
     server.abort();
 }
+
+#[tokio::test]
+async fn wire_replayer_rejects_oversized_diagnostic_before_comparing_transcript() {
+    use eez_control_rpc::v2;
+    use prost::Message;
+    use tonic::{Request, Response, Status};
+
+    struct DiagnosticServer;
+    #[tonic::async_trait]
+    impl v2::prover_server::Prover for DiagnosticServer {
+        type ProveStreamStream =
+            tokio_stream::Iter<std::vec::IntoIter<Result<v2::ServerFrame, Status>>>;
+
+        async fn capabilities(
+            &self,
+            _: Request<v2::CapabilitiesRequest>,
+        ) -> Result<Response<v2::CapabilitiesResponse>, Status> {
+            Ok(Response::new(v2::CapabilitiesResponse {
+                profile_id: eez_control_rpc::OFFLINE_PROFILE_ID,
+                validation_identity: vec![0; 32],
+                ..Default::default()
+            }))
+        }
+
+        async fn prove_stream(
+            &self,
+            _: Request<tonic::Streaming<v2::ClientFrame>>,
+        ) -> Result<Response<Self::ProveStreamStream>, Status> {
+            let reply = v2::ServerFrame {
+                kind: Some(v2::server_frame::Kind::Rejected(v2::Rejected {
+                    code: tonic::Code::InvalidArgument.into(),
+                    message: "x".repeat(70 * 1024),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            };
+            Ok(Response::new(tokio_stream::iter(vec![Ok(reply)])))
+        }
+    }
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .add_service(v2::prover_server::ProverServer::new(DiagnosticServer))
+            .serve_with_incoming(TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+    let expected = v2::ServerFrame {
+        kind: Some(v2::server_frame::Kind::Rejected(v2::Rejected {
+            code: tonic::Code::InvalidArgument.into(),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    // Diagnostic wording is ignored by transcript comparison, but its wire size is not.
+    let vector = serde_json::json!({
+        "format": 2,
+        "oracle": {"attester": "0x0000000000000000000000000000000000000000"},
+        "events": [
+            {"direction": "client", "transport": 1, "protobuf_hex": hex::encode(v2::ClientFrame::default().encode_to_vec())},
+            {"direction": "server", "transport": 1, "protobuf_hex": hex::encode(expected.encode_to_vec())},
+            {"direction": "eof", "transport": 1}
+        ]
+    });
+    let result = timeout(
+        Duration::from_secs(10),
+        replay::replay(&vector, &endpoint, B256::ZERO),
+    )
+    .await;
+    server.abort();
+    let error = result.unwrap().unwrap_err();
+    let status = error
+        .downcast_ref::<Status>()
+        .expect("decoder must return a tonic status");
+    assert_eq!(status.code(), tonic::Code::OutOfRange);
+    assert!(
+        status
+            .message()
+            .contains("decoded message length too large")
+    );
+    assert!(status.message().contains("the limit is: 65536 bytes"));
+}

@@ -702,6 +702,13 @@ It supports replacing a compatible runtime, moving hosts and restoring the same
 network. It provides no conversion of an earlier Chiado deployment. Existing
 networks keep their own matching release, contracts, genesis and data.
 
+Composer caps each prover reply at 64 KiB, including rejection diagnostics;
+witness uploads retain the signer's advertised limit. Before upgrading Composer
+with an external prover, confirm its complete replies fit this bound. The
+[RPC transport contract](../../crates/eez-control-rpc/SPEC.md#4-transport-behavior)
+defines compatibility and rollback behavior; this hardening requires no genesis,
+contract, follower or data migration.
+
 Before a poster retunes immediate mutable/static dispatch, upgrade every follower
 to a build supporting semantic settlement boundaries. Older followers can reject
 that valid L1 history; after inclusion, downgrading to them is unsupported. No wire

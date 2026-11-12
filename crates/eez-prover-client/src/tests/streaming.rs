@@ -2,6 +2,7 @@
 //! not execution validity; native execution is covered by signer transcripts.
 use super::*;
 use eez_control_rpc::v2::{self, client_frame as cf, server_frame as sf};
+use prost::Message;
 use std::{collections::HashMap, pin::Pin, time::Duration};
 use tokio::{sync::Mutex, task::JoinHandle};
 use tokio_stream::{
@@ -43,6 +44,7 @@ pub(super) struct StreamStub {
     corrupt: Option<&'static str>,
     stall: Option<&'static str>,
     pipeline: bool,
+    final_reply: Option<sf::Kind>,
 }
 impl StreamStub {
     pub(super) fn response(
@@ -63,6 +65,7 @@ impl StreamStub {
             corrupt: None,
             stall: None,
             pipeline: false,
+            final_reply: None,
         }
     }
     fn new(ctx: &ProvingContext) -> Self {
@@ -254,7 +257,11 @@ impl v2::prover_server::Prover for StreamStub {
                     session_id: id,
                     epoch,
                     request_id: frame.request_id,
-                    kind: Some(kind),
+                    kind: Some(if done {
+                        this.final_reply.clone().unwrap_or(kind)
+                    } else {
+                        kind
+                    }),
                 });
                 if this.pipeline && phase != "ready" {
                     staged.push(response);
@@ -660,4 +667,125 @@ async fn cancelling_a_partial_v2_exchange_releases_its_witness_owner() {
     .await
     .expect("cancelled v2 exchange retained the caller's window allocation");
     assert!(model.lock().await.settlements.is_empty());
+}
+
+// Include the session/request envelope and nested protobuf lengths in the boundary.
+fn sized_final_reply(field: &str, size: usize) -> sf::Kind {
+    let mut frame = v2::ServerFrame {
+        session_id: vec![0; 32],
+        epoch: 1,
+        request_id: 3,
+        kind: Some(match field {
+            "proof" => sf::Kind::Proof(v2::Proof {
+                public_inputs_hash: vec![0; 32],
+                proof: vec![0; size],
+            }),
+            "message" | "details" => sf::Kind::Rejected(v2::Rejected {
+                code: Code::InvalidArgument.into(),
+                message: if field == "message" {
+                    "x".repeat(size)
+                } else {
+                    String::new()
+                },
+                details: if field == "details" {
+                    vec![0; size]
+                } else {
+                    Vec::new()
+                },
+                ..Default::default()
+            }),
+            _ => unreachable!(),
+        }),
+    };
+    let payload_size = size - (frame.encoded_len() - size);
+    match frame.kind.as_mut().unwrap() {
+        sf::Kind::Proof(proof) => proof.proof.truncate(payload_size),
+        sf::Kind::Rejected(rejected) if field == "message" => {
+            rejected.message.truncate(payload_size)
+        }
+        sf::Kind::Rejected(rejected) => rejected.details.truncate(payload_size),
+        _ => unreachable!(),
+    }
+    assert_eq!(frame.encoded_len(), size);
+    frame.kind.unwrap()
+}
+
+async fn assert_response_decode_limit(field: &str) {
+    for size in [65_535, 65_536, 65_537] {
+        let ctx = context(1);
+        let mut stub = StreamStub::new(&ctx);
+        stub.final_reply = Some(sized_final_reply(field, size));
+        let model = Arc::clone(&stub.model);
+        let (prover, _server) = serve(stub).await;
+        let error = prover.prove(ctx).await.unwrap_err();
+        assert_eq!(model.lock().await.settlements.len(), 1);
+        assert!(error.retryable_kind().is_none());
+        assert!(error.actionable_failure().is_none());
+        let ProverError::Backend(message) = error else {
+            panic!("{field}/{size}: {error:?}")
+        };
+        if size > 65_536 {
+            assert!(
+                message.contains(&Code::OutOfRange.to_string()),
+                "{field}/{size}: {message:.160}"
+            );
+            assert!(
+                message.contains("decoded message length too large"),
+                "{field}/{size}: {message:.160}"
+            );
+            assert!(
+                message.contains("the limit is: 65536 bytes"),
+                "{field}/{size}: {message:.160}"
+            );
+        } else if field == "proof" {
+            // The decoder accepts this frame; the independent signature gate rejects it.
+            assert!(
+                message.starts_with("attestation is "),
+                "{field}/{size}: {message:.160}"
+            );
+        } else {
+            assert!(
+                message.contains(&Code::InvalidArgument.to_string()),
+                "{field}/{size}: {message:.160}"
+            );
+            assert!(!message.contains("message length too large"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn response_decode_limit_covers_proofs() {
+    assert_response_decode_limit("proof").await;
+}
+
+#[tokio::test]
+async fn response_decode_limit_covers_diagnostic_messages() {
+    assert_response_decode_limit("message").await;
+}
+
+#[tokio::test]
+async fn response_decode_limit_covers_diagnostic_details() {
+    assert_response_decode_limit("details").await;
+}
+
+#[tokio::test]
+async fn response_decode_limit_preserves_large_witness_uploads() {
+    let mut ctx = context(1);
+    let witness = Bytes::from(vec![0x42; 5 * 1024 * 1024]);
+    Arc::make_mut(&mut ctx.blocks)[0]
+        .witness
+        .codes
+        .push(witness.clone());
+    let stub = StreamStub::new(&ctx);
+    assert!(witness.len() < stub.capabilities.max_message_bytes as usize);
+    let model = Arc::clone(&stub.model);
+    let (prover, _server) = serve(stub).await;
+    prover.prove(ctx).await.unwrap();
+    let model = model.lock().await;
+    assert_eq!(model.received.len(), 1);
+    assert_eq!(
+        model.received[0].witness.as_ref().unwrap().codes,
+        vec![witness.to_vec()]
+    );
+    assert_eq!(model.settlements.len(), 1);
 }

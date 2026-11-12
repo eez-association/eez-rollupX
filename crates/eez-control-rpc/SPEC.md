@@ -283,10 +283,24 @@ byte cap. Default idle/ordered-operation timeouts are 120/600 seconds. The
 [streaming runtime contract](STREAMING_SPEC.md#6-rollupx-runtime-profile) defines
 finite queues, attachment fencing, one expensive worker and permit ownership.
 
-Witnesses may exceed gRPC's usual 4 MiB default. Clients must set finite encoding
-and decoding limits consistent with the negotiated profile, enforce aggregate
-admission and handle RESOURCE_EXHAUSTED explicitly. Splitting an L2 range does
-not remove the L1 bridge each part must prove.
+Witnesses may exceed gRPC's usual 4 MiB default. Client encoding uses the signer's
+advertised `max_message_bytes`; aggregate admission and RESOURCE_EXHAUSTED
+handling remain required. Independently, every `ProveStream` server frame,
+including `Proof` and `Rejected` messages/details, has a 64 KiB client decode
+limit on its complete protobuf payload (excluding the five-byte gRPC prefix).
+A payload of exactly 65,536 bytes is allowed; a larger payload fails decoding
+before response validation or actionable-failure parsing. Tonic reports
+OUT_OF_RANGE, which remains a non-retryable, non-actionable backend error.
+The capability reply retains its separate 1 KiB decode limit. Splitting an L2
+range does not remove the L1 bridge each part must prove.
+
+This response-only hardening changes no schema, validation identity, witness
+upload quota, persisted data or historical follower replay. Existing signers
+whose replies fit the bound remain compatible; external signers must keep the
+complete reply, including diagnostics, within it before upgrading Composer.
+Composer can be upgraded independently of a compatible signer. Rolling back
+Composer restores the former larger response allocation exposure; no data
+migration is needed.
 
 Bound the entire exchange, including lock acquisition, transport, backfill and
 response verification. Composer's exclusive submission cutoff may cancel sooner.
