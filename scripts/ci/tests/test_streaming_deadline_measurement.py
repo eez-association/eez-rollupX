@@ -68,6 +68,8 @@ class QuietWindowTests(unittest.TestCase):
         native = importlib.util.module_from_spec(native_spec)
         native_spec.loader.exec_module(native)
         self.assertIn(measure.TEST.split("::")[0], native.CROSS_CHAIN_MODULES)
+        for binary in (*native.VECTOR_TARGETS, "verify_blob_evidence"):
+            self.assertTrue(measure.HEAVY.search(binary[:15]), binary)
 
     def sample(self):
         return dict(process_count=100, heavy=[], free_bytes={"/": 6*2**30},

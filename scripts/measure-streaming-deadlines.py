@@ -19,7 +19,7 @@ import time
 INTERVAL = 10
 STABLE_SECONDS = 120
 TEST = "streaming::deadlines::characterize_native_streaming_workload"
-HEAVY = re.compile(r"^(cargo|rustc|clippy|clang|solc|gcc|g\+\+|cc$|c\+\+$|cc1|rust-lld|ld$|ld\.lld|cmake|ninja|make|forge|anvil|nextest|node_e2e|eez_|du$|rsync$|zstd$|tar$|gzip$)")
+HEAVY = re.compile(r"^(cargo|rustc|clippy|clang|solc|gcc|g\+\+|cc$|c\+\+$|cc1|rust-lld|ld$|ld\.lld|cmake|ninja|make|forge|anvil|nextest|node_e2e|eez_|public_inputs_|rolling_hash_|ethereum_kzg_|causal_evidence|call_patterns|issue35|verify_blob_|du$|rsync$|zstd$|tar$|gzip$)")
 
 
 def descendants(processes, root):

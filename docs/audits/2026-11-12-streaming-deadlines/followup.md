@@ -110,7 +110,11 @@ for another 120 seconds. A resource/observer failure cannot authorize a passing
 performance report.
 
 For each of twelve cases, the driver records three warmups and twenty measured
-attempts, with a fifteen-minute group budget. An attempt-start record precedes
+attempts, with a fifteen-minute group budget and a per-attempt cap of the
+smaller of three minutes or the remaining group budget. These utility safety
+bounds are separate from the production client's ten-minute exchange timeout
+and signer's ten-minute ordered-operation limit. A utility-budget failure
+cannot be classified as a signer deadline violation. An attempt-start record precedes
 every attempt. Failures/timeouts are retained and stop the group; they cannot
 be silently retried or omitted. The runner separates warmups, successes and
 failures and only marks performance evidence eligible when all twelve groups
@@ -241,3 +245,9 @@ reusing the preceding snapshot and accidentally averaging two intervals. Both
 normal-exit and contamination paths fail this assertion against `ed74c9eb` and
 pass after the correction. This preserves the documented ten-second resource
 interval instead of smoothing the first post interval over twenty seconds.
+
+The process screen also covers every published standalone native vector and
+blob-verifier test executable, including Linux-truncated names. The inventory
+regression fails against `88b1b505`, where those tests could evade the name
+screen, and passes after the correction. Process probes remain a practical
+screen on this shared host, with CPU, memory, swap and disk checks retained.
