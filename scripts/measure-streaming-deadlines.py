@@ -34,7 +34,7 @@ def descendants(processes, root):
 def heavy_processes(owned_root=None):
     processes = []
     for line in subprocess.check_output(["ps", "-eo", "pid=,ppid=,comm="], text=True).splitlines():
-        pid, parent, command = line.split()
+        pid, parent, command = line.split(maxsplit=2)
         processes.append((int(pid), int(parent), command))
     owned = descendants(processes, owned_root) if owned_root is not None else set()
     # Only the expected test harness is exempted. Even an accidental owned Cargo

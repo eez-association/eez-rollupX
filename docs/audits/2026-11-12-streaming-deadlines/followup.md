@@ -122,7 +122,7 @@ is implied.
 
 ## Validation status
 
-Implementation and validation are ongoing. Ten focused Python tests currently
+Implementation and validation are ongoing. Eleven focused Python tests currently
 pass, including actual cleanup of one owned process group while a separate
 owned control group remains alive, resource-boundary rejection, host visibility,
 compiler classification, short-lived build retention, published native-suite
@@ -205,3 +205,13 @@ generation. The runner now preserves the raw file and emits an explicit
 ineligible diagnostic summary. A mocked end-to-end observer regression fails
 on the previous helper and passes with this correction. It does not run a
 workload or supply timing evidence.
+
+The first real host-observer preflight at `311ac5d8` also failed while parsing
+`ps` output: kernel workers such as `UVM deferred release queue` have spaces
+in their process names. Splitting only the PID/parent columns fixes this. The
+previous parser fails the new regression; the corrected parser passes and
+records the host's competing compiler activity and load, rejecting admission.
+The failure and process-name shape are retained locally. This is an observer
+correction, not a runtime deadline reproduction. An optional supplemental
+cgroup-v2 probe found those paths unavailable; that is recorded as unavailable
+rather than as a resource bound. No workload was timed in either probe.

@@ -93,6 +93,12 @@ class QuietWindowTests(unittest.TestCase):
     def test_owned_descendants_do_not_include_other_tasks(self):
         self.assertEqual(measure.descendants([(10, 1, "test"), (11, 10, "signer"), (12, 11, "child"), (13, 1, "rustc")], 10), {10, 11, 12})
 
+    def test_host_process_names_may_contain_spaces(self):
+        with mock.patch.object(measure.subprocess, "check_output", return_value="10 1 lxc monitor 0\n11 1 rustc\n12 1 eez-composer\n"):
+            count, heavy = measure.heavy_processes()
+        self.assertEqual(count, 3)
+        self.assertEqual(heavy, [dict(pid=11, command="rustc")])
+
     def test_short_build_between_full_snapshots_is_retained(self):
         states = [(100, []) for _ in range(measure.INTERVAL)]
         states[3] = (100, [dict(pid=99, command="rustc")])
