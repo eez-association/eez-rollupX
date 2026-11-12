@@ -30,7 +30,9 @@ use revm::{
     Database, Inspector,
     context::Journal,
     context_interface::{Cfg as _, ContextTr},
-    interpreter::{CallInputs, CallOutcome, CallScheme},
+    interpreter::{
+        CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, InstructionResult,
+    },
 };
 use tracing::{Level, event};
 
@@ -833,8 +835,14 @@ pub(super) struct EffectInspector {
     rollup_id: u64,
     proxy_slot: u8,
     expected: Vec<ObservedCall>,
-    frames: Vec<Option<usize>>,
+    // Only inbound roots authorize standalone L2 deliveries. Nested calls keep
+    // their existing grouped validation; they cannot authorize retry folding.
+    expected_committed: Vec<Option<bool>>,
+    frames: Vec<(Option<usize>, usize)>,
     observed: Vec<Option<ObservedCall>>,
+    reverted: Vec<bool>,
+    retry_reverted: Vec<bool>,
+    transaction_ends: Vec<usize>,
 }
 
 impl EffectInspector {
@@ -865,11 +873,21 @@ impl EffectInspector {
         proxy_slot: u8,
         actions: impl IntoIterator<Item = &'a eez_protocol::ExecutedAction>,
     ) -> Result<Self, PostingError> {
+        let actions: Vec<_> = actions.into_iter().cloned().collect();
+        let applied = eez_protocol::settlement::l1_applied_root_mask(&actions)
+            .map_err(PostingError::Effects)?;
         let mut expected = Vec::new();
-        for action in actions
-            .into_iter()
-            .filter(|a| a.source_rollup_id.0 == source_rollup && a.target_rollup_id.0 == rollup_id)
-        {
+        let mut expected_committed = Vec::new();
+        for (index, action) in actions.iter().enumerate().filter(|(_, a)| {
+            a.source_rollup_id.0 == source_rollup && a.target_rollup_id.0 == rollup_id
+        }) {
+            expected_committed.push(
+                (source_rollup == 0
+                    && action.parent_index.is_none()
+                    && action.call_mode == CallMode::Mutable
+                    && action.outcome.is_success())
+                .then_some(applied[index]),
+            );
             let ExecutionOutcome::Resolved {
                 return_data,
                 success,
@@ -895,27 +913,101 @@ impl EffectInspector {
             rollup_id,
             proxy_slot,
             expected,
+            expected_committed,
             frames: Vec::new(),
             observed: Vec::new(),
+            reverted: Vec::new(),
+            retry_reverted: Vec::new(),
+            transaction_ends: Vec::new(),
         })
     }
 
     pub(super) fn verify(self) -> Result<(), PostingError> {
-        let observed: Vec<_> = self.observed.into_iter().flatten().collect();
-        if observed != self.expected {
-            return Err(PostingError::Effects(format!(
+        let actual: Vec<_> = self
+            .observed
+            .iter()
+            .enumerate()
+            .filter_map(|(index, call)| call.as_ref().map(|call| (index, call)))
+            .collect();
+        let mismatch = || {
+            PostingError::Effects(format!(
                 "actual cross-chain calls/outcomes differ (expected {}, observed {})",
                 self.expected.len(),
-                observed.len()
-            )));
+                actual.len()
+            ))
+        };
+        let mut matched = 0;
+        for (position, &(index, call)) in actual.iter().enumerate() {
+            let Some(expected) = self.expected.get(matched) else {
+                return Err(mismatch());
+            };
+            let committed = self.expected_committed[matched];
+            if call == expected
+                && committed.is_none_or(|committed| self.reverted[index] != committed)
+            {
+                matched += 1;
+                continue;
+            }
+            // Discard an attempt only while matching a committing inbound root.
+            // Expected lookup/nested calls must remain in their original slots,
+            // even when another source in the same bundle needs retry folding.
+            if committed == Some(true)
+                && call == expected
+                && self.retry_reverted[index]
+                && actual.get(position + 1).is_some_and(|&(next, retry)| {
+                    call == retry
+                        && !self
+                            .transaction_ends
+                            .iter()
+                            .any(|&end| end > index && end <= next)
+                })
+            {
+                continue;
+            }
+            return Err(mismatch());
+        }
+        if matched != self.expected.len() {
+            return Err(mismatch());
         }
         Ok(())
+    }
+
+    fn end_frame(&mut self, result: InstructionResult, source_call: bool) -> Option<usize> {
+        let (index, start) = self.frames.pop()?;
+        let end = self.observed.len();
+        if !result.is_ok() {
+            self.reverted[start..end].fill(true);
+            // Only explicit source-call reverts establish retry eligibility.
+            // Halts/CREATE rollbacks preserve earlier explicit revert evidence;
+            // a broader explicit scope overrides single-call eligibility.
+            if source_call && index.is_none() && result == InstructionResult::Revert {
+                self.retry_reverted[start..end].fill(end - start == 1);
+            }
+        }
+        if self.frames.is_empty() {
+            self.transaction_ends.push(end);
+        }
+        index
     }
 }
 
 impl<DB: Database, CTX: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<CTX>
     for EffectInspector
 {
+    fn create(&mut self, _context: &mut CTX, _inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+        self.frames.push((None, self.observed.len()));
+        None
+    }
+
+    fn create_end(
+        &mut self,
+        _context: &mut CTX,
+        _inputs: &CreateInputs,
+        outcome: &mut CreateOutcome,
+    ) {
+        self.end_frame(outcome.result.result, false);
+    }
+
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         let data = inputs.input.as_bytes(context);
         // The registry is a transparent proxy: its DELEGATECALL into the
@@ -926,15 +1018,19 @@ impl<DB: Database, CTX: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<CTX
             && inputs.target_address == self.registry
             && (data.starts_with(&executeCrossChainCallCall::SELECTOR)
                 || data.starts_with(&eez_protocol::abi::staticCrossChainCallCall::SELECTOR));
-        self.frames.push(recognized.then(|| {
+        let start = self.observed.len();
+        let index = recognized.then(|| {
             self.observed.push(None);
+            self.reverted.push(false);
+            self.retry_reverted.push(false);
             self.observed.len() - 1
-        }));
+        });
+        self.frames.push((index, start));
         None
     }
 
     fn call_end(&mut self, context: &mut CTX, inputs: &CallInputs, outcome: &mut CallOutcome) {
-        let Some(index) = self.frames.pop().flatten() else {
+        let Some(index) = self.end_frame(outcome.result.result, true) else {
             return;
         };
         // The real manager has already read this slot. Inspect the journal
@@ -1550,6 +1646,248 @@ mod tests {
             inspector.verify().is_err(),
             "one lookup cannot satisfy two expected calls"
         );
+    }
+
+    #[test]
+    fn shared_inbound_row_requires_an_identical_reverted_observation_in_the_same_transaction() {
+        let mut inspector = EffectInspector::new(REGISTRY, 1, &static_semantics()).unwrap();
+        inspector.expected[0].mode = CallMode::Mutable;
+        inspector.expected_committed[0] = Some(true);
+        let call = inspector.expected[0].clone();
+        inspector.observed = vec![Some(call.clone()), Some(call.clone())];
+        inspector.reverted = vec![true, false];
+        inspector.retry_reverted = vec![true, false];
+        inspector.transaction_ends = vec![2];
+        assert!(inspector.clone().verify().is_ok());
+
+        let mut historical = inspector.clone();
+        historical.expected.push(call);
+        historical.expected_committed = vec![Some(false), Some(true)];
+        assert!(
+            historical.verify().is_ok(),
+            "exact historical traces still match"
+        );
+
+        for variant in 0..6 {
+            let mut invalid = inspector.clone();
+            match variant {
+                0 => invalid.retry_reverted[0] = false,
+                1 => invalid.reverted[1] = true,
+                2 => invalid.transaction_ends = vec![1, 2],
+                3 => {
+                    invalid.observed[0].as_mut().unwrap().output = Bytes::from_static(b"different")
+                }
+                4 => invalid.observed[0].as_mut().unwrap().success = false,
+                5 => invalid.expected_committed[0] = None,
+                _ => unreachable!(),
+            }
+            assert!(invalid.verify().is_err(), "variant {variant}");
+        }
+    }
+
+    #[test]
+    fn retry_matching_preserves_nested_calls_and_other_sources() {
+        let mut inbound = static_semantics().remove(0);
+        inbound.actions[0].call_mode = CallMode::Mutable;
+        let mut outbound = inbound.clone();
+        outbound.origin_chain = eez_protocol::RollupId(1);
+        let mut root = inbound.actions[0].clone();
+        root.source_rollup_id = eez_protocol::RollupId(1);
+        root.target_rollup_id = eez_protocol::RollupId(0);
+        let mut nested = inbound.actions[0].clone();
+        nested.parent_index = Some(0);
+        nested.revert_spans = vec![1];
+        let mut retry = nested.clone();
+        retry.revert_spans.clear();
+        outbound.actions = vec![root, nested, retry];
+        let mut inspector =
+            EffectInspector::new(REGISTRY, 1, &[outbound, inbound.clone()]).unwrap();
+        assert_eq!(inspector.expected_committed, [None, None, Some(true)]);
+        let call = inspector.expected[0].clone();
+        inspector.observed = vec![Some(call); 4];
+        inspector.reverted = vec![true, false, true, false];
+        inspector.retry_reverted = inspector.reverted.clone();
+        inspector.transaction_ends = vec![2, 4];
+        assert!(inspector.verify().is_ok());
+        // Two separate inbound companions may each reuse their own row.
+        let mut inspector = EffectInspector::new(REGISTRY, 1, &[inbound.clone(), inbound]).unwrap();
+        let call = inspector.expected[0].clone();
+        inspector.observed = vec![Some(call); 5];
+        inspector.reverted = vec![true, true, false, true, false];
+        inspector.retry_reverted = inspector.reverted.clone();
+        inspector.transaction_ends = vec![3, 5];
+        assert!(inspector.verify().is_ok());
+    }
+
+    #[test]
+    fn inbound_retry_validation_tracks_real_frames_and_commitment() {
+        const OUTER: Address = Address::repeat_byte(0x44);
+        const INNER: Address = Address::repeat_byte(0x55);
+        const NESTED: Address = Address::repeat_byte(0x66);
+        fn forward(code: &mut Vec<u8>, target: Address) {
+            // CALL(target, calldata), discard success and output.
+            code.extend([0x5f, 0x5f, 0x36, 0x5f, 0x5f, 0x73]);
+            code.extend(target.0);
+            code.extend([0x5a, 0xf1, 0x50]);
+        }
+        fn install(db: &mut InMemoryDB, address: Address, code: Vec<u8>) {
+            db.insert_account_info(
+                address,
+                AccountInfo {
+                    code: Some(Bytecode::new_raw(code.into())),
+                    ..Default::default()
+                },
+            );
+        }
+        let run = |lookup: bool,
+                   calls: usize,
+                   halt: bool,
+                   nested: bool,
+                   retry: bool,
+                   separate_transaction: bool| {
+            let (config, parent, attributes) = configuration(2_000_000);
+            let env = config.next_evm_env(&parent, &attributes).unwrap();
+            let mut state = static_call_database(42);
+            let mut proxy = vec![0x36, 0x5f, 0x5f, 0x37];
+            forward(&mut proxy, REGISTRY);
+            // Forward the ABI-wrapped manager result to the source frame.
+            proxy.extend([0x3d, 0x5f, 0x5f, 0x3e, 0x3d, 0x5f, 0xf3]);
+            install(&mut state, PROXY, proxy);
+            let mut inner = vec![0x36, 0x5f, 0x5f, 0x37];
+            for index in 0..calls {
+                forward(
+                    &mut inner,
+                    if nested && index == 0 { NESTED } else { PROXY },
+                );
+            }
+            inner.extend(if halt {
+                vec![0xfe]
+            } else {
+                vec![0x5f, 0x5f, 0xfd]
+            });
+            install(&mut state, INNER, inner);
+            let mut child = vec![0x36, 0x5f, 0x5f, 0x37];
+            forward(&mut child, PROXY);
+            child.extend([0x5f, 0x5f, 0xfd]);
+            install(&mut state, NESTED, child);
+            let mut outer = vec![0x36, 0x5f, 0x5f, 0x37];
+            forward(&mut outer, INNER);
+            if retry && !separate_transaction {
+                forward(&mut outer, PROXY);
+            }
+            outer.push(0x00);
+            install(&mut state, OUTER, outer);
+            let mut semantics = static_semantics();
+            let action = &mut semantics[0].actions[0];
+            action.call_mode = CallMode::Mutable;
+            if lookup {
+                action.revert_spans = vec![1];
+            }
+            let mut inspector = EffectInspector::new(REGISTRY, 1, &semantics).unwrap();
+            let data: Bytes = executeCrossChainCallCall {
+                sourceAddress: signer().address(),
+                callData: Bytes::from_static(b"lookup"),
+            }
+            .abi_encode()
+            .into();
+            for target in
+                std::iter::once(OUTER).chain((retry && separate_transaction).then_some(PROXY))
+            {
+                let tx_env = config.tx_env(tx(0, target, 1_000_000, data.clone()));
+                let actual = config
+                    .evm_with_env_and_inspector(&mut state, env.clone(), &mut inspector)
+                    .transact(tx_env)
+                    .unwrap();
+                assert!(actual.result.is_success());
+            }
+            inspector
+        };
+        let valid = run(false, 1, false, false, true, false);
+        assert_eq!(valid.reverted, [true, false]);
+        assert_eq!(valid.retry_reverted, [true, false]);
+        assert!(valid.verify().is_ok());
+        assert!(run(true, 1, false, false, false, false).verify().is_ok());
+        assert!(run(true, 1, true, false, false, false).verify().is_ok());
+        // A committed retry cannot consume lookup-only authorization.
+        assert!(run(true, 1, false, false, true, false).verify().is_err());
+        assert!(run(false, 1, false, false, false, false).verify().is_err());
+        assert!(run(false, 1, true, false, true, false).verify().is_err());
+        // An inner explicit revert remains valid evidence under an outer halt.
+        assert!(run(false, 1, true, true, true, false).verify().is_ok());
+        for nested in [false, true] {
+            let broad = run(false, 2, false, nested, true, false);
+            assert_eq!(broad.reverted, [true, true, false]);
+            assert_eq!(broad.retry_reverted, [false, false, false]);
+            assert!(broad.verify().is_err());
+        }
+        let separate = run(false, 1, false, false, true, true);
+        assert_eq!(separate.transaction_ends, [1, 2]);
+        assert!(separate.verify().is_err());
+        // The exact-match path must enforce the same commitment distinction.
+        assert!(run(true, 0, false, false, true, false).verify().is_err());
+        assert!(run(false, 0, false, false, true, false).verify().is_ok());
+    }
+
+    #[test]
+    fn constructor_rollback_is_lookup_evidence_but_not_retry_evidence() {
+        let (config, parent, attributes) = configuration(2_000_000);
+        let env = config.next_evm_env(&parent, &attributes).unwrap();
+        let data = executeCrossChainCallCall {
+            sourceAddress: signer().address(),
+            callData: Bytes::from_static(b"lookup"),
+        }
+        .abi_encode();
+        // Copy an appended payload to memory before executing the supplied body.
+        fn with_payload(mut body: Vec<u8>, payload: &[u8]) -> Vec<u8> {
+            let length = u16::try_from(payload.len()).unwrap().to_be_bytes();
+            let offset = u16::try_from(8 + body.len()).unwrap().to_be_bytes();
+            let mut code = vec![
+                0x61, length[0], length[1], 0x61, offset[0], offset[1], 0x5f, 0x39,
+            ];
+            code.append(&mut body);
+            code.extend(payload);
+            code
+        }
+        let mut state = static_call_database(42);
+        // The constructor calls the proxy, then explicitly reverts.
+        let mut body = vec![
+            0x5f,
+            0x5f,
+            0x60,
+            u8::try_from(data.len()).unwrap(),
+            0x5f,
+            0x5f,
+            0x73,
+        ];
+        body.extend(PROXY.0);
+        body.extend([0x5a, 0xf1, 0x50, 0x5f, 0x5f, 0xfd]);
+        let init = with_payload(body, &data);
+        let size = u16::try_from(init.len()).unwrap().to_be_bytes();
+        let outer = with_payload(
+            vec![0x61, size[0], size[1], 0x5f, 0x5f, 0xf0, 0x50, 0x00],
+            &init,
+        );
+        let factory = Address::repeat_byte(0x44);
+        state.insert_account_info(
+            factory,
+            AccountInfo {
+                code: Some(Bytecode::new_raw(outer.into())),
+                ..Default::default()
+            },
+        );
+        let mut semantics = static_semantics();
+        semantics[0].actions[0].call_mode = CallMode::Mutable;
+        semantics[0].actions[0].revert_spans = vec![1];
+        let mut inspector = EffectInspector::new(REGISTRY, 1, &semantics).unwrap();
+        let result = config
+            .evm_with_env_and_inspector(&mut state, env, &mut inspector)
+            .transact(config.tx_env(tx(0, factory, 1_000_000, Bytes::new())))
+            .unwrap();
+        assert!(result.result.is_success());
+        assert_eq!(inspector.reverted, [true]);
+        assert_eq!(inspector.retry_reverted, [false]);
+        assert_eq!(inspector.transaction_ends, [1]);
+        assert!(inspector.verify().is_ok());
     }
 
     #[test]

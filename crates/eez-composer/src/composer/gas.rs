@@ -32,11 +32,17 @@ impl CompanionEstimate {
         }
     }
 
-    fn bounded(simulated: u64, callback_gas: u64, protocol_reserve: u64, declared: u64) -> Self {
+    fn bounded(simulated: super::CompositionGas, protocol_reserve: u64, declared: u64) -> Self {
+        // Shared rows remove reverted attempts from the semantic stream, but
+        // native source execution still pays for every manager lookup.
+        if simulated.folded_retries {
+            return Self::declared(declared);
+        }
         // An admission prediction above the signed limit is not evidence that
         // this source is invalid. Native execution remains the acceptance gate.
         let predicted = simulated
-            .saturating_add(callback_gas)
+            .source
+            .saturating_add(simulated.l1_target)
             .saturating_add(protocol_reserve);
         Self {
             gas: predicted.min(declared),
@@ -269,12 +275,7 @@ impl Projection {
         // Intercepted cross-chain frames return gas to their source caller.
         // Every L1 callback's measured application work is therefore separate
         // from source simulation, including work in a reverted span.
-        Ok(CompanionEstimate::bounded(
-            simulated.source,
-            simulated.l1_target,
-            reserve,
-            declared,
-        ))
+        Ok(CompanionEstimate::bounded(simulated, reserve, declared))
     }
 
     fn companion_action_discount(
@@ -1566,10 +1567,26 @@ mod tests {
         let one = std::slice::from_ref(&e);
         let reserve = p.companion_reserve(one).unwrap();
         assert_eq!(reserve, 79_200);
-        let estimated = CompanionEstimate::bounded(40_000, 0, reserve, 200_000);
+        let estimated = CompanionEstimate::bounded(
+            super::super::CompositionGas {
+                source: 40_000,
+                l1_target: 0,
+                folded_retries: false,
+            },
+            reserve,
+            200_000,
+        );
         assert_eq!(estimated.gas, 119_200);
         assert_eq!(estimated.basis, "bounded_protocol");
-        let capped = CompanionEstimate::bounded(40_000, 0, reserve, 100_000);
+        let capped = CompanionEstimate::bounded(
+            super::super::CompositionGas {
+                source: 40_000,
+                l1_target: 0,
+                folded_retries: false,
+            },
+            reserve,
+            100_000,
+        );
         assert_eq!(capped.gas, 100_000);
         assert_eq!(capped.basis, "bounded_capped");
         let mut budget = PostBatchGasBudget::new(10_000_000);
@@ -1644,12 +1661,50 @@ mod tests {
     }
 
     #[test]
+    fn folded_retries_reserve_the_declared_limit_instead_of_one_lookup() {
+        let gas = super::super::CompositionGas {
+            source: 72_931,
+            l1_target: 0,
+            folded_retries: true,
+        };
+        let estimate = CompanionEstimate::bounded(gas, 72_300, 8_000_000);
+        assert_eq!(estimate.gas, 8_000_000);
+        assert_eq!(estimate.protocol_reserve, None);
+        assert_eq!(estimate.basis, "declared_limit");
+        let mut budget = PostBatchGasBudget::new(18_000_000);
+        budget.block_cap = 18_000_000;
+        let projection = model(0);
+        let entry = deferred();
+        let cost = projection.cost(std::slice::from_ref(&entry), 0, false, None);
+        assert!(budget.try_accept_with_companion(cost, 8_000_000, estimate.gas));
+        assert!(budget.try_accept_with_companion(cost, 8_000_000, estimate.gas));
+        assert!(!budget.try_accept_with_companion(cost, 8_000_000, estimate.gas));
+    }
+
+    #[test]
     fn companion_execution_charges_callbacks_and_caps_overflow_without_rejection() {
-        let estimate = CompanionEstimate::bounded(40_000, 1_000_000, 90_000, 2_000_000);
+        let estimate = CompanionEstimate::bounded(
+            super::super::CompositionGas {
+                source: 40_000,
+                l1_target: 1_000_000,
+                folded_retries: false,
+            },
+            90_000,
+            2_000_000,
+        );
         assert_eq!(estimate.gas, 1_130_000);
         assert_eq!(estimate.basis, "bounded_protocol");
         assert_eq!(
-            CompanionEstimate::bounded(u64::MAX, 1, 1, 500_000).gas,
+            CompanionEstimate::bounded(
+                super::super::CompositionGas {
+                    source: u64::MAX,
+                    l1_target: 1,
+                    folded_retries: false
+                },
+                1,
+                500_000
+            )
+            .gas,
             500_000
         );
     }

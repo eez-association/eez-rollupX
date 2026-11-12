@@ -16,6 +16,53 @@ contract SetterWrapper {
     uint256 public mixedAfter;
     bool public lastChanged;
     uint256 public lastNewValue;
+    bool public caught;
+
+    error LocalFrameReverted(uint256 result);
+
+    function incrementThenRevert() external {
+        require(msg.sender == address(this));
+        revert LocalFrameReverted(_increment());
+    }
+
+    function incrementWithLocalRetry(uint256 expected) external {
+        try this.incrementThenRevert() {
+            revert("expected local revert");
+        } catch (bytes memory reason) {
+            require(keccak256(reason) == keccak256(abi.encodeWithSelector(LocalFrameReverted.selector, expected)));
+            caught = true;
+        }
+        lastNewValue = _increment();
+        require(lastNewValue == expected, "remote state did not roll back");
+    }
+
+    // Deliberately changes the committed effects between intercepted composition
+    // and native manager execution. A quote must reject both variants.
+    function incrementWithGasDependentRollback(bool retry, uint256 expected) external {
+        uint256 beforeCall = gasleft();
+        try this.gasDependentIncrementFrame(retry) {}
+        catch (bytes memory reason) {
+            require(keccak256(reason) == keccak256(abi.encodeWithSelector(LocalFrameReverted.selector, expected)));
+        }
+        if (retry && beforeCall - gasleft() > 20_000) {
+            require(_increment() == expected);
+        }
+    }
+
+    function gasDependentIncrementFrame(bool alwaysRevert) external {
+        require(msg.sender == address(this));
+        uint256 beforeCall = gasleft();
+        uint256 result = _increment();
+        if (alwaysRevert || beforeCall - gasleft() < 20_000) {
+            revert LocalFrameReverted(result);
+        }
+    }
+
+    function _increment() private returns (uint256) {
+        (bool ok, bytes memory result) = proxy.call(abi.encodeWithSignature("increment()"));
+        require(ok);
+        return abi.decode(result, (uint256));
+    }
 
     /// Carries the L2 `Value.setValue` return tuple back into an L1 log:
     /// `input` is what we sent, `changed`/`newValue` is what L2 returned.

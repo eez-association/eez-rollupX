@@ -278,7 +278,8 @@ impl CompositionBuilder {
     /// 2. Apply any final queued target-session rollback, require every call
     ///    to be resolved, mutable, and supported, then validate its explicit
     ///    parent links and rollback spans as preorder.
-    /// 3. Materialize one active-entry stream per participating chain.
+    /// 3. Share identical adjacent successful inbound retries in flat,
+    ///    single-call rollback scopes, then materialize the active entries.
     /// 4. Package the entry rollup and sorted non-entry outputs.
     /// 5. Package the source and sorted target batches as [`Composition`].
     ///
@@ -311,6 +312,9 @@ impl CompositionBuilder {
                 }
                 .into());
             }
+        }
+        if self.entry_rollup_id.is_mainnet() {
+            self.recorded = reuse_inbound_retry_results(self.recorded);
         }
         materialize_actions(self.entry_rollup_id, self.recorded)
     }
@@ -610,6 +614,47 @@ impl CompositionBuilder {
             "annotated revert span and queued session rollback"
         );
     }
+}
+
+/// A reverted lookup and its identical committing retry use the same queue row
+/// on L1. Giving the lookup a separate no-op row shadows the committing row
+/// after the cursor rolls back. Emit the shared committing call once instead.
+///
+/// Only adjacent callback-free roots with independent single-call rollback
+/// scopes are folded. Both simulations must have succeeded with identical
+/// results; gas usage is not part of the saved result. More complex forests
+/// retain their full semantics and remain subject to native replay validation.
+/// This is live composition only: historical semantic decoding is unchanged.
+fn reuse_inbound_retry_results(recorded: Vec<crate::ExecutedAction>) -> Vec<crate::ExecutedAction> {
+    if recorded
+        .iter()
+        .any(|call| call.parent_index.is_some() || call.revert_spans.iter().any(|&span| span != 1))
+    {
+        return recorded;
+    }
+    let mut retained: Vec<crate::ExecutedAction> = Vec::with_capacity(recorded.len());
+    for call in recorded.into_iter().rev() {
+        if let Some(retry) = retained.last()
+            && !call.revert_spans.is_empty()
+            && retry.revert_spans.is_empty()
+            && call.call_mode == crate::CallMode::Mutable
+            && retry.call_mode == call.call_mode
+            && call.source_rollup_id == retry.source_rollup_id
+            && call.source_address == retry.source_address
+            && call.target_rollup_id == retry.target_rollup_id
+            && call.target_address == retry.target_address
+            && call.value == retry.value
+            && call.data == retry.data
+            && call.outcome.is_success()
+            && retry.outcome.is_success()
+            && call.outcome.return_data() == retry.outcome.return_data()
+        {
+            continue;
+        }
+        retained.push(call);
+    }
+    retained.reverse();
+    retained
 }
 
 /// Materialize one resolved semantic cross-chain transaction into its source
@@ -1940,6 +1985,62 @@ mod tests {
         callback.call_mode = crate::CallMode::Static;
         builder.open_call(RollupId(1), &callback).unwrap();
         assert!(builder.executing_static_read_callback());
+    }
+
+    #[test]
+    fn inbound_local_revert_retry_reuses_the_committing_entry() {
+        let mut builder = CompositionBuilder::new(
+            RollupId::MAINNET,
+            HashMap::from([
+                (RollupId::MAINNET, entry_rollup([0; 32])),
+                (RollupId(1), rollup_with_session([0x11; 32])),
+            ]),
+        );
+        builder.dispatch_call(RollupId(1), make_request(1)).unwrap();
+        builder.annotate_revert_span(0, 1);
+        builder.dispatch_call(RollupId(1), make_request(1)).unwrap();
+        let original = builder.recorded.clone();
+        let historical = materialize_actions(RollupId::MAINNET, original.clone()).unwrap();
+        assert_eq!(
+            historical.source.batch.entries.len(),
+            2,
+            "historical decoding is unchanged"
+        );
+        let composition = builder.finalize().unwrap();
+        assert_eq!(composition.source.batch.entries.len(), 1);
+        assert_eq!(composition.targets.len(), 1);
+        assert_eq!(composition.targets[0].batch.entries.len(), 1);
+
+        let mut repeated = original.clone();
+        repeated.insert(0, original[0].clone());
+        assert_eq!(reuse_inbound_retry_results(repeated).len(), 1);
+
+        // Each variation must preserve both calls for ordinary validation;
+        // matching calldata alone is not enough to authorize row reuse.
+        for variant in 0..7 {
+            let mut calls = original.clone();
+            match variant {
+                0 => calls[0].revert_spans.clear(),
+                1 => calls[1].revert_spans.push(1),
+                2 => calls[1].data = Bytes::from_static(b"different"),
+                3 => calls[1].value += U256::from(1),
+                4 => {
+                    calls[1].outcome = ExecutionOutcome::Resolved {
+                        return_data: vec![0xff],
+                        gas_used: 1,
+                        success: true,
+                    }
+                }
+                5 => calls[1].parent_index = Some(0),
+                6 => calls[0].revert_spans = vec![2],
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                reuse_inbound_retry_results(calls).len(),
+                2,
+                "variant {variant}"
+            );
+        }
     }
 
     #[test]

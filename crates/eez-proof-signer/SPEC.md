@@ -64,7 +64,10 @@ where:
   L1-origin call tree; and
 - each inbound lookup represents a failed destination call or a call whose L1
   source frame later reverts. It retains the source-visible outcome but has no
-  L2 effect.
+  L2 effect. Live composition may instead share an identical committing entry
+  across adjacent successful retries in flat, callback-free, single-call rollback
+  scopes. Those reverted attempts are omitted from the canonical action stream;
+  this does not change validation of historical lookup entries.
 
 Top-level L1-origin static calls are carried separately in `staticEntries` and
 are pinned at their exact FIFO positions relative to mutable entries.

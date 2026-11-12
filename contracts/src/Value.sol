@@ -17,6 +17,10 @@ contract Value {
         value = initial;
     }
 
+    function increment() external returns (uint256) {
+        return ++value;
+    }
+
     /// Stable read used to test mixed read/write groups independently of the
     /// execution-position-dependent result selection.
     function readMarker(uint256 marker) external pure returns (uint256) {

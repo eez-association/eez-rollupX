@@ -1255,6 +1255,20 @@ An unconfigured direction returns `-32004` with `error.data.code = "quotes_disab
 Regular node/follower transports do not expose either method. These are project-specific JSON-RPC
 methods, not Ethereum standard methods.
 
+An L1 application may catch its own frame revert and retry an identical,
+successful L1-to-L2 call. For adjacent callback-free calls in a flat call forest,
+with rollback scopes covering one call each and identical results, live composition
+reuses the committing entry, including repeated attempts and identical value-bearing
+calls: rollback restores its cursor and only the surviving retry delivers to L2.
+This applies to both quoting and settlement composition. Folded retries retain
+the signed source gas limit for admission because native execution pays for every
+attempt. Replay verifies whether each successful mutable inbound root actually
+commits or rolls back, including lookup-only expectations. This does not extend support to changed results, callbacks,
+or broader rollback scopes. Native replay still validates the resulting effects.
+The representation uses existing semantic messages; historical decoding, signer
+validation, follower replay and the protocol pin are unchanged. No migration is
+required; older Composers can still reject these quotes after a rollback.
+
 ```json
 {
   "jsonrpc": "2.0", "id": 1, "method": "eez_quoteFee",
