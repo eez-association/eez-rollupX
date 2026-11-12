@@ -771,6 +771,8 @@ fn validate_field_elements(blob_index: usize, blob: &[u8]) -> Result<(), Error> 
 
 #[cfg(test)]
 mod tests {
+    mod malformed_native;
+
     use super::*;
     use alloy_primitives::{address, bytes};
 
