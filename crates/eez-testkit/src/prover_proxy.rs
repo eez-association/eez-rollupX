@@ -450,7 +450,7 @@ impl Prover for ProverProxyService {
                                     "direction": "client", "transport": transport, "kind": kind,
                                     "request_id": frame.request_id, "bytes": frame.encoded_len(),
                                     "number": block.map(|b| b.number),
-                                    "l1_headers": headers.map_or(0, |h| h.len()),
+                                    "l1_headers": headers.map_or(0, Vec::len),
                                     "l1_header_bytes": headers.map_or(0, |h| h.iter().map(Vec::len).sum::<usize>()),
                                 }))?;
                             }
