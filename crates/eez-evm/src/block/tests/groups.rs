@@ -48,11 +48,17 @@ impl Fixture {
     }
 
     fn executor(&mut self) -> Executor<'_> {
+        self.executor_with_fees(0, Address::ZERO)
+    }
+
+    fn executor_with_fees(&mut self, basefee: u64, beneficiary: Address) -> Executor<'_> {
         let evm = self.factory.evm_factory().create_evm(
             &mut self.state,
             EvmEnv {
                 cfg_env: CfgEnv::new_with_spec(SpecId::OSAKA).with_chain_id(1337),
                 block_env: BlockEnv {
+                    basefee,
+                    beneficiary,
                     number: U256::ONE,
                     timestamp: U256::from(5),
                     gas_limit: 30_000_000,
@@ -79,11 +85,20 @@ impl Fixture {
 }
 
 fn ordinary(nonce: u64, to: Address, value: u64) -> Recovered<EezTxEnvelope> {
+    ordinary_at_price(nonce, to, value, 0)
+}
+
+fn ordinary_at_price(
+    nonce: u64,
+    to: Address,
+    value: u64,
+    gas_price: u128,
+) -> Recovered<EezTxEnvelope> {
     let tx = TxLegacy {
         chain_id: Some(1337),
         nonce,
         gas_limit: 100_000,
-        gas_price: 0,
+        gas_price,
         to: TxKind::Call(to),
         value: U256::from(value),
         input: Bytes::new(),
@@ -116,6 +131,91 @@ fn balance(executor: &mut Executor<'_>, account: Address) -> U256 {
         .basic(account)
         .unwrap()
         .map_or(U256::ZERO, |a| a.balance)
+}
+
+#[test]
+fn paid_groups_reconcile_value_fees_and_both_cleanup_boundaries() {
+    const OPENING: u64 = 100_000_000;
+    const PAYEE: Address = Address::with_last_byte(99);
+    const BENEFICIARY: Address = Address::with_last_byte(100);
+    let collector = crate::tests::FEE_COLLECTOR;
+    for (target, success) in [
+        (bytes!("00"), true),
+        (bytes!("5f5ffd"), false),
+        (bytes!("fe"), false),
+    ] {
+        // This stub pays seven wei during the load. Real manager/callback
+        // funding is checked separately by ProtocolGroupFunding.t.sol.
+        let mut manager = bytes!("5f5f5f5f600773").to_vec();
+        manager.extend_from_slice(PAYEE.as_slice());
+        manager.extend_from_slice(&bytes!("5af15000"));
+        let mut f = Fixture::new(manager.into(), target);
+        f.state
+            .database
+            .insert_account_info(USER, AccountInfo::from_balance(U256::from(OPENING)));
+        let mut executor = f.executor_with_fees(10, BENEFICIARY);
+        executor
+            .execute_transaction(ordinary_at_price(0, SYSTEM_ADDRESS, 9, 13))
+            .unwrap();
+        let gas_before_load = executor.cumulative_tx_gas_used;
+        let fee_before_load = balance(&mut executor, collector);
+        executor
+            .execute_transaction(native(&executor, true, 37))
+            .unwrap();
+        assert!(executor.cumulative_tx_gas_used > gas_before_load);
+        assert_eq!(balance(&mut executor, collector), fee_before_load);
+        assert_eq!(balance(&mut executor, PAYEE), U256::from(7));
+        assert_eq!(balance(&mut executor, EEZL2_ADDRESS), U256::from(30));
+        assert_eq!(balance(&mut executor, SYSTEM_ADDRESS), U256::from(9));
+        executor
+            .execute_transaction(ordinary_at_price(1, TARGET, 11, 13))
+            .unwrap();
+        assert_eq!(executor.receipts()[2].success, success);
+        for account in PROTOCOL_BALANCE_ACCOUNTS {
+            assert_eq!(balance(&mut executor, account), U256::ZERO);
+        }
+        assert_eq!(
+            balance(&mut executor, TARGET),
+            U256::from(if success { 11 } else { 0 })
+        );
+        executor
+            .execute_transaction(ordinary_at_price(2, SYSTEM_ADDRESS, 5, 13))
+            .unwrap();
+        assert_eq!(balance(&mut executor, SYSTEM_ADDRESS), U256::from(5));
+        let receipts = executor.receipts();
+        let paid_gas = receipts[3].cumulative_gas_used
+            - (receipts[1].cumulative_gas_used - receipts[0].cumulative_gas_used);
+        assert_eq!(balance(&mut executor, collector), U256::from(10 * paid_gas));
+        assert_eq!(
+            balance(&mut executor, BENEFICIARY),
+            U256::from(3 * paid_gas)
+        );
+        assert_eq!(
+            balance(&mut executor, USER),
+            U256::from(OPENING - 14 - if success { 11 } else { 0 } - 13 * paid_gas)
+        );
+        let (mut evm, output) = executor.finish().unwrap();
+        assert_eq!(output.receipts.len(), 4);
+        let mut closing = U256::ZERO;
+        for account in [USER, TARGET, PAYEE, collector, BENEFICIARY]
+            .into_iter()
+            .chain(PROTOCOL_BALANCE_ACCOUNTS)
+        {
+            let amount = evm
+                .db_mut()
+                .basic(account)
+                .unwrap()
+                .unwrap_or_default()
+                .balance;
+            if PROTOCOL_BALANCE_ACCOUNTS.contains(&account) {
+                assert_eq!(amount, U256::ZERO);
+            }
+            closing += amount;
+        }
+        // Opening + successful native mint - group residue - final donation.
+        // Fees stay in this ledger, including for reverted/halted paid users.
+        assert_eq!(closing, U256::from(OPENING + 37 - (30 + 9) - 5));
+    }
 }
 
 #[test]

@@ -1,0 +1,1705 @@
+{
+  "issue": "https://github.com/eez-association/eez-rollupX/issues/146",
+  "date_utc": "2026-11-12",
+  "base": "601ebfa9c7e1a779f1afbd077bd31a3207e7a61b",
+  "base_verified_against_association_main": true,
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "candidate_identity": "Base plus the test-only changes identified below; documentation is not executable input. The containing Git commit identifies the complete candidate.",
+  "frozen_review": {
+    "source": "1b66d9bda675e6f8e83f514153a97136909acc06",
+    "source_protocol": "143d87e62cade98bfc122d612638dcaaf1c85633",
+    "target": "31e148f50dd79730b17d113ac78795eb377eb5c5",
+    "target_protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "source_evm_sha256": "e44a10b510b9b580c3ee6e519dc3adda07f1e85226114355eaaa7d4dba789702",
+    "original_review_input_provenance_independently_verified": false,
+    "exclusions": [
+      "Later/unmerged rollup0#236",
+      "Reopening the 174-commit original audit"
+    ]
+  },
+  "functional_defect_established": false,
+  "production_code_changed": false,
+  "bug_fix_baseline_failure_claimed": false,
+  "source_sha256": {
+    "Cargo.lock": "97e258cec5cfec14b2ec38f03bad0098c86b7b5fc081fc299b1eb9f02d2781f5",
+    "genesis.json": "af18c662f3975356c625c7bff9271a82e4be265ab7780c218dcc5c169385372b",
+    "crates/eez-evm/src/evm.rs": "b43a8ef0282c087b73bd0fa7a310e655e16db466f93a36979ede578519263bb7",
+    "crates/eez-evm/src/block.rs": "229e0745f6fd10a85df5e055a0a621ff356d465b1b9839ca822f6201f432efa9",
+    "crates/eez-evm/src/balances.rs": "50e9739231373ed8a3989935e163d19f9d3f8d4d0eeff7756e7733a9aaf15611",
+    "crates/eez-evm/src/stateless.rs": "b40fa670dddfee9c67da1bcfa78ce26aff5b390013052e761f33b1af431feeeb",
+    "crates/eez-evm/src/block/tests/groups.rs": "d91faee49099a6a1c129d60d45f6342474835ea33bbb00d689a396ed6f42bd3c",
+    "crates/eez-evm/src/tests.rs": "732aad6e7f68d881ef331ac1d42222b7282f675fa0f81bf172e1f82b50b9a5ec",
+    "contracts/test/ProtocolGroupFunding.t.sol": "cab0fe5737122c0d606190c8c43e1ddbf3f11a853a1038536dcd5bbbeebf272e"
+  },
+  "environment": {
+    "rust": "1.95.0",
+    "foundry": "1.7.1 (4072e48705af9d93e3c0f6e29e93b5e9a40caed8)",
+    "solc": "0.8.34+commit.80d5c536.Linux.g++",
+    "via_ir": true,
+    "optimizer_runs": 1,
+    "cargo_env": {
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_TARGET_DIR": "/tmp/issue146-target",
+      "TMPDIR": "/tmp/issue146-tmp",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_DEV_OPT_LEVEL": "0",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "profile_note": "Local overrides only; manifest package-specific overrides still apply. Shipping configuration and dependency versions unchanged.",
+    "initial_capacity": {
+      "repository_disk_available": "1.1 GiB",
+      "tmp_available": "7.4 GiB",
+      "memory_available": "16 GiB",
+      "other_native_build_active": true
+    },
+    "ownership": [
+      "artifacts/issue146",
+      "/tmp/issue146-target",
+      "/tmp/issue146-tmp",
+      "contracts/out",
+      "contracts/cache"
+    ],
+    "other_task_outputs_pruned": false,
+    "anvil_or_kurtosis_resources_started": false,
+    "live_network_actions": false,
+    "stage": "initial submission, before scratch space was freed"
+  },
+  "checks": [
+    {
+      "command": "forge test --root contracts --match-contract 'ProtocolGroupFundingTest|FeeVaultTest' --threads 1",
+      "stage": "Unmodified requested base, before test edits",
+      "result": "pass",
+      "passed": 26,
+      "failed": 0,
+      "skipped": 0,
+      "log": "baseline-contracts.log"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-evm --lib",
+      "stage": "Unmodified production base with the new test-only Rust changes, not a pristine-base run",
+      "result": "pass",
+      "passed": 46,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0,
+      "log": "baseline-evm.log"
+    },
+    {
+      "command": "forge test --root contracts --match-contract ProtocolGroupFundingTest --threads 1",
+      "result": "pass",
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "new_fuzz_runs": 256,
+      "existing_fuzz_runs": 256,
+      "log": "qualified-group-funding.log"
+    },
+    {
+      "command": "forge test --root contracts --threads 1",
+      "result": "pass",
+      "passed": 154,
+      "failed": 0,
+      "skipped": 0,
+      "log": "contracts.log",
+      "warnings": "Existing compiler warnings retained; no warnings or tests suppressed."
+    },
+    {
+      "command": "cargo +1.95.0 clippy --locked -p eez-evm --all-targets --features stateless -- -D warnings",
+      "result": "pass_after_environment_correction",
+      "log": "clippy-evm-clean-target.log",
+      "first_attempts": [
+        "clippy-evm.log",
+        "clippy-evm-retry.log"
+      ],
+      "correction": "Retained passing default EVM test executable, then removed only the owned temporary Cargo target and rebuilt metadata. Both prior attempts failed to write ark-bls12-381 metadata with OS error 122; no lint/assertion finding was suppressed."
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-evm --features stateless --lib",
+      "result": "pass",
+      "passed": 49,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0,
+      "log": "evm-stateless.log",
+      "note": "Includes the 46 default EVM tests plus three adapter units; do not add both runs as unique coverage."
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-protocol -p eez-blob-codec -p eez-payload-codec",
+      "result": "pass",
+      "passed": 323,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0,
+      "log": "protocol-codecs.log",
+      "targets": {
+        "blob_unit": 23,
+        "ethereum_kzg_compatibility": 1,
+        "payload_unit": 17,
+        "payload_issue35": 2,
+        "protocol_unit": 233,
+        "call_patterns": 31,
+        "causal_evidence": 11,
+        "public_inputs_hash_vectors": 3,
+        "rolling_hash_vectors": 2
+      },
+      "doctests": "Three doctest targets select zero tests; not counted as behavioral coverage."
+    },
+    {
+      "command": "cargo +1.95.0 fmt --all --check",
+      "result": "pass"
+    },
+    {
+      "command": "forge fmt --check --root contracts",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    },
+    {
+      "command": "Resolve edited Markdown relative paths at the initialized protocol pin; parse validation JSON",
+      "result": "pass"
+    }
+  ],
+  "not_run": [
+    {
+      "check": "Full release-artifact/Kurtosis and unselected native E2E matrix; real builder ordered-refund exercise",
+      "reason": "CI owns the full release/network matrix. 14 of 211 native cases were selected; live network procedures are not authorized. Seven opt-in tooling exercises and three fork Core tests remain explicit exclusions."
+    },
+    {
+      "check": "Composite monetary qualification scenarios listed in README",
+      "reason": "The selected passing process checks do not implement every proposed closed-ledger case, especially the exact hand-built terminal row producer/signer binding and supported failed descendants with complete fee/cleanup accounting."
+    }
+  ],
+  "executable_sha256": {
+    "default_evm_test": "f05ad5be73e42aa200a455754f598e26db9887bb874f576a81f03d780a6452a4",
+    "stateless_evm_test": "c0d68b7435481ada3ca5ed4a5974e828cc3b71ba96f375e8bd7bb7c042334432",
+    "forge": "4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c",
+    "anvil_not_executed": "10c1c727d6c1de973aeb160e59875b9a9a23464d6e74149ee8abb30b3500311b",
+    "solc": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39"
+  },
+  "compiled_contract_artifact_sha256": {
+    "contracts/out/ProtocolGroupFunding.t.sol/ProtocolGroupFundingTest.json": "a9686366d720f4798eb66bb8dc35143b3bc2d242295828718b3b441a8a4e7219",
+    "contracts/out/FeeVault.sol/FeeVault.json": "97e59456cacf0c0773c2358a7ba88c32c5460c7dd7ea0a9e3b133898fe53efb7"
+  },
+  "local_log_sha256": {
+    "baseline-contracts.log": "5341b0652029153ac9986b73d35b75b2549ff1aa77bd0f8185866dd05a2211d6",
+    "baseline-evm.log": "bc3a1c0baff50faf423d6e4d4e32b8f5f95fd9dc4aa70d7714166b67ca29cc13",
+    "clippy-evm-clean-target.log": "1ad0de1f114303400681eaae79d9a8b8ab9f0c645967fcdf2f10dc5a8ba3e27e",
+    "clippy-evm-retry.log": "b44bd338dc6ab9b82ba45cfe493161d0f6813ac5c797cda18069e7ab378d7bcb",
+    "clippy-evm.log": "5e4abf92d06bbe85c954c21b6d6a0452b3908de669ec3e4cedaceecf46d0eb17",
+    "contracts.log": "3bb51067c0062a253d2a34b4a2548deb89ad0dfa73402a37190eafc104f729fe",
+    "evm-stateless.log": "f925f0fee18e796fbad353f114ff6e4e26919e22fa64b85aff6bf186d4e0be22",
+    "protocol-codecs.log": "aae6de42a605c49e674f4c6aa8578455ea841e5751de58a7f77bb90ad9ac64ea",
+    "qualified-group-funding.log": "caa3ed4c81ea8f95ffcc14b1098ca9e459ff1dc77b0d93c50033973c75a272b7"
+  },
+  "retention_note": "Raw logs and executables are retained locally in ignored artifacts/issue146, not committed or claimed as independently downloadable evidence. Temporary Cargo output may be cleared only after executable identity/retention.",
+  "ponytail_review": {
+    "instructions_revision": "96608e078b2d5ea607c5c3b8b5a54d1c1fba6846",
+    "rules": "https://github.com/DietrichGebert/ponytail/blob/96608e078b2d5ea607c5c3b8b5a54d1c1fba6846/skills/ponytail/SKILL.md",
+    "review": "https://github.com/DietrichGebert/ponytail/blob/96608e078b2d5ea607c5c3b8b5a54d1c1fba6846/skills/ponytail-review/SKILL.md",
+    "scope": "Single-agent branch review: changed tests, helpers, production fee/mint/group/finalization callers, pinned manager/proxies, shared funding/effect consumers and evidence claims.",
+    "expected_load": "Three deterministic paid executor outcomes and 256 bounded new Foundry fuzz cases; no shipping runtime load added.",
+    "confirmed_findings": [],
+    "verdict": "Ship the bounded test/documentation change; unrun qualification and CI gates remain explicit.",
+    "instruction_file_sha256": {
+      "ponytail-SKILL.md": "9badd22a32e19cb884e46dfa8d3aae82bb81dfa5484105b8b4f0262df823a509",
+      "ponytail-review-SKILL.md": "33fe4ebe22a460924e5d4a261e223df22e409cc94ab76182bee9fb91a3ef022e"
+    },
+    "stage": "initial single-agent review; subsequent Fable review found the evidence corrections recorded below"
+  },
+  "initial_submission_not_run": [
+    {
+      "check": "Workspace --all-targets Clippy, workspace binaries/tests, full signer/RPC/Composer unit suites and frozen session replay",
+      "reason": "No production/identity/schema changes; resource-constrained local run uses focused EVM lint/tests and shared protocol/codecs. Disk remained under 1 GiB free and shared temporary-file quota was hit twice. Not replaced by historical passes."
+    },
+    {
+      "check": "Source-based eez-node-e2e process scenarios, including the new monetary scenario through Composer/signer/cold follower",
+      "reason": "Runtime source build and owned runtime/datadir storage do not fit current disk/quota headroom. No stale binaries substituted. Remaining cases are named in README; historical #112 process evidence is retained as historical."
+    },
+    {
+      "check": "Full pinned Core forge suite/build and protocol Anvil scenario runner",
+      "reason": "Core and pin unchanged; real pinned EEZL2/proxies were exercised by the fresh integration-contract suite. Full Core/Anvil matrix is not claimed. If running the full Core suite, retain script/*, test_Doc_OriginalValue_SeedInSetup and test_PostCost_Incremental exclusions; they are not coverage."
+    },
+    {
+      "check": "Genesis fixture regeneration/check and independent genesis-root helper rebuild",
+      "reason": "No runtime/compiler/genesis changes; fresh production-genesis zero-funding regression passed."
+    },
+    {
+      "check": "Full release-artifact/Kurtosis matrix, real builder refund exercise, live/network/performance checks",
+      "reason": "CI owns the release/Kurtosis matrix. No live operations authorized, no performance or ordered-refund claim."
+    }
+  ],
+  "followup_validation": {
+    "requested_scope": "Complete the remaining applicable process and workspace checks, address a Claude Fable 5.2 adversarial review, update validation and push; no merge or live-network action.",
+    "source_head": "68af64a7fb025aa0ffe8117a3082a5504e703522",
+    "source_note": "Production Rust, dependencies, genesis and protocol remain unchanged from this head. Working-tree changes correct the Solidity test oracle/comments and evidence documentation; their final hashes are recorded at completion.",
+    "capacity_after_user_cleanup": {
+      "repository_disk_available": "approximately 1 TiB",
+      "memory_available": "21 GiB at initial follow-up inspection",
+      "other_native_build_active": true
+    },
+    "owned_resources": [
+      "target",
+      "artifacts/issue146-followup",
+      "eez-core-protocol/out",
+      "eez-core-protocol/cache",
+      "eez-core-protocol/tmp/e2e-ci-G1YL0cbo",
+      "eez-core-protocol/broadcast"
+    ],
+    "cargo_common": {
+      "toolchain": "1.95.0",
+      "locked": true,
+      "jobs": 1,
+      "target": "$PWD/target",
+      "temporary_directory": "$PWD/artifacts/issue146-followup/tmp",
+      "debug_information": 0,
+      "incremental": false,
+      "LLVM_SYS_221_PREFIX": "/usr/lib/llvm-22"
+    },
+    "completed_checks": [
+      {
+        "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+        "result": "pass",
+        "local_dev_opt_level": 0,
+        "log": "workspace-clippy.log"
+      },
+      {
+        "command": "cargo +1.95.0 build --locked --workspace",
+        "result": "pass",
+        "local_dev_opt_level": 0,
+        "log": "workspace-build.log",
+        "note": "Local resource-constrained profile override, not a release artifact."
+      },
+      {
+        "command": "cargo +1.95.0 test --locked --workspace --lib --bins -- --test-threads=2",
+        "result": "pass",
+        "local_dev_opt_level": 0,
+        "passed": 1711,
+        "failed": 0,
+        "ignored": 6,
+        "nonempty_targets": 17,
+        "zero_test_targets_not_coverage": 3,
+        "targets": [
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_blob_codec-171e8f66e4f1fb46)",
+            "result": "ok",
+            "passed": 23,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_composer-207c8691118d651b)",
+            "result": "ok",
+            "passed": 454,
+            "failed": 0,
+            "ignored": 1,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_control_rpc-fbf87068547c8c7c)",
+            "result": "ok",
+            "passed": 6,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_deriver-210b50ad5b5d27e0)",
+            "result": "ok",
+            "passed": 49,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_driver-f25dfbf5cbdf4f53)",
+            "result": "ok",
+            "passed": 76,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_evm-2c0d457eed67ec79)",
+            "result": "ok",
+            "passed": 49,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_evm_inspector-13e3a18308112c7c)",
+            "result": "ok",
+            "passed": 29,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_follower-430d131a1a6192c7)",
+            "result": "ok",
+            "passed": 9,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/bin/eez-follower.rs (target/debug/deps/eez_follower-1e3ee8170a46a8df)",
+            "result": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_l1-ec812548288a9dd5)",
+            "result": "ok",
+            "passed": 212,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_node-6b88bc6b70746ec7)",
+            "result": "ok",
+            "passed": 104,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/bin/eez-composer.rs (target/debug/deps/eez_composer-ac0e99579bd3fd31)",
+            "result": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_node_common-f1065f68ed633afa)",
+            "result": "ok",
+            "passed": 34,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_payload_codec-f4c37f20846f7e81)",
+            "result": "ok",
+            "passed": 17,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_primitives-3968422e5f9fad3f)",
+            "result": "ok",
+            "passed": 17,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/main.rs (target/debug/deps/eez_proof_signer-0956126c476369e1)",
+            "result": "ok",
+            "passed": 341,
+            "failed": 0,
+            "ignored": 5,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_protocol-40b875243ef475c4)",
+            "result": "ok",
+            "passed": 233,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_prover-0a59a089cab3bff5)",
+            "result": "ok",
+            "passed": 0,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_prover_client-080c3e4eea3faa1d)",
+            "result": "ok",
+            "passed": 38,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          },
+          {
+            "target": "Running unittests src/lib.rs (target/debug/deps/eez_testkit-da1cabf789c74f40)",
+            "result": "ok",
+            "passed": 20,
+            "failed": 0,
+            "ignored": 0,
+            "measured": 0,
+            "filtered": 0
+          }
+        ],
+        "log": "workspace-units.log"
+      },
+      {
+        "command": "FOUNDRY_ISOLATE=false forge test --root eez-core-protocol --no-match-path script/* --no-match-test test_Doc_OriginalValue_SeedInSetup|test_PostCost_Incremental --threads 1",
+        "result": "pass",
+        "passed": 778,
+        "failed": 0,
+        "skipped": 3,
+        "skipped_names": [
+          "testForkL1UpgradeAndRepeat",
+          "testForkL2UpgradeAndRepeat",
+          "testForkRejectsWrongSigningKey"
+        ],
+        "exclusions_not_coverage": [
+          "script/*",
+          "test_Doc_OriginalValue_SeedInSetup",
+          "test_PostCost_Incremental"
+        ],
+        "log": "core-forge.log"
+      },
+      {
+        "command": "forge build --root eez-core-protocol",
+        "result": "pass",
+        "log": "core-build.log"
+      },
+      {
+        "command": "forge test --root contracts --threads 1",
+        "result": "pass",
+        "stage": "After the Fable review oracle/comment corrections",
+        "passed": 154,
+        "failed": 0,
+        "skipped": 0,
+        "log": "contracts.log"
+      },
+      {
+        "command": "BASE_PORT=24000 BASE_CHAIN_ID=146000 bash scripts/ci/run-protocol-anvil.sh",
+        "result": "pass",
+        "passed": 64,
+        "failed": 0,
+        "not_run": 0,
+        "port_range": [
+          24000,
+          24127
+        ],
+        "all_scenarios_have_ComputeExpected": true,
+        "semantics": "Existing local Core execution/table/hash/event verifiers; fixture proofs, not Rust signer or canonical native-runtime replay evidence.",
+        "scenarios": [
+          {
+            "scenario": "multi-call-twice",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 11
+          },
+          {
+            "scenario": "multi-call-two-diff",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 9
+          },
+          {
+            "scenario": "multi-call-twiceL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 9
+          },
+          {
+            "scenario": "multi-call-two-diffL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "counter-multi-tx",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "deepNested",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "flash-loan",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 9
+          },
+          {
+            "scenario": "multi-call-nested",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "nestedCounter",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "multi-call-nestedL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "nestedCounterL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 11
+          },
+          {
+            "scenario": "bridge",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 9
+          },
+          {
+            "scenario": "counter",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 9
+          },
+          {
+            "scenario": "bridgeL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "counterL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "reentrant",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 11
+          },
+          {
+            "scenario": "catchNestedRevertAfterCallback",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "catchRemoteRevertAfterCallback",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 8
+          },
+          {
+            "scenario": "nestedCallRevert",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 11
+          },
+          {
+            "scenario": "revertCounter",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 7
+          },
+          {
+            "scenario": "revertFromOtherChain",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "catchNestedRevertAfterCallbackL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 11
+          },
+          {
+            "scenario": "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 11
+          },
+          {
+            "scenario": "catchRemoteRevertAfterCallbackL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "nestedCallRevertL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 11
+          },
+          {
+            "scenario": "nestedRollbackRestoresInnerThenOuterStateL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 13
+          },
+          {
+            "scenario": "revertCounterL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 9
+          },
+          {
+            "scenario": "revertFromOtherChainAndCallAgainL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "revertFromOtherChainL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "revertFromOtherChainNested",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "rollbackGroupWithStaticReadThenWriteL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 11
+          },
+          {
+            "scenario": "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "mutableCallMakesReadThatCallsBack",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "nestedStaticCounter",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "nestedStaticLocalWriteL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticLocalWrite",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 7
+          },
+          {
+            "scenario": "staticReadCallsBackAndReadsAgain",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 8
+          },
+          {
+            "scenario": "staticReadWrite",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticReadX2Write",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticThenNestedWrites",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "topLevelStaticCounter",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 7
+          },
+          {
+            "scenario": "topLevelStaticReentrantCounter",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 8
+          },
+          {
+            "scenario": "topLevelStaticReentrantMissingProxy",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 8
+          },
+          {
+            "scenario": "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "mutableCallMakesReadThatCallsBackL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 11
+          },
+          {
+            "scenario": "nestedStaticCounterL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 11
+          },
+          {
+            "scenario": "nestedStaticLocalWriteL1",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticCounterL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticLocalWriteL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticReadCallsBackAndReadsAgainL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticReadHandlesFailedCallbackL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticReadPropagatesFailedCallbackL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticReadThenCatchFailedWriteL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 11
+          },
+          {
+            "scenario": "staticReadThenRollbackWriteL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticReadThenWriteWithCallbackL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticReadWriteL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticReadX2WriteL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "staticThenNestedWritesL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 11
+          },
+          {
+            "scenario": "topLevelStaticReentrantCounterL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          },
+          {
+            "scenario": "topLevelStaticReentrantMissingProxyL2",
+            "result": "PASS",
+            "exit_code": 0,
+            "elapsed_seconds": 10
+          }
+        ],
+        "log": "protocol-anvil.log"
+      },
+      {
+        "command": "RUSTDOCFLAGS=-D warnings cargo +1.95.0 doc --locked -p eez-proof-signer --no-deps",
+        "result": "pass",
+        "log": "signer-rustdoc.log"
+      },
+      {
+        "command": "cargo +1.95.0 build --locked -p eez-node --example genesis_state_root; source-built helper on PATH; bash scripts/update-eezl2-genesis.sh --check",
+        "result": "pass",
+        "reported_fixture_state_root": "0xb8287bd821dd8954d3a5fde186e1b7ba5258f0e217d302dd6e3b9714df8d6285",
+        "logs": [
+          "genesis-helper-build.log",
+          "genesis-check.log"
+        ]
+      },
+      {
+        "command": "python3 crates/eez-control-rpc/conformance/check_vectors.py",
+        "result": "pass",
+        "vectors": 29,
+        "kind": "Structural fixture/digest/schema check",
+        "log": "conformance-vectors.log"
+      },
+      {
+        "command": "cargo +1.95.0 build --locked -p eez-node -p eez-follower -p eez-proof-signer --bin eez-composer --bin eez-follower --bin eez-proof-signer",
+        "result": "pass",
+        "local_dev_opt_level": 1,
+        "debug_information": 0,
+        "elapsed_seconds": 3492,
+        "log": "process-runtime-default-profile-build.log"
+      },
+      {
+        "command": "cargo +1.95.0 test --locked -p eez-l1 --features chain-spec --example verify_blob_evidence -- prefixes::tests --test-threads=2",
+        "result": "pass",
+        "passed": 19,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 1,
+        "local_dev_opt_level": 0,
+        "log": "independent-prefix-oracles.log"
+      },
+      {
+        "command": "DOCKER_CONFIG=task-owned-compose-5.5.1 PATH=task-owned-gitleaks-8.30.1:$PATH TMPDIR=task-owned-temp python3 -m unittest discover -s scripts/ci/tests -v",
+        "result": "pass",
+        "total": 549,
+        "passed": 542,
+        "skipped": 7,
+        "failed": 0,
+        "skip_inventory": [
+          "test_scratch_payload_copies_out_without_execution_or_permission_loss (test_ci_payload.DockerPayloadTest.test_scratch_payload_copies_out_without_execution_or_permission_loss) ... skipped 'opt-in real data-only Docker image'",
+          "test_overrides_apply_before_creation_and_preserve_memory_and_command (test_kurtosis_ci.RealRelayResourcesTest.test_overrides_apply_before_creation_and_preserve_memory_and_command) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+          "test_readiness_wait_blocks_the_following_instruction_until_ready (test_kurtosis_ci.RealRelayResourcesTest.test_readiness_wait_blocks_the_following_instruction_until_ready) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+          "test_real_producer_and_all_consumers_without_build_machine_or_compiler (test_native_artifacts.NativeRelocationTest.test_real_producer_and_all_consumers_without_build_machine_or_compiler) ... skipped 'set EEZ_TEST_NATIVE_ARCHIVE=1 for real tiny-workspace relocation'",
+          "test_deploy_context_preserves_history_identity (test_runtime_docker.RuntimeDockerTest.test_deploy_context_preserves_history_identity) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+          "test_real_build_and_same_job_execution (test_runtime_docker.RuntimeDockerTest.test_real_build_and_same_job_execution) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+          "test_repository_source_context_preserves_genesis (test_runtime_docker.RuntimeDockerTest.test_repository_source_context_preserves_genesis) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'"
+        ],
+        "compose": "5.5.1",
+        "compose_binary_sha256": "db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576",
+        "log": "ci-tooling.log",
+        "kind": "Tooling/static/mocked tests plus real local Git scanner regressions; opt-in real Docker/Kurtosis/archive fixtures were not selected."
+      },
+      {
+        "command": "node_e2e executable: each of the 14 exact test names in process_selection.results, --exact --test-threads=1 --nocapture",
+        "result": "pass",
+        "passed": 14,
+        "failed": 0,
+        "ignored": 0,
+        "inventory_total": 211,
+        "local_runtime_dev_opt_level": 1,
+        "test_executable_sha256": "4601336c005391cb26115535e9839ae255743e70e7063dca84e3296b1ee74ad5",
+        "runtime_sha256": {
+          "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+          "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+          "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+        },
+        "log": "selected-process-driver.log"
+      },
+      {
+        "command": "cargo +1.95.0 fmt --all --check; forge fmt --check --root contracts; git diff --check; parse validation JSON/.gitleaks TOML and resolve edited Markdown relative targets",
+        "result": "pass",
+        "relative_markdown_targets": 55,
+        "edited_shell_files": 0
+      }
+    ],
+    "ignored_utilities": [
+      "test held_pool::tests::profile_blocked_backlog_discovery ... ignored, manual component profile; records timings without timing assertions",
+      "test service::sessions::tests::vectors::regenerate_offline_vectors ... ignored, explicit frozen fixture generation; see conformance/README.md",
+      "test service::tests::derivation::captured::inventory_native_proving_fixtures ... ignored, explicit local native-fixture inventory utility",
+      "test service::tests::derivation::captured::regenerate_native_fixture_commitments ... ignored, explicit native commitment regeneration; see conformance/README.md",
+      "test service::tests::derivation::captured::supplement_native_lookup_capture_witness ... ignored, explicit supplemental witness generation from exact captured block replay",
+      "test service::tests::derivation::history_observations::regenerate_history_observation_process_fixtures ... ignored, explicit regeneration utility for the standalone signer process regression"
+    ],
+    "executed_frozen_session_cases": {
+      "baseline_lookup": "baseline-lookup",
+      "baseline_static": "baseline-static",
+      "begin_boundaries": "begin-boundaries",
+      "block_boundaries": "block-boundaries",
+      "block_quota": "block-quota",
+      "byte_quota": "byte-quota",
+      "cancel_session_isolation": "cancel-session-isolation",
+      "competing_branches": "competing-branches",
+      "concurrent_composers": "concurrent-composers",
+      "detached_session_eviction": "detached-session-eviction",
+      "finalize_byte_quota": "finalize-byte-quota",
+      "finalize_ranges": "finalize-ranges",
+      "frame_size_limit": "frame-size-limit",
+      "half_close_drains": "half-close-drains",
+      "invalid_witness_retry": "invalid-witness-retry",
+      "pipelined_gap_recovery": "pipelined-gap-recovery",
+      "posting_context_boundaries": "posting-context-boundaries",
+      "resume_after_proof": "resume-after-proof",
+      "resume_boundaries": "resume-boundaries",
+      "resume_takeover_fencing": "resume-takeover-fencing",
+      "rewind_boundaries": "rewind-boundaries",
+      "settlement_abi_binding": "settlement-abi-binding",
+      "settlement_blob_encoding": "settlement-blob-encoding",
+      "settlement_required_inputs": "settlement-required-inputs",
+      "sync_range_proof": "sync-range-proof",
+      "stream_capacity": "stream-capacity",
+      "subrange_promoted_anchor": "subrange-promoted-anchor",
+      "terminal_before_tip": "terminal-before-tip",
+      "witness_quota": "witness-quota"
+    },
+    "fable_review": {
+      "requested_and_actual_model": "claude-fable-5-2",
+      "provider_reported_canonical_model": "claude-fable-5-2",
+      "cli_version": "2.1.322",
+      "read_only_tools": [
+        "Read",
+        "Grep",
+        "Glob"
+      ],
+      "delegated_agents": 0,
+      "reviewed_head": "68af64a7fb025aa0ffe8117a3082a5504e703522",
+      "source_only": true,
+      "production_accounting_defect_established": false,
+      "report": "fable-review.md",
+      "input_sha256": "5d286d0469973683603684764d9a17e1096ec780133226bd9d2a00456c885f27",
+      "raw_result_sha256": "93aa5905ed67acfc69721a46c119dca82c643f765a8542177aa3f76841bcd8e8",
+      "dispositions": [
+        "Corrected the terminal-only profile misstatement per current signer SPEC/validation identity; recorded the older non-normative guide disagreement.",
+        "Cited existing shared materialization/rollback-value tests and marked exact hand-built table producer/signer binding as a residual case.",
+        "Strengthened four-account inventory assertion before manual cleanup; removed redundant post-cleanup sum and irrelevant recipient-zero check.",
+        "Explicitly bounded the paid Rust stub test: it does not consume EEZL2 before reverting/halting."
+      ],
+      "final_model_reapproval_claimed": false
+    },
+    "process_attempts": [
+      {
+        "attempt": 1,
+        "test": "cross_chain::minimal_bidirectional_cross_chain_smoke",
+        "result": "failed_before_node_startup",
+        "reason": "The direct harness invocation did not pin the nested Rust compiler; ff compilation rejected check-cfg. Default shell rustc reported 1.96.1, whereas 1.95.0 is required.",
+        "correction": "Set RUSTUP_TOOLCHAIN=1.95.0 and absolute Rust 1.95.0 CARGO/RUSTC/RUSTDOC paths with its bin directory first on PATH.",
+        "log": "process-cross_chain-minimal_bidirectional_cross_chain_smoke-attempt1.log",
+        "identity_limit": "The failing nested rustc was invoked by name; its exact resolved executable/version was not captured. The separate shell version is not claimed to identify it."
+      },
+      {
+        "attempt": 2,
+        "test": "cross_chain::minimal_bidirectional_cross_chain_smoke",
+        "result": "failed_runtime_stack_overflow",
+        "profile": "local opt-level-0 override, debug information disabled",
+        "reason": "Composer tokio-rt stack overflow/SIGABRT during composition after the signer validated and signed a window; no completed smoke pass. NodeHandle clears inherited RUST_MIN_STACK.",
+        "log": "process-cross_chain-minimal_bidirectional_cross_chain_smoke-attempt2.log",
+        "retained_datadirs": [
+          "artifacts/issue146-followup/datadirs/eez-native-witnesses-2446975-tzUiqm",
+          "artifacts/issue146-followup/datadirs/eez-cross-chain-2446975-LnybfQ"
+        ],
+        "runtime_sha256": {
+          "eez-composer": "38304a5e444d2d432788fdb56676c974116fe67117dd18d1a87c99a8fa9f63b8",
+          "eez-follower": "3eaf1fdcffd5345f83b512a46bfe6bc9e22659ffc8f6399358fc6d57f14b1836",
+          "eez-proof-signer": "ef04bf4d78168f34ffb562bcf89d77a83e6b3c70462369428d709dab27e450a5"
+        }
+      }
+    ],
+    "process_test_executable": {
+      "test_executable": "target/debug/deps/node_e2e-b22fd23291434a07",
+      "sha256": "4601336c005391cb26115535e9839ae255743e70e7063dca84e3296b1ee74ad5",
+      "commands": []
+    },
+    "process_status": "Complete: all 14 selected process cases passed at normal repository dev opt-level 1. Initial compiler-selection and opt-level-0 stack-overflow failures remain retained; this is a changed-profile comparison, not a retry-only pass or root-cause proof.",
+    "retained_first_failure_executables": {
+      "artifacts/issue146-followup/bin/opt0-eez-composer": "38304a5e444d2d432788fdb56676c974116fe67117dd18d1a87c99a8fa9f63b8",
+      "artifacts/issue146-followup/bin/opt0-eez-follower": "3eaf1fdcffd5345f83b512a46bfe6bc9e22659ffc8f6399358fc6d57f14b1836",
+      "artifacts/issue146-followup/bin/opt0-eez-proof-signer": "ef04bf4d78168f34ffb562bcf89d77a83e6b3c70462369428d709dab27e450a5",
+      "artifacts/issue146-followup/bin/node-e2e-tests-opt0": "4601336c005391cb26115535e9839ae255743e70e7063dca84e3296b1ee74ad5"
+    },
+    "other_task_resources_modified": false,
+    "live_network_actions": false,
+    "kurtosis_started": false,
+    "additional_invocation_failure": {
+      "command": "cargo +1.95.0 test (with direct toolchain Cargo first on PATH)",
+      "result": "no_tests_executed",
+      "reason": "Rustup +toolchain selectors are not accepted by the direct Cargo executable; corrected to direct cargo test with absolute 1.95.0 paths.",
+      "log": "independent-prefix-oracles-invocation1.log"
+    },
+    "secret_scanner": {
+      "reported_ci_job": "https://github.com/eez-association/eez-rollupX/actions/runs/43256385633/job/131315634535",
+      "original_ci_result": {
+        "exit_code": 1,
+        "findings": 3,
+        "commits_scanned": 1125,
+        "source_head": "68af64a7fb025aa0ffe8117a3082a5504e703522",
+        "merge_commit": "31af77dfd40d58928675d522ad3b3dda5f75cf12",
+        "log": "secret-scan-first-failure-raw.log",
+        "detail_limitation": "Original CI output reports the count only. Structured local reproduction identifies all three exact public commitments."
+      },
+      "reference_patch": "https://github.com/eez-association/eez-rollupX/commit/e6f70e20776529fcc8971cf746d5ed6403ddc6a5",
+      "reused_files": [
+        ".gitleaks.toml",
+        "scripts/ci/tests/test_secret_scan.py"
+      ],
+      "runtime_changes_reused": false,
+      "scanner_version": "8.30.1",
+      "verified_archive_sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+      "finding_classification": [
+        {
+          "fingerprint": "d9b974c1c3d1081afbbfde05bfad4fc352aedea0:docs/audits/2026-11-12-streaming-deadlines/workloads.json:generic-api-key:37",
+          "path": "docs/audits/2026-11-12-streaming-deadlines/workloads.json",
+          "line": 37,
+          "matches_fixture": "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity.json",
+          "classification": "public NetworkProfile verification-key commitment, not signing material"
+        },
+        {
+          "fingerprint": "d9b974c1c3d1081afbbfde05bfad4fc352aedea0:docs/audits/2026-11-12-streaming-deadlines/workloads.json:generic-api-key:159",
+          "path": "docs/audits/2026-11-12-streaming-deadlines/workloads.json",
+          "line": 159,
+          "matches_fixture": "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity.json",
+          "classification": "public NetworkProfile verification-key commitment, not signing material"
+        },
+        {
+          "fingerprint": "d9b974c1c3d1081afbbfde05bfad4fc352aedea0:docs/audits/2026-11-12-streaming-deadlines/workloads.json:generic-api-key:311",
+          "path": "docs/audits/2026-11-12-streaming-deadlines/workloads.json",
+          "line": 311,
+          "matches_fixture": "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/identity.json",
+          "classification": "public NetworkProfile verification-key commitment, not signing material"
+        }
+      ],
+      "contract": "Public keccak256 NetworkProfile/registry/proof-system/attester commitments per VALIDATION_IDENTITY.md, not private signing material. All three exactly match existing fixture identity.json vkeys.",
+      "scope": "Only the existing three exact-value AND path rules gain docs/audits/2026-11-12-streaming-deadlines/workloads.json. No path-only exclusions, changed values, bypasses or unrelated startup changes.",
+      "history_coverage": {
+        "shallow": false,
+        "source": "Task-owned fresh clone of explicit eez-association/eez-rollupX GitHub heads/tags, current PR166 merge and exact failed merge fetched separately. Historical snapshot is now 1136 commits versus original CI1125; original branch-head snapshot is not independently reconstructed.",
+        "refs_sha256": "bc24621d3fed60356943b1feae3b1110226281431bf8eb9706b14182606abc60",
+        "before": {
+          "exit_code": 1,
+          "findings": 3,
+          "commits_scanned": 1136,
+          "log": "scanner-github-before.log"
+        },
+        "after": {
+          "exit_code": 0,
+          "findings": 0,
+          "commits_scanned": 1136,
+          "log": "scanner-github-after.log"
+        }
+      },
+      "focused_regressions": {
+        "command": "python3 -m unittest discover -s scripts/ci/tests -p 'test_secret_scan.py' -v",
+        "passed": 2,
+        "skipped": 0,
+        "log": "scanner-regressions.log",
+        "assertions": [
+          "Exact reviewed commitments at allowed paths pass",
+          "Single-character commitment changes fail",
+          "New adjacent credential and inline suppression fail",
+          "Reviewed values at unreviewed paths fail"
+        ]
+      },
+      "ponytail_review": {
+        "revision": "96608e078b2d5ea607c5c3b8b5a54d1c1fba6846",
+        "scope": "Scanner producer workflow, configuration, every modified regression and full current rules; expected load one full-history scan per CI job, bounded fixture commits per regression.",
+        "confirmed_findings": 0,
+        "outcome": "Looks good. Ship.",
+        "not_checked": "Full future GitHub branch history and future credentials cannot be prevalidated; fresh CI is checked once after push."
+      },
+      "unpublished_candidate_scan": {
+        "head": "f086ada62e21e9409eed24467b6756821ca9d1a8",
+        "result": "failed",
+        "findings": 3,
+        "commits_scanned": 1137,
+        "log": "scanner-final-candidate.log",
+        "report": "artifacts/issue146-followup/scanner/final-candidate.json",
+        "classification": "Three file/log SHA-256 digests in this validation record were interpreted as credential assignments because of their filename dictionary keys. Each digest was recomputed from its named file.",
+        "correction": "Represent source/log evidence using explicit path and sha256 fields instead of filename-keyed assignments. No additional scanner exception or weakened detection."
+      },
+      "qualified_candidate_scan": {
+        "head": "b989a567f4ed918ac17b460c4df0d8139611f885",
+        "result": "pass",
+        "commits_scanned": 1137,
+        "findings": 0,
+        "note": "Fetched GitHub heads/tags, PR merge history and the corrected unpublished candidate. Only recording this result follows; the final containing commit is also scanned before push.",
+        "log": {
+          "path": "scanner-final-candidate2.log",
+          "sha256": "0a51185b23f0ca83bbe0f5205cf05ed39ed3585d17087f4a707f1b927172248a"
+        }
+      }
+    },
+    "process_selection": {
+      "selected": 14,
+      "inventory_total": 211,
+      "unselected": 197,
+      "ignored_selected": 0,
+      "execution": "Serial direct execution of the fresh Cargo-built original node_e2e executable; each process invokes the normal locked production-runtime source build. No prebuilt/runtime/signer overrides, no validation bypass.",
+      "signer_network": "EEZ_TEST_PROOF_SIGNER_NO_NETWORK=1; local incoming v2 sessions remain available.",
+      "data_and_logs": "artifacts/issue146-followup/datadirs and logs/processes",
+      "nested_toolchain": "Absolute 1.95.0 CARGO/RUSTC/RUSTDOC, RUSTUP_TOOLCHAIN=1.95.0 and its bin first on PATH. Cargo commands use the direct executable without +selector.",
+      "profile": "Normal manifest dev opt-level 1 for runtimes; debug info disabled. Fresh test harness originally built with local opt-level 0. NodeHandle clears inherited RUST_MIN_STACK for children.",
+      "results": [
+        {
+          "test": "cross_chain::minimal_bidirectional_cross_chain_smoke",
+          "exit_code": 0,
+          "one_selected_pass": true,
+          "elapsed_seconds": 868.923,
+          "log": "process-cross_chain-minimal_bidirectional_cross_chain_smoke.log",
+          "command": [
+            "target/debug/deps/node_e2e-b22fd23291434a07",
+            "cross_chain::minimal_bidirectional_cross_chain_smoke",
+            "--exact",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "runtime_sha256": {
+            "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+            "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+            "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+          }
+        },
+        {
+          "test": "cross_chain::overlay_refund_round_trip_settles_value_bearing_callback",
+          "exit_code": 0,
+          "one_selected_pass": true,
+          "elapsed_seconds": 56.919,
+          "log": "process-cross_chain-overlay_refund_round_trip_settles_value_bearing_callback.log",
+          "command": [
+            "target/debug/deps/node_e2e-b22fd23291434a07",
+            "cross_chain::overlay_refund_round_trip_settles_value_bearing_callback",
+            "--exact",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "runtime_sha256": {
+            "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+            "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+            "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+          }
+        },
+        {
+          "test": "cross_chain::overlay_failed_l1_call_discards_its_callback_state",
+          "exit_code": 0,
+          "one_selected_pass": true,
+          "elapsed_seconds": 74.736,
+          "log": "process-cross_chain-overlay_failed_l1_call_discards_its_callback_state.log",
+          "command": [
+            "target/debug/deps/node_e2e-b22fd23291434a07",
+            "cross_chain::overlay_failed_l1_call_discards_its_callback_state",
+            "--exact",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "runtime_sha256": {
+            "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+            "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+            "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+          }
+        },
+        {
+          "test": "cross_chain::inbound_reverting_destination_preserves_caught_result_without_destination_writes",
+          "exit_code": 0,
+          "one_selected_pass": true,
+          "elapsed_seconds": 75.444,
+          "log": "process-cross_chain-inbound_reverting_destination_preserves_caught_result_without_destination_writes.log",
+          "command": [
+            "target/debug/deps/node_e2e-b22fd23291434a07",
+            "cross_chain::inbound_reverting_destination_preserves_caught_result_without_destination_writes",
+            "--exact",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "runtime_sha256": {
+            "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+            "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+            "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+          }
+        },
+        {
+          "test": "cross_chain::outbound_reverting_destination_preserves_caught_result_without_destination_writes",
+          "exit_code": 0,
+          "one_selected_pass": true,
+          "elapsed_seconds": 76.259,
+          "log": "process-cross_chain-outbound_reverting_destination_preserves_caught_result_without_destination_writes.log",
+          "command": [
+            "target/debug/deps/node_e2e-b22fd23291434a07",
+            "cross_chain::outbound_reverting_destination_preserves_caught_result_without_destination_writes",
+            "--exact",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "runtime_sha256": {
+            "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+            "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+            "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+          }
+        },
+        {
+          "test": "cross_chain::call_patterns::inbound_combined_caught_reverts_preserve_continuation_and_replay",
+          "exit_code": 0,
+          "one_selected_pass": true,
+          "elapsed_seconds": 57.708,
+          "log": "process-cross_chain-call_patterns-inbound_combined_caught_reverts_preserve_continuation_and_replay.log",
+          "command": [
+            "target/debug/deps/node_e2e-b22fd23291434a07",
+            "cross_chain::call_patterns::inbound_combined_caught_reverts_preserve_continuation_and_replay",
+            "--exact",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "runtime_sha256": {
+            "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+            "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+            "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+          }
+        },
+        {
+          "test": "cross_chain::call_patterns::outbound_combined_caught_reverts_preserve_continuation_and_replay",
+          "exit_code": 0,
+          "one_selected_pass": true,
+          "elapsed_seconds": 65.607,
+          "log": "process-cross_chain-call_patterns-outbound_combined_caught_reverts_preserve_continuation_and_replay.log",
+          "command": [
+            "target/debug/deps/node_e2e-b22fd23291434a07",
+            "cross_chain::call_patterns::outbound_combined_caught_reverts_preserve_continuation_and_replay",
+            "--exact",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "runtime_sha256": {
+            "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+            "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+            "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+          }
+        },
+        {
+          "test": "cross_chain::history_observations::scheduled_history_observations_are_bound_before_offline_signing",
+          "exit_code": 0,
+          "one_selected_pass": true,
+          "elapsed_seconds": 4.251,
+          "log": "process-cross_chain-history_observations-scheduled_history_observations_are_bound_before_offline_signing.log",
+          "command": [
+            "target/debug/deps/node_e2e-b22fd23291434a07",
+            "cross_chain::history_observations::scheduled_history_observations_are_bound_before_offline_signing",
+            "--exact",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "runtime_sha256": {
+            "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+            "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+            "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+          }
+        },
+        {
+          "test": "native_system::two_composers_two_keyless_followers",
+          "exit_code": 0,
+          "one_selected_pass": true,
+          "elapsed_seconds": 64.765,
+          "log": "process-native_system-two_composers_two_keyless_followers.log",
+          "command": [
+            "target/debug/deps/node_e2e-b22fd23291434a07",
+            "native_system::two_composers_two_keyless_followers",
+            "--exact",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "runtime_sha256": {
+            "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+            "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+            "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+          }
+        },
+        {
+          "test": "native_system::treasury::recipient_rotation_withdrawal_and_offline_replay",
+          "exit_code": 0,
+          "one_selected_pass": true,
+          "elapsed_seconds": 49.573,
+          "log": "process-native_system-treasury-recipient_rotation_withdrawal_and_offline_replay.log",
+          "command": [
+            "target/debug/deps/node_e2e-b22fd23291434a07",
+            "native_system::treasury::recipient_rotation_withdrawal_and_offline_replay",
+            "--exact",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "runtime_sha256": {
+            "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+            "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+            "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+          }
+        },
+        {
+          "test": "partial_consumption::valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+          "exit_code": 0,
+          "one_selected_pass": true,
+          "elapsed_seconds": 56.585,
+          "log": "process-partial_consumption-valid_blob_batch_resumes_at_middle_group_in_same_l1_block.log",
+          "command": [
+            "target/debug/deps/node_e2e-b22fd23291434a07",
+            "partial_consumption::valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+            "--exact",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "runtime_sha256": {
+            "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+            "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+            "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+          }
+        },
+        {
+          "test": "partial_consumption::restart_after_partial_keeps_accounting_and_rebuilds_intent",
+          "exit_code": 0,
+          "one_selected_pass": true,
+          "elapsed_seconds": 79.823,
+          "log": "process-partial_consumption-restart_after_partial_keeps_accounting_and_rebuilds_intent.log",
+          "command": [
+            "target/debug/deps/node_e2e-b22fd23291434a07",
+            "partial_consumption::restart_after_partial_keeps_accounting_and_rebuilds_intent",
+            "--exact",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "runtime_sha256": {
+            "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+            "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+            "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+          }
+        },
+        {
+          "test": "fee_quotes::exact_quote_with_caught_nested_revert_is_admitted_and_replayed",
+          "exit_code": 0,
+          "one_selected_pass": true,
+          "elapsed_seconds": 41.027,
+          "log": "process-fee_quotes-exact_quote_with_caught_nested_revert_is_admitted_and_replayed.log",
+          "command": [
+            "target/debug/deps/node_e2e-b22fd23291434a07",
+            "fee_quotes::exact_quote_with_caught_nested_revert_is_admitted_and_replayed",
+            "--exact",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "runtime_sha256": {
+            "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+            "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+            "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+          }
+        },
+        {
+          "test": "fee_quotes::l1_refund_quote_eip1559_continues_after_missing_payment",
+          "exit_code": 0,
+          "one_selected_pass": true,
+          "elapsed_seconds": 71.431,
+          "log": "process-fee_quotes-l1_refund_quote_eip1559_continues_after_missing_payment.log",
+          "command": [
+            "target/debug/deps/node_e2e-b22fd23291434a07",
+            "fee_quotes::l1_refund_quote_eip1559_continues_after_missing_payment",
+            "--exact",
+            "--test-threads=1",
+            "--nocapture"
+          ],
+          "runtime_sha256": {
+            "eez-composer": "b5c83ac52b646cc06d41950e5e14d50c02993415fbbffc12494b1383473dd5f0",
+            "eez-follower": "8d9dc941db812ef7ca6901615a3b7f09faa72c6c9e20e482340e62261308a198",
+            "eez-proof-signer": "0fea2d9cb73a0642b5fda0944341d32cb965f0488ee14fc09c0863198f480239"
+          }
+        }
+      ],
+      "limits": "State, receipt, ledger and replay assertions are test-specific, not a closed all-account conservation proof. History-observation case uses captured witnesses/standalone signer; refund callback checks L1 escrow net and L2 probe balance without claiming cold-follower replay. Development Anvil refund adapter does not qualify real builder ordered refunds."
+    },
+    "log_root": "artifacts/issue146-followup/logs",
+    "inventory_sha256": {
+      "process-inventory.txt": "1a9ddcdd26a4920161338fbaf94878971c3e44dcd005712e515a383c08db00d8",
+      "selected-process-tests.txt": "975fe6738ec43e24c98b53267525ae75d057a6f4b1c77059a7a7c8b90a0f1e9a",
+      "process-results.json": "971e03dc83f43d110db6ce79ef15fafa30990ec49c015a7a333f42bb697819c8"
+    },
+    "source_files": [
+      {
+        "path": "Cargo.lock",
+        "sha256": "97e258cec5cfec14b2ec38f03bad0098c86b7b5fc081fc299b1eb9f02d2781f5"
+      },
+      {
+        "path": "genesis.json",
+        "sha256": "af18c662f3975356c625c7bff9271a82e4be265ab7780c218dcc5c169385372b"
+      },
+      {
+        "path": "crates/eez-evm/src/evm.rs",
+        "sha256": "b43a8ef0282c087b73bd0fa7a310e655e16db466f93a36979ede578519263bb7"
+      },
+      {
+        "path": "crates/eez-evm/src/block.rs",
+        "sha256": "229e0745f6fd10a85df5e055a0a621ff356d465b1b9839ca822f6201f432efa9"
+      },
+      {
+        "path": "crates/eez-evm/src/balances.rs",
+        "sha256": "50e9739231373ed8a3989935e163d19f9d3f8d4d0eeff7756e7733a9aaf15611"
+      },
+      {
+        "path": "crates/eez-evm/src/stateless.rs",
+        "sha256": "b40fa670dddfee9c67da1bcfa78ce26aff5b390013052e761f33b1af431feeeb"
+      },
+      {
+        "path": "crates/eez-evm/src/block/tests/groups.rs",
+        "sha256": "d91faee49099a6a1c129d60d45f6342474835ea33bbb00d689a396ed6f42bd3c"
+      },
+      {
+        "path": "crates/eez-evm/src/tests.rs",
+        "sha256": "732aad6e7f68d881ef331ac1d42222b7282f675fa0f81bf172e1f82b50b9a5ec"
+      },
+      {
+        "path": "contracts/test/ProtocolGroupFunding.t.sol",
+        "sha256": "7a3b2b62e24a6c2735bb1468a6f3c3874d2d9cf1d282c488586739fcd8b2ec29"
+      },
+      {
+        "path": ".gitleaks.toml",
+        "sha256": "74d4046999a23255913d87a7430e132dbbd59615410def8dd60662045cd6bfb9"
+      },
+      {
+        "path": "scripts/ci/tests/test_secret_scan.py",
+        "sha256": "65c44c2c73eb7ebfc9e0a544d8d114b8b0feb1ed8a6e40a70817f2ac70028441"
+      }
+    ],
+    "log_files": [
+      {
+        "path": "ci-tooling.log",
+        "sha256": "3d14aeb5ccff758c9810dd2528a81d8c5437b649cf1db4288945a2ccad885bdc"
+      },
+      {
+        "path": "conformance-vectors.log",
+        "sha256": "73a2cb93772fd532e22005ecd61c22035395d290df17042d4a2376539412a426"
+      },
+      {
+        "path": "contracts.log",
+        "sha256": "d650c946b0b9c193ab05d3779d9cac08461835b49b0c551c644109669fc73d24"
+      },
+      {
+        "path": "core-build.log",
+        "sha256": "9eb28276c3be68e1509df06cee731a5a78cec2f084be44058f7e4a14e0b4a19b"
+      },
+      {
+        "path": "core-forge.log",
+        "sha256": "d3ea6c56bb7092d558a535b3c0cf681431586a045af54efc5b90bd0c43aac93b"
+      },
+      {
+        "path": "fable-review-stderr.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "fable-review.json",
+        "sha256": "93aa5905ed67acfc69721a46c119dca82c643f765a8542177aa3f76841bcd8e8"
+      },
+      {
+        "path": "genesis-check.log",
+        "sha256": "e890fa2103e65299447d43bbea185b3f4163db81a043471ac13e10aa65f991fb"
+      },
+      {
+        "path": "genesis-helper-build.log",
+        "sha256": "b959beb3dcaae072fcd60b5b2858bb03e481c836e2ca65a8e7a6095fb1a0b353"
+      },
+      {
+        "path": "independent-prefix-oracles-invocation1.log",
+        "sha256": "77a2509540f1717c768a3bdc4ef4a59d248acc87894bebaaa9fff2b0907956d6"
+      },
+      {
+        "path": "independent-prefix-oracles.log",
+        "sha256": "dfaf935ff1c09b14a4cefce3a6598dadcb798606f16317ecff3b1d8e4d63efab"
+      },
+      {
+        "path": "process-build.jsonl",
+        "sha256": "bc1ffd62592288711b5e3909d6e1b31f8f8c6ff706d6ceb0774296243a8ae08f"
+      },
+      {
+        "path": "process-build.log",
+        "sha256": "5ed74b63f42e4bf995a44f53b5ccbef91bffbe25fda7981f406f27836dd729a3"
+      },
+      {
+        "path": "process-cross_chain-call_patterns-inbound_combined_caught_reverts_preserve_continuation_and_replay.log",
+        "sha256": "403d28f65832fa9a73dd9903eade158ac65af8c6f75da136b5f23562195d465b"
+      },
+      {
+        "path": "process-cross_chain-call_patterns-outbound_combined_caught_reverts_preserve_continuation_and_replay.log",
+        "sha256": "5981b9b830837b7816d5b9b078bc7e926026db99cee9096d99938ae10c915a47"
+      },
+      {
+        "path": "process-cross_chain-history_observations-scheduled_history_observations_are_bound_before_offline_signing.log",
+        "sha256": "3ab0d676c7848e8b7ce47fb3f272001298d63f1fc75d678ba80a949dfe873d6b"
+      },
+      {
+        "path": "process-cross_chain-inbound_reverting_destination_preserves_caught_result_without_destination_writes.log",
+        "sha256": "6957cbdaec4d02b083993fb4e3bb476a36240ed16c42197a2a4a0368f717169e"
+      },
+      {
+        "path": "process-cross_chain-minimal_bidirectional_cross_chain_smoke-attempt1.log",
+        "sha256": "cb00a1fa5d2e5e6ed8a27c054f0ffdebcb5fae73c2f5b220b029ef499f83097b"
+      },
+      {
+        "path": "process-cross_chain-minimal_bidirectional_cross_chain_smoke-attempt2.log",
+        "sha256": "8ad9c918dde55b7052d5619464e1cb2f6cf259ff83895c9fc6039f397b13b431"
+      },
+      {
+        "path": "process-cross_chain-minimal_bidirectional_cross_chain_smoke.log",
+        "sha256": "e2c8b1e33d6b712b2946b4c594217f1987d7884345e798c2f901e57352ba96a0"
+      },
+      {
+        "path": "process-cross_chain-outbound_reverting_destination_preserves_caught_result_without_destination_writes.log",
+        "sha256": "6ab17756eeb64b56e24265e16ff4a6fc13c98a6fdf86a8bd12ad80b8b6aa9546"
+      },
+      {
+        "path": "process-cross_chain-overlay_failed_l1_call_discards_its_callback_state.log",
+        "sha256": "1809ac87a7de2305776c35b33e942d1d8e848af7b45b2a97f59938e4e37b5724"
+      },
+      {
+        "path": "process-cross_chain-overlay_refund_round_trip_settles_value_bearing_callback.log",
+        "sha256": "57644c40f57ddbbd06732bdfb48b94a9cc615d04bcd0fe66f7dfdb65c59f73e2"
+      },
+      {
+        "path": "process-fee_quotes-exact_quote_with_caught_nested_revert_is_admitted_and_replayed.log",
+        "sha256": "30e2f64d39f5ed30a6574b97524f563eea8d16bf8e861076c136026d5c2da0bb"
+      },
+      {
+        "path": "process-fee_quotes-l1_refund_quote_eip1559_continues_after_missing_payment.log",
+        "sha256": "3bf6747b651daae9ee2639737b58122a9957c9493638b2a6aefe64237bc46899"
+      },
+      {
+        "path": "process-native_system-treasury-recipient_rotation_withdrawal_and_offline_replay.log",
+        "sha256": "2c80abb56c27fc49572dfc608ac74a1fc10b79786f252fa679c34521aa0a7d7c"
+      },
+      {
+        "path": "process-native_system-two_composers_two_keyless_followers.log",
+        "sha256": "465bc580184f66f9380d7a6fb1b82e15063a23069532b35a1214574d23c5d2c3"
+      },
+      {
+        "path": "process-partial_consumption-restart_after_partial_keeps_accounting_and_rebuilds_intent.log",
+        "sha256": "b4be71bf08021550c82f94ac5bf855f77609e3bddaa41551730567675cb67986"
+      },
+      {
+        "path": "process-partial_consumption-valid_blob_batch_resumes_at_middle_group_in_same_l1_block.log",
+        "sha256": "9c5cbbe5996c99a0e5ab79b2ce823ea941c83f03737238df82e94773f2b9e493"
+      },
+      {
+        "path": "process-runtime-default-profile-build.log",
+        "sha256": "bad10550c1cb6e9973819c7b81c5d60bfc76f8e27bae9ec288f4da4de049bbe7"
+      },
+      {
+        "path": "protocol-anvil.log",
+        "sha256": "9cb892bcbaeb33f3c6f7935530084e57ec478426b5313e9e33714e1202e677bf"
+      },
+      {
+        "path": "scanner-clone.log",
+        "sha256": "e346b9ebf7a6705753c218afb3b82974ff9af3ded57c91b178b83f544537d686"
+      },
+      {
+        "path": "scanner-github-after.log",
+        "sha256": "d0e5775b56cb6e2e401d683611886361e9730a167a4eaab4331fd54df9705724"
+      },
+      {
+        "path": "scanner-github-before.log",
+        "sha256": "be4c49c0477783c6dd649c7ded9e9eac7a506e9c479d03ce8466751f7a4f1817"
+      },
+      {
+        "path": "scanner-regressions.log",
+        "sha256": "e6ad40973e298e78adf9673f41cafa9d7b06c9054be81a6951bb2a5394e646df"
+      },
+      {
+        "path": "secret-scan-before.log",
+        "sha256": "9db62abc2500e95385b8e5b3195cafee0a79ed782b10b7263ccacee45ead780e"
+      },
+      {
+        "path": "secret-scan-first-failure-raw.log",
+        "sha256": "fd0a6b8770925284b81eea7cd1732cda603cf3391fcd627d9dde991246f97314"
+      },
+      {
+        "path": "secret-scan-first-failure.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "selected-process-driver.log",
+        "sha256": "a29b3f433782af622e46f997272c577186fa85e2566ec1bd5e87f5b29fa03ccd"
+      },
+      {
+        "path": "signer-rustdoc.log",
+        "sha256": "cc012b3f586d295fb615320ce9acbeb9d7642036f53f8783fcda952718702557"
+      },
+      {
+        "path": "workspace-build.log",
+        "sha256": "09736d1bbef231ee98667fa86cb0a298595048bb3d23ddf5ee49e1d5d22f608a"
+      },
+      {
+        "path": "workspace-clippy.log",
+        "sha256": "98b2dc1131c9637760d5dca9331cb9345a83e250f749b30fc4182b5336628683"
+      },
+      {
+        "path": "workspace-units.log",
+        "sha256": "05b2b5d10743e9c683abe4f3ff78ea49aa48507c1b7cc45215ff20fe77d412a6"
+      }
+    ]
+  },
+  "source_sha256_stage": "Initial submission; corrected test and scanner source hashes are in followup_validation.",
+  "ci_scanner_false_positive_fixed": true
+}
