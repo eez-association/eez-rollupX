@@ -1,0 +1,44 @@
+{
+  "status": "in progress: native build and runtime validation pending; no timing collected",
+  "recorded_utc": "2026-11-12T17:42:36.242200+00:00",
+  "head": "7f92897e28c20674a6301a9b44502abca5dc218a",
+  "baseline": "601ebfa9c7e1a779f1afbd077bd31a3207e7a61b",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "runtime_binaries": null,
+  "checks": [
+    {
+      "kind": "default CI tooling",
+      "result": "557 selected; 548 passed; 9 skipped",
+      "path": "artifacts/issue148/tooling-suite.log",
+      "sha256": "1fb933848da25a4321328b22bb719a45d3d2840d7a33d045555c87c406ed8b59",
+      "availability": "local-only ignored log; summary committed"
+    },
+    {
+      "kind": "missing scanner follow-up",
+      "result": "2 passed with verified Gitleaks 8.30.1; seven original opt-in exclusions remain",
+      "path": "artifacts/issue148/secret-scan-tests.log",
+      "sha256": "9204d3a1855759ab0ba7d3e9c8609c0c72ddedd66428330ad653851f4f2074f5",
+      "availability": "local-only ignored log; summary committed"
+    },
+    {
+      "kind": "dependency policy",
+      "result": "exit 0: advisories, bans and sources ok",
+      "path": "artifacts/issue148/dependency-deny.log",
+      "sha256": "d8a3649b3d5158f419d87ea07eb3c5708b537d13992bc7b64a5264ee2ec6062e",
+      "availability": "local-only ignored log; summary committed"
+    },
+    {
+      "kind": "advisory audit",
+      "result": "exit 0 with 20 allowed warnings",
+      "path": "artifacts/issue148/dependency-audit.log",
+      "sha256": "2c7f6864ddb5dd6fc60d584eb7d158db0354c5f6ec8d6b89f98ed2c8b9dd54b3",
+      "availability": "local-only ignored log; summary committed"
+    }
+  ],
+  "focused_runner_tests": 8,
+  "timing_samples": 0,
+  "main_ci_modified": false,
+  "production_modified": false,
+  "source_state_note": "Interim summary; check logs preceded some final harness edits. Final frozen-source runtime validation remains pending.",
+  "working_tree_diff_sha256": "1589ee39b15375d42e8d2ebb36bb869bc8f84e5343501a5681aad1c0381629a2"
+}

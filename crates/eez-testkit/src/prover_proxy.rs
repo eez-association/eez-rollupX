@@ -661,6 +661,13 @@ mod tests {
     use super::*;
     #[test]
     fn observation_byte_and_event_bounds_reject_without_mutating_the_trace() {
+        let mut exact = Observations::default();
+        exact
+            .push(serde_json::json!("x".repeat(4 * 1024 * 1024 - 2)))
+            .unwrap();
+        assert_eq!(exact.bytes, 4 * 1024 * 1024);
+        assert!(exact.push(serde_json::json!(null)).is_err());
+        assert_eq!((exact.bytes, exact.events.len()), (4 * 1024 * 1024, 1));
         let mut trace = Observations::default();
         trace.push(serde_json::json!({"kind": "Begin"})).unwrap();
         let bytes = trace.bytes;

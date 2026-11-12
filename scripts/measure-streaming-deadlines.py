@@ -181,7 +181,7 @@ def main():
     if manifest["changes"]:
         raise RuntimeError("commit the reviewed driver before collecting reported timings")
     listing = subprocess.check_output([str(test), "--list", "--ignored"], text=True)
-    if TEST + ": test" not in listing:
+    if TEST + ": test" not in listing.splitlines():
         raise RuntimeError("measurement test not present in exact binary")
     (OUTPUT/"manifest.json").write_text(json.dumps(manifest, indent=2)+"\n")
     previous = None
@@ -217,7 +217,8 @@ def main():
                         stable_since = stable_since if stable_since is not None else previous["monotonic"]
                     if stable_since is not None and current["monotonic"]-stable_since >= STABLE_SECONDS:
                         env = dict(os.environ, EEZ_TEST_PREBUILT="1", EEZ_TEST_PROOF_SIGNER_BIN=str(signer),
-                                   EEZ_TEST_LOG_DIR=str(OUTPUT/"signer-logs"), EEZ_STREAMING_TIMINGS_OUTPUT=str(raw))
+                                   EEZ_TEST_LOG_DIR=str(OUTPUT/"signer-logs"), EEZ_STREAMING_TIMINGS_OUTPUT=str(raw),
+                                   CARGO_MANIFEST_DIR=str(root/"crates/eez-node-e2e"))
                         child = subprocess.Popen([str(test), "--ignored", "--exact", TEST, "--nocapture", "--test-threads=1"],
                             cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
                     elif time.monotonic() >= wait_until:

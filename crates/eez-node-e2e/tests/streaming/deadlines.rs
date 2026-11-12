@@ -226,28 +226,32 @@ async fn sample(name: &str, scenario: &str) -> Value {
         "disconnected" | "lost_session" => 15,
         _ => panic!("unknown scenario"),
     };
-    let preparation = Instant::now();
-    if prefix != 0 {
+    let preparation_ms = if prefix != 0 {
+        let preparation = Instant::now();
         prover
             .prevalidate_range(cfg.rollup_id, &fixture.context.blocks[..prefix])
             .await
             .unwrap();
-    }
-    let preparation_ms = ms(preparation);
+        ms(preparation)
+    } else {
+        0.0
+    };
     assert_eq!(
         signer.streaming_attestations().unwrap(),
         0,
         "prevalidation signed"
     );
-    let recovery = Instant::now();
-    if scenario == "lost_session" {
+    let restart_ms = if scenario == "lost_session" {
+        let recovery = Instant::now();
         tokio::task::spawn_blocking(move || drop(signer))
             .await
             .unwrap();
         signer = ProofSignerHandle::spawn_network_denied(&cfg).await.unwrap();
         proxy.set_upstream(signer.endpoint().to_owned()).unwrap();
-    }
-    let restart_ms = ms(recovery);
+        ms(recovery)
+    } else {
+        0.0
+    };
     let proving = Instant::now();
     let signature = prover.prove(fixture.context.clone()).await.unwrap();
     let proving_ms = ms(proving);
@@ -366,6 +370,16 @@ async fn sample(name: &str, scenario: &str) -> Value {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_workload_preparation_and_recovery_are_checked() {
+    // The source harness's first spawn builds all shipping entrypoints on a
+    // blocking worker. Complete that setup before bounding native exchanges.
+    let fixture = tokio::task::spawn_blocking(|| Fixture::load(FIXTURES[0]))
+        .await
+        .unwrap();
+    let ready = ProofSignerHandle::spawn_network_denied(&fixture.config())
+        .await
+        .unwrap();
+    assert_eq!(ready.streaming_attestations().unwrap(), 0);
+    drop(ready);
     for name in FIXTURES {
         for scenario in SCENARIOS {
             tokio::time::timeout(Duration::from_mins(3), sample(name, scenario))

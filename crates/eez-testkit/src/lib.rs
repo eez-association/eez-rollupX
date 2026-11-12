@@ -811,6 +811,8 @@ pub struct ProofSignerConfig<'a> {
 impl ProofSignerConfig<'_> {
     /// Derive the expected RPC identity from local fixture configuration, independently
     /// of the endpoint's capability reply. This does not authorize fixture execution.
+    /// Reads the L1/L2 documents and returns an error for an invalid document,
+    /// network profile or zero rollup ID. The L2 digest and profile use one snapshot.
     pub fn validation_identity(&self) -> Result<B256> {
         let loaded = eez_l1::chain_config::load_l2_genesis(self.chain_config)
             .map_err(|error| anyhow!("{error:#}"))?;
