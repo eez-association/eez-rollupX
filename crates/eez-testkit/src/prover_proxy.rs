@@ -9,6 +9,24 @@ const CAPTURE_BYTES: usize = 256 * 1024 * 1024;
 const CAPTURE_BLOCKS: usize = 4096;
 const CAPTURE_SESSIONS: usize = 8;
 
+#[derive(Debug, Default)]
+struct Observations {
+    events: Vec<serde_json::Value>,
+    bytes: usize,
+}
+
+impl Observations {
+    fn push(&mut self, event: serde_json::Value) -> Result<(), Status> {
+        let bytes = event.to_string().len();
+        if self.events.len() >= 4096 || bytes > (4 * 1024 * 1024usize).saturating_sub(self.bytes) {
+            return Err(Status::resource_exhausted("fixture observation bound"));
+        }
+        self.bytes += bytes;
+        self.events.push(event);
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum ProverMutation {
     None,
@@ -90,6 +108,7 @@ impl ProverMutation {
 
 #[derive(Debug, Default)]
 struct ProxyCounters {
+    streams: AtomicUsize,
     attempts: AtomicUsize,
     successes: AtomicUsize,
     rejections: AtomicUsize,
@@ -252,14 +271,33 @@ impl Capture {
 
 #[derive(Clone, Debug)]
 struct ProverProxyService {
-    upstream: String,
+    upstream: Arc<Mutex<String>>,
     fixture_directory: Option<PathBuf>,
     captures: Arc<Mutex<CaptureBook>>,
     mutation: Arc<Mutex<ProverMutation>>,
     counters: Arc<ProxyCounters>,
+    observations: Option<Arc<Mutex<Observations>>>,
+    started: Instant,
 }
 
 impl ProverProxyService {
+    fn observe(&self, mut event: serde_json::Value) -> Result<(), Status> {
+        if let Some(observations) = &self.observations {
+            let mut observations = observations
+                .lock()
+                .map_err(|_| Status::internal("fixture observations poisoned"))?;
+            event["elapsed_ms"] = serde_json::json!(self.started.elapsed().as_secs_f64() * 1000.0);
+            observations.push(event)?;
+        }
+        Ok(())
+    }
+
+    fn upstream(&self) -> Result<String, Status> {
+        self.upstream
+            .lock()
+            .map(|url| url.clone())
+            .map_err(|_| Status::internal("fixture upstream poisoned"))
+    }
     fn rejection(&self, code: tonic::Code) {
         if matches!(
             code,
@@ -349,7 +387,7 @@ impl Prover for ProverProxyService {
         &self,
         request: Request<eez_control_rpc::v2::CapabilitiesRequest>,
     ) -> Result<Response<eez_control_rpc::v2::CapabilitiesResponse>, Status> {
-        ProverClient::connect(self.upstream.clone())
+        ProverClient::connect(self.upstream()?)
             .await
             .map_err(|error| Status::unavailable(error.to_string()))?
             .capabilities(request)
@@ -361,12 +399,17 @@ impl Prover for ProverProxyService {
         request: Request<Streaming<ClientFrame>>,
     ) -> Result<Response<Self::ProveStreamStream>, Status> {
         let (metadata, extensions, mut input) = request.into_parts();
+        let transport = self.counters.streams.fetch_add(1, Ordering::Relaxed) + 1;
         let (up_tx, up_rx) = tokio::sync::mpsc::channel(8);
-        let mut client = ProverClient::connect(self.upstream.clone())
+        let mut client = ProverClient::connect(self.upstream()?)
             .await
             .map_err(|error| Status::unavailable(error.to_string()))?
             .max_encoding_message_size(MAX_MESSAGE_BYTES)
-            .max_decoding_message_size(MAX_MESSAGE_BYTES);
+            .max_decoding_message_size(if self.observations.is_some() {
+                eez_control_rpc::MAX_STREAMING_RESPONSE_BYTES
+            } else {
+                MAX_MESSAGE_BYTES
+            });
         let mut upstream = client
             .prove_stream(Request::from_parts(
                 metadata,
@@ -388,6 +431,29 @@ impl Prover for ProverProxyService {
                         _ = out_tx.closed() => return Ok(()),
                         next = input.message(), if input_open && pending.len() < 16 => {
                             let Some(mut frame) = next? else { input_open = false; sender.take(); continue };
+                            if service.observations.is_some() {
+                                let block = match &frame.kind {
+                                    Some(client_frame::Kind::Block(block)) => block.data.as_ref(),
+                                    _ => None,
+                                };
+                                let kind = match &frame.kind {
+                                    Some(client_frame::Kind::Begin(_)) => "Begin",
+                                    Some(client_frame::Kind::Resume(_)) => "Resume",
+                                    Some(client_frame::Kind::Rewind(_)) => "Rewind",
+                                    Some(client_frame::Kind::Block(_)) => "Block",
+                                    Some(client_frame::Kind::Finalize(_)) => "Finalize",
+                                    Some(client_frame::Kind::Cancel(_)) => "Cancel",
+                                    None => "unknown",
+                                };
+                                let headers = block.and_then(|b| b.witness.as_ref()).map(|w| &w.l1_headers_rlp);
+                                service.observe(serde_json::json!({
+                                    "direction": "client", "transport": transport, "kind": kind,
+                                    "request_id": frame.request_id, "bytes": frame.encoded_len(),
+                                    "number": block.map(|b| b.number),
+                                    "l1_headers": headers.map_or(0, |h| h.len()),
+                                    "l1_header_bytes": headers.map_or(0, |h| h.iter().map(Vec::len).sum::<usize>()),
+                                }))?;
+                            }
                             if matches!(frame.kind, Some(client_frame::Kind::Finalize(_))) {
                                 service.counters.attempts.fetch_add(1, Ordering::Relaxed);
                             }
@@ -400,7 +466,25 @@ impl Prover for ProverProxyService {
                             sender.as_ref().expect("input is still open").send(frame).await.map_err(|_| Status::unavailable("fixture upstream closed"))?;
                         }
                         next = upstream.message() => {
-                            let Some(frame) = next? else { return Ok(()) };
+                            let Some(frame) = next? else {
+                                service.observe(serde_json::json!({"direction": "eof", "transport": transport}))?;
+                                return Ok(())
+                            };
+                            if service.observations.is_some() {
+                                let kind = match &frame.kind {
+                                    Some(server_frame::Kind::Ready(_)) => "Ready",
+                                    Some(server_frame::Kind::Validated(_)) => "Validated",
+                                    Some(server_frame::Kind::Proof(_)) => "Proof",
+                                    Some(server_frame::Kind::Rejected(_)) => "Rejected",
+                                    Some(server_frame::Kind::Cancelled(_)) => "Cancelled",
+                                    None => "unknown",
+                                };
+                                service.observe(serde_json::json!({
+                                    "direction": "server", "transport": transport,
+                                    "kind": kind, "request_id": frame.request_id,
+                                    "protobuf_hex": hex::encode(frame.encode_to_vec()),
+                                }))?;
+                            }
                             if matches!(frame.kind, Some(server_frame::Kind::Ready(_))) {
                                 bound = Some((frame.session_id.clone(), frame.epoch));
                             }
@@ -434,6 +518,7 @@ impl Prover for ProverProxyService {
                 captures.detach(&id, epoch);
             }
             if let Err(status) = result {
+                let _ = service.observe(serde_json::json!({"direction": "rpc_error", "transport": transport, "code": status.code() as i32}));
                 service.rejection(status.code());
                 let _ = out_tx.send(Err(status)).await;
             }
@@ -449,6 +534,8 @@ pub struct ProverProxyHandle {
     counters: Arc<ProxyCounters>,
     mutation: Arc<Mutex<ProverMutation>>,
     task: JoinHandle<()>,
+    upstream: Arc<Mutex<String>>,
+    observations: Option<Arc<Mutex<Observations>>>,
 }
 impl ProverProxyHandle {
     pub(super) async fn spawn(
@@ -457,7 +544,7 @@ impl ProverProxyHandle {
         fixture_directory: Option<PathBuf>,
     ) -> Result<Self> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-        Self::spawn_with_listener(listener, upstream, mutation, fixture_directory)
+        Self::spawn_with_listener(listener, upstream, mutation, fixture_directory, false)
     }
 
     /// Capture acknowledged v2 requests from an owned development network.
@@ -470,7 +557,41 @@ impl ProverProxyHandle {
     ) -> Result<Self> {
         std::fs::create_dir_all(&directory)?;
         let listener = tokio::net::TcpListener::bind(address).await?;
-        Self::spawn_with_listener(listener, upstream, ProverMutation::None, Some(directory))
+        Self::spawn_with_listener(
+            listener,
+            upstream,
+            ProverMutation::None,
+            Some(directory),
+            false,
+        )
+    }
+
+    /// Observe bounded wire exchanges against an owned test signer. This adds a
+    /// loopback hop and instrumentation cost; it is not a production latency probe.
+    pub async fn observe(upstream: String) -> Result<Self> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        Self::spawn_with_listener(listener, upstream, ProverMutation::None, None, true)
+    }
+
+    /// Retarget subsequent transports after restarting only the owned test signer.
+    /// Existing transports keep their original upstream connection.
+    pub fn set_upstream(&self, upstream: String) -> Result<()> {
+        *self
+            .upstream
+            .lock()
+            .map_err(|_| anyhow!("fixture upstream poisoned"))? = upstream;
+        Ok(())
+    }
+
+    /// Snapshot the trace after the client has completed the exchange. Observation
+    /// rejects beyond 4096 events or 4 MiB of serialized events; it never truncates.
+    pub fn observations(&self) -> Result<Vec<serde_json::Value>> {
+        self.observations
+            .as_ref()
+            .ok_or_else(|| anyhow!("proxy observation was not enabled"))?
+            .lock()
+            .map(|observations| observations.events.clone())
+            .map_err(|_| anyhow!("fixture observations poisoned"))
     }
 
     fn spawn_with_listener(
@@ -478,16 +599,21 @@ impl ProverProxyHandle {
         upstream: String,
         mutation: ProverMutation,
         fixture_directory: Option<PathBuf>,
+        observe: bool,
     ) -> Result<Self> {
         let addr = listener.local_addr()?;
         let counters = Arc::new(ProxyCounters::default());
         let mutation = Arc::new(Mutex::new(mutation));
+        let upstream = Arc::new(Mutex::new(upstream));
+        let observations = observe.then(|| Arc::new(Mutex::new(Observations::default())));
         let service = ProverProxyService {
-            upstream,
+            upstream: Arc::clone(&upstream),
             fixture_directory,
             captures: Arc::default(),
             mutation: mutation.clone(),
             counters: counters.clone(),
+            observations: observations.clone(),
+            started: Instant::now(),
         };
         let task = tokio::spawn(async move {
             let _ = tonic::transport::Server::builder()
@@ -504,6 +630,8 @@ impl ProverProxyHandle {
             counters,
             mutation,
             task,
+            upstream,
+            observations,
         })
     }
     pub fn endpoint(&self) -> &str {
@@ -531,6 +659,26 @@ impl Drop for ProverProxyHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn observation_byte_and_event_bounds_reject_without_mutating_the_trace() {
+        let mut trace = Observations::default();
+        trace.push(serde_json::json!({"kind": "Begin"})).unwrap();
+        let bytes = trace.bytes;
+        assert_eq!(
+            trace
+                .push(serde_json::json!({"data": "x".repeat(4 * 1024 * 1024)}))
+                .unwrap_err()
+                .code(),
+            tonic::Code::ResourceExhausted
+        );
+        assert_eq!((trace.bytes, trace.events.len()), (bytes, 1));
+        for _ in 1..4096 {
+            trace.push(serde_json::json!({})).unwrap();
+        }
+        let bytes = trace.bytes;
+        assert!(trace.push(serde_json::json!({})).is_err());
+        assert_eq!((trace.bytes, trace.events.len()), (bytes, 4096));
+    }
     #[test]
     fn cold_capture_retains_exact_prefix_and_replaces_rewound_terminal() {
         let block = |number, hash, parent| eez_control_rpc::v2::BlockWitness {

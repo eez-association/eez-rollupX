@@ -5,6 +5,9 @@ Fresh workload timing and runtime validation remain pending.** No latency sample
 deadline success rate, performance improvement or supported functional defect
 has been established by this work. This record does not complete #148.
 
+The [measurement-driver follow-up](followup.md) records subsequent implementation
+and validation after resource recovery; the initial results below remain historical.
+
 ## Identity and scope
 
 | Field | Value |

@@ -808,6 +808,36 @@ pub struct ProofSignerConfig<'a> {
     pub max_request_blocks: Option<u64>,
 }
 
+impl ProofSignerConfig<'_> {
+    /// Derive the expected RPC identity from local fixture configuration, independently
+    /// of the endpoint's capability reply. This does not authorize fixture execution.
+    pub fn validation_identity(&self) -> Result<B256> {
+        let loaded = eez_l1::chain_config::load_l2_genesis(self.chain_config)
+            .map_err(|error| anyhow!("{error:#}"))?;
+        let digest = loaded.digest();
+        let genesis = loaded.into_genesis();
+        let chain_id = genesis.config.chain_id;
+        let spec = eez_evm::profile::chain_spec(genesis)?;
+        let l1 = eez_l1::chain_config::load_l1_chain_spec(Path::new(&self.l1_chain_config))
+            .map_err(|error| anyhow!("{error:#}"))?;
+        let profile = eez_l1::chain_config::offline_l1_rules(&l1)
+            .and_then(|rules| rules.profile(eez_evm::profile::schedule(&spec)?, spec.chain().id()))
+            .map_err(|error| anyhow!("{error:#}"))?;
+        Ok(eez_control_rpc::identity::ValidationContext {
+            rollup_id: std::num::NonZeroU64::new(self.rollup_id)
+                .ok_or_else(|| anyhow!("fixture rollup ID must be nonzero"))?,
+            chain_id,
+            system_address: L2_SYSTEM_ADDRESS,
+            eez_l2_address: eez_protocol::EEZL2_ADDRESS,
+            chain_document_digest: digest,
+            network_profile_hash: profile.commitment(),
+            registry: self.registry_address,
+            manager: self.rollup_manager_address,
+        }
+        .identity())
+    }
+}
+
 /// Use the same checked genesis/profile construction as every runtime role.
 fn network_profile(l2_genesis: &Path, l1_profile: &Path) -> Result<NetworkProfile> {
     let l2 =

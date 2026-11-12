@@ -1,3 +1,6 @@
+This is the initial documentation-only review at `d9b974c1`. Subsequent
+measurement-driver work and its validation are tracked in [the follow-up](followup.md).
+
 What this change does: It records the defined #148 workload, exact input sizes
 and a resource preflight that prevents defensible timing on this host. It leaves
 runtime validation and actual preparation/streaming measurements explicitly pending.
