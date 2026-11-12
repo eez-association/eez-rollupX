@@ -106,7 +106,7 @@ Target test abbreviations refer to
 | Source invalid fixture | Disposition | Target rule / evidence |
 | --- | --- | --- |
 | `d4.2-vector-3-empty` | Target-equivalent | `take(1)` rejects empty input as `Truncated`; L tests every proper prefix, including empty. |
-| `d4.2-vector-4-unknown-version` | Intentionally inapplicable for byte `01` | Target inner V1 is supported; a bare `01` is truncated, not an unknown version. V asserts V0/V1 acceptance and rejection of 2/255. Outer V1 remains unsupported. |
+| `d4.2-vector-4-unknown-version` | Intentionally inapplicable for byte `01` | Target inner V1 is supported; a bare `01` is truncated, not an unknown version. V asserts V0/V1 acceptance and rejection of 2/255. Outer V1 remains unsupported; `native_wire_truncations_lengths_and_padding_are_bounded` explicitly asserts `UnknownProtocolVersion(1)` on both raw and packed paths. |
 | `d4.2-vector-5-non-shortest-block-count` | Target-equivalent | Inner `varint` rejects a terminating zero after a continuation (`86 00`); U exercises the shared integer reader with `80 00`. No claim that every source vector was executed verbatim. |
 | `d4.2-vector-6-impossible-block-count` | Intentionally inapplicable as a dense-count bound | `00 06` still fails (missing count token), but the source's one-count-byte-per-block prerequisite must not be ported. E admits compact spans through `u32::MAX` without expansion; count coverage must instead match. |
 | `d4.2-vector-7-trailing-byte` | Target-equivalent after count-column translation | Exact body exhaustion rejects a suffix as `Trailing`; U appends a byte to a valid compact 600-block body. Source's six dense zero counts are not a native encoding. |
@@ -140,18 +140,22 @@ payload. Copying source fixtures unchanged would reject at an unrelated boundary
 **B** below is the new `mapped_action_boundaries_fail_at_the_raw_decoder` in
 [malformed_native.rs](../../../crates/eez-blob-codec/src/tests/malformed_native.rs).
 It constructs native bytes independently of the stream encoder, checks a valid
-control and asserts the production decoder's specific rejection.
+control and asserts both raw unpadded `decode` outcomes and padded
+`decode_native_payload(pack(...))` outcomes. Production native callers unpack
+full blobs, so padding can complete a field before another check rejects it.
+The following rows distinguish these paths; rejection equivalence does not
+require identical error precedence.
 
 | Source case | Disposition | Target rule / evidence |
 | --- | --- | --- |
 | fixture `non-empty-initiating-tx-data` (L1 origin, one byte) | Target-equivalent at semantic binding | The outer field is opaque, so the byte decoder may accept it. `verify_native_semantics` rejects nonempty L1 data as `InboundTransactionData`. Existing `native_inbound_semantics_bind_both_sides_and_reject_result_mutation` asserts that error with a 21-byte L1 copy. Test-source evidence only here. |
-| fixture `missing-finish-marker` | Target-equivalent; direct byte-test gap filled | B removes Finish while retaining the required close; `UnclosedBracket`. Removing the entire suffix including close can instead fail `CloseBlobStreamMissing`. |
-| fixture `second-chain-operation` | Target-equivalent; native-profile byte-test gap filled | A lone second type byte is truncated; B supplies a complete second operation between brackets and close to reach the intended native-profile rejection, `UnexpectedMessages`, after generic Core decoding succeeds. |
+| fixture `missing-finish-marker` | Target-equivalent; direct byte-test gap filled | B removes Finish while retaining the required close; `UnclosedBracket`. Removing the entire suffix including close yields `CloseBlobStreamMissing` on raw unpadded input, but `Codec(InvalidMessageType(0))` after packing. B asserts both paths. |
+| fixture `second-chain-operation` | Target-equivalent; native-profile byte-test gap filled | A lone second type byte is `TruncatedStream` on raw unpadded input; padding completes a chain-0 operation before `Codec(InvalidMessageType(0))` rejects the next zero byte. B asserts both, then supplies a complete second operation between brackets and close to reach the intended native-profile rejection, `UnexpectedMessages`, after generic Core decoding succeeds. |
 | mutation `wrong_call` (Call becomes Initiate) | Target-equivalent; direct byte-test gap filled | B reaches `NestedTransaction`. Native supports nested calls, not nested transaction roots. |
 | mutation `unknown_return` (`ff`) | Target-equivalent; direct byte-test gap filled | B reaches `InvalidMessageType(255)`. |
-| mutation `wrong_finish` (Finish becomes Initiate) | Target-equivalent; direct byte-test gap filled | B reaches `TruncatedStream`: unlike the source expectation parser, the target decodes the new message's fields before checking placement. Rejection equivalence does not imply identical precedence. |
+| mutation `wrong_finish` (Finish becomes Initiate) | Target-equivalent; direct byte-test gap filled | B asserts `TruncatedStream` on raw unpadded input and `Codec(NestedTransaction)` after packing: padding completes the new Initiate fields, then placement rejects the still-open transaction. |
 | mutation `multibyte_tx_data` (L1 origin, two bytes) | Target-equivalent at semantic binding | Same nonempty L1 check as the one-byte fixture; existing 21-byte test shows it is not a one-byte-only restriction. The source's blanket ban is intentionally inapplicable to L2 origins, whose signed transaction bytes are required. |
-| mutation `truncated_tx_data` (length 2, zero bytes remain) | Target-equivalent; direct byte-test gap filled | B asserts `TruncatedStream` at the length boundary, before any semantic binding. |
+| mutation `truncated_tx_data` (length 2, zero bytes remain) | Target-equivalent; direct byte-test gap filled | B asserts `TruncatedStream` at the length boundary on raw unpadded input. After packing, two padding zeros complete `tx_data`; the next zero yields `Codec(InvalidMessageType(0))`, also asserted before semantic binding. |
 
 The existing signer tests are in
 [settlement/tests/semantics.rs](../../../crates/eez-proof-signer/src/settlement/tests/semantics.rs).
@@ -164,10 +168,11 @@ producer behavior. Their presence is not a claim of fresh execution here.
 ## Canonicality, length and trailing-data cross-check
 
 The second new test, `native_wire_truncations_lengths_and_padding_are_bounded`,
-checks all 141 proper byte prefixes of the independent native control, plus all
+rejects outer version `01` on raw and packed paths and checks all 141 proper
+unpadded byte prefixes of the independent native control, plus all
 four outer byte-length fields (`operations`, `tx_data`, `data`, `return_data`):
-non-minimal equivalent lengths remain accepted, fifth-byte overflow and a sixth
-continuation form are rejected, and `u32::MAX` cannot claim unavailable bytes.
+non-minimal equivalent lengths remain accepted, fifth-byte overflow (including
+a continuation at the fifth byte of a six-byte input) is rejected, and `u32::MAX` cannot claim unavailable bytes.
 It also distinguishes permitted zero padding from a nonzero trailing byte.
 These are bounded examples, not exhaustive fuzzing or a proof of parser safety.
 
@@ -216,3 +221,15 @@ unnecessary-abstraction finding was identified in the bounded change.
 
 Verdict: Ship, subject to the validation limits above. Not checked: independent
 security review, source test execution or live end-to-end rejection behavior.
+
+## Opus review corrections (2026-11-12)
+
+Claude Opus 5.5 independently reviewed candidate `3405b40c` and found an
+evidence-labeling error (P2) and a missing outer-version regression (P3). The
+earlier test assertions were correct for unpadded input, but the assessment
+overstated their correspondence to padded production input. The action map now
+distinguishes those outcomes, and the same fixtures assert both paths. Outer
+version `01` now has exact raw and packed rejection assertions. This changes no
+production behavior, grammar, case dispositions, protocol pin or dependencies.
+The initial Ponytail verdict above is historical; it did not identify these two
+findings. See the appended validation record for the correction checks.

@@ -24,22 +24,50 @@ fn one_action() -> Vec<u8> {
 fn mapped_action_boundaries_fail_at_the_raw_decoder() {
     let canonical = one_action();
     assert!(decode_native_payload(&pack(&canonical).unwrap(), 7).is_ok());
-    for (offset, replacement, expected) in [
-        (47, 3, Error::NestedTransaction),
-        (137, 255, Error::InvalidMessageType(255)),
-        (139, 3, Error::TruncatedStream),
+    for (offset, replacement, raw_error, padded_error) in [
+        (47, 3, Error::NestedTransaction, Error::NestedTransaction),
+        (
+            137,
+            255,
+            Error::InvalidMessageType(255),
+            Error::InvalidMessageType(255),
+        ),
+        (139, 3, Error::TruncatedStream, Error::NestedTransaction),
     ] {
         let mut wire = canonical.clone();
         wire[offset] = replacement;
-        assert_eq!(decode(&wire, &[]), Err(expected), "offset {offset}");
+        assert_eq!(decode(&wire, &[]), Err(raw_error), "raw offset {offset}");
+        assert_eq!(
+            decode_native_payload(&pack(&wire).unwrap(), 7),
+            Err(NativeProfileError::Codec(padded_error)),
+            "padded offset {offset}"
+        );
     }
     let mut missing_finish = canonical.clone();
     missing_finish.remove(139);
     assert_eq!(decode(&missing_finish, &[]), Err(Error::UnclosedBracket));
+    assert_eq!(
+        decode_native_payload(&pack(&missing_finish).unwrap(), 7),
+        Err(NativeProfileError::Codec(Error::UnclosedBracket))
+    );
 
     let mut truncated_tx_data = canonical[..47].to_vec();
     truncated_tx_data[46] = 2;
-    assert_eq!(decode(&truncated_tx_data, &[]), Err(Error::TruncatedStream));
+    // Unpacking supplies zero padding: it can complete fields before the
+    // first padding byte encountered as a message type rejects the stream.
+    let mut lone_second_operation = canonical[..140].to_vec();
+    lone_second_operation.push(2);
+    for (wire, raw_error) in [
+        (truncated_tx_data, Error::TruncatedStream),
+        (canonical[..139].to_vec(), Error::CloseBlobStreamMissing),
+        (lone_second_operation, Error::TruncatedStream),
+    ] {
+        assert_eq!(decode(&wire, &[]), Err(raw_error));
+        assert_eq!(
+            decode_native_payload(&pack(&wire).unwrap(), 7),
+            Err(NativeProfileError::Codec(Error::InvalidMessageType(0)))
+        );
+    }
 
     // A second complete ChainOperation is structurally legal in Core, but
     // forbidden by the native carrier profile even between transactions.
@@ -55,6 +83,16 @@ fn mapped_action_boundaries_fail_at_the_raw_decoder() {
 #[test]
 fn native_wire_truncations_lengths_and_padding_are_bounded() {
     let canonical = one_action();
+    let mut outer_v1 = canonical.clone();
+    outer_v1[0] = 1;
+    assert_eq!(
+        decode(&outer_v1, &[]),
+        Err(Error::UnknownProtocolVersion(1))
+    );
+    assert_eq!(
+        decode_native_payload(&pack(&outer_v1).unwrap(), 7),
+        Err(NativeProfileError::Codec(Error::UnknownProtocolVersion(1)))
+    );
     for end in 0..canonical.len() {
         assert!(decode(&canonical[..end], &[]).is_err(), "prefix {end}");
     }

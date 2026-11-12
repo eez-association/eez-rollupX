@@ -45,7 +45,7 @@ Moved only this task’s target directory to /tmp/issue143-target (a separate tm
 Subsequent build commands use CARGO_TARGET_DIR=/tmp/issue143-target.
 No other worktree, service, CI run, datadir, wallet, or build directory was altered.
 
-5. Final checks
+5. Initial candidate final checks (3405b40c)
 CARGO_TARGET_DIR=/tmp/issue143-target cargo +1.95.0 test --locked -p eez-payload-codec -p eez-blob-codec
 Exit 0 after library-module relocation: 43 passed (23 blob library, 1 Ethereum KZG,
 17 payload library, 2 issue35); no failed, ignored or filtered tests.
@@ -84,3 +84,30 @@ Reason for these unrun suites: this changes only focused codec tests and the bou
 Full workspace Clippy was attempted but remains environment-limited as detailed above.
 Test-source citations do not imply these unexecuted tests passed.
 Original review input provenance remains not independently checked.
+
+6. Opus findings corrected, 2026-11-12
+Baseline: 3405b40c0d00e3019ca71cf8e4f1b0ab3a72a216.
+Claude Opus 5.5 (verified canonicalModel claude-opus-5-5) identified raw/padded
+outcome conflation (P2) and absent explicit outer-version rejection evidence (P3).
+Before editing, a scratch probe linked against the baseline compiled codec reproduced:
+  wrong_finish: raw TruncatedStream; packed Codec(NestedTransaction)
+  truncated_tx_data: raw TruncatedStream; packed Codec(InvalidMessageType(0))
+  missing_finish_and_close: raw CloseBlobStreamMissing; packed Codec(InvalidMessageType(0))
+The probe source and executable are local-only /tmp/issue143-opus-padding-probe{.rs,}.
+The corrected library regressions repeat these assertions, also covering the lone
+second-operation byte and the outer-version mutation through raw and packed paths.
+Production decoder, protocol pin and dependencies remain unchanged.
+
+CARGO_TARGET_DIR=/tmp/issue143-target cargo +1.95.0 test --locked -p eez-payload-codec -p eez-blob-codec
+Exit 0: 43 passed (23 blob library, 1 Ethereum KZG, 17 payload library, 2 issue35).
+No failed, ignored, or filtered tests. Doc-test targets: 0 selected, not coverage.
+CARGO_TARGET_DIR=/tmp/issue143-target cargo +1.95.0 clippy --locked -p eez-blob-codec -p eez-payload-codec --all-targets -- -D warnings
+Exit 0. cargo +1.95.0 fmt --all --check and git diff --check: exit 0.
+Inventory (19 fixture names + 5 mutations exactly once) and local-link checks: pass.
+No correction test failures or retry-only passes. Full workspace Clippy was not
+repeated: its preceding native RocksDB archive failed for space (section 5).
+No broader semantic/process/live suites rerun; their limits above still apply.
+Correction logs: /tmp/issue143-fixes-{tests,clippy,fmt}.log (local only, ephemeral).
+Correction source and blob-test executable SHA-256:
+20bd98326229c296ca6248c7f666d4b3dad9d39ff73491edcdd065bdbc509560  crates/eez-blob-codec/src/tests/malformed_native.rs
+1f9e4cbe45bd4e33898b6101790db3b63887bb9d25550683fdd6693cd4bdc1cb  /tmp/issue143-target/debug/deps/eez_blob_codec-3d8c66728f8599fc
