@@ -67,11 +67,12 @@ Paths and behavior below refer to the investigation base, not the frozen target.
 | Embedded database initialization | Reth's engine launcher calls `with_genesis`, which compares an existing stored genesis hash with the selected chainspec and returns `GenesisHashMismatch` on disagreement. Its explicit debug skip-validation option bypasses that comparison. | This is a database-versus-configured-spec check, not a comparison with the separately configured canonical RPC. Source-inspected only; this investigation did not launch a database mismatch. |
 | Embedded rules → L2 schedule | `offline_l1_rules` commits to embedded chain ID, genesis header hash, forks and blob rules. `OfflineL1Rules::profile` rejects `L1 reference/profile chain mismatch` and an initial reference before required block-based forks. | Profile construction does not query canonical RPC or compare its block zero with embedded block zero. |
 | Composer → signer | `eez-node::launch` builds the profile from the embedded spec and L2 schedule, then `composer_proving_from_env` calls `RemoteProver::capabilities` with the expected portable identity and verification key before L2 sequencing. | Agreement with independently configured signer rules is stronger than chain ID equality; mutually wrong operator inputs are not repaired or independently certified by this handshake. |
+| Follower profile | The follower validates profile construction but does not retain its commitment or perform the Composer/signer handshake. `Deriver::new` likewise validates the profile and retains `offline_rules.headers`. | A same-ID, different-genesis local L1 spec is not rejected by these profile checks when the remaining rules are compatible. Canonical reference authentication is separate. This follower configuration was not process-tested. |
 | Canonical readiness | Composer passes the embedded chain ID to `wait_for_l1_ready`; follower first checks its local L1 profile against `EEZ_L1_CHAIN_ID`. Readiness rejects a different RPC chain ID, waits for deployment height and reference finality. Block zero needs no finalized checkpoint. | No reference hash or deployment receipt authentication here. This deliberately permits checkpoint-aware restart with pruned receipts. |
 | Deriver construction | Both roles call `Deriver::new` → `L1Reader::derivation_source` → `DerivationSource::authenticate`. Wrong chain, wrong recomputed reference header or insufficient finality rejects; only unavailable source errors retry. | A nonzero reference authenticates that reference; it does not fetch an ancestry proof all the way back to block zero. RPC canonicality/finality remains relative to the operator-selected provider. |
 | Derivation after startup | `canonical_header` fetches by canonical number and requires the expected hash. History construction checks ancestry and later canonical endpoints; retained-suffix recovery revalidates origins. | A one-time chain-ID read does not establish permanent endpoint identity. Later checks bind concrete headers, not a certificate for the URL. |
 | Front upstreams | After deriver construction, `validate_cross_chain_front` requires each configured upstream's chain ID to match its source role (embedded L1 ID or local L2 ID). Ports can bind earlier, with submissions gated until catch-up completes. | This validates another configured URL by chain ID, not genesis. Front startup/retry behavior is not exercised by this investigation. |
-| Fee quote | `PostingRuntime::quote_sample` compares the current RPC chain ID to both `CrossChainExecCtx::l1_chain_id` and the embedded EVM chainspec, returning `PostingError::Unavailable` on disagreement. | Same-ID forks must be distinguished by hashes/state, not this check. |
+| Fee quote | `PostingRuntime::quote_sample` compares the current RPC chain ID to both `CrossChainExecCtx::l1_chain_id` and the embedded EVM chainspec, returning `PostingError::Unavailable` on disagreement. | This is a runtime guard, including against an endpoint changing chain ID after startup. The signing context ID was read from that RPC during startup; readiness separately compares RPC and embedded IDs. Same-ID forks require hashes/state. |
 | Composition | `L1SlotState::open` anchors embedded state. Composer requires its hash to equal the canonical quote sample; otherwise it requeues the drain and attempts the ordinary minimal-post path. | A mismatch is not permission to consume/evict the cross-chain users. This check is at composition, not a startup genesis comparison. |
 | Final bundle simulation | `PostingRuntime::simulate` requires the local header at the quote height to hash to the canonical fee sample, then opens `state_by_block_hash` and executes the signed bundle. Missing state or a hash mismatch is `PostingError::Unavailable`. | Reaching startup does not imply the embedded provider can execute against a later canonical state. |
 | Submission target | `Submitter::send_bundle` reads target-provider chain ID; inbound envelopes and the final quote/target binding are checked. `FeeQuote::is_current` binds chain, exact sample and target. | This is not a general startup genesis check for `EEZ_L1_TARGET_RPC_URL`. Relay acceptance is not canonical settlement. |
@@ -102,9 +103,11 @@ Its dependency implementation was inspected in the locked Reth v2.7.0 checkout
 ID; `G` keeps the chain ID but changes genesis extra data and hence its hash.
 The L2 schedule always names A. The new
 `canonical_and_embedded_identity_matrix` invokes the production profile builder
-and canonical authentication, using mocked RPC responses. Each row is selected
-with both normal header responses and the `4444`/raw-header fallback. A profile
-rejection happens before RPC, so those duplicate rows do not exercise fallback.
+and canonical authentication as two independent component checks, using mocked
+RPC responses. Authentication receives only the canonical provider and fixed
+schedule, never the embedded spec. Each row is iterated with `pruned=false` and
+`pruned=true`; neither profile rejection nor canonical chain-ID rejection
+fetches a header. Those iterations do not exercise raw-header fallback.
 
 | Embedded spec | Canonical source | Expected component result |
 | --- | --- | --- |
@@ -118,16 +121,24 @@ rejection happens before RPC, so those duplicate rows do not exercise fallback.
 | G | C | Different profile commitment; canonical chain rejection |
 | G | G | Different profile commitment; canonical reference-hash rejection |
 
-This is 18 selected cells: six stop at profile construction and twelve exercise
-canonical authentication. It does not instantiate an embedded database. The
+There are 18 loop iterations, not 18 distinct provider-pair validations. Six
+stop at profile construction. Of the twelve authentication calls, four stop at
+chain ID, four use normal headers, and four use the `4444`/raw-header fallback.
+The A and G embedded rows repeat identical authentication inputs; the four
+fallback calls represent two distinct inputs. The chain-ID rejection also
+repeats across both values of `pruned`. The table records the combined outcomes
+of independent checks, not a comparison of live providers. Existing derivation
+tests already cover the canonical-side rejections; the added profile assertion
+shows that changing embedded genesis changes its commitment. No embedded
+database is instantiated. The
 genesis mutation changes only extra data, holding timestamp/randomness constant,
 so the negative control specifically exercises hash identity rather than a
 different schedule. Matching ID with changed genesis cannot produce the same
 profile commitment.
-All 18 cells passed in the fresh L1 suite. These results qualify the component
+All 18 iterations completed as expected in the fresh L1 suite. These results qualify the component
 boundary; they are not a full provider-pair startup or settlement matrix.
 
-The new `chain_readiness_still_requires_reference_hash_authentication` uses a
+The new `reference_hash_is_authenticated_after_chain_readiness` uses a
 localhost JSON-RPC server on an OS-assigned port and the production `L1Reader`.
 It serves chain 1 and a finalized reference at height 5, rejecting history-log
 queries like the existing pruned-source fixture. Both cases pass readiness:
@@ -143,13 +154,18 @@ genesis replay inputs. Fresh selection/results are listed below.
 
 The new `posting_quote_checks_rpc_signing_and_embedded_chain_ids` calls the
 production `PostingRuntime::quote`, with its actual `CrossChainExecCtx` and
-embedded `ChainProvider` configuration. Three independent mismatches (RPC,
-signing context, embedded chain ID) must return the exact
+embedded `ChainProvider` configuration. Three synthetic single-field mutations
+(RPC, signing context, embedded chain ID) must return the exact
 `PostingError::Unavailable("submission RPC and selected L1 profile have different chain IDs")`
 before consuming any header response. The matching control must produce a
 quote tied to the canonical sample hash. RPC responses are mocked, fees use
 the supported fixed-tip setting, and no transaction is broadcast. This does
 not claim that the subsequent embedded-state simulation path was executed.
+These are not three independent startup inputs: the signing context ID comes
+from the canonical RPC, and readiness compares that RPC with the embedded ID.
+The runtime check protects against changed or inconsistent endpoint responses
+after the earlier reads. This fixture uses the Ethereum EVM configuration
+(`gnosis_evm_config: None`); no Chiado quote fixture was run here.
 
 | RPC chain ID | Signing context ID | Embedded spec ID | Expected quote result |
 | --- | --- | --- | --- |
@@ -177,11 +193,17 @@ not claim that the subsequent embedded-state simulation path was executed.
   alone never proves common genesis.
 - A same-ID embedded chainspec with a different genesis changes the rules hash
   and portable/deployed-key identity. Profile construction alone does not reject
-  it against an independently supplied L2 reference. The configuration handshake
-  rejects disagreement with a correctly provisioned signer; this is not evidence
+  it against an independently supplied L2 reference. The Composer configuration
+  handshake rejects disagreement with a correctly provisioned signer; this is not evidence
   that every mutually misconfigured pair is rejected during startup.
+- Followers do not perform that signer handshake. They validate the profile
+  but retain only the header rules in the deriver. A change to local L1 genesis
+  extra data alone, with the same chain ID and header rules, is not rejected by
+  these checks; canonical reference authentication still uses the L2 schedule.
+  This does not demonstrate incorrect follower execution, but its complete
+  startup/replay behavior under that configuration remains untested.
 - Full process injection across canonical RPC, target RPC, embedded database,
-  signer and registered contracts remains separate from component tests. A
+  follower, signer and registered contracts remains separate from component tests. A
   missing direct startup comparison is not, by itself, a demonstrated settlement
   safety defect. Any additional startup rule needs a separately reviewed narrow
   follow-up, including its effect on private fixtures, pruned restart and trusted
@@ -277,7 +299,7 @@ is stopped after each bounded check; posting tests do not broadcast.
 The review traced the startup, derivation, quote, composition, simulation and
 submission callers and checked that the matrix does not represent profile
 acceptance as successful end-to-end startup. No actionable defect was found in
-the test change. Runtime cost is bounded by 18 profile/authentication cells,
+the test change. Runtime cost is bounded by 18 profile/authentication loop iterations,
 two startup-reference cases and four quote cases. No production performance
 claim follows from those counts.
 
@@ -286,3 +308,22 @@ No backport or production fix is justified by this change alone. The principal
 unverified boundary remains a full process pairing of same-ID/different-genesis
 canonical and embedded providers through signer agreement and final state
 simulation. This PR does not close #145 or replace its acceptance criteria.
+
+### Opus 5.5 review corrections
+
+Claude Opus 5.5 reviewed commit `4e6385d524bebb8610164a2c14ab6b941994edcd`
+using read-only source tools. It found no blocking code defect and requested
+clearer follower coverage, independent matrix legs, fallback counts and quote
+input provenance. Those descriptions are corrected above. The startup test is
+renamed to distinguish readiness from subsequent reference authentication; its
+assertions are unchanged. The manifest now supplies the exact diff command for
+reproducing the original test-patch digest and scopes original results to the
+reviewed commit. Follow-up validation is recorded separately, preserving the
+original failures and executable identities.
+
+Follow-up checks passed: all 34 shared-startup tests (including the renamed
+test), workspace Clippy with warnings denied, formatting, diff checks and all
+19 local links. The other suites were not rerun because their source and the
+renamed test assertions are unchanged. Original executable digests identify
+the earlier builds; the startup rebuild reused its output path and has a new
+digest recorded under `review_followup`.

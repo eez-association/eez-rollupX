@@ -380,7 +380,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chain_readiness_still_requires_reference_hash_authentication() {
+    async fn reference_hash_is_authenticated_after_chain_readiness() {
         use alloy_consensus::Header;
         use alloy_primitives::{Address, B256};
         use eez_l1::derivation::DerivationError;

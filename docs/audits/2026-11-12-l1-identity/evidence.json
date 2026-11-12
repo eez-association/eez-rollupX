@@ -129,7 +129,8 @@
   "new_cases": {
     "profile_and_authentication": 18,
     "startup_reference": 2,
-    "posting_quote": 4
+    "posting_quote": 4,
+    "profile_and_authentication_note": "18 loop iterations over independent profile/authentication checks; four raw-header fallback calls with two distinct inputs"
   },
   "limitations": {
     "original_handoff_provenance_independently_verified": false,
@@ -140,5 +141,58 @@
     "independent_live_chain_replay_executed": false,
     "composer_ignored": "held_pool::tests::profile_blocked_backlog_discovery (manual timing profile)",
     "replay_filtered": "tests::settlement_endpoints_require_the_forks_continuous_single_rollup_chain"
+  },
+  "tested_commit": "4e6385d524bebb8610164a2c14ab6b941994edcd",
+  "test_patch_command": [
+    "git",
+    "diff",
+    "--no-ext-diff",
+    "--no-color",
+    "dbe1cdb9047e7f3502505f381aaa602e6ebf552f",
+    "4e6385d524bebb8610164a2c14ab6b941994edcd",
+    "--",
+    "crates/eez-l1/src/chain_config/offline.rs",
+    "crates/eez-node-common/src/lib.rs",
+    "crates/eez-composer/src/composer/posting.rs"
+  ],
+  "review_followup": {
+    "source_sha256": {
+      "crates/eez-l1/src/chain_config/offline.rs": "f2d0332e654f3ac2905784bc0cd4da703fff588af486f9e6614bc60741cf1f79",
+      "crates/eez-node-common/src/lib.rs": "b8fa38f0e5c99cd4e4877486db14d353354f1f73d03d59a14d5a3773183b3932",
+      "crates/eez-composer/src/composer/posting.rs": "4cbcfc6079dab3d49fe661981519680469cfb49350ac8d4c6988b4bd391dbfe3"
+    },
+    "change": "Startup test renamed; assertions unchanged. Documentation corrects Opus review findings. Original run records above refer to tested_commit.",
+    "runs": [
+      {
+        "command": "cargo +1.95.0 test --locked --offline -p eez-node-common --features l1-startup --lib -- --test-threads=1",
+        "exit_code": 0,
+        "local_log": "/tmp/issue145-evidence/node-common-review.log",
+        "log_sha256": "eba5747d3d5da49ab507ec8540a2f67a72bd3c229c28c388177a1efe2c9b100f",
+        "log_bytes": 3230,
+        "counts": {
+          "passed": 34,
+          "failed": 0,
+          "ignored": 0,
+          "filtered_out": 0
+        },
+        "executable": {
+          "local_path": "/tmp/issue145-target/debug/deps/eez_node_common-f2c22872951ceb8b",
+          "sha256": "1e97c990cc157b1c7e088f2e8f8651afc319881fffc9cd0dfedae4e911dbaf1c",
+          "note": "Rebuild reused original executable path; earlier digest identifies earlier bytes."
+        }
+      },
+      {
+        "command": "cargo +1.95.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
+        "exit_code": 0,
+        "local_log": "/tmp/issue145-evidence/clippy-review.log",
+        "log_sha256": "41c9f5da719b075e9039a2ecc506e2c5bb292ea47b4c2bb63b09dc419cf3118a",
+        "log_bytes": 491
+      }
+    ],
+    "static_checks": {
+      "format": "passed",
+      "diff_check": "passed",
+      "local_links": 19
+    }
   }
 }
