@@ -81,8 +81,24 @@
     "raw_report_sha256": "056e6e9cd13c09927ffdc533a62b89e746c92573655c6b153c7dc0a64a9b6326"
   },
   "documentation_checks": {
-    "local_links": 18,
+    "local_links": 19,
     "bash_n": "passed",
     "diff_check": "passed"
+  },
+  "fable_review": {
+    "model": "claude-fable-5-2",
+    "reviewed_head": "3ba873cf1140a610212295464f864816de9a2f79",
+    "verdict": "approve; no mandatory findings",
+    "raw_report_local_only": "/tmp/issue141-fable-review/review.md",
+    "raw_report_sha256": "9ed03c37094e398668e00f11de8ed881361b868fa7373aaf246f9f6044cc56e0",
+    "optional_documentation_suggestions": "all adopted; final documentation-delta verification approved",
+    "final_verification": {
+      "model": "claude-fable-5-2",
+      "verdict": "approve; no mandatory findings",
+      "raw_report_local_only": "/tmp/issue141-fable-review/final-review.md",
+      "raw_report_sha256": "5be192aad99960990379de9e60812a56084012cc5cdace74f2060a5e49dfd455",
+      "reviewed_documentation_delta_sha256": "0a06b88b394b9e9f2a0fd61117f51e57fb452f83073e04b6a90f9680c0ecfe44",
+      "post_review_edits": "review provenance, recomputed link count, expanded limitations and line wrapping only"
+    }
   }
 }

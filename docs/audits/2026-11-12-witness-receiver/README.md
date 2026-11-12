@@ -49,7 +49,10 @@ Recommend a separate, diagnostic-only change: report
 `eez.committer.witness_feed.send_failed` with the exact block number/hash
 and which commit path attempted delivery. Reserve ERROR for an unexpected
 closure outside shutdown; the separate implementation should decide whether to
-lower severity or suppress this event once shutdown starts. Suggested message:
+lower severity or suppress this event once shutdown starts. The committer does
+not currently receive a shutdown signal; reliable suppression would need lifecycle
+signal plumbing, while external log correlation can provide context without it.
+Suggested message:
 
 > Witness-feed receiver closed; block is already canonical, background capture was not notified.
 
@@ -60,7 +63,7 @@ a failure after canonicalization, without undoing the block. Do not claim that
 proof generation or settlement has stopped. Do not mark users complete, charge a
 retry, evict requests, silently reconnect, or restart the node from this event.
 The current lifecycle permits failed sends during shutdown or the window between
-a capture-task panic and runtime exit, as traced below. Correlate with lifecycle
+any critical-task panic and runtime exit, as traced below. Correlate with lifecycle
 logs; do not treat a shutdown-time send failure as an independent service fault.
 Rate limiting repeated events can be reviewed in that implementation if needed;
 this assessment adds no diagnostic framework or configuration.
@@ -157,13 +160,16 @@ and [node dispatch](https://github.com/paradigmxyz/reth/blob/3d592ece6de8c455998
 route this to `CliRunner::run_command_until_exit`. Its
 [panic monitor](https://github.com/paradigmxyz/reth/blob/3d592ece6de8c4559987416a544fc215fd6d6921/crates/cli/runner/src/lib.rs#L231)
 returns a critical-task panic as the command error. The
-[runner](https://github.com/paradigmxyz/reth/blob/3d592ece6de8c4559987416a544fc215fd6d6921/crates/cli/runner/src/lib.rs#L81)
+[runner](https://github.com/paradigmxyz/reth/blob/3d592ece6de8c4559987416a544fc215fd6d6921/crates/cli/runner/src/lib.rs#L89)
 then shuts down the runtime; that error branch does not run its normal graceful
 shutdown branch. A capture-task panic therefore does not leave a normally
 supervised Composer running indefinitely with a dead receiver.
 
 During normal shutdown, the task wrapper's `select(on_shutdown, task)` can drop
-the capture future. The committer actor uses plain `tokio::spawn`, so an in-flight
+the capture future. Any critical-task panic can also end the task manager and
+drop its shutdown signal, cancelling capture before runtime exit; the failed
+critical task need not be the capture task itself. The committer actor uses plain
+`tokio::spawn`, so an in-flight
 commit can still attempt delivery before the runtime stops. Normal receiver
 exhaustion requires the senders to be gone and cannot itself produce a later
 failed send through those senders. Explicit receiver close and isolated task
@@ -357,3 +363,6 @@ Fresh source/executable identities and log digests are recorded separately in
 
 The follow-up also passed formatting, workspace Clippy with warnings denied,
 local-link resolution, shell-example syntax and diff whitespace checks.
+
+The [Claude Fable 5.2 review](claude-fable-review.md) approved the revised
+investigation; its non-blocking documentation suggestions were also incorporated.
