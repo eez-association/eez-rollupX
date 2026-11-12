@@ -26,6 +26,14 @@ contract FundingNestedCaller {
             require(keccak256(result) == keccak256(expectedSuccess ? bytes("") : bytes(hex"abcd")), "nested result");
         }
     }
+
+    function invokeWithValue(uint256 value) external payable {
+        calls++;
+        uint256 before = address(this).balance;
+        (bool success, bytes memory result) = remoteProxy.call{value: value}("");
+        require(!success && keccak256(result) == keccak256(hex"abcd"), "expected terminal revert");
+        require(address(this).balance == before, "reverted value was not restored");
+    }
 }
 
 /// Funding feasibility for #105, using the pinned manager and proxy implementation.
@@ -160,6 +168,41 @@ contract ProtocolGroupFundingTest is BaseL2 {
         assertEq(address(manager).balance, 5 ether, "same allocation survived both retries");
         assertEq(SYSTEM_ADDRESS.balance, OUTBOUND_VALUE);
         _clearProtocolBalances();
+        _deliver(7 ether);
+    }
+
+    function testFuzz_TerminalNestedRevertRestoresValueWithoutAnotherMint(uint96 amount) public {
+        uint256 value = bound(amount, 1, 10 ether);
+        CrossChainCall memory flat = _cc(
+            address(nestedCaller), value, abi.encodeCall(FundingNestedCaller.invokeWithValue, (value)), REMOTE, MAINNET
+        );
+        bytes32 root = _outgoingCallHash(address(this), REMOTE, MAINNET, OUTBOUND_VALUE, 0, ORIGIN_DATA);
+        bytes32 atFire = _hCallBegin(_hEntryBeginL2(root), _incomingCallHash(flat));
+        bytes32 outgoing = _outgoingCallHash(address(nestedCaller), NESTED_REMOTE, MAINNET, value, 0, "");
+        ExecutionEntry[] memory entries = new ExecutionEntry[](1);
+        entries[0] = _buildSimpleEntry(root, flat, "", _hCallEnd(atFire, true, ""));
+        entries[0].expectedOutgoingCalls = new ExpectedOutgoingCrossChainCall[](1);
+        // A terminal failed row has no descendants, matching the fork profile.
+        entries[0].expectedOutgoingCalls[0] = ExpectedOutgoingCrossChainCall({
+            expectedOutgoingHash: _expectedOutgoingHash(outgoing, atFire),
+            incomingCalls: new CrossChainCall[](0),
+            revertedOrStaticRollingHash: _hNestedBegin(atFire, outgoing),
+            success: false,
+            returnData: hex"abcd"
+        });
+        uint256 opening = address(this).balance;
+        _load(entries, value);
+        _consume();
+        assertEq(address(this).balance, opening - OUTBOUND_VALUE);
+        assertEq(address(nestedCaller).balance, value);
+        assertEq(nestedCaller.calls(), 1);
+        assertEq(address(manager).balance, 0);
+        assertEq(SYSTEM_ADDRESS.balance, OUTBOUND_VALUE, "failed nested payment must not reach the burn sink");
+        assertEq(RECIPIENT.balance, 0);
+        // vm.deal models only the specified boundary sink. It is not evidence
+        // that the production executor places cleanup at this boundary.
+        _clearProtocolBalances();
+        assertEq(address(this).balance + address(nestedCaller).balance, opening + value - OUTBOUND_VALUE);
         _deliver(7 ether);
     }
 

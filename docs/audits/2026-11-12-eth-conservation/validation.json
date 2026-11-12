@@ -1,0 +1,221 @@
+{
+  "issue": "https://github.com/eez-association/eez-rollupX/issues/146",
+  "date_utc": "2026-11-12",
+  "base": "601ebfa9c7e1a779f1afbd077bd31a3207e7a61b",
+  "base_verified_against_association_main": true,
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "candidate_identity": "Base plus the test-only changes identified below; documentation is not executable input. The containing Git commit identifies the complete candidate.",
+  "frozen_review": {
+    "source": "1b66d9bda675e6f8e83f514153a97136909acc06",
+    "source_protocol": "143d87e62cade98bfc122d612638dcaaf1c85633",
+    "target": "31e148f50dd79730b17d113ac78795eb377eb5c5",
+    "target_protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "source_evm_sha256": "e44a10b510b9b580c3ee6e519dc3adda07f1e85226114355eaaa7d4dba789702",
+    "original_review_input_provenance_independently_verified": false,
+    "exclusions": [
+      "Later/unmerged rollup0#236",
+      "Reopening the 174-commit original audit"
+    ]
+  },
+  "functional_defect_established": false,
+  "production_code_changed": false,
+  "bug_fix_baseline_failure_claimed": false,
+  "source_sha256": {
+    "Cargo.lock": "97e258cec5cfec14b2ec38f03bad0098c86b7b5fc081fc299b1eb9f02d2781f5",
+    "genesis.json": "af18c662f3975356c625c7bff9271a82e4be265ab7780c218dcc5c169385372b",
+    "crates/eez-evm/src/evm.rs": "b43a8ef0282c087b73bd0fa7a310e655e16db466f93a36979ede578519263bb7",
+    "crates/eez-evm/src/block.rs": "229e0745f6fd10a85df5e055a0a621ff356d465b1b9839ca822f6201f432efa9",
+    "crates/eez-evm/src/balances.rs": "50e9739231373ed8a3989935e163d19f9d3f8d4d0eeff7756e7733a9aaf15611",
+    "crates/eez-evm/src/stateless.rs": "b40fa670dddfee9c67da1bcfa78ce26aff5b390013052e761f33b1af431feeeb",
+    "crates/eez-evm/src/block/tests/groups.rs": "d91faee49099a6a1c129d60d45f6342474835ea33bbb00d689a396ed6f42bd3c",
+    "crates/eez-evm/src/tests.rs": "732aad6e7f68d881ef331ac1d42222b7282f675fa0f81bf172e1f82b50b9a5ec",
+    "contracts/test/ProtocolGroupFunding.t.sol": "cab0fe5737122c0d606190c8c43e1ddbf3f11a853a1038536dcd5bbbeebf272e"
+  },
+  "environment": {
+    "rust": "1.95.0",
+    "foundry": "1.7.1 (4072e48705af9d93e3c0f6e29e93b5e9a40caed8)",
+    "solc": "0.8.34+commit.80d5c536.Linux.g++",
+    "via_ir": true,
+    "optimizer_runs": 1,
+    "cargo_env": {
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_TARGET_DIR": "/tmp/issue146-target",
+      "TMPDIR": "/tmp/issue146-tmp",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_DEV_OPT_LEVEL": "0",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "profile_note": "Local overrides only; manifest package-specific overrides still apply. Shipping configuration and dependency versions unchanged.",
+    "initial_capacity": {
+      "repository_disk_available": "1.1 GiB",
+      "tmp_available": "7.4 GiB",
+      "memory_available": "16 GiB",
+      "other_native_build_active": true
+    },
+    "ownership": [
+      "artifacts/issue146",
+      "/tmp/issue146-target",
+      "/tmp/issue146-tmp",
+      "contracts/out",
+      "contracts/cache"
+    ],
+    "other_task_outputs_pruned": false,
+    "anvil_or_kurtosis_resources_started": false,
+    "live_network_actions": false
+  },
+  "checks": [
+    {
+      "command": "forge test --root contracts --match-contract 'ProtocolGroupFundingTest|FeeVaultTest' --threads 1",
+      "stage": "Unmodified requested base, before test edits",
+      "result": "pass",
+      "passed": 26,
+      "failed": 0,
+      "skipped": 0,
+      "log": "baseline-contracts.log"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-evm --lib",
+      "stage": "Unmodified production base with the new test-only Rust changes, not a pristine-base run",
+      "result": "pass",
+      "passed": 46,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0,
+      "log": "baseline-evm.log"
+    },
+    {
+      "command": "forge test --root contracts --match-contract ProtocolGroupFundingTest --threads 1",
+      "result": "pass",
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "new_fuzz_runs": 256,
+      "existing_fuzz_runs": 256,
+      "log": "qualified-group-funding.log"
+    },
+    {
+      "command": "forge test --root contracts --threads 1",
+      "result": "pass",
+      "passed": 154,
+      "failed": 0,
+      "skipped": 0,
+      "log": "contracts.log",
+      "warnings": "Existing compiler warnings retained; no warnings or tests suppressed."
+    },
+    {
+      "command": "cargo +1.95.0 clippy --locked -p eez-evm --all-targets --features stateless -- -D warnings",
+      "result": "pass_after_environment_correction",
+      "log": "clippy-evm-clean-target.log",
+      "first_attempts": [
+        "clippy-evm.log",
+        "clippy-evm-retry.log"
+      ],
+      "correction": "Retained passing default EVM test executable, then removed only the owned temporary Cargo target and rebuilt metadata. Both prior attempts failed to write ark-bls12-381 metadata with OS error 122; no lint/assertion finding was suppressed."
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-evm --features stateless --lib",
+      "result": "pass",
+      "passed": 49,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0,
+      "log": "evm-stateless.log",
+      "note": "Includes the 46 default EVM tests plus three adapter units; do not add both runs as unique coverage."
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-protocol -p eez-blob-codec -p eez-payload-codec",
+      "result": "pass",
+      "passed": 323,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0,
+      "log": "protocol-codecs.log",
+      "targets": {
+        "blob_unit": 23,
+        "ethereum_kzg_compatibility": 1,
+        "payload_unit": 17,
+        "payload_issue35": 2,
+        "protocol_unit": 233,
+        "call_patterns": 31,
+        "causal_evidence": 11,
+        "public_inputs_hash_vectors": 3,
+        "rolling_hash_vectors": 2
+      },
+      "doctests": "Three doctest targets select zero tests; not counted as behavioral coverage."
+    },
+    {
+      "command": "cargo +1.95.0 fmt --all --check",
+      "result": "pass"
+    },
+    {
+      "command": "forge fmt --check --root contracts",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    },
+    {
+      "command": "Resolve edited Markdown relative paths at the initialized protocol pin; parse validation JSON",
+      "result": "pass"
+    }
+  ],
+  "not_run": [
+    {
+      "check": "Workspace --all-targets Clippy, workspace binaries/tests, full signer/RPC/Composer unit suites and frozen session replay",
+      "reason": "No production/identity/schema changes; resource-constrained local run uses focused EVM lint/tests and shared protocol/codecs. Disk remained under 1 GiB free and shared temporary-file quota was hit twice. Not replaced by historical passes."
+    },
+    {
+      "check": "Source-based eez-node-e2e process scenarios, including the new monetary scenario through Composer/signer/cold follower",
+      "reason": "Runtime source build and owned runtime/datadir storage do not fit current disk/quota headroom. No stale binaries substituted. Remaining cases are named in README; historical #112 process evidence is retained as historical."
+    },
+    {
+      "check": "Full pinned Core forge suite/build and protocol Anvil scenario runner",
+      "reason": "Core and pin unchanged; real pinned EEZL2/proxies were exercised by the fresh integration-contract suite. Full Core/Anvil matrix is not claimed. If running the full Core suite, retain script/*, test_Doc_OriginalValue_SeedInSetup and test_PostCost_Incremental exclusions; they are not coverage."
+    },
+    {
+      "check": "Genesis fixture regeneration/check and independent genesis-root helper rebuild",
+      "reason": "No runtime/compiler/genesis changes; fresh production-genesis zero-funding regression passed."
+    },
+    {
+      "check": "Full release-artifact/Kurtosis matrix, real builder refund exercise, live/network/performance checks",
+      "reason": "CI owns the release/Kurtosis matrix. No live operations authorized, no performance or ordered-refund claim."
+    }
+  ],
+  "executable_sha256": {
+    "default_evm_test": "f05ad5be73e42aa200a455754f598e26db9887bb874f576a81f03d780a6452a4",
+    "stateless_evm_test": "c0d68b7435481ada3ca5ed4a5974e828cc3b71ba96f375e8bd7bb7c042334432",
+    "forge": "4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c",
+    "anvil_not_executed": "10c1c727d6c1de973aeb160e59875b9a9a23464d6e74149ee8abb30b3500311b",
+    "solc": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39"
+  },
+  "compiled_contract_artifact_sha256": {
+    "contracts/out/ProtocolGroupFunding.t.sol/ProtocolGroupFundingTest.json": "a9686366d720f4798eb66bb8dc35143b3bc2d242295828718b3b441a8a4e7219",
+    "contracts/out/FeeVault.sol/FeeVault.json": "97e59456cacf0c0773c2358a7ba88c32c5460c7dd7ea0a9e3b133898fe53efb7"
+  },
+  "local_log_sha256": {
+    "baseline-contracts.log": "5341b0652029153ac9986b73d35b75b2549ff1aa77bd0f8185866dd05a2211d6",
+    "baseline-evm.log": "bc3a1c0baff50faf423d6e4d4e32b8f5f95fd9dc4aa70d7714166b67ca29cc13",
+    "clippy-evm-clean-target.log": "1ad0de1f114303400681eaae79d9a8b8ab9f0c645967fcdf2f10dc5a8ba3e27e",
+    "clippy-evm-retry.log": "b44bd338dc6ab9b82ba45cfe493161d0f6813ac5c797cda18069e7ab378d7bcb",
+    "clippy-evm.log": "5e4abf92d06bbe85c954c21b6d6a0452b3908de669ec3e4cedaceecf46d0eb17",
+    "contracts.log": "3bb51067c0062a253d2a34b4a2548deb89ad0dfa73402a37190eafc104f729fe",
+    "evm-stateless.log": "f925f0fee18e796fbad353f114ff6e4e26919e22fa64b85aff6bf186d4e0be22",
+    "protocol-codecs.log": "aae6de42a605c49e674f4c6aa8578455ea841e5751de58a7f77bb90ad9ac64ea",
+    "qualified-group-funding.log": "caa3ed4c81ea8f95ffcc14b1098ca9e459ff1dc77b0d93c50033973c75a272b7"
+  },
+  "retention_note": "Raw logs and executables are retained locally in ignored artifacts/issue146, not committed or claimed as independently downloadable evidence. Temporary Cargo output may be cleared only after executable identity/retention.",
+  "ponytail_review": {
+    "instructions_revision": "96608e078b2d5ea607c5c3b8b5a54d1c1fba6846",
+    "rules": "https://github.com/DietrichGebert/ponytail/blob/96608e078b2d5ea607c5c3b8b5a54d1c1fba6846/skills/ponytail/SKILL.md",
+    "review": "https://github.com/DietrichGebert/ponytail/blob/96608e078b2d5ea607c5c3b8b5a54d1c1fba6846/skills/ponytail-review/SKILL.md",
+    "scope": "Single-agent branch review: changed tests, helpers, production fee/mint/group/finalization callers, pinned manager/proxies, shared funding/effect consumers and evidence claims.",
+    "expected_load": "Three deterministic paid executor outcomes and 256 bounded new Foundry fuzz cases; no shipping runtime load added.",
+    "confirmed_findings": [],
+    "verdict": "Ship the bounded test/documentation change; unrun qualification and CI gates remain explicit.",
+    "instruction_file_sha256": {
+      "ponytail-SKILL.md": "9badd22a32e19cb884e46dfa8d3aae82bb81dfa5484105b8b4f0262df823a509",
+      "ponytail-review-SKILL.md": "33fe4ebe22a460924e5d4a261e223df22e409cc94ab76182bee9fb91a3ef022e"
+    }
+  }
+}
