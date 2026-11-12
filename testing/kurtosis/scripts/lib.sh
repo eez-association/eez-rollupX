@@ -201,29 +201,64 @@ receipt_status() { # <hash> <rpc> → "1" mined-ok, "0x0" reverted, "missing" no
 }
 
 send_front() { # <front_url> <raw_tx> <expected_hash> — eth_sendRawTransaction to a front
-    # A predecessor can enter composition after quoting. These explicit temporary
-    # refusals acquire no ownership, so retry identical bytes under one deadline.
-    # Tariff/profile failures need caller action; ambiguous transport failures and
-    # changed hashes remain fatal rather than reporting a submission as successful.
-    local front="$1" raw="$2" expected="$3" resp rc returned left
+    # Callers derive expected_hash from raw_tx and verify execution separately.
+    # Retry only failures known to precede admission. After a lost response, poll
+    # ownership without resubmitting: absence cannot exclude a still-running send,
+    # and resubmission after terminal disposition would start a new admission.
+    local front="$1" raw="$2" expected="$3" resp rc returned left reconcile=0 method param
     local deadline=$((SECONDS + 120))
     while (( SECONDS < deadline )); do
+        method=eth_sendRawTransaction param="$raw"
+        if (( reconcile )); then
+            method=eez_getCrossChainTransaction param="$expected"
+        fi
         left=$((deadline - SECONDS)); (( left <= 10 )) || left=10
         rc=0
         resp=$(curl -sS --max-time "$left" -X POST "$front" -H 'Content-Type: application/json' \
-            -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_sendRawTransaction\",\"params\":[\"$raw\"],\"id\":1}" 2>/dev/null) || rc=$?
-        # Empty body = no answer. Without this the checks below miss and a tx
-        # that was NEVER SENT reports success.
+            -d "{\"jsonrpc\":\"2.0\",\"method\":\"$method\",\"params\":[\"$param\"],\"id\":1}" 2>/dev/null) || rc=$?
+        (( SECONDS < deadline )) || break
+        if (( reconcile )); then
+            if (( rc == 0 )) && jq -e --arg hash "${expected,,}" '
+                .error == null and (.result.hash | ascii_downcase) == $hash
+                ' <<<"$resp" >/dev/null 2>&1; then
+                if jq -e '.result | .lifecycle == "queued" or .lifecycle == "in_flight" or
+                    .lifecycle == "composing" or .lifecycle == "awaiting_evidence" or
+                    (.lifecycle == "terminal" and .ownership.reason == "Committed")
+                    ' <<<"$resp" >/dev/null; then
+                    echo "    reconciled admission of unchanged source $expected" >&2
+                    return 0
+                fi
+                if jq -e '.result.lifecycle == "terminal"' <<<"$resp" >/dev/null; then
+                    echo "    ✗ source ended before admission could be confirmed: $resp" >&2
+                    return 1
+                fi
+            fi
+            sleep 1
+            continue
+        fi
+        if (( rc == 7 )); then
+            echo "    retrying unchanged source $expected after connection refusal" >&2
+            sleep 1
+            continue
+        fi
+        if (( rc == 18 || rc == 28 || rc == 52 || rc == 55 || rc == 56 )) ||
+            { (( rc == 0 )) && [[ -z "$resp" ]]; }; then
+            echo "    ambiguous submission of $expected (curl rc=$rc); checking front ownership" >&2
+            reconcile=1
+            continue
+        fi
         (( rc == 0 )) && [[ -n "$resp" ]] \
             || { echo "    ✗ submit failed (curl rc=$rc, ${#resp} byte body)" >&2; return 1; }
-        if grep -q '"error"' <<<"$resp"; then
-            if ! grep -q 'starting up' <<<"$resp" && ! jq -e '
-                .error | .code == -32003 and (
+        if jq -e '.error != null' <<<"$resp" >/dev/null 2>&1; then
+            if ! jq -e '
+                .error | (.code == -32000 and .message ==
+                    "eez node is starting up; cross-chain submissions are not accepted yet") or
+                (.code == -32003 and (
                     .data.code == "quote_busy" or .data.code == "stale_context" or
                     (.data.code == "quote_unavailable" and (.data.message ==
                         "quote unavailable: queued predecessor is entering composition" or .data.message ==
                         "quote unavailable: settlement reconciliation pending" or .data.message ==
-                        "quote unavailable: unsettled native history requires reconciliation")))
+                        "quote unavailable: unsettled native history requires reconciliation"))))
                 ' <<<"$resp" >/dev/null 2>&1; then
                 echo "    ✗ front rejected tx: $resp" >&2; return 1
             fi
@@ -236,7 +271,11 @@ send_front() { # <front_url> <raw_tx> <expected_hash> — eth_sendRawTransaction
             || { echo "    ✗ front changed the submitted transaction: $resp" >&2; return 1; }
         return 0
     done
-    echo "    ✗ front admission retry deadline reached after 120s" >&2
+    if (( reconcile )); then
+        echo "    ✗ submission acceptance unresolved for $expected at shared 120s deadline; not resubmitting" >&2
+    else
+        echo "    ✗ front admission retry deadline reached after 120s" >&2
+    fi
     return 1
 }
 

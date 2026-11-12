@@ -248,7 +248,7 @@ send_front http://front 0xabcdef 0x1234
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(len(requests), 2)
 
-    def test_submission_does_not_retry_tariff_profile_transport_or_hash_failures(self):
+    def test_submission_does_not_retry_tariff_profile_or_hash_failures(self):
         responses = [
             {"error": {"code": -32003, "data": {"code": "l1_tip_underfunded"}}},
             {"error": {"code": -32003, "data": {"code": "unsupported_transaction"}}},
@@ -263,7 +263,8 @@ send_front http://front 0xabcdef 0x1234
                 self.assertEqual(len(requests), 1)
         result, requests = self.run_submission([{"result": "0x1234"}], transport_failure=True)
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(len(requests), 1)
+        self.assertIn("admission retry deadline", result.stderr)
+        self.assertEqual(len(requests), 120)
 
     def test_temporary_submission_refusals_exhaust_the_bounded_deadline(self):
         error = {"error": {"code": -32003, "data": {"code": "quote_busy"}}}
@@ -292,12 +293,15 @@ sign_fee_quoted() {
     [[ "$5" == */wave-outbound-out-7.json ]]
     echo 0xcd
 }
-send_front() { [[ "$1" == "$L2F" && "$2" == 0xcd && "$3" == 0x1234 ]]; }
+send_front() { [[ "$1" == "$L2F" && "$2" == 0xcd && "$3" == 0x1234 && "$ACCEPT" == 1 ]]; }
 source "$FIXTURE/wave-function.sh"
 mk_and_send out set 401
 [[ "$OUT_NONCE" == 8 && "${#OUT_HASHES[@]}" == 1 && "${#TX_META[@]}" == 1 ]]
-'''], env=self.env, capture_output=True, text=True, timeout=5)
+'''], env={**self.env, "ACCEPT": "1"}, capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
+        failed = subprocess.run(result.args, env={**self.env, "ACCEPT": "0"},
+                                capture_output=True, text=True, timeout=5)
+        self.assertNotEqual(failed.returncode, 0)
 
 
 if __name__ == "__main__":

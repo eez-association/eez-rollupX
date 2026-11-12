@@ -706,6 +706,20 @@ Each workload verifies transaction inclusion, cross-chain state convergence,
 and correlation between the proof signer's result and the node's accepted
 attestation.
 
+The shared `send_front` helper uses one 120-second budget for admission retries
+and response-loss reconciliation. A failed connection (curl 7), the exact front
+startup refusal, or a recognized temporary quote refusal retries the same signed
+bytes and hash. Tariff/profile rejections and changed hashes fail.
+After a timeout, reset, partial transfer or empty reply, it only polls
+`eez_getCrossChainTransaction` on the same Composer front. A matching active
+owner or `Committed` record confirms admission; a terminal failure fails the
+workload. Missing, unavailable or unrecognized status never authorizes another
+send or success, and unresolved acceptance fails at the original deadline.
+This helper confirms admission only; callers still check execution and settlement.
+Ordinary forwarded transactions without held-pool status can remain unresolved.
+The policy changes no runtime admission rules or wire/storage format; old harnesses
+still fail immediately on transport loss, and no runtime upgrade is required.
+
 The blob-DA smoke additionally calls both node correlation methods for every
 test transaction: `eez_getSettlementByL2Block` must resolve its exact L1 posting
 transaction, and `eez_getSettledL2RangesByL1Block` must return a range containing
