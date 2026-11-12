@@ -157,8 +157,8 @@ contract ProtocolGroupFundingTest is BaseL2 {
         _deliver(nextValue);
     }
 
-    // This is deliberately broader than RollupX's accepted profile, which rejects
-    // failed nested rows with descendants. It checks core rollback only.
+    // This checks core rollback only. Signer acceptance also requires the
+    // complementary L1 table and authenticated execution of the failed subtree.
     function test_CoreRevertedNestedRetriesRestoreFundingBeforeReuse() public {
         _load(_nestedTable(3 ether, 5 ether, false, 2, false), 8 ether);
         _consume();
@@ -182,7 +182,7 @@ contract ProtocolGroupFundingTest is BaseL2 {
         ExecutionEntry[] memory entries = new ExecutionEntry[](1);
         entries[0] = _buildSimpleEntry(root, flat, "", _hCallEnd(atFire, true, ""));
         entries[0].expectedOutgoingCalls = new ExpectedOutgoingCrossChainCall[](1);
-        // A terminal failed row has no descendants, matching the fork profile.
+        // Construct a terminal failed row; producer/signer binding is separate.
         entries[0].expectedOutgoingCalls[0] = ExpectedOutgoingCrossChainCall({
             expectedOutgoingHash: _expectedOutgoingHash(outgoing, atFire),
             incomingCalls: new CrossChainCall[](0),
@@ -198,11 +198,14 @@ contract ProtocolGroupFundingTest is BaseL2 {
         assertEq(nestedCaller.calls(), 1);
         assertEq(address(manager).balance, 0);
         assertEq(SYSTEM_ADDRESS.balance, OUTBOUND_VALUE, "failed nested payment must not reach the burn sink");
-        assertEq(RECIPIENT.balance, 0);
+        assertEq(
+            address(this).balance + address(nestedCaller).balance + address(manager).balance + SYSTEM_ADDRESS.balance,
+            opening + value,
+            "four-account inventory includes exactly the modeled load credit"
+        );
         // vm.deal models only the specified boundary sink. It is not evidence
         // that the production executor places cleanup at this boundary.
         _clearProtocolBalances();
-        assertEq(address(this).balance + address(nestedCaller).balance, opening + value - OUTBOUND_VALUE);
         _deliver(7 ether);
     }
 
