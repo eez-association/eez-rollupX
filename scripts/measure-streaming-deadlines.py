@@ -19,7 +19,7 @@ import time
 INTERVAL = 10
 STABLE_SECONDS = 120
 TEST = "streaming::deadlines::characterize_native_streaming_workload"
-HEAVY = re.compile(r"^(cargo|rustc|clippy|clang|solc|gcc|g\+\+|cc$|c\+\+$|cc1|rust-lld|ld$|ld\.lld|cmake|ninja|make|forge|anvil|nextest|node_e2e|eez_.*-|du$|rsync$|zstd$|tar$|gzip$)")
+HEAVY = re.compile(r"^(cargo|rustc|clippy|clang|solc|gcc|g\+\+|cc$|c\+\+$|cc1|rust-lld|ld$|ld\.lld|cmake|ninja|make|forge|anvil|nextest|node_e2e|eez_|du$|rsync$|zstd$|tar$|gzip$)")
 
 
 def descendants(processes, root):
@@ -152,8 +152,14 @@ def terminate_owned(child):
     try:
         child.wait(timeout=10)
     except subprocess.TimeoutExpired:
+        pass
+    # The harness may exit before its signer. Reaping only the group leader
+    # does not establish that all owned descendants stopped.
+    try:
         os.killpg(child.pid, signal.SIGKILL)
-        child.wait()
+    except ProcessLookupError:
+        pass
+    child.wait()
 
 
 def main():

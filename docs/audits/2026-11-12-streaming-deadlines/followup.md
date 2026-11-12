@@ -122,7 +122,7 @@ is implied.
 
 ## Validation status
 
-Implementation and validation are ongoing. Eight focused Python tests currently
+Implementation and validation are ongoing. Nine focused Python tests currently
 pass, including actual cleanup of one owned process group while a separate
 owned control group remains alive, resource-boundary rejection, host visibility,
 compiler classification, short-lived build retention, published native-suite
@@ -131,3 +131,39 @@ are running in the worktree's own target directory with one job. No new runtime
 pass, independent replay result or eligible latency distribution is claimed yet.
 The final run record will distinguish completed checks, first failures, exclusions,
 actual measurements and any remaining quiet-window blocker.
+
+## Retained setup failure and controller correction
+
+The four affected debug package executables passed 406 tests (control RPC 6,
+signer 341, client 38, testkit 21); five signer artifact-generation utilities
+remain explicit exclusions. Their exact executable/log hashes are retained in
+`artifacts/issue148/unit-results.json` locally. The signer run includes the 29
+frozen native session transcripts. These are correctness results, not workload
+timing. Integration contracts also built successfully with one Foundry thread;
+inherited contract lint warnings remain in the log.
+
+The first native correctness invocation selected one test but failed during its
+source-runtime build, before starting a signer or reaching any workload assertion.
+Direct binary execution supplied Cargo 1.95 without propagating Rustup's toolchain
+selection: the `ff` dependency's own `rust-toolchain.toml` selected Rust 1.56,
+which rejected `--check-cfg`. The first log/result are retained separately as
+`native-correctness.log` / `native-correctness-result.json`. The corrected run
+explicitly pins `RUSTUP_TOOLCHAIN`, `RUSTC`, `RUSTDOC` and Cargo to 1.95.0.
+This setup failure does not reproduce a deadline defect. The documented
+`cargo +1.95.0 test` procedure propagates the required toolchain normally.
+
+Review also found that the initial controller could reap its harness before a
+SIGTERM-ignoring descendant exited. A controlled regression fails against the
+helper at `2ac63c71` and passes after cleanup also kills remaining members of
+that newly created process group. A separate control group remains alive. This
+is a correction to the new measurement tool, not an existing signer/runtime
+defect or a flaky runtime pass. Linux's 15-byte process-name truncation is also
+covered: underscore-named Rust test executables are screened even when their
+hash suffix is truncated. No production process was selected or stopped.
+
+The full default CI tooling suite selected 557 tests: 548 passed and nine were
+skipped. The two scanner-dependent tests subsequently passed using verified
+Gitleaks 8.30.1, leaving seven explicit opt-in Docker/Kurtosis/build probes
+excluded. Dependency policy checks passed; `cargo audit` exited zero with twenty
+allowed warnings. The final frozen-source inventory and actual timing status
+will supersede this interim status without deleting these first observations.

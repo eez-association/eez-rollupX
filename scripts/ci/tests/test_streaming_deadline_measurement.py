@@ -1,8 +1,11 @@
 """Quiet-window and sample-accounting boundaries; no timing workload is executed."""
 import importlib.util
+import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
+import time
 import unittest
 from unittest import mock
 
@@ -48,6 +51,8 @@ class QuietWindowTests(unittest.TestCase):
         self.assertTrue(measure.HEAVY.search("clippy-driver"))
         self.assertTrue(measure.HEAVY.search("solc-0.8.34"))
         self.assertTrue(measure.HEAVY.search("node_e2e-a83b"))
+        self.assertTrue(measure.HEAVY.search("eez_proof_signe"))  # Linux truncates comm to 15 bytes.
+        self.assertTrue(measure.HEAVY.search("eez_control_rpc"))
         self.assertFalse(measure.HEAVY.search("eez-composer"))
 
     def test_owned_descendants_do_not_include_other_tasks(self):
@@ -69,6 +74,31 @@ class QuietWindowTests(unittest.TestCase):
         finally:
             measure.terminate_owned(own)
             measure.terminate_owned(other)
+
+    def test_cleanup_stops_descendants_after_the_group_leader_exits(self):
+        child = "import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print('ready',flush=True); time.sleep(60)"
+        code = f"import subprocess,sys,time; p=subprocess.Popen([sys.executable,'-c',{child!r}],stdout=subprocess.PIPE,text=True); p.stdout.readline(); print(p.pid,flush=True); time.sleep(60)"
+        own = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True, start_new_session=True)
+        descendant = int(own.stdout.readline())
+        try:
+            measure.terminate_owned(own)
+            for _ in range(100):
+                try:
+                    state = Path(f"/proc/{descendant}/stat").read_text().split(")", 1)[1].split()[0]
+                except FileNotFoundError:
+                    break
+                if state == "Z":
+                    break
+                time.sleep(.01)
+            else:
+                self.fail("owned descendant remained running after cleanup")
+        finally:
+            try:
+                os.killpg(own.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            own.wait()
+            own.stdout.close()
 
     def test_percentile_ranks_and_failures_are_not_discarded(self):
         rows = [dict(event="attempt_result", warmup=False, success=True,
