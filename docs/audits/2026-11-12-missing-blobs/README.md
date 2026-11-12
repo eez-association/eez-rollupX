@@ -6,7 +6,7 @@ finalized missing-blob policy or change the accepted network profile.
 
 | Field | Value |
 | --- | --- |
-| Date/status | 2026-11-12 UTC; component validation complete, process execution blocked by storage quota; draft PR |
+| Date/status | 2026-11-12 UTC; component and focused process validation pass; full CI/live validation remains outstanding |
 | Scope | #144's unchanged policy qualification criterion; narrow supported fixes |
 | Source | Baselines below; candidate and regression inputs in the accompanying PR |
 | Protocol | Exact initialized gitlink below, no edits |
@@ -167,24 +167,115 @@ test retry or retry-only pass. After preserving all test executables, 256 MiB
 of this task's generated check metadata was removed to permit evidence/PR work;
 no other task's cache was changed.
 
-The new process source passes workspace Clippy/type checking but remains
-**unexecuted**. It is designed to start fresh followers behind a task-local
+At initial draft creation, the new process source passed workspace Clippy/type
+checking but remained **unexecuted**. It is designed to start fresh followers behind a task-local
 beacon proxy, observe repeated missing/malformed-data boot failures with no
 Deriver readiness or transfer receipt, restore the authentic source, and compare
 safe block hashes and exact receipts with the producing node. This planned
 independent replay and its semantic assertions are not counted as passing.
 The component finality matrix is the only newly executed finality evidence.
+The resumed execution below supersedes the original process-execution limit.
 
 `git diff --check` and local Markdown target resolution pass. No shell scripts
 or shell examples were changed in operator instructions; the reproduction
 command above was issued as shown. Full release/Kurtosis matrices, live finality,
 actual blob database pruning and full runtime queue ownership fault routing
-remain unverified. CI owns the full matrices; the selected process regression
-needs sufficient isolated storage before the PR is marked ready.
+remain unverified. CI owns the full matrices. The storage blocker and new test
+observation defects were resolved in the resumed validation below.
 
 Logs and preserved baseline executables are **local only**, under
 `/tmp/issue144-evidence`; they have no guaranteed retention outside this machine.
 The regression inputs and sanitized result summaries are checked in here.
+
+## Resumed process validation after storage recovery
+
+The operator freed space on the worktree filesystem. The task-owned target was
+moved to ignored `artifacts/issue144-target`, with `/tmp/issue144-target` retained
+as a symlink so existing cache paths stayed usable. `TMPDIR`, process logs and
+fixture datadirs now use task-owned directories under `artifacts/`; no other
+task's cache, services or configuration changed.
+
+The same exact test selection was resumed with the previous Cargo settings,
+prebuilt overrides cleared, `TMPDIR="$PWD/artifacts/issue144-tmp"`,
+`EEZ_TEST_LOG_DIR="$PWD/artifacts/issue144-validation/process-logs"`, and
+`EEZ_TEST_DATADIR_DIR="$PWD/artifacts/issue144-validation/process-datadirs"`.
+The first runtime execution failed: **0 passed, 1 failed, 211 filtered**, none
+ignored. The preceding quota failure had executed no test.
+
+This failure was in the new test's post-recovery readiness assertion, not in
+fixture startup or the production blob path. The missing-data follower logged
+two typed source-incomplete boot observations, stayed alive without the transfer
+receipt, and recovered matching safe block hashes and
+an exact transfer receipt after the authentic source returned. The test then
+incorrectly assumed the `spawning eez deriver` message was already observable.
+The observed message count was zero rather than one. The malformed-data case
+was not reached.
+
+Source inspection established that safe blocks can be published during catch-up
+before boot completes. A second execution added an explicit bounded readiness
+wait but still failed (**0 passed, 1 failed, 211 filtered**): the default fixture
+filter suppresses the follower's informational startup message. The follower
+continued polling normally while the test waited for an unobservable message.
+This exposed a second test-observation defect, not a production recovery error.
+
+The final test explicitly enables `eez_follower=info` in its own follower
+environment and waits for readiness after restoring data, checking that the
+process remains alive. Its positive control observes that same marker, making
+the pre-recovery zero-marker assertion meaningful. It retains the pre-recovery
+missing-receipt assertion and post-recovery exact receipt/safe-hash comparisons.
+No runtime or shared startup/retry code changed; these corrections are separate
+from #142.
+
+The first runtime sources were `a1a83108f3b2463b34bd256e40c3f21e6ec2baa6`,
+protocol unchanged. Executable SHA-256 values:
+
+| Executable | SHA-256 |
+| --- | --- |
+| Composer | `0618aa08839ce955811732af14ed1de3950cbb7bdd676001aae412ac44d6eadd` |
+| Follower | `fe2eed5090cb3555935aaf63248c62a698a8ec89148ad7161dbbf290e343d27f` |
+| Signer | `8c53f25bb8efa8a68a6afb5d3097130e4ccde218f61c0178747cba3c2a84cc9e` |
+| Initial process test | `f1633a43c53c99693df68c909c0e85a4d7208588e2147ac893b018dcaea5e9e1` |
+
+The first runtime output is local-only at
+`artifacts/issue144-validation/process-resumed.log`; logs and failing datadirs
+are retained alongside it. These ignored artifacts are unavailable in another
+checkout and have no external retention guarantee. The corrected run uses
+separate `process-corrected.log`, `process-corrected-logs` and
+`process-corrected-datadirs` paths, preserving that first failure.
+
+The final self-contained test passes: **1 passed, 0 failed, 0 ignored,
+211 filtered**. The missing-data follower logged exactly two missing-blob boot
+failures and one subsequent readiness message. The malformed-data follower
+logged exactly two malformed-beacon boot failures and one subsequent readiness
+message. Both checks asserted no readiness or transfer receipt during the fault,
+then observed readiness in the same process and independently reproduced the
+producer's safe block hashes and exact transfer receipt after restoring the
+authentic beacon source. Semantic assertions and independent replay executed.
+This is recovery coverage for fresh followers, not full queue fault routing or
+live consensus finality; the component matrix remains the finality evidence.
+
+The passing test includes both the explicit readiness wait and local follower
+log filter, without an external `EEZ_TEST_LOG` override. It is a corrected test
+version, not an unchanged-test retry-only pass. A separate logging-override
+diagnostic was stopped during redundant runtime compilation before fault
+checks; no result is claimed for it. All earlier failures remain recorded.
+
+Production runtime Rust sources are unchanged from `a1a83108`; the final
+Composer, follower and signer SHA-256 values match the table above. The final
+process test SHA-256 is
+`e699599ac248806c34239a72595735076a27e855fc86f30621d780da4d0c619e`.
+The final output is local-only at
+`artifacts/issue144-validation/process-final.log`, with runtime logs under
+`process-final-logs` and identities in `final-executable-sha256.txt`. The source
+changes accompanying this follow-up are confined to the test's observation
+setup/synchronization and this evidence record. The original frozen baselines,
+policy criterion and input-provenance limitation remain unchanged.
+
+After the final test corrections, the complete workspace Clippy command above
+passes again with `-D warnings`. Rust formatting, diff whitespace, local
+Markdown target resolution and Bash syntax checks also pass. The existing 211
+passing L1 tests still cover the unchanged production Rust implementation;
+they were not rebuilt or rerun solely for this test/documentation follow-up.
 
 ## Ponytail review
 
@@ -200,10 +291,15 @@ the actual messages and to require the post-recovery readiness message too;
 no runtime logging or shared harness change was needed. The review also removed
 an unnecessary mocked header read from the new component fixture.
 
+Process execution subsequently exposed the unsynchronized readiness assertion
+and the fixture's suppressed follower INFO messages. The final test waits for
+an observable positive readiness control under its own explicit follower filter;
+the production and shared harness code remain unchanged.
+
 This is a self-review, not independent security validation. No remaining
-confirmed code finding was identified. Verdict: retain the PR as draft until
-the selected process test executes successfully. Not checked: live operation,
-full release/Kurtosis matrices, and the quota-blocked process path above.
+confirmed code finding was identified. Verdict: Ship. Not checked: live operation,
+full release/Kurtosis matrices, actual blob database pruning, and full runtime
+queue ownership fault routing.
 
 ## Prior evidence and boundaries
 

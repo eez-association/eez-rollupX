@@ -84,6 +84,11 @@ async fn fresh_follower_waits_for_missing_and_malformed_blobs_then_replays() {
     });
     env.retain(|(key, _)| *key != "EEZ_L1_BEACON_URL");
     env.push(("EEZ_L1_BEACON_URL", endpoint));
+    for (key, value) in &mut env {
+        if *key == "RUST_LOG" {
+            value.push_str(",eez_follower=info");
+        }
+    }
     for fault in [1, 2] {
         mode.store(fault, Ordering::Relaxed);
         let follower = NodeHandle::start(
@@ -133,6 +138,17 @@ async fn fresh_follower_waits_for_missing_and_malformed_blobs_then_replays() {
                 .is_none()
         );
         mode.store(0, Ordering::Relaxed);
+        // Catch-up can publish safe blocks before the follower finishes boot.
+        eez_testkit::wait_for(TIMEOUT, || async {
+            assert!(
+                follower.exit_status().is_none(),
+                "{}",
+                follower.log_tail(60)
+            );
+            Ok((follower.log_count_matching(&["spawning eez deriver"])? == 1).then_some(()))
+        })
+        .await
+        .unwrap();
         wait_for_safe_prefix_convergence(
             &[&world.node, &follower],
             receipt.block_number.unwrap(),
