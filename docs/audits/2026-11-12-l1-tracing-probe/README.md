@@ -283,3 +283,94 @@ Corrected Python sources (SHA-256):
 
 - `probe-l1-tracing.py`: `718b6f284735808a3e098ed8a126ca00d30c7262432e2af1def714e7ca1fb241`
 - `test_l1_tracing_probe.py`: `38d674b925b3bb1458b621430f0108c31de77af3761daec5fc658856af3c71c6`
+
+## Secret-scan CI follow-up
+
+The owner authorized fixing PR #167's scanner failure using only applicable
+scanner changes from [PR #163](https://github.com/eez-association/eez-rollupX/pull/163).
+Before editing, the PR was open at `13ab069367690ffda6533d9c285f8d69cf1078f4`;
+its [Lint job](https://github.com/eez-association/eez-rollupX/actions/runs/43263828122/job/131347903874)
+failed in Gitleaks with three findings. The run's other validation lanes passed,
+but that does not execute this optional probe on every embedded backend. The
+tracing validation and backend limitations recorded above remain unchanged.
+
+The failed checkout used synthetic merge
+`165469310f295c4f8ebb42145b1972feabd270b1` (PR head into main `601ebfa9`). CI
+fetches all public branch/tag history, plus its merge ref, with `fetch-depth: 0`,
+then runs Gitleaks with `--log-opts='--all -m'`. Its log reports 1,129 commits,
+739,297,127 bytes and three findings; it contains no per-finding report.
+Consequently, absence of the workload file from this PR's tree does not exclude
+it from CI's history scan.
+
+A task-owned checkout fetched all 111 public branch refs, three tags and that
+exact failed merge: 115 refs, not shallow, 1,140 reachable commits. All branch
+names match the failed checkout's fetch log; branch tips were freshly fetched,
+so this is not claimed to recreate every ref tip at the earlier CI time. The
+frozen ref manifest is local-only at
+`artifacts/issue147/secret-scan/fetched-refs.txt`, SHA-256
+`255ed0cf20dbc80b784801664f6f7e9aa7ba1c5d5fdd8e49b979f2519b57cccf`.
+The checkout uses existing Git objects read-only, without scanning local private
+checkpoint refs or changing another worktree's refs, files or output.
+
+With the unchanged PR configuration, the CI-matching scan reproduced exactly
+three `generic-api-key` findings in
+[`docs/audits/2026-11-12-streaming-deadlines/workloads.json`](https://github.com/eez-association/eez-rollupX/blob/d9b974c1c3d1081afbbfde05bfad4fc352aedea0/docs/audits/2026-11-12-streaming-deadlines/workloads.json),
+at commit `d9b974c1c3d1081afbbfde05bfad4fc352aedea0`:
+
+| Line | Independently checked public fixture |
+| --- | --- |
+| 37 | [Bidirectional identity](../../../crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity.json) |
+| 159 | [Osaka lookup identity](../../../crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity.json) |
+| 311 | [Osaka changing-static identity](../../../crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/identity.json) |
+
+Each finding's exact `vkey` equals the corresponding existing fixture value. In
+published workload revision `61f73a10076a6af6e84ddf2fa8bf71e1acae37e7`, the complete
+identity objects also equal those fixtures. The
+[identity specification](../../../crates/eez-control-rpc/VALIDATION_IDENTITY.md)
+and [`NetworkProfile::verification_key`](../../../crates/eez-protocol/src/l1_history/context.rs)
+define these as public Keccak commitments over the network profile and deployment
+addresses, not signing credentials. All three values were already reviewed
+exceptions at their original fixture paths. These checks establish public fixture
+false positives rather than assuming that any 32-byte key-shaped value is safe.
+
+Reused exactly `.gitleaks.toml` and `scripts/ci/tests/test_secret_scan.py` from
+PR #163 head `e6f70e20776529fcc8971cf746d5ed6403ddc6a5`; no mixed commit was
+cherry-picked. The configuration adds only the exact workload path to those
+three existing exact-value allowlists, retaining `condition = "AND"`, anchors,
+default detection, history/merge coverage and suppression handling. No other
+scanner path or value is exempted. Startup-retry code and other issue work are
+unchanged.
+
+Used CI's pinned **Gitleaks 8.30.1**. The downloaded archive checksum was verified
+against workflow value
+`551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb`;
+the executable SHA-256 is
+`88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509`.
+Both full scans used the same frozen refs, bytes and flags:
+
+```bash
+gitleaks git "$OWNED_SCAN_CHECKOUT" --config "$REVIEWED_CONFIG" \
+  --log-opts='--all -m' --redact=100 --ignore-gitleaks-allow \
+  --gitleaks-ignore-path /dev/null --report-format json --report-path "$REPORT"
+```
+
+- Original configuration: exit 1; 1,136 scanned commits, 739,321,695 bytes,
+  exactly three findings (30.1s). The redacted first report and CI log are
+  retained locally under `artifacts/issue147/secret-scan/`.
+- Updated configuration: exit 0; the same 1,136 scanned commits and
+  739,321,695 bytes, zero findings (50.0s).
+- `python3 -m unittest discover -s scripts/ci/tests -p 'test_secret_scan.py' -v`,
+  with the verified scanner on `PATH`: two selected and passed (29.714s), zero
+  skips. The cases cover each exact public value at the workload path, its
+  one-character mutation, an adjacent synthetic credential despite an inline
+  suppression, and the reviewed value at an unreviewed path.
+- Python compilation, TOML parsing, CI default discovery selection, whitespace
+  and documentation link checks pass. Shell examples are syntax checked; no
+  shell/workflow file changed. Ponytail self-review checked the complete scanner
+  patch and its negative controls. Existing tracing/native suites were not
+  repeated for scanner-only edits.
+
+The committed-candidate scan and fresh CI observation are recorded in the PR
+validation update. Local-only logs/reports do not provide a public artifact
+retention guarantee. The protocol pin, production services, wallets and original
+main CI run remain untouched; no merge or deployment is authorized.
