@@ -248,7 +248,12 @@ def main():
         finally:
             if child is not None:
                 terminate_owned(child)
-    rows = [json.loads(line) for line in raw.read_text().splitlines()] if raw.exists() else []
+    try:
+        rows = [json.loads(line) for line in raw.read_text().splitlines()] if raw.exists() else []
+    except (OSError, ValueError) as error:
+        contaminated = True
+        status = f"incomplete/unreadable attempt records: {error}; retain diagnostics"
+        rows = []
     groups = distributions(rows)
     complete = len(groups) == 12 and all(g["successes"] == 20 and g["failures"] == 0 for g in groups.values())
     eligible = child is not None and child.returncode == 0 and not contaminated and complete

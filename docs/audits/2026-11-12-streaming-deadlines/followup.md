@@ -122,13 +122,14 @@ is implied.
 
 ## Validation status
 
-Implementation and validation are ongoing. Nine focused Python tests currently
+Implementation and validation are ongoing. Ten focused Python tests currently
 pass, including actual cleanup of one owned process group while a separate
 owned control group remains alive, resource-boundary rejection, host visibility,
 compiler classification, short-lived build retention, published native-suite
-selection and percentile/failure accounting. Rust/native builds
-are running in the worktree's own target directory with one job. No new runtime
-pass, independent replay result or eligible latency distribution is claimed yet.
+selection and percentile/failure accounting. The source-runtime build and all twelve native workload/recovery cases passed
+on the owned debug binaries. Logical cutoff checks and workspace linting are
+still running with one build job. Fresh independent follower replay and eligible
+latency distributions remain pending.
 The final run record will distinguish completed checks, first failures, exclusions,
 actual measurements and any remaining quiet-window blocker.
 
@@ -149,7 +150,11 @@ selection: the `ff` dependency's own `rust-toolchain.toml` selected Rust 1.56,
 which rejected `--check-cfg`. The first log/result are retained separately as
 `native-correctness.log` / `native-correctness-result.json`. The corrected run
 explicitly pins `RUSTUP_TOOLCHAIN`, `RUSTC`, `RUSTDOC` and Cargo to 1.95.0.
-This setup failure does not reproduce a deadline defect. The documented
+The corrected invocation passed all twelve fixture/scenario combinations;
+its executable and runtime identities are recorded below. Its 2,270-second
+command duration includes the 37-minute shipping-entrypoint source build and
+is not workload timing. This setup failure does not reproduce a deadline defect.
+The documented
 `cargo +1.95.0 test` procedure propagates the required toolchain normally.
 
 Review also found that the initial controller could reap its harness before a
@@ -161,9 +166,42 @@ defect or a flaky runtime pass. Linux's 15-byte process-name truncation is also
 covered: underscore-named Rust test executables are screened even when their
 hash suffix is truncated. No production process was selected or stopped.
 
-The full default CI tooling suite selected 557 tests: 548 passed and nine were
-skipped. The two scanner-dependent tests subsequently passed using verified
-Gitleaks 8.30.1, leaving seven explicit opt-in Docker/Kurtosis/build probes
-excluded. Dependency policy checks passed; `cargo audit` exited zero with twenty
+The first full default CI tooling suite selected 557 tests: 548 passed and
+nine were skipped. The two scanner-dependent tests subsequently passed using
+verified Gitleaks 8.30.1. After the additional cleanup regression, the final
+suite selected 558 tests: 551 passed and seven explicit opt-in
+Docker/Kurtosis/build probes were excluded. Dependency policy checks passed; `cargo audit` exited zero with twenty
 allowed warnings. The final frozen-source inventory and actual timing status
 will supersede this interim status without deleting these first observations.
+
+## Completed native correctness identity
+
+The ordinary correctness test selected one non-ignored test containing all
+twelve combinations and passed. Its source was `2ac63c71870066dc4225da2a2bbaca73c8d7964d`;
+later changes through `117ad079` affect only the explicit measurement utility's
+group/attempt budget and the Python observer. The production runtime source is
+unchanged from the requested `601ebfa9` baseline. No supported runtime defect
+has been established. This test exercises static captured workloads through
+fresh real processes; it is not a fresh on-chain capture or follower replay.
+
+| Executable | SHA-256 |
+| --- | --- |
+| Debug `node_e2e-9c9a287727624945` | `dd16d5b55415a5fadcd880640b0dd7b20a623f2005b5d02be53b4ef0067463fc` |
+| Debug `eez-composer` | `d24e60e13835bef2547065e0759d231773a987556daffde8087fcac8c08bd662` |
+| Debug `eez-follower` | `979c2b780093e36aaa4df039daa400d5a227c8f061fdcd73d7ae3a7a10d21f60` |
+| Debug `eez-proof-signer` | `57b051596b92f82c2787e3d1b629053213538b6e1f7deb61ee503a0aa3fb6723` |
+
+The first failure and corrected result remain separate local records. The
+prebuilt overrides were unset; all three runtime entrypoints were built by
+the existing source harness with default features, locked dependencies, the
+workspace dev profile, LLVM 22, incremental compilation disabled and one job.
+Rust 1.95.0 (`59807616e1fa2540724bfbac14d7976d7e4a3860`) and Cargo 1.95.0 were
+forced for every nested build. The protocol remains
+`84a5b5207880f192a6a5896cbfe0bac5249db47f`.
+
+Review reproduced another observer failure against `117ad079`: interruption
+while writing an attempt could leave a partial JSON line and crash report
+generation. The runner now preserves the raw file and emits an explicit
+ineligible diagnostic summary. A mocked end-to-end observer regression fails
+on the previous helper and passes with this correction. It does not run a
+workload or supply timing evidence.
