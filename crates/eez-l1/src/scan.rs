@@ -423,9 +423,12 @@ pub(crate) async fn scan_batch_logs_range(
         .collect::<Vec<_>>();
     let mut skipped_by_tx: HashMap<(B256, B256), HashSet<usize>> = HashMap::new();
     for log in &skipped_logs {
-        let (Some(block_hash), Some(tx_hash)) = (log.block_hash, log.transaction_hash) else {
-            continue;
-        };
+        let block_hash = log
+            .block_hash
+            .ok_or_else(|| L1Error::Provider("L2TxSkipped log missing block_hash".into()))?;
+        let tx_hash = log
+            .transaction_hash
+            .ok_or_else(|| L1Error::Provider("L2TxSkipped log missing tx_hash".into()))?;
         let decoded = L2TxSkipped::decode_log(&alloy_primitives::Log {
             address: log.address(),
             data: log.data().clone(),
@@ -443,10 +446,7 @@ pub(crate) async fn scan_batch_logs_range(
             .insert(entry_index);
     }
     // Pinned by block hash too: the same tx can sit on both sides of a fork.
-    let winner_tx_hashes: HashSet<(B256, B256)> = winner_logs
-        .iter()
-        .filter_map(|l| Some((l.block_hash?, l.transaction_hash?)))
-        .collect();
+    let mut winner_tx_hashes = HashSet::new();
     // Settled roots per L1 block, in emission order and tagged with the emitting
     // tx index. Per-TX-INDEX because two composers can post for the same rollup
     // in one L1 block: crediting a batch with the whole block's roots would hand
@@ -454,12 +454,24 @@ pub(crate) async fn scan_batch_logs_range(
     // matches steps positionally.
     let mut settled_by_block: HashMap<u64, Vec<SettledRoot>> = HashMap::new();
     for l in &winner_logs {
-        let (Some(bn), Some(tx_index)) = (l.block_number, l.transaction_index) else {
-            continue;
-        };
+        // Missing positions cannot mean no settlement or index zero: either
+        // interpretation can change attribution and release retained users.
+        let bn = l.block_number.ok_or_else(|| {
+            L1Error::Provider("L2ExecutionPerformed log missing block_number".into())
+        })?;
+        let tx_index = l.transaction_index.ok_or_else(|| {
+            L1Error::Provider("L2ExecutionPerformed log missing transaction_index".into())
+        })?;
+        let log_index = l.log_index.ok_or_else(|| {
+            L1Error::Provider("L2ExecutionPerformed log missing log_index".into())
+        })?;
         let block_hash = l.block_hash.ok_or_else(|| {
             L1Error::Provider("L2ExecutionPerformed log missing block_hash".into())
         })?;
+        let tx_hash = l
+            .transaction_hash
+            .ok_or_else(|| L1Error::Provider("L2ExecutionPerformed log missing tx_hash".into()))?;
+        winner_tx_hashes.insert((block_hash, tx_hash));
         // The pinned event carries both commitment and resulting ether balance.
         // A malformed matching log is an observation error, not evidence that
         // no settlement occurred; do not silently turn it into a failed attempt.
@@ -475,7 +487,7 @@ pub(crate) async fn scan_batch_logs_range(
         .map_err(|error| L1Error::Decode(format!("decode L2ExecutionPerformed: {error}")))?;
         settled_by_block.entry(bn).or_default().push(SettledRoot {
             tx_index,
-            log_index: l.log_index.unwrap_or_default(),
+            log_index,
             block_hash,
             root: decoded.newRoot,
         });
@@ -1118,6 +1130,168 @@ mod tests {
         assert_eq!(scanned[1].tx_hash, rich_hash);
         assert_eq!(scanned[1].claimed_current_root, Some(a));
         assert_eq!(scanned[1].claimed_new_root, Some(b));
+    }
+
+    #[tokio::test]
+    async fn incomplete_settlement_metadata_retains_scan_range() {
+        for (event, fields) in [
+            (
+                "L2ExecutionPerformed",
+                vec![
+                    "block_number",
+                    "block_hash",
+                    "tx_hash",
+                    "transaction_index",
+                    "log_index",
+                ],
+            ),
+            ("L2TxSkipped", vec!["block_hash", "tx_hash"]),
+        ] {
+            for field in fields {
+                let asserter = Asserter::new();
+                let provider = ProviderBuilder::new().connect_mocked_client(asserter.clone());
+                let block_hash = B256::repeat_byte(0x42);
+                let root = B256::repeat_byte(0xab);
+                let tx = batch_tx(1, Some((B256::ZERO, root)), 1);
+                let tx_hash = *tx.inner.tx_hash();
+                let posted = batch_posted_log(42, block_hash, tx_hash, 0);
+                let mut outcome = settled_root_log(1, root, 42, block_hash, tx_hash, 0, 0);
+                if event == "L2TxSkipped" {
+                    outcome.inner.data = eez_protocol::abi::L2TxSkipped {
+                        transientIdx: U256::ZERO,
+                        revertData: Bytes::from_static(&[0x08, 0xc3, 0x79, 0xa0]),
+                    }
+                    .encode_log_data();
+                }
+                let valid = outcome.clone();
+                match field {
+                    "block_number" => outcome.block_number = None,
+                    "block_hash" => outcome.block_hash = None,
+                    "tx_hash" => outcome.transaction_hash = None,
+                    "transaction_index" => outcome.transaction_index = None,
+                    "log_index" => outcome.log_index = None,
+                    _ => unreachable!(),
+                }
+                asserter.push_success(&vec![posted.clone()]);
+                asserter.push_success(&vec![outcome]);
+                // Dropped metadata must not pass by failing a later tx lookup.
+                asserter.push_success(&tx);
+                let mut chunks = BatchLogChunks::new(42, 42);
+                let error = scan_next_batch_log_chunk(&provider, Address::ZERO, 1, &mut chunks)
+                    .await
+                    .expect_err("incomplete metadata must fail the observation");
+                assert!(!error.is_terminal(), "{event}.{field}: {error}");
+                assert!(
+                    matches!(error, L1Error::Provider(ref reason)
+                    if reason == &format!("{event} log missing {field}")),
+                    "{error}"
+                );
+                assert_eq!(chunks.ranges, vec![(42, 42)]);
+
+                // Do not consume the unused tx reply as retry log data.
+                let replies = Asserter::new();
+                let retry = ProviderBuilder::new().connect_mocked_client(replies.clone());
+                replies.push_success(&vec![posted]);
+                replies.push_success(&vec![valid]);
+                replies.push_success(&tx);
+                let scanned = scan_next_batch_log_chunk(&retry, Address::ZERO, 1, &mut chunks)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(scanned.len(), 1);
+                assert_eq!(scanned[0].state_applied, event == "L2ExecutionPerformed");
+                assert!(chunks.is_empty());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn foreign_outcomes_require_attribution_only_when_rollup_is_unknown() {
+        for field in ["block_hash", "tx_hash"] {
+            for skipped in [false, true] {
+                let replies = Asserter::new();
+                let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
+                let mut foreign = settled_root_log(
+                    2,
+                    B256::ZERO,
+                    42,
+                    B256::repeat_byte(42),
+                    B256::repeat_byte(43),
+                    0,
+                    0,
+                );
+                if skipped {
+                    foreign.inner.data = eez_protocol::abi::L2TxSkipped {
+                        transientIdx: U256::ZERO,
+                        revertData: Bytes::from_static(&[1]),
+                    }
+                    .encode_log_data();
+                }
+                let valid = foreign.clone();
+                if field == "block_hash" {
+                    foreign.block_hash = None;
+                } else {
+                    foreign.transaction_hash = None;
+                }
+                replies.push_success(&serde_json::json!([]));
+                replies.push_success(&vec![foreign]);
+                let result = scan_batch_logs_range(&provider, Address::ZERO, 1, 42, 42).await;
+                if skipped {
+                    assert!(matches!(result, Err(L1Error::Provider(ref reason))
+                        if reason == &format!("L2TxSkipped log missing {field}")));
+                } else {
+                    assert!(
+                        result.unwrap().is_empty(),
+                        "foreign performed log is filtered before metadata checks"
+                    );
+                }
+                replies.push_success(&serde_json::json!([]));
+                replies.push_success(&vec![valid]);
+                assert!(
+                    scan_batch_logs_range(&provider, Address::ZERO, 1, 42, 42)
+                        .await
+                        .unwrap()
+                        .is_empty()
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn settlement_metadata_orders_same_transaction_roots() {
+        let replies = Asserter::new();
+        let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
+        let block_hash = B256::repeat_byte(0x42);
+        let (a, b) = (B256::repeat_byte(0xaa), B256::repeat_byte(0xbb));
+        let mut call =
+            postAndVerifyBatchCall::abi_decode(batch_tx(1, Some((B256::ZERO, a)), 1).inner.input())
+                .unwrap();
+        call.batch.entries[0].success = true;
+        for (current, new) in [(a, b), (b, a)] {
+            let mut entry = call.batch.entries[0].clone();
+            entry.rootUpdates[0].currentRoot = current;
+            entry.rootUpdates[0].newRoot = new;
+            call.batch.entries.push(entry);
+        }
+        let tx = mock_post_batch_tx(call.abi_encode());
+        let tx_hash = *tx.inner.tx_hash();
+        replies.push_success(&vec![batch_posted_log(42, block_hash, tx_hash, 0)]);
+        // RPC response order is not emission order. Repeated roots must retain
+        // their distinct positions, including the legitimate zero index.
+        replies.push_success(&vec![
+            settled_root_log(1, a, 42, block_hash, tx_hash, 0, 2),
+            settled_root_log(1, a, 42, block_hash, tx_hash, 0, 0),
+            settled_root_log(1, b, 42, block_hash, tx_hash, 0, 1),
+        ]);
+        replies.push_success(&tx);
+        let scanned = scan_batch_logs_range(&provider, Address::ZERO, 1, 42, 42)
+            .await
+            .unwrap();
+        assert_eq!(scanned.len(), 1);
+        assert!(scanned[0].state_applied);
+        assert_eq!(scanned[0].settlement.start, 0);
+        assert_eq!(scanned[0].settlement.len, 3);
+        assert_eq!(scanned[0].settlement.final_state, Some(a));
     }
 
     #[tokio::test]

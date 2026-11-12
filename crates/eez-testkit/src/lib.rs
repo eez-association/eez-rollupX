@@ -4483,6 +4483,21 @@ impl NativeWorld {
         Ok(())
     }
 
+    /// Omit one mined-log field from matching events in read RPC responses.
+    /// `None` restores the upstream response; on-chain logs remain unchanged.
+    pub fn omit_rpc_log_field(&self, omission: Option<(B256, &str)>) -> Result<()> {
+        let directory = self.builder_stub.capture_dir().join("control");
+        let temporary = directory.join("omit-log-field.new");
+        let value = omission.map(|(topic, field)| {
+            serde_json::json!({
+                "topic": topic, "field": field,
+            })
+        });
+        std::fs::write(&temporary, serde_json::to_vec(&value)?)?;
+        std::fs::rename(temporary, directory.join("omit-log-field.json"))?;
+        Ok(())
+    }
+
     /// Override only the scan head reported by the fault RPC. Exact header
     /// reads still reach L1; `None` restores the real head without a restart.
     pub fn report_rpc_head(&self, block: Option<u64>) -> Result<()> {

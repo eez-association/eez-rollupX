@@ -588,6 +588,25 @@ hash, applied virtual slice, exact L2 endpoint and selected replay groups. Empty
 application is distinct from incomplete derivation. Recovery MUST recheck the
 canonical generation and block identity before changing ownership.
 
+Mined settlement observations require complete attribution metadata:
+`L2ExecutionPerformed` needs block number/hash, transaction hash/index and log
+index; `L2TxSkipped` needs block and transaction hashes. Missing required fields
+are retryable observation failures, never absent outcomes or index zero. An
+incomplete scan cannot publish completion, release ownership or charge a source
+retry. This requirement does not extend the supported posting-wrapper profile.
+
+`L2ExecutionPerformed` is filtered by rollup before these checks. `L2TxSkipped` has no rollup topic:
+all skipped outcomes from the queried EEZ contract need their block/transaction
+hashes before they can be attributed, including outcomes that may belong to
+another rollup. Missing attribution must not be treated as a foreign outcome.
+
+Retryable describes the error classification, not an unlimited retry guarantee.
+The running watcher retries on subsequent polls without advancing the scan; detected reorgs may still retract the old tip.
+Composer and follower boot catch-up retain their existing limit of 32 L1
+transport failures, including these provider errors; exhaustion aborts startup.
+Restore complete RPC metadata before restarting. Neither failure nor retry
+exhaustion establishes canonical completion or authorizes a source retry charge.
+
 An immediate entry skipped at runtime does not inherit an earlier carrier's
 checkpoint unless the proven chain assigns the same commitment. Authenticated
 inbound lookups have zero replay weight. Their no-op root logs may persist or

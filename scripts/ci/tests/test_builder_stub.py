@@ -58,6 +58,24 @@ class BuilderControlTest(unittest.TestCase):
                 json.dumps(replacement or expected))
         return on_sleep
 
+    def test_log_field_omission_only_changes_matching_events_and_can_be_cleared(self):
+        control = self.directory / "omit-log-field.json"
+        control.write_text(json.dumps({"topic": "0x01", "field": "logIndex"}))
+        result = [{"topics": ["0x01"], "logIndex": "0x0"},
+                  {"topics": ["0x02"], "logIndex": "0x1"},
+                  {"topics": [], "logIndex": "0x2"}]
+
+        def upstream(*_, **__):
+            return io.BytesIO(json.dumps({"result": result}).encode())
+
+        logs = self.send({"method": "eth_getLogs"}, upstream=upstream)["result"]
+        self.assertIsNone(logs[0]["logIndex"])
+        self.assertEqual(logs[1:], result[1:])
+        self.assertEqual(self.send({"method": "eth_getTransactionReceipt"},
+                                   upstream=upstream)["result"], result)
+        control.write_text("null")
+        self.assertEqual(self.send({"method": "eth_getLogs"}, upstream=upstream)["result"], result)
+
     def test_blob_carrier_is_retained_before_partial_rpc_failure_or_lost_response(self):
         captures = self.directory / "captures"
         captures.mkdir()
