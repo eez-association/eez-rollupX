@@ -10,7 +10,7 @@ were still observed. No service or competing task was interrupted.
 
 ## Driver and boundaries
 
-The new `streaming_deadlines` module of the existing `node_e2e` target loads
+The new `streaming::deadlines` module of the existing `node_e2e` target loads
 and checks the three exact native requests. It restores per-block shared L1
 endpoints for the production `RemoteProver`, and obtains the expected validation
 identity from independently loaded local configuration. The server's advertised
@@ -73,7 +73,7 @@ ordinary correctness test executes all twelve fixture/scenario combinations:
 
 ```bash
 cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- \
-  --exact streaming_deadlines::native_workload_preparation_and_recovery_are_checked \
+  --exact streaming::deadlines::native_workload_preparation_and_recovery_are_checked \
   --test-threads=1 --nocapture
 ```
 
@@ -93,7 +93,8 @@ python3 scripts/measure-streaming-deadlines.py \
 
 The runner requires committed, clean source and records source/protocol,
 Cargo.lock and binary hashes before observing host quiet. It uses the initial
-record's 120-second gate at 10-second intervals, rejects hidden host process
+record's 120-second gate with full resource snapshots at 10-second intervals
+and additional process probes every second, rejects hidden host process
 visibility, and checks compiler/test/IO activity, CPU/load, disk, memory, swap
 traffic and PSI. It also retains `/tmp` and `/dev/shm` capacity. Normal production
 background services remain running. A process-name screen cannot establish
@@ -102,6 +103,8 @@ host isolation; CPU and pressure observations remain necessary.
 The runner waits up to 30 minutes for admission (explicitly adjustable with
 `--wait-seconds`). Any contamination during sampling terminates only its newly
 created process group, retains the diagnostic evidence, and requires a new run.
+Short-lived compiler/test work observed between full snapshots also invalidates
+the interval. Even an unexpected build in the owned process group is rejected.
 It never selects a cleanup target by command name. Post-observation continues
 for another 120 seconds. A resource/observer failure cannot authorize a passing
 performance report.
@@ -119,10 +122,11 @@ is implied.
 
 ## Validation status
 
-Implementation and validation are ongoing. Six focused Python tests currently
+Implementation and validation are ongoing. Eight focused Python tests currently
 pass, including actual cleanup of one owned process group while a separate
 owned control group remains alive, resource-boundary rejection, host visibility,
-compiler classification and percentile/failure accounting. Rust/native builds
+compiler classification, short-lived build retention, published native-suite
+selection and percentile/failure accounting. Rust/native builds
 are running in the worktree's own target directory with one job. No new runtime
 pass, independent replay result or eligible latency distribution is claimed yet.
 The final run record will distinguish completed checks, first failures, exclusions,

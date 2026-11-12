@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location("measure_streaming", Path(__file__).resolve().parents[2]/"measure-streaming-deadlines.py")
 measure = importlib.util.module_from_spec(spec)
@@ -11,6 +12,13 @@ spec.loader.exec_module(measure)
 
 
 class QuietWindowTests(unittest.TestCase):
+    def test_driver_stays_in_the_published_native_suite_inventory(self):
+        path = Path(__file__).resolve().parents[1]/"native-tests.py"
+        native_spec = importlib.util.spec_from_file_location("native_tests", path)
+        native = importlib.util.module_from_spec(native_spec)
+        native_spec.loader.exec_module(native)
+        self.assertIn(measure.TEST.split("::")[0], native.CROSS_CHAIN_MODULES)
+
     def sample(self):
         return dict(process_count=100, heavy=[], free_bytes={"/": 6*2**30},
                     mem_available_kib=13*2**20, load=[2, 2, 2], affinity_cpus=8,
@@ -44,6 +52,12 @@ class QuietWindowTests(unittest.TestCase):
 
     def test_owned_descendants_do_not_include_other_tasks(self):
         self.assertEqual(measure.descendants([(10, 1, "test"), (11, 10, "signer"), (12, 11, "child"), (13, 1, "rustc")], 10), {10, 11, 12})
+
+    def test_short_build_between_full_snapshots_is_retained(self):
+        states = [(100, []) for _ in range(measure.INTERVAL)]
+        states[3] = (100, [dict(pid=99, command="rustc")])
+        with mock.patch.object(measure, "heavy_processes", side_effect=states), mock.patch.object(measure.time, "sleep"):
+            self.assertEqual(measure.wait_interval(), [dict(pid=99, command="rustc")])
 
     def test_cleanup_terminates_only_the_owned_process_group(self):
         own = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)

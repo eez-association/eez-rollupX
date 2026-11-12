@@ -18,7 +18,7 @@ import time
 
 INTERVAL = 10
 STABLE_SECONDS = 120
-TEST = "streaming_deadlines::characterize_native_streaming_workload"
+TEST = "streaming::deadlines::characterize_native_streaming_workload"
 HEAVY = re.compile(r"^(cargo|rustc|clippy|clang|solc|gcc|g\+\+|cc$|c\+\+$|cc1|rust-lld|ld$|ld\.lld|cmake|ninja|make|forge|anvil|nextest|node_e2e|eez_.*-|du$|rsync$|zstd$|tar$|gzip$)")
 
 
@@ -31,17 +31,35 @@ def descendants(processes, root):
         owned |= children
 
 
-def snapshot(output, owned_root=None):
-    mem = {k: int(v.split()[0]) for k, v in
-           (line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines())}
-    vm = dict(line.split() for line in Path("/proc/vmstat").read_text().splitlines())
+def heavy_processes(owned_root=None):
     processes = []
     for line in subprocess.check_output(["ps", "-eo", "pid=,ppid=,comm="], text=True).splitlines():
         pid, parent, command = line.split()
         processes.append((int(pid), int(parent), command))
     owned = descendants(processes, owned_root) if owned_root is not None else set()
+    # Only the expected test harness is exempted. Even an accidental owned Cargo
+    # build would invalidate timing; the prebuilt driver should never start one.
     heavy = [dict(pid=pid, command=command) for pid, _, command in processes
-             if pid not in owned and HEAVY.search(command)]
+             if HEAVY.search(command) and not (pid in owned and command.startswith("node_e2e"))]
+    return len(processes), heavy
+
+
+def wait_interval(owned_root=None):
+    observed = {}
+    for _ in range(INTERVAL):
+        time.sleep(1)
+        _, heavy = heavy_processes(owned_root)
+        observed.update((p["pid"], p) for p in heavy)
+        if owned_root is not None and heavy:
+            break
+    return list(observed.values())
+
+
+def snapshot(output, owned_root=None):
+    mem = {k: int(v.split()[0]) for k, v in
+           (line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines())}
+    vm = dict(line.split() for line in Path("/proc/vmstat").read_text().splitlines())
+    process_count, heavy = heavy_processes(owned_root)
     disks = {}
     for name in ("/", "/tmp", "/dev/shm", str(output)):
         fs = os.statvfs(name)
@@ -49,7 +67,7 @@ def snapshot(output, owned_root=None):
     return dict(utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), monotonic=time.monotonic(),
                 cpu=list(map(int, Path("/proc/stat").read_text().splitlines()[0].split()[1:9])),
                 load=os.getloadavg(), affinity_cpus=len(os.sched_getaffinity(0)),
-                host_cpus=os.cpu_count(), process_count=len(processes), heavy=heavy,
+                host_cpus=os.cpu_count(), process_count=process_count, heavy=heavy,
                 mem_available_kib=mem["MemAvailable"], swap_used_kib=mem["SwapTotal"]-mem["SwapFree"],
                 swapin=int(vm["pswpin"]), swapout=int(vm["pswpout"]), free_bytes=disks,
                 pressure={k: Path(f"/proc/pressure/{k}").read_text().strip() for k in ("cpu", "io", "memory")})
@@ -167,6 +185,7 @@ def main():
         raise RuntimeError("measurement test not present in exact binary")
     (OUTPUT/"manifest.json").write_text(json.dumps(manifest, indent=2)+"\n")
     previous = None
+    interval_heavy = []
     stable_since = None
     wait_until = time.monotonic()+args.wait_seconds
     child = None
@@ -177,6 +196,7 @@ def main():
         try:
             while True:
                 current = snapshot(OUTPUT, child.pid if child else None)
+                current["heavy"].extend(interval_heavy)
                 bad = reasons(previous, current)
                 host.write(json.dumps(dict(phase="before" if child is None else "during", snapshot=current, reasons=bad))+"\n")
                 host.flush()
@@ -203,12 +223,13 @@ def main():
                     elif time.monotonic() >= wait_until:
                         break
                 previous = current
-                time.sleep(INTERVAL)
+                interval_heavy = wait_interval(child.pid if child else None)
             if child is not None:
                 # Post-observation is required even after failure or contamination.
                 for _ in range(STABLE_SECONDS//INTERVAL):
-                    time.sleep(INTERVAL)
+                    interval_heavy = wait_interval()
                     current = snapshot(OUTPUT)
+                    current["heavy"].extend(interval_heavy)
                     bad = reasons(previous, current)
                     host.write(json.dumps(dict(phase="after", snapshot=current, reasons=bad))+"\n")
                     host.flush()
