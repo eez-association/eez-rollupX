@@ -26,6 +26,9 @@ use crate::{
     scan::ScannedBatch,
 };
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 #[derive(Debug, Clone, Copy)]
 struct BeaconTiming {
     genesis_time: u64,
@@ -55,7 +58,11 @@ impl BeaconBlobSource {
     pub(crate) fn new(beacon_url: Option<Url>) -> Self {
         Self {
             beacon_url: beacon_url.map(normalize_base_url),
-            client: reqwest::Client::new(),
+            // Match canonical L1 reads: a stalled body must reach retry ownership.
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .expect("beacon HTTP client configuration is valid"),
             timing: OnceCell::new(),
             rules: None,
         }
@@ -237,8 +244,10 @@ impl BeaconBlobSource {
         let context = Some((block, tx_hash, slot));
         let blobs_path = format!("eth/v1/beacon/blobs/{slot}");
         if let Some(value) = self.get_json_if_present(&blobs_path, context).await? {
+            // Until a body matches the transaction's hash, malformed beacon
+            // data is a source observation failure, not invalid on-chain bytes.
             return parse_blobs(&value).map_err(|detail| {
-                L1Error::Decode(format!(
+                L1Error::Provider(format!(
                     "invalid beacon blobs response for slot {slot}: {detail}"
                 ))
             });
@@ -252,7 +261,7 @@ impl BeaconBlobSource {
             .get_json(&format!("eth/v1/beacon/blob_sidecars/{slot}"), context)
             .await?;
         parse_sidecars(&value).map_err(|detail| {
-            L1Error::Decode(format!(
+            L1Error::Provider(format!(
                 "invalid legacy beacon blob_sidecars response for slot {slot}: {detail}"
             ))
         })
@@ -528,6 +537,100 @@ mod tests {
         blob[0] = 1;
         assert!(Blob::try_from_slice(0, &blob).is_err());
         blob
+    }
+
+    #[tokio::test]
+    async fn stalled_beacon_response_reaches_retry_owner() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        let (received, request) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut bytes = [0; 4096];
+            let n = stream.read(&mut bytes).await.unwrap();
+            assert!(
+                String::from_utf8_lossy(&bytes[..n]).starts_with("GET /eth/v1/beacon/blobs/5 ")
+            );
+            received.send(()).unwrap();
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{")
+                .await
+                .unwrap();
+            std::future::pending::<()>().await;
+        });
+        let source = BeaconBlobSource::new(Some(url));
+        let response = source.get_json("eth/v1/beacon/blobs/5", Some((42, B256::ZERO, 5)));
+        let result = tokio::time::timeout(std::time::Duration::from_secs(35), response).await;
+        request.await.unwrap();
+        server.abort();
+        let error = result
+            .expect("beacon body must have a total request deadline")
+            .unwrap_err();
+        assert!(error.is_transport(), "{error}");
+        assert!(!error.is_terminal());
+    }
+
+    #[tokio::test]
+    async fn hydration_requires_matching_containing_block_and_committed_native_bytes() {
+        use super::test_support::{BlobFixture, beacon, timing};
+        let fixture = BlobFixture::new();
+        let replies = Asserter::new();
+        let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
+        fixture.scan_replies(&replies);
+        let mut scanned = crate::scan::scan_batch_logs_range(
+            &provider,
+            alloy_primitives::Address::ZERO,
+            1,
+            42,
+            42,
+        )
+        .await
+        .unwrap();
+        let source = BeaconBlobSource::new(Some("http://127.0.0.1:1".parse().unwrap()));
+        for case in ["missing", "hash", "number"] {
+            let mut block = fixture.block.clone();
+            if case == "hash" {
+                block.header.hash = B256::ZERO;
+            }
+            if case == "number" {
+                block.header.inner.number += 1;
+            }
+            replies.push_success(&if case == "missing" { None } else { Some(block) });
+            let error = source
+                .hydrate_scanned_batches(&provider, 1, &mut scanned)
+                .await
+                .unwrap_err();
+            assert!(error.is_source_incomplete(), "{case}: {error}");
+            assert!(scanned[0].operations_payload.is_empty());
+        }
+
+        let invalid_native = non_eez_consensus_blob();
+        scanned[0].transaction_blob_hashes =
+            vec![blob_versioned_hash_from_bytes(&invalid_native).unwrap()];
+        let mut responses = timing();
+        responses.push((
+            "eth/v1/beacon/blobs/5",
+            200,
+            serde_json::json!({
+                "data": [format!("0x{}", hex::encode(&invalid_native))]
+            }),
+        ));
+        let (url, server) = beacon(responses).await;
+        let source = BeaconBlobSource::new(Some(url));
+        replies.push_success(&fixture.block);
+        let error = source
+            .hydrate_scanned_batches(&provider, 1, &mut scanned)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, L1Error::Decode(ref detail) if detail.contains("authenticated native blob payload")),
+            "{error}"
+        );
+        assert!(error.is_terminal());
+        assert!(scanned[0].operations_payload.is_empty());
+        server.await.unwrap();
     }
 
     #[test]

@@ -109,6 +109,21 @@ class SecretScanTest(unittest.TestCase):
                     self.assertEqual(len(findings), 1)
                     self.assertEqual(findings[0]["RuleID"], "generic-api-key")
 
+                    fixture.write_text(allowed)
+                    for nearby in (streaming_workload + ".extra",
+                                   "docs/audits/2026-11-12-streaming-deadlines/other.json"):
+                        neighbor = source / nearby
+                        neighbor.write_text(allowed)
+                        result = scan_commit()
+                        self.assertEqual(result.returncode, 1, result.stderr)
+                        findings = json.loads(report.read_text())
+                        self.assertEqual(len(findings), 1)
+                        self.assertEqual(findings[0]["File"], nearby)
+                        neighbor.unlink()
+                        # A 100% rename has no added bytes for the next scan.
+                        result = scan_commit()
+                        self.assertEqual(result.returncode, 0, result.stderr)
+
                 # The exception cannot hide a different credential in the same file.
                 synthetic = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff81"
                 fixture.write_text(allowed + f'private_key: "0x{synthetic}" # gitleaks:allow\n')

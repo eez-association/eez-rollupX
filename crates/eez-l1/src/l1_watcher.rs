@@ -1106,6 +1106,127 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unavailable_blob_observations_preserve_progress_across_finality() {
+        use crate::blob_source::test_support::{BlobFixture, beacon, timing};
+        use serde_json::json;
+        for finalized in [false, true] {
+            for case in [
+                "missing",
+                "pruned",
+                "temporary",
+                "malformed",
+                "short_blob",
+                "bad_commitment",
+            ] {
+                let fixture = BlobFixture::new();
+                let mut responses = timing();
+                match case {
+                    "missing" => {
+                        responses.push(("eth/v1/beacon/blobs/5", 200, json!({"data": []})))
+                    }
+                    "pruned" => {
+                        responses.push(("eth/v1/beacon/blobs/5", 404, json!({})));
+                        responses.push(("eth/v1/beacon/blob_sidecars/5", 404, json!({})));
+                    }
+                    "temporary" => responses.push(("eth/v1/beacon/blobs/5", 503, json!({}))),
+                    "malformed" => {
+                        responses.push(("eth/v1/beacon/blobs/5", 200, json!({"data": [{}]})))
+                    }
+                    "short_blob" => {
+                        responses.push(("eth/v1/beacon/blobs/5", 200, json!({"data": ["0x00"]})))
+                    }
+                    "bad_commitment" => {
+                        responses.push(("eth/v1/beacon/blobs/5", 405, json!({})));
+                        responses.push((
+                            "eth/v1/beacon/blob_sidecars/5",
+                            200,
+                            json!({"data": [{
+                                "blob": fixture.blobs["data"][0],
+                                "kzg_commitment": format!("0x{}", "00".repeat(48)),
+                            }]}),
+                        ));
+                    }
+                    _ => unreachable!(),
+                }
+                responses.push(("eth/v1/beacon/blobs/5", 200, fixture.blobs.clone()));
+                let (url, server) = beacon(responses).await;
+                let watcher = L1Watcher::new(L1WatcherConfig {
+                    rpc_url: "http://127.0.0.1:1".parse().unwrap(),
+                    beacon_url: Some(url),
+                    eez: alloy_primitives::Address::ZERO,
+                    rollup_id: 1,
+                    reorg_max_depth: 3,
+                });
+                let mut rx = watcher.subscribe();
+                let replies = Asserter::new();
+                let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
+                let parent = fixture.block.header.parent_hash;
+                let mut state = WatcherState::new(3);
+                state.push_canonical(41, parent);
+                if finalized {
+                    replies.push_success(&fixture.block);
+                    watcher
+                        .refresh_finalized(&provider, &mut state)
+                        .await
+                        .unwrap();
+                    assert!(matches!(
+                        rx.try_recv().unwrap(),
+                        L1Event::Finalized {
+                            block_number: 42,
+                            ..
+                        }
+                    ));
+                }
+                for unavailable in [true, false] {
+                    replies.push_success(&fixture.block);
+                    fixture.scan_replies(&replies);
+                    replies.push_success(&fixture.block);
+                    let result = watcher.poll_cycle(&provider, &mut state, 1, false).await;
+                    if unavailable {
+                        let error = result.unwrap_err();
+                        assert!(
+                            !error.is_terminal(),
+                            "{case}, finalized={finalized}: {error}"
+                        );
+                        if matches!(case, "missing" | "pruned" | "temporary") {
+                            assert!(error.is_source_incomplete(), "{error}");
+                        } else {
+                            assert!(error.is_transport(), "{error}");
+                        }
+                        assert_eq!(state.tip(), Some((41, parent)));
+                        assert!(
+                            rx.try_recv().is_err(),
+                            "no head, batch or scan completion on unavailable data"
+                        );
+                    } else {
+                        result.unwrap();
+                        assert_eq!(state.tip(), Some((42, fixture.block.header.hash)));
+                        assert!(matches!(
+                            rx.try_recv().unwrap(),
+                            L1Event::NewHead {
+                                block_number: 42,
+                                ..
+                            }
+                        ));
+                        assert!(
+                            matches!(rx.try_recv().unwrap(), L1Event::BatchPosted { ref operations_payload, .. } if *operations_payload == fixture.payload)
+                        );
+                        assert!(matches!(
+                            rx.try_recv().unwrap(),
+                            L1Event::ScanComplete {
+                                block_number: 42,
+                                ..
+                            }
+                        ));
+                        assert!(rx.try_recv().is_err());
+                    }
+                }
+                server.await.unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn canonical_notification_wakes_scan_before_periodic_deadline() {
         use std::task::{Context, Poll, Waker};
         let (watcher, mut events) = test_watcher();
