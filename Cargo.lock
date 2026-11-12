@@ -3138,6 +3138,7 @@ dependencies = [
  "reth-provider",
  "reth-revm",
  "reth-storage-api",
+ "reth-trie-common",
  "reth_gnosis",
  "revm",
  "serde_json",

@@ -512,6 +512,9 @@ impl ChainClient for LocalChainClient {
 }
 
 #[cfg(test)]
+pub(crate) mod session_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use alloy_consensus::{Header, TxLegacy};
