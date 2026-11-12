@@ -4,7 +4,7 @@ Protocol: 84a5b5207880f192a6a5896cbfe0bac5249db47f (clean, initialized recursive
 Working directory: repository root in the dedicated c1cd/rollupX worktree.
 Toolchain: rustc 1.95.0 (59807616e 2026-04-14); cargo 1.95.0 (f2d3ce0bd 2026-03-21).
 Cargo.lock unchanged. No feature/profile overrides for tests.
-Candidate Rust patch identity (base above plus these SHA-256 files):
+Initial candidate (3405b40c) Rust patch identity (base above plus these SHA-256 files):
 63f777badc759a8df31472ae93b9cdf0b90291c5c4cceb71a6eb8e1200322f24  crates/eez-blob-codec/src/lib.rs
 7c2addca729b3c8ff18319d2103939c84d040a9d7fbde1b26292c1d08393d950  crates/eez-blob-codec/src/tests/malformed_native.rs
 
