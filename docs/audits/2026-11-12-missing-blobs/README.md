@@ -311,7 +311,92 @@ bodies or proves this finality/error matrix. Their historical reported passes
 are not counted as current passes here.
 
 No live services, wallets, production/Kurtosis resources or main CI run
-`43237662996` were touched. No protocol/ABI, dependency, configuration, storage
+`43237662996` were touched. No protocol/ABI, dependency, runtime configuration, storage
 or queue policy changed. No shared harness/startup-retry script was changed;
 #142's independent work remains separate. No performance claim, actual pruning
 claim or deployment claim is made.
+
+## Secret-scan CI follow-up
+
+PR head `8695d94ac64de36bd33bfc1ab33e7a1d0649559e` failed
+[Lint job 131397952350](https://github.com/eez-association/eez-rollupX/actions/runs/43279864064/job/131397952350)
+at Gitleaks, before the remaining lint steps. The log reports three findings
+over 1,132 scanned commits but omits individual locations. The original log and
+redacted local reports are retained under task-owned
+`artifacts/issue144-validation/secret-scan*` paths, with local-only availability.
+
+The exact CI scanner, Gitleaks **8.30.1**, was downloaded into task artifacts
+and verified against the workflow's archive SHA-256
+`551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb`.
+A separate full-history clone fetched all remote branches and tags plus the
+exact failed merge ref `8bc27db8488f751b11cfb932a51be7c1fb5d1001`.
+Its 111 remote branch names match those logged by CI. The frozen ref manifest
+(`secret-scan/refs-before.txt`) has SHA-256
+`1f8e9c1c547ada381be261b9080ac1f948216d0b95a9bf5c817b23f13ff0a5e1`.
+Remote tips can advance: this is not a claim that their historical SHA values
+equal the failed job's complete ref set.
+
+With the original configuration and CI's `--all -m`, `--redact=100`,
+`--ignore-gitleaks-allow`, and `/dev/null` ignore-file settings, the frozen clone
+reproduced exactly three `generic-api-key` findings in historical commit
+`d9b974c1c3d1081afbbfde05bfad4fc352aedea0`'s
+[workload record](https://github.com/eez-association/eez-rollupX/blob/d9b974c1c3d1081afbbfde05bfad4fc352aedea0/docs/audits/2026-11-12-streaming-deadlines/workloads.json).
+That commit is not an ancestor of the failed #164 merge. The original-config
+scan of #164's own `601ebfa9..8695d94a` range was clean (two scanned commits).
+
+| Finding line | Exact value matches the public identity fixture |
+| --- | --- |
+| 37 | `native-offline-bidirectional/identity.json` (`b1bfe680…`) |
+| 159 | `native-osaka-lookup/identity.json` (`808c11d3…`) |
+| 311 | `native-osaka-changing-static/identity.json` (`981d974d…`) |
+
+Each historical `vkey` was compared byte-for-byte with its checked-in fixture.
+These are public Keccak commitments defined by
+[`NetworkProfile::verification_key`](../../../crates/eez-protocol/src/l1_history/context.rs)
+and the [validation identity specification](../../../crates/eez-control-rpc/VALIDATION_IDENTITY.md),
+not signing credentials. All three values already have exact-value exceptions.
+
+Only the scanner configuration and regression changes from
+[PR #163 at e6f70e20](https://github.com/eez-association/eez-rollupX/commit/e6f70e20776529fcc8971cf746d5ed6403ddc6a5)
+were reused. The mixed commit was not cherry-picked. Its ingress, startup-retry,
+Kurtosis and other changes were omitted. The fix adds only the anchored
+`docs/audits/2026-11-12-streaming-deadlines/workloads.json` path to the three
+existing digest rules. Their exact value regexes, `condition = "AND"`, default
+detection, history coverage and inline-suppression protections are unchanged.
+
+The new scanner regressions fail against the original configuration (two tests,
+one failed) and pass after the fix (**two passed**, none skipped). They pin the
+three permitted rules and exercise each exact value, one-character mutations,
+a new credential beside an allowed value, ignored inline suppressions, and the
+same allowed value outside its reviewed paths. On the identical frozen refs,
+the all-ref scan changes from **three findings to zero** over **1,136 scanned
+commits / 739,323,526 bytes**. Its count differs from CI's 1,132 and is reported
+as local coverage, not a substituted CI pass.
+
+Additional negative controls cover a suffixed filename and another file in the
+same audit directory. Their first fixture version failed three subcases because
+Git recognized the second move of identical content as a 100% rename, with no
+added bytes to scan. The corrected fixture commits deletion separately so each
+negative control presents an actual addition. This verifies path-rule scope;
+it makes no new claim about detection of pure-rename bodies under CI's unchanged
+Git diff policy. The first failure is retained in `regressions-final.log`;
+the final focused scanner run passes both tests, including all nearby-path
+controls, in `regressions-nearby-corrected.log`.
+
+The complete tooling suite passes **542 tests, seven skipped** (549 selected),
+using checksum-verified task-local Compose **5.5.1**, pinned Gitleaks, the
+initialized protocol, `jq` and PyYAML. Skips are explicit opt-in infrastructure:
+one data-only Docker image, two real Kurtosis resource probes, one real tiny
+Rust artifact relocation, and three Docker runtime image probes. The suite
+loaded before the final nearby-path assertions; the focused run above establishes
+those final test-only additions. Python compilation, diff whitespace and edited
+documentation checks pass. No Rust/native rebuild or live exercise was repeated
+for these scanner configuration/test changes.
+
+Ponytail self-review traced the actual all-ref workflow and Gitleaks-backed
+regressions. The exact digest regexes and anchored new path were retained;
+no blanket directory, commit or rule exemption was added. Fresh CI status is
+checked after pushing and recorded in the PR, independently of the local results.
+
+The already completed Rust, process and protocol-pin evidence above remains
+applicable; this follow-up changes no runtime source or protocol state.

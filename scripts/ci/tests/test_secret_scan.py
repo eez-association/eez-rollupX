@@ -32,18 +32,28 @@ class SecretScanTest(unittest.TestCase):
         # All-ref scans cover fixtures from other revisions. Test the reviewed
         # historical digests even when the current fixture format or value differs.
         rules = {rule["description"]: rule for rule in tomllib.loads((REPO / ".gitleaks.toml").read_text())["allowlists"]}
+        streaming_workload = "docs/audits/2026-11-12-streaming-deadlines/workloads.json"
+        self.assertEqual(
+            {description for description, rule in rules.items()
+             if any(re.search(pattern, streaming_workload) for pattern in rule.get("paths", []))},
+            {"Bidirectional and prefix-replay fixture verification key",
+             "Osaka changing-static fixture verification key", "Osaka lookup fixture verification key"},
+        )
         verification_key_fixtures = [
             ("Bidirectional and prefix-replay fixture verification key", "verification_key", [
                 "crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history.json",
                 "crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history-import.json"]),
             ("Bidirectional and prefix-replay fixture verification key", "vkey", [
-                "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity.json"]),
+                "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity.json",
+                streaming_workload]),
             ("History-observation fixture verification key", "vkey", [
                 "crates/eez-proof-signer/tests/fixtures/native-history-observations/identity.json"]),
             ("Osaka changing-static fixture verification key", "vkey", [
-                "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/identity.json"]),
+                "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/identity.json",
+                streaming_workload]),
             ("Osaka lookup fixture verification key", "vkey", [
-                "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity.json"]),
+                "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity.json",
+                streaming_workload]),
         ]
         verification_key_fixtures.extend([
             ("Version-8 Bidirectional fixture verification key", "verification_key", [
@@ -88,6 +98,31 @@ class SecretScanTest(unittest.TestCase):
                 fixture.write_text(allowed)
                 result = scan_commit()
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+                if relative == streaming_workload:
+                    value = json.loads(allowed)["vkey"]
+                    changed = value[:-1] + ("0" if value[-1] != "0" else "1")
+                    fixture.write_text(json.dumps({"vkey": changed}) + "\n")
+                    result = scan_commit()
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    findings = json.loads(report.read_text())
+                    self.assertEqual(len(findings), 1)
+                    self.assertEqual(findings[0]["RuleID"], "generic-api-key")
+
+                    fixture.write_text(allowed)
+                    for nearby in (streaming_workload + ".extra",
+                                   "docs/audits/2026-11-12-streaming-deadlines/other.json"):
+                        neighbor = source / nearby
+                        neighbor.write_text(allowed)
+                        result = scan_commit()
+                        self.assertEqual(result.returncode, 1, result.stderr)
+                        findings = json.loads(report.read_text())
+                        self.assertEqual(len(findings), 1)
+                        self.assertEqual(findings[0]["File"], nearby)
+                        neighbor.unlink()
+                        # A 100% rename has no added bytes for the next scan.
+                        result = scan_commit()
+                        self.assertEqual(result.returncode, 0, result.stderr)
 
                 # The exception cannot hide a different credential in the same file.
                 synthetic = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff81"
