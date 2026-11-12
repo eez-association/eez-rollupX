@@ -131,9 +131,14 @@ disconnected, lost-session. Warmups are the first three attempts of each group,
 not discarded failures. Samples run sequentially; there is no load generator or
 concurrent client workload. Readiness uses the existing 100 ms polling interval,
 so startup figures include that granularity. The complete-attempt timer ends
-after the production client's proof verification and EOF. Later independent
-fixture assertions, trace extraction, log reading and process teardown are
-outside that timer. These choices constrain comparisons and tail estimates.
+after the production client's proof verification and EOF. The check that preparation
+has not signed reads the current signer log inside this timer, before any
+lost-session restart. The check runs in all four scenarios. It is included in
+the complete-attempt figure but none of the individual stage figures, so those
+stages do not sum to the complete figure. Later independent fixture assertions,
+trace extraction, the final
+signer-log read and process teardown are outside that timer. These choices
+constrain comparisons and tail estimates.
 
 ## Validation status
 
@@ -251,3 +256,39 @@ blob-verifier test executable, including Linux-truncated names. The inventory
 regression fails against `88b1b505`, where those tests could evade the name
 screen, and passes after the correction. Process probes remain a practical
 screen on this shared host, with CPU, memory, swap and disk checks retained.
+
+
+## Merge-review corrections
+
+Claude Fable 5.2 reviewed frozen functional head `ca76bb87` with only Read,
+Grep and Glob, with no model fallback or delegation. It confirmed the Rust
+workload driver and proxy by source inspection, and identified two corrections:
+the quiet period must begin at the first clean snapshot after a rejection,
+and the timing-method text must include the preparation-only signer-log read.
+The coordinator corrected both before any claimed timing distribution. A
+controlled good/bad/good host sequence and a failed first snapshot both launch
+too early at the old head; the corrected runner waits the full 120 seconds
+from the next clean observation. The earlier runtime/release build remains
+frozen at `ca76bb87`; these observer, documentation and scanner changes do not
+alter Rust, Cargo, workloads or protocol source. Final release identities and
+actual measurement results remain pending with the owning agent.
+
+The failed lint job scanned merge `8941f886` (parents `601ebfa9` and
+`ca76bb87`). Its six findings are the same three public workload verification
+commitments in original commit `d9b974c1` and the CI merge diff. The scanner
+correction reuses only the exact-value AND path exceptions already reviewed in
+PR #163, plus its rejection controls and PR #164's neighboring-path tests. No
+new value, broad path exclusion or suppression bypass is introduced. The
+coordinator retains the redacted failed report, both test results and current
+all-ref scan evidence in its task scratch files; the failed CI run remains
+available. Original frozen review-input provenance is still not independently
+checked. Fresh exact-head CI is required after this update.
+
+The bounded Fable verification passes the quiet-window correction, its two
+regression subcases and the timing-method correction. It did not execute tests.
+The observer suite passes twelve tests; removing the reset after a bad snapshot
+makes the new sequence test fail. Both exact-scanner regression tests pass.
+Optional review caveats remain: SIGTERM/SIGHUP can bypass Python cleanup, and
+release profile/source binding is operator-asserted rather than established by
+the directory name. Retain each binary's actual build source and hashes beside
+the later observer source identity; folder naming alone is not provenance.

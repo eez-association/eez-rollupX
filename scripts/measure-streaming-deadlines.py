@@ -219,8 +219,8 @@ def main():
                 else:
                     if bad:
                         stable_since = None
-                    elif previous is not None:
-                        stable_since = stable_since if stable_since is not None else previous["monotonic"]
+                    elif stable_since is None:
+                        stable_since = current["monotonic"]
                     if stable_since is not None and current["monotonic"]-stable_since >= STABLE_SECONDS:
                         env = dict(os.environ, EEZ_TEST_PREBUILT="1", EEZ_TEST_PROOF_SIGNER_BIN=str(signer),
                                    EEZ_TEST_LOG_DIR=str(OUTPUT/"signer-logs"), EEZ_STREAMING_TIMINGS_OUTPUT=str(raw),
