@@ -120,6 +120,17 @@ and nearest-rank interquartile range. Raw events and per-attempt records remain
 available in the owned evidence directory. No SLA or general performance claim
 is implied.
 
+Each attempt starts a fresh owned signer process. “Cold” means no retained
+prevalidation/session state; OS page caches are not flushed. The fixed order is
+bidirectional, lookup, changing-static; within each capture it is cold, prepared,
+disconnected, lost-session. Warmups are the first three attempts of each group,
+not discarded failures. Samples run sequentially; there is no load generator or
+concurrent client workload. Readiness uses the existing 100 ms polling interval,
+so startup figures include that granularity. The complete-attempt timer ends
+after the production client's proof verification and EOF. Later independent
+fixture assertions, trace extraction, log reading and process teardown are
+outside that timer. These choices constrain comparisons and tail estimates.
+
 ## Validation status
 
 Implementation and validation are ongoing. Eleven focused Python tests currently
@@ -215,3 +226,11 @@ The failure and process-name shape are retained locally. This is an observer
 correction, not a runtime deadline reproduction. An optional supplemental
 cgroup-v2 probe found those paths unavailable; that is recorded as unavailable
 rather than as a resource bound. No workload was timed in either probe.
+
+The observer now cleans its newly created process group once, immediately
+before post-observation. Previously, a contaminated run cleaned it twice,
+including another signal after the 120-second observation interval. That delayed
+reuse of a numerical process-group ID is unnecessary. The regression covers
+both normal exit and contamination and fails against `61f73a10`; all eleven
+focused tests pass after the change. No other task or production process was
+signalled by this test.

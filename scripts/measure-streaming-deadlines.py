@@ -195,6 +195,7 @@ def main():
     stable_since = None
     wait_until = time.monotonic()+args.wait_seconds
     child = None
+    cleaned = False
     contaminated = False
     status = "quiet window unavailable"
     raw = OUTPUT/"attempts.jsonl"
@@ -211,7 +212,6 @@ def main():
                     if bad:
                         contaminated = True
                         status = "contaminated; retained diagnostics, repeat in a new quiet window"
-                        terminate_owned(child)
                         break
                     if child.poll() is not None:
                         status = "driver completed" if child.returncode == 0 else "driver failed; retain first failure"
@@ -232,6 +232,8 @@ def main():
                 previous = current
                 interval_heavy = wait_interval(child.pid if child else None)
             if child is not None:
+                terminate_owned(child)
+                cleaned = True
                 # Post-observation is required even after failure or contamination.
                 for _ in range(STABLE_SECONDS//INTERVAL):
                     interval_heavy = wait_interval()
@@ -246,7 +248,7 @@ def main():
             contaminated = True
             status = f"resource/observer failure: {error}; retain diagnostics"
         finally:
-            if child is not None:
+            if child is not None and not cleaned:
                 terminate_owned(child)
     try:
         rows = [json.loads(line) for line in raw.read_text().splitlines()] if raw.exists() else []

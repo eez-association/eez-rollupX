@@ -17,38 +17,44 @@ spec.loader.exec_module(measure)
 
 class QuietWindowTests(unittest.TestCase):
     def test_interrupted_record_is_retained_and_cannot_pass(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            test = root/"release/deps/node_e2e"
-            signer = root/"release/eez-proof-signer"
-            test.parent.mkdir(parents=True)
-            test.touch()
-            signer.touch()
-            output = root/"evidence"
-            child = mock.Mock(pid=123456, returncode=0)
-            child.poll.return_value = 0
-            def launch(*args, **kwargs):
-                (output/"attempts.jsonl").write_text('{"event": "attempt_result",')
-                return child
-            def snapshot(*args):
-                row = self.sample()
-                row.update(utc="2026-11-12T00:00:00Z", monotonic=snapshot.tick)
-                row["cpu"][3] += snapshot.tick
-                snapshot.tick += 120
-                return row
-            snapshot.tick = 0
-            with mock.patch.object(sys, "argv", ["measure", str(test), str(signer), str(output)]), \
-                    mock.patch.object(measure.subprocess, "check_output", side_effect=lambda cmd, **kw: measure.TEST+": test" if "--list" in cmd else ""), \
-                    mock.patch.object(measure.subprocess, "Popen", side_effect=launch), \
-                    mock.patch.object(measure, "snapshot", side_effect=snapshot), \
-                    mock.patch.object(measure, "wait_interval", return_value=[]), \
-                    mock.patch.object(measure, "terminate_owned"):
-                self.assertEqual(measure.main(), 1)
-            summary = measure.json.loads((output/"summary.json").read_text())
-            self.assertFalse(summary["eligible_performance_evidence"])
-            self.assertTrue(summary["contaminated"])
-            self.assertIn("incomplete/unreadable", summary["status"])
-            self.assertEqual((output/"attempts.jsonl").read_text(), '{"event": "attempt_result",')
+        for contaminated in (False, True):
+            with self.subTest(contaminated=contaminated), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                test = root/"release/deps/node_e2e"
+                signer = root/"release/eez-proof-signer"
+                test.parent.mkdir(parents=True)
+                test.touch()
+                signer.touch()
+                output = root/"evidence"
+                child = mock.Mock(pid=123456, returncode=0)
+                child.poll.return_value = 0
+                def launch(*args, **kwargs):
+                    (output/"attempts.jsonl").write_text('{"event": "attempt_result",')
+                    return child
+                def snapshot(*args):
+                    row = self.sample()
+                    row.update(utc="2026-11-12T00:00:00Z", monotonic=snapshot.tick)
+                    row["cpu"][3] += snapshot.tick
+                    if contaminated and snapshot.tick == 240:
+                        row["heavy"] = [dict(pid=99, command="rustc")]
+                    if snapshot.tick >= 360:
+                        self.assertEqual(cleanup.call_count, 1, "cleanup must precede post-observation")
+                    snapshot.tick += 120
+                    return row
+                snapshot.tick = 0
+                with mock.patch.object(sys, "argv", ["measure", str(test), str(signer), str(output)]), \
+                        mock.patch.object(measure.subprocess, "check_output", side_effect=lambda cmd, **kw: measure.TEST+": test" if "--list" in cmd else ""), \
+                        mock.patch.object(measure.subprocess, "Popen", side_effect=launch), \
+                        mock.patch.object(measure, "snapshot", side_effect=snapshot), \
+                        mock.patch.object(measure, "wait_interval", return_value=[]), \
+                        mock.patch.object(measure, "terminate_owned") as cleanup:
+                    self.assertEqual(measure.main(), 1)
+                    self.assertEqual(cleanup.call_count, 1)
+                summary = measure.json.loads((output/"summary.json").read_text())
+                self.assertFalse(summary["eligible_performance_evidence"])
+                self.assertTrue(summary["contaminated"])
+                self.assertIn("incomplete/unreadable", summary["status"])
+                self.assertEqual((output/"attempts.jsonl").read_text(), '{"event": "attempt_result",')
 
     def test_driver_stays_in_the_published_native_suite_inventory(self):
         path = Path(__file__).resolve().parents[1]/"native-tests.py"
