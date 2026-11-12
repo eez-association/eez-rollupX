@@ -134,6 +134,140 @@ pub fn offline_l1_rules(spec: &ChainSpec) -> eyre::Result<OfflineL1Rules> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn canonical_and_embedded_identity_matrix() {
+        use alloy_consensus::Header;
+        use alloy_primitives::{Address, Bytes, U64};
+        use alloy_provider::ProviderBuilder;
+        use alloy_transport::mock::Asserter;
+        use eez_protocol::l2::{DerivationConfig, GenesisL1Reference};
+
+        use crate::derivation::{DerivationError, DerivationSource};
+
+        let genesis = alloy_genesis::Genesis {
+            config: alloy_genesis::ChainConfig {
+                chain_id: 31337,
+                ..Default::default()
+            },
+            timestamp: 1000,
+            gas_limit: 30_000_000,
+            mix_hash: B256::with_last_byte(7),
+            ..Default::default()
+        };
+        let matching = ChainSpec::from_genesis(genesis.clone());
+        let mut other_chain = genesis.clone();
+        other_chain.config.chain_id = 31338;
+        let mut other_genesis = genesis;
+        other_genesis.extra_data = Bytes::from_static(b"other genesis");
+        let specs = [
+            matching,
+            ChainSpec::from_genesis(other_chain),
+            ChainSpec::from_genesis(other_genesis),
+        ];
+        let reference = &specs[0].genesis_header;
+        let schedule = Schedule::new(
+            DerivationConfig {
+                fee_collector: Address::repeat_byte(1),
+                block_interval_seconds: 1,
+                sync_interval_blocks: 4,
+                history_update_offset: 0,
+                l1_reference: GenesisL1Reference {
+                    chain_id: 31337,
+                    number: 0,
+                    hash: reference.hash(),
+                    timestamp: reference.timestamp,
+                    prev_randao: reference.mix_hash,
+                },
+            },
+            &Header {
+                timestamp: 1004,
+                mix_hash: reference.mix_hash,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let expected_profile = offline_l1_rules(&specs[0])
+            .unwrap()
+            .profile(schedule, 90210)
+            .unwrap();
+
+        // These are the production profile/authentication components, not a
+        // launched Composer or proof of the embedded database's ancestry.
+        for (embedded, embedded_spec) in specs.iter().enumerate() {
+            for (canonical, canonical_spec) in specs.iter().enumerate() {
+                for pruned in [false, true] {
+                    let case =
+                        format!("embedded={embedded}, canonical={canonical}, pruned={pruned}");
+                    let profile = offline_l1_rules(embedded_spec)
+                        .unwrap()
+                        .profile(schedule, 90210);
+                    if embedded == 1 {
+                        assert_eq!(
+                            profile.unwrap_err().to_string(),
+                            "L1 reference/profile chain mismatch",
+                            "{case}"
+                        );
+                        continue;
+                    }
+                    let profile = profile.unwrap();
+                    assert_eq!(
+                        profile.commitment() == expected_profile.commitment(),
+                        embedded == 0,
+                        "same chain ID must not hide a different configured genesis: {case}"
+                    );
+
+                    let replies = Asserter::new();
+                    replies.push_success(&U64::from(canonical_spec.chain().id()));
+                    if canonical != 1 {
+                        if pruned {
+                            replies.push_failure(
+                                serde_json::from_value(serde_json::json!({
+                                    "code": 4444, "message": "pruned history unavailable"
+                                }))
+                                .unwrap(),
+                            );
+                            replies.push_success(&Bytes::from(alloy_rlp::encode(
+                                canonical_spec.genesis_header.header(),
+                            )));
+                        } else {
+                            let mut block: alloy_rpc_types_eth::Block = Default::default();
+                            block.header.inner = canonical_spec.genesis_header.header().clone();
+                            block.header.hash = canonical_spec.genesis_header.hash();
+                            replies.push_success(&block);
+                        }
+                    }
+                    let result = DerivationSource::authenticate(
+                        ProviderBuilder::new().connect_mocked_client(replies.clone()),
+                        schedule,
+                    )
+                    .await;
+                    match canonical {
+                        0 => assert!(result.is_ok(), "{case}: {result:?}"),
+                        1 => assert!(
+                            matches!(
+                                result,
+                                Err(DerivationError::Mismatch(
+                                    "genesis reference chain identity"
+                                ))
+                            ),
+                            "{case}: {result:?}"
+                        ),
+                        2 => assert!(
+                            matches!(
+                                result,
+                                Err(DerivationError::Mismatch("L1 genesis reference header"))
+                            ),
+                            "{case}: {result:?}"
+                        ),
+                        _ => unreachable!(),
+                    }
+                    assert!(replies.read_q().is_empty(), "{case}");
+                }
+            }
+        }
+    }
+
     #[test]
     fn effective_rule_identity_binds_unnamed_blob_updates_and_fork_boundaries() {
         let spec = reth_chainspec::MAINNET.clone();
