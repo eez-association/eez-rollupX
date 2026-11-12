@@ -1,0 +1,11 @@
+[package]
+name = "issue139-dns-probe"
+version = "0.0.0"
+edition = "2024"
+[workspace]
+[dependencies]
+hickory-resolver = { version = "=0.26.3", features = ["tokio", "serde"] }
+reth-dns-discovery = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
+tokio = { version = "=1.53.3", features = ["macros", "rt-multi-thread", "net", "time", "sync"] }
+[profile.dev]
+debug = 0

@@ -1,8 +1,14 @@
 # Hickory 0.26.3 assessment — issue #139
 
+This is the initial assessment at `25343a1f592ac9413cfa0b41dca7cd2d659e4976`.
+The user subsequently authorized the scoped update on 2026-11-12; see the
+[implementation and validation follow-up](implementation.md). The observations,
+approval status and unexecuted checks below describe the initial assessment,
+not the later implementation.
+
 Recommend a narrowly scoped update of Hickory net/proto/resolver to **0.26.3**,
-subject to implementation approval and the runtime checks below. This PR is an
-assessment, not that update. The ordinary UDP response-handling and resolver
+subject to implementation approval and the runtime checks below. The initial
+commit recorded an assessment, not that update. The ordinary UDP response-handling and resolver
 changes are relevant to supported DNS discovery. Fresh scans find no Hickory
 vulnerability in the current shipping lockfile; do not describe this as an
 established exploitable vulnerability or an emergency security release.
@@ -18,13 +24,14 @@ established exploitable vulnerability or an emergency security release.
 | Source PR | [rollup0 #241](https://github.com/eez-association/eez-rollup0/pull/241): base `2caf6cec5b5861a2dd8f37dd28379f9602d4ab61`, head `006f625aeb83e8dc530655db77b6203bc9bf964e`, merge `1b66d9bda675e6f8e83f514153a97136909acc06` |
 | Reth | v2.7.0, `3d592ece6de8c4559987416a544fc215fd6d6921`; cached tracked source clean (only Cargo's untracked `.cargo-ok`) |
 | Environment | Linux x86_64; Rust/Cargo 1.95.0; cargo-audit 0.22.2; cargo-deny 0.20.2 |
-| Candidate | Archive of fresh target in `/tmp/issue139-candidate`; only root lockfile's three Hickory versions/checksums changed; [exact scratch patch](candidate.patch), never applied to the assessment branch |
+| Candidate | Archive of fresh target in `/tmp/issue139-candidate`; only root lockfile's three Hickory versions/checksums changed; [exact scratch patch](candidate.patch), not applied in the assessment commit |
 
 The worktree initially had clean status at `bad8d7eef7e16ac872f354d31af257f8646b2fac`
 with an unrelated `origin`. The assessment branch was created from the explicit
 fork URL's fetched main. That remote configuration was preserved. No services,
 wallets, other worktrees, issue metadata or existing CI runs were changed.
-The PR head is the commit carrying this record; review it against the PR base above.
+The assessment head is `25343a1f592ac9413cfa0b41dca7cd2d659e4976`; review that
+record against the PR base above.
 
 The frozen comparison remains:
 

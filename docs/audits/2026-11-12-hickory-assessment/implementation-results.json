@@ -1,0 +1,322 @@
+{
+  "baseline": "25343a1f592ac9413cfa0b41dca7cd2d659e4976",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "files_sha256": {
+    "Cargo.lock": "97e258cec5cfec14b2ec38f03bad0098c86b7b5fc081fc299b1eb9f02d2781f5",
+    "crates/vendor/reth/Cargo.lock": "3f7f090b8cac809ecbfe6b08201c9974e1f88e2be5e4d9a5cff110b1062be994",
+    "deny.toml": "4c4bd268aa61a34e27ee27574da66f575954c443a11ce4482bd465865b3491f5",
+    ".cargo/audit.toml": "81eb812227ac9a4423b19695cd51468df2ee9b31255eb0a31d2d9570bec24bb6"
+  },
+  "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+  "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)\n",
+  "build_environment": {
+    "LLVM_SYS_221_PREFIX": "/usr/lib/llvm-22",
+    "CARGO_TARGET_DIR": "/dev/shm/issue139-validation/target",
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "TMPDIR": "/dev/shm/issue139-validation/tmp"
+  },
+  "root_graph_comparison": "pass: only Hickory version/checksum changes; package feature sets and edges unchanged",
+  "affected_package_tests": {
+    "exit": 0,
+    "executables": [
+      {
+        "source": "src/lib.rs",
+        "binary": "eez_control_rpc-2f20fa3ca6bf02c8",
+        "binary_sha256": "6a121834b23816abcbd65b6b771d009080d50a2c2a8d8f09b3cbb16cc99cecdd",
+        "passed": 6,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      {
+        "source": "src/lib.rs",
+        "binary": "eez_follower-194fde1ed48a6759",
+        "binary_sha256": "4c9fd9948f43ad3c1e72708fdfddcd16b61f4dee898ce2ff3a66e99fd91ef147",
+        "passed": 9,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      {
+        "source": "src/bin/eez-follower.rs",
+        "binary": "eez_follower-ef05de674cead1fc",
+        "binary_sha256": "ab063ccaf68d50defa7d55efdf321626958e5204107fc34fabdd15ee2d360b9d",
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      {
+        "source": "src/lib.rs",
+        "binary": "eez_node-bc84e87e7386f64a",
+        "binary_sha256": "daf2005ac85d0e680fa2e04f72cbcbf00316db0534506b5f18f279cd652cd6eb",
+        "passed": 103,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      {
+        "source": "src/bin/eez-composer.rs",
+        "binary": "eez_composer-a49badc41cc9949b",
+        "binary_sha256": "1de8a00dc987b988bde2293805b26a1c699f7329a900e4f0b2bcd60ea05149f5",
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      {
+        "source": "src/lib.rs",
+        "binary": "eez_node_common-2e282e236f36d314",
+        "binary_sha256": "b7a15f64ce37c2b815b57a554f9bbbbb449c4cc7b1255351ef34587fabf99578",
+        "passed": 33,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      {
+        "source": "src/main.rs",
+        "binary": "eez_proof_signer-5aa53fc45a806b21",
+        "binary_sha256": "93ded45661957a9fef960ea3778f9ba40eb0f28b0aee2fb702db0fb4df7d854b",
+        "passed": 341,
+        "failed": 0,
+        "ignored": 5,
+        "filtered": 0
+      },
+      {
+        "source": "src/lib.rs",
+        "binary": "eez_prover_client-e8b8fde915622a49",
+        "binary_sha256": "db294779b3557f8804f30e5f9585fc6f46835e35e7e358858d08190772a7b99d",
+        "passed": 38,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0
+      }
+    ],
+    "ignored": [
+      "test service::sessions::tests::vectors::regenerate_offline_vectors ... ignored, explicit frozen fixture generation; see conformance/README.md",
+      "test service::tests::derivation::captured::inventory_native_proving_fixtures ... ignored, explicit local native-fixture inventory utility",
+      "test service::tests::derivation::captured::regenerate_native_fixture_commitments ... ignored, explicit native commitment regeneration; see conformance/README.md",
+      "test service::tests::derivation::captured::supplement_native_lookup_capture_witness ... ignored, explicit supplemental witness generation from exact captured block replay",
+      "test service::tests::derivation::history_observations::regenerate_history_observation_process_fixtures ... ignored, explicit regeneration utility for the standalone signer process regression"
+    ],
+    "passed": 530,
+    "failed": 0,
+    "ignored_count": 5,
+    "raw_log_sha256_local_only": "17779290a0ad5896f91372b75c8b97e12f8c74e934509e76442ca128e21f3fbb"
+  },
+  "dns_probe": {
+    "scope": "isolated loopback DNS behavior through pinned Reth adapter; not production-network exploitability",
+    "source_sha256": "a6a7436180b173a1d36c351611138061393ea1fa46430785b3191be726549652",
+    "manifest_sha256": "2b1a1988cbc3dde031e0e403abdf97d48598f1a35791c16846e15956f67a5079",
+    "candidate_lock_sha256": "4a1c7d0707cd5903ed50e683bc07c9be9a4d022b0fa8cebbb761260d461afad8",
+    "baseline_lock_sha256": "9f5520a4eecdebafb7df2259e9105f296e5bbc839188c927e54db3f508e15842",
+    "dependency_versions_match_production_lock": true,
+    "hickory_features_match_shipping": true,
+    "baseline_versions": {
+      "net": "0.26.1",
+      "proto": "0.26.2",
+      "resolver": "0.26.1"
+    },
+    "candidate_versions": {
+      "net": "0.26.3",
+      "proto": "0.26.3",
+      "resolver": "0.26.3"
+    },
+    "runs": {
+      "baseline": {
+        "results": [
+          "test result: FAILED. 3 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s"
+        ],
+        "log_sha256_local_only": "787f6660d9323560e078d089f3a330cfde8c7b2f605ca7876e9899638167ae80",
+        "test_executable_sha256_local_only": "662eaf5d325ddcb0f2c714ac08e83d3eb73722463e829c5b652d9da4af99a301",
+        "failures": [
+          "test tests::empty_question_before_valid_response ... FAILED",
+          "test tests::invalid_resolv_conf_line_preserves_valid_server ... FAILED",
+          "test tests::malformed_wrong_id_before_valid_response ... FAILED"
+        ]
+      },
+      "candidate": {
+        "results": [
+          "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s",
+          "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+        ],
+        "log_sha256_local_only": "c94681af8a2ed210a7cf956263919b6aacdacba0271c3f6bf7564cb1146dc5f5",
+        "test_executable_sha256_local_only": "562860db3b04ccea639ba03b4f8230d3e910098895fcb1e554a2a62330cb9a50",
+        "failures": []
+      }
+    }
+  },
+  "checks": {
+    "fmt": {
+      "exit": 0,
+      "local_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "clippy-capacity": {
+      "exit": 0,
+      "local_log_sha256": "ad33b71ca922b1d20930a4b3436c6453e26f8674cbc32766eedd2fe7070ab7fa"
+    },
+    "audit": {
+      "exit": 0,
+      "local_log_sha256": "4f562bd6ac9dffdfcaf8e397ba136c1b2b52125a692820b80bb14854a8aea683"
+    },
+    "deny": {
+      "exit": 0,
+      "local_log_sha256": "ddf5f0ab489ee889a12940b240d7cec30323c3d406be45c2ec8631acc46cd304"
+    },
+    "vector-check": {
+      "exit": 0,
+      "local_log_sha256": "73a2cb93772fd532e22005ecd61c22035395d290df17042d4a2376539412a426"
+    },
+    "forge-build": {
+      "exit": 0,
+      "local_log_sha256": "5f0a5f9fda91395d43e861588214321a26a6d5ee002df23defc543bfa41692c0"
+    },
+    "rustdoc": {
+      "exit": 0,
+      "local_log_sha256": "6b8d226c0c6754a053a662c7ddc4ade14fc2d55d40c319129b531c99491dd133"
+    }
+  },
+  "unfiltered_advisories": {
+    "audit-unfiltered": [
+      {
+        "id": "RUSTSEC-2026-0387",
+        "package": "crypto-bigint",
+        "version": "0.5.5"
+      },
+      {
+        "id": "RUSTSEC-2026-0391",
+        "package": "zstd",
+        "version": "0.13.3"
+      },
+      {
+        "id": "RUSTSEC-2026-0398",
+        "package": "zstd-safe",
+        "version": "7.2.4"
+      },
+      {
+        "id": "RUSTSEC-2026-0403",
+        "package": "zstd-safe",
+        "version": "7.2.4"
+      },
+      {
+        "id": "RUSTSEC-2026-0410",
+        "package": "zstd-sys",
+        "version": "2.0.16+zstd.1.5.7"
+      }
+    ],
+    "audit-vendor-unfiltered": [
+      {
+        "id": "RUSTSEC-2026-0387",
+        "package": "crypto-bigint",
+        "version": "0.5.5"
+      },
+      {
+        "id": "RUSTSEC-2026-0418",
+        "package": "libz-sys",
+        "version": "1.1.28"
+      },
+      {
+        "id": "RUSTSEC-2026-0391",
+        "package": "zstd",
+        "version": "0.13.3"
+      },
+      {
+        "id": "RUSTSEC-2026-0398",
+        "package": "zstd-safe",
+        "version": "7.2.4"
+      },
+      {
+        "id": "RUSTSEC-2026-0403",
+        "package": "zstd-safe",
+        "version": "7.2.4"
+      },
+      {
+        "id": "RUSTSEC-2026-0410",
+        "package": "zstd-sys",
+        "version": "2.0.16+zstd.1.5.7"
+      }
+    ]
+  },
+  "evidence_location": "Raw logs and completed unit executables retained locally under /tmp/issue139-implementation; current build executables under /dev/shm/issue139-validation. Not published artifacts.",
+  "remaining_checks": [],
+  "environment_failures": [
+    "Initial Clippy builds exhausted /tmp user quota; full check later passed under /run/user/1000.",
+    "First process-test build exhausted /run/user/1000 while archiving eez-node; no process tests ran. Vendor and rustdoc jobs were interrupted to relocate the cache.",
+    "DNS probe initially lacked socket permission; later permitted runs reproduce baseline failures and candidate passes."
+  ],
+  "frozen_transcript_tests": [
+    "baseline_lookup",
+    "baseline_static",
+    "begin_boundaries",
+    "block_boundaries",
+    "block_quota",
+    "byte_quota",
+    "cancel_session_isolation",
+    "competing_branches",
+    "concurrent_composers",
+    "detached_session_eviction",
+    "finalize_byte_quota",
+    "finalize_ranges",
+    "frame_size_limit",
+    "half_close_drains",
+    "invalid_witness_retry",
+    "pipelined_gap_recovery",
+    "posting_context_boundaries",
+    "resume_after_proof",
+    "resume_boundaries",
+    "resume_takeover_fencing",
+    "rewind_boundaries",
+    "settlement_abi_binding",
+    "settlement_blob_encoding",
+    "settlement_required_inputs",
+    "stream_capacity",
+    "subrange_promoted_anchor",
+    "sync_range_proof",
+    "terminal_before_tip",
+    "witness_quota"
+  ],
+  "process_tests": {
+    "exit": 0,
+    "results": [
+      "PASS [ 947.339s] (1/5) eez-node-e2e::node_e2e cross_chain::bidirectional_cross_chain_with_history_at_sync",
+      "PASS [  37.292s] (2/5) eez-node-e2e::node_e2e cross_chain::minimal_bidirectional_cross_chain_smoke",
+      "PASS [  41.521s] (3/5) eez-node-e2e::node_e2e cross_chain::outbound_changing_static_reads_and_write_settle_and_replay",
+      "PASS [  33.037s] (4/5) eez-node-e2e::node_e2e cross_chain::real_signer_rejects_tampered_post_batch_calldata",
+      "PASS [  29.671s] (5/5) eez-node-e2e::node_e2e cross_chain::real_signer_rejects_tampered_witness",
+      "Summary [1088.862s] 5 tests run: 5 passed (1 slow), 206 skipped"
+    ],
+    "log_sha256": "fa3503183628781d0624b076a34c97ed7bbb7eda5cad3bdec34cf3b06a6691df",
+    "runtime_binaries": {
+      "eez-composer": {
+        "sha256": "6af4fd26a2b3cd9f58a7aa71e06565c7a20b1b413f5196e7d4015e0c12f54306",
+        "bytes": 390439440
+      },
+      "eez-follower": {
+        "sha256": "b749dcbc1167c0dbc59a709df237f50a8e59234e3292c3e2a1de028b3e96f49e",
+        "bytes": 259753648
+      },
+      "eez-proof-signer": {
+        "sha256": "0d6f341e868e872cac1cd66ed0b57b00f482835ad64cd8763e0e922c8383c636",
+        "bytes": 54681344
+      }
+    },
+    "test_binary_sha256": "a2d1c9463cbe448592c84d1cda57e99797a162ea89ccb61536e68fb06dc46807"
+  },
+  "vendor_regressions": {
+    "exit": 0,
+    "passed": 2,
+    "skipped": 240,
+    "results": [
+      "PASS [   0.298s] (1/2) reth-engine-tree tree::tests::forkchoice_updated_tests::test_engine_termination_waits_for_cleanup",
+      "PASS [   0.041s] (2/2) reth-rpc-builder tests::test_exported_guard_shares_debug_quota",
+      "Summary [   0.339s] 2 tests run: 2 passed, 240 skipped"
+    ],
+    "local_log_sha256": "d23d5db20c8ef128a5a4665ed4cda69e72fb552e75e0f1c0d6bd4294c477cd12",
+    "executables": {
+      "reth_engine_tree-1919de2f5a93ed0f": "c8df148cf2a2d2b33adc5216e60716640091f7b581da2f6c6ff56fb13927662a",
+      "reth_rpc_builder-7eb6761b060322f6": "9837ece7b46242352311f8342d587f562925fccf4b8aa138b16d9929b7f7c4c8"
+    }
+  }
+}

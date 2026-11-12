@@ -167,6 +167,14 @@ only when the accepted semantics change. The test suite does not pin a Cargo.loc
 digest: unrelated dependency updates do not change wire compatibility, and a
 lockfile hash does not establish semantic equivalence.
 
+The [2026-11-12 Hickory review](../../docs/audits/2026-11-12-hickory-assessment/implementation.md)
+updates net/proto/resolver to 0.26.3 in the shipping and vendored-Reth test
+lockfiles. These packages serve Reth DNS discovery; their DNS decoding changes
+do not define accepted execution, witness, native-blob or public-input semantics.
+This update retains validation version 9 and the existing signing domain and
+network profile. An equal identity still does not attest which DNS implementation
+an operator runs.
+
 The 2026-11-04 dependency review updates only `pulldown-cmark` 0.13.5 to
 0.13.6 for RUSTSEC-2026-0433. Its use through `prost-build` formats protobuf
 comments at build time; the generated `prove.v2.rs` remains byte-identical
