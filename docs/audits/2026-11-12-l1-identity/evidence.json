@@ -161,7 +161,7 @@
       "crates/eez-node-common/src/lib.rs": "b8fa38f0e5c99cd4e4877486db14d353354f1f73d03d59a14d5a3773183b3932",
       "crates/eez-composer/src/composer/posting.rs": "4cbcfc6079dab3d49fe661981519680469cfb49350ac8d4c6988b4bd391dbfe3"
     },
-    "change": "Startup test renamed; assertions unchanged. Documentation corrects Opus review findings. Original run records above refer to tested_commit.",
+    "change": "Startup test renamed; assertions unchanged. Documentation corrects review findings. Original source digests refer to tested_commit. runs[0] compiled while test code was being added and is not exact-commit runtime evidence; runs[1] has truncated diagnostics. See README for run-specific provenance and limits.",
     "runs": [
       {
         "command": "cargo +1.95.0 test --locked --offline -p eez-node-common --features l1-startup --lib -- --test-threads=1",
@@ -194,5 +194,6 @@
       "diff_check": "passed",
       "local_links": 19
     }
-  }
+  },
+  "test_patch_digest_note": "SHA-256 of stdout from test_patch_command in the original checkout. Historical noncanonical diff: index abbreviations (8 hex here), algorithm, context and prefixes depend on Git settings and object population. The command alone does not guarantee reproduction in another clone. Use test_source_sha256 at tested_commit for formatting-independent source identity."
 }

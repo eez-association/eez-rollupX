@@ -66,7 +66,7 @@ Paths and behavior below refer to the investigation base, not the frozen target.
 | Configuration | `L1ReaderConfig::from_env` selects `EEZ_L1_RPC_URL`; `SubmitterConfig` optionally selects `EEZ_L1_TARGET_RPC_URL` for target preparation/observation. Embedded selection uses `EEZ_L1_CHAIN` and, for private kinds, `EEZ_L1_CHAIN_PATH`. | Parsing an endpoint does not authenticate it. Target RPC is a third input, not the embedded provider. |
 | Embedded database initialization | Reth's engine launcher calls `with_genesis`, which compares an existing stored genesis hash with the selected chainspec and returns `GenesisHashMismatch` on disagreement. Its explicit debug skip-validation option bypasses that comparison. | This is a database-versus-configured-spec check, not a comparison with the separately configured canonical RPC. Source-inspected only; this investigation did not launch a database mismatch. |
 | Embedded rules → L2 schedule | `offline_l1_rules` commits to embedded chain ID, genesis header hash, forks and blob rules. `OfflineL1Rules::profile` rejects `L1 reference/profile chain mismatch` and an initial reference before required block-based forks. | Profile construction does not query canonical RPC or compare its block zero with embedded block zero. |
-| Composer → signer | `eez-node::launch` builds the profile from the embedded spec and L2 schedule, then `composer_proving_from_env` calls `RemoteProver::capabilities` with the expected portable identity and verification key before L2 sequencing. | Agreement with independently configured signer rules is stronger than chain ID equality; mutually wrong operator inputs are not repaired or independently certified by this handshake. |
+| Composer → signer | `eez-node::launch_composer` builds the profile from the embedded spec and L2 schedule, then `composer_proving_from_env` calls `RemoteProver::capabilities` with the expected portable identity and verification key before L2 sequencing. | Agreement with independently configured signer rules is stronger than chain ID equality; mutually wrong operator inputs are not repaired or independently certified by this handshake. |
 | Follower profile | The follower validates profile construction but does not retain its commitment or perform the Composer/signer handshake. `Deriver::new` likewise validates the profile and retains `offline_rules.headers`. | A same-ID, different-genesis local L1 spec is not rejected by these profile checks when the remaining rules are compatible. Canonical reference authentication is separate. This follower configuration was not process-tested. |
 | Canonical readiness | Composer passes the embedded chain ID to `wait_for_l1_ready`; follower first checks its local L1 profile against `EEZ_L1_CHAIN_ID`. Readiness rejects a different RPC chain ID, waits for deployment height and reference finality. Block zero needs no finalized checkpoint. | No reference hash or deployment receipt authentication here. This deliberately permits checkpoint-aware restart with pruned receipts. |
 | Deriver construction | Both roles call `Deriver::new` → `L1Reader::derivation_source` → `DerivationSource::authenticate`. Wrong chain, wrong recomputed reference header or insufficient finality rejects; only unavailable source errors retry. | A nonzero reference authenticates that reference; it does not fetch an ancestry proof all the way back to block zero. RPC canonicality/finality remains relative to the operator-selected provider. |
@@ -75,7 +75,7 @@ Paths and behavior below refer to the investigation base, not the frozen target.
 | Fee quote | `PostingRuntime::quote_sample` compares the current RPC chain ID to both `CrossChainExecCtx::l1_chain_id` and the embedded EVM chainspec, returning `PostingError::Unavailable` on disagreement. | This is a runtime guard, including against an endpoint changing chain ID after startup. The signing context ID was read from that RPC during startup; readiness separately compares RPC and embedded IDs. Same-ID forks require hashes/state. |
 | Composition | `L1SlotState::open` anchors embedded state. Composer requires its hash to equal the canonical quote sample; otherwise it requeues the drain and attempts the ordinary minimal-post path. | A mismatch is not permission to consume/evict the cross-chain users. This check is at composition, not a startup genesis comparison. |
 | Final bundle simulation | `PostingRuntime::simulate` requires the local header at the quote height to hash to the canonical fee sample, then opens `state_by_block_hash` and executes the signed bundle. Missing state or a hash mismatch is `PostingError::Unavailable`. | Reaching startup does not imply the embedded provider can execute against a later canonical state. |
-| Submission target | `Submitter::send_bundle` reads target-provider chain ID; inbound envelopes and the final quote/target binding are checked. `FeeQuote::is_current` binds chain, exact sample and target. | This is not a general startup genesis check for `EEZ_L1_TARGET_RPC_URL`. Relay acceptance is not canonical settlement. |
+| Submission target | `Submitter::send_bundle_checked`, reached by the recorded/quoted submission methods, reads target-provider chain ID; inbound envelopes and the final quote/target binding are checked. `FeeQuote::is_current` binds chain, exact sample and target. | This is not a general startup genesis check for `EEZ_L1_TARGET_RPC_URL`. Relay acceptance is not canonical settlement. |
 | Standalone replay | `verify_blob_evidence::prefixes::replay_spec` checks supplied complete L2 genesis against reported genesis hash and effective configuration; `replay_history` derives L1 rules/profile and checks the verification key. | Existing genesis-replay tests concern evidence validation, not a live pair of canonical/embedded providers. |
 
 Relevant implementation:
@@ -316,9 +316,10 @@ using read-only source tools. It found no blocking code defect and requested
 clearer follower coverage, independent matrix legs, fallback counts and quote
 input provenance. Those descriptions are corrected above. The startup test is
 renamed to distinguish readiness from subsequent reference authentication; its
-assertions are unchanged. The manifest now supplies the exact diff command for
-reproducing the original test-patch digest and scopes original results to the
-reviewed commit. Follow-up validation is recorded separately, preserving the
+assertions are unchanged. The manifest now supplies the original diff command and its formatting
+limitations for the test-patch digest, and scopes source digests to the
+reviewed commit. The initial run compiled while tests were being added;
+it is explicitly excluded from an exact-commit runtime claim. Follow-up validation is recorded separately, preserving the
 original failures and executable identities.
 
 Follow-up checks passed: all 34 shared-startup tests (including the renamed
@@ -327,3 +328,15 @@ test), workspace Clippy with warnings denied, formatting, diff checks and all
 renamed test assertions are unchanged. Original executable digests identify
 the earlier builds; the startup rebuild reused its output path and has a new
 digest recorded under `review_followup`.
+
+### Fable 5.2 review corrections
+
+Claude Fable 5.2 reviewed `c88150e6b180f9162eb087036bdac3c8dc87beaf`
+with read-only source tools and found no blocking defect. Its three optional
+record-accuracy findings are corrected: the historical patch hash is SHA-256
+of Git stdout and depends on the original diff formatting; the initial run is
+excluded from an exact-commit claim; and the current boundary table names
+`launch_composer` and `send_bundle_checked` precisely. Per-file source hashes
+provide identities independent of Git diff formatting. These corrections are
+documentation-only; diff, JSON and local-link checks were repeated, with no
+additional runtime rerun.
