@@ -416,7 +416,10 @@ async fn characterize_native_streaming_workload() {
                 output.flush().unwrap();
                 let started = Instant::now();
                 let mut work = tokio::spawn(sample(name, scenario));
-                let result = tokio::time::timeout(Duration::from_mins(3), &mut work).await;
+                let budget = Duration::from_mins(15)
+                    .saturating_sub(group.elapsed())
+                    .min(Duration::from_mins(3));
+                let result = tokio::time::timeout(budget, &mut work).await;
                 let (success, result) = match result {
                     Ok(Ok(result)) => (true, result),
                     Ok(Err(error)) => (
@@ -428,7 +431,7 @@ async fn characterize_native_streaming_workload() {
                         let _ = work.await;
                         (
                             false,
-                            json!({"fixture": name, "scenario": scenario, "error": "attempt timeout", "failed_after_ms": ms(started)}),
+                            json!({"fixture": name, "scenario": scenario, "error": "attempt or group timeout", "failed_after_ms": ms(started)}),
                         )
                     }
                 };
