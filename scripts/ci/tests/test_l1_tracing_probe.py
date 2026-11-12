@@ -1,5 +1,6 @@
 """Optional tracing diagnostic: real HTTP fixtures plus an owned Anvil backend."""
 import copy
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
@@ -11,6 +12,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import Mock, patch
 import urllib.request
 
 REPO = Path(__file__).resolve().parents[3]
@@ -38,7 +40,7 @@ def fixture():
 
 
 class ProbeTests(unittest.TestCase):
-    def run_probe(self, document, error_method=None, bad_http=False):
+    def run_probe(self, document, error_method=None, bad_http=False, oversized=False):
         calls = []
 
         class Handler(BaseHTTPRequestHandler):
@@ -57,7 +59,9 @@ class ProbeTests(unittest.TestCase):
                     reply["error"] = dict(code=-32601, message="private endpoint must not leak")
                 else:
                     reply["result"] = document[method]
-                data = json.dumps(reply).encode()
+                data = (b" " * (32 * 1024 * 1024 + 1)
+                        if oversized and method == "debug_traceBlockByHash"
+                        else json.dumps(reply).encode())
                 self.send_response(200)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
@@ -147,6 +151,13 @@ class ProbeTests(unittest.TestCase):
                 self.assertNotIn("Traceback", result.stderr)
                 self.assertEqual(calls[-1], ("debug_traceBlockByHash", [BLOCK, OPTIONS]))
 
+    def test_oversized_trace_reports_probe_limit(self):
+        result, calls = self.run_probe(fixture(), oversized=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("RPC response exceeds probe limit", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(calls[-1], ("debug_traceBlockByHash", [BLOCK, OPTIONS]))
+
     def test_reorg_after_trace_rejects(self):
         document = fixture()
         document["eth_getBlockByNumber"]["hash"] = OTHER
@@ -175,16 +186,16 @@ class ProbeTests(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
 
 
-@unittest.skipUnless(shutil.which("anvil"), "requires Anvil 1.7.1")
+@unittest.skipUnless(shutil.which("anvil"), "requires Anvil on PATH; CI pins 1.7.1")
 class AnvilProbeTests(unittest.TestCase):
     def test_owned_backend_with_real_event_and_no_log_negative_control(self):
         # This process and all of its transactions belong only to this test.
         output = REPO / "artifacts/issue147"
         output.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="issue147-anvil-") as datadir, \
-                (output / "anvil.log").open("w") as log:
-            node = subprocess.Popen(["anvil", "--host", "127.0.0.1", "--port", "0",
-                                     "--state", datadir + "/state.json"], stdout=log, stderr=log)
+        output = Path(tempfile.mkdtemp(prefix="anvil-", dir=output))
+        with (output / "anvil.log").open("w") as log:
+            node = subprocess.Popen(["anvil", "--host", "127.0.0.1", "--port", "0"],
+                                    stdout=log, stderr=log)
             rpc_url = None
 
             def rpc(method, params):
@@ -196,10 +207,19 @@ class AnvilProbeTests(unittest.TestCase):
                 self.assertNotIn("error", payload, payload)
                 return payload["result"]
 
+            def receipt(tx):
+                deadline = time.monotonic() + 5
+                while True:
+                    result = rpc("eth_getTransactionReceipt", [tx])
+                    if result is not None:
+                        return result
+                    self.assertLess(time.monotonic(), deadline, "owned Anvil did not mine fixture")
+                    time.sleep(0.01)
+
             try:
                 deadline = time.monotonic() + 10
                 while True:
-                    self.assertIsNone(node.poll(), "owned Anvil failed to bind; see artifacts/issue147/anvil.log")
+                    self.assertIsNone(node.poll(), f"owned Anvil failed to bind; see {output / 'anvil.log'}")
                     listener = re.search(r"Listening on (127\.0\.0\.1:[0-9]+)",
                                          (output / "anvil.log").read_text())
                     try:
@@ -217,18 +237,59 @@ class AnvilProbeTests(unittest.TestCase):
                 size = len(bytes.fromhex(runtime))
                 init = f"60{size:02x}600c60003960{size:02x}6000f3" + runtime
                 deploy = rpc("eth_sendTransaction", [{"from": accounts[0], "data": "0x" + init}])
-                contract = rpc("eth_getTransactionReceipt", [deploy])["contractAddress"]
+                contract = receipt(deploy)["contractAddress"]
                 tx = rpc("eth_sendTransaction", [{"from": accounts[0], "to": contract}])
+                receipt(tx)
                 result = subprocess.run([sys.executable, str(PROBE), rpc_url, tx],
                                         capture_output=True, text=True, timeout=20)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout)["logs"], 1)
                 (output / "probe.json").write_text(result.stdout)
                 no_log = rpc("eth_sendTransaction", [{"from": accounts[0], "to": accounts[1]}])
+                receipt(no_log)
                 negative = subprocess.run([sys.executable, str(PROBE), rpc_url, no_log],
                                           capture_output=True, text=True, timeout=20)
                 self.assertEqual(negative.returncode, 1)
                 self.assertIn("nonempty receipt logs", negative.stderr)
             finally:
                 node.terminate()
-                node.wait(timeout=10)
+                try:
+                    node.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    node.kill()
+                    node.wait()
+
+
+class AnvilLifecycleTests(unittest.TestCase):
+    def test_concurrent_anvil_runs_use_distinct_logs(self):
+        launch = threading.Barrier(2)
+        logs = []
+
+        def failed_launch(command, *, stdout, stderr):
+            self.assertIs(stdout, stderr)
+            logs.append(Path(stdout.name))
+            launch.wait(timeout=5)
+            raise OSError("intentional launch failure")
+
+        def run():
+            with self.assertRaisesRegex(OSError, "intentional launch failure"):
+                AnvilProbeTests().test_owned_backend_with_real_event_and_no_log_negative_control()
+
+        with patch.object(subprocess, "Popen", side_effect=failed_launch), \
+                ThreadPoolExecutor(max_workers=2) as workers:
+            futures = [workers.submit(run) for _ in range(2)]
+            for future in futures:
+                future.result(timeout=10)
+        self.assertEqual(len(set(logs)), 2, "concurrent runs must not share a listener log")
+
+    def test_slow_shutdown_kills_owned_process_and_preserves_failure(self):
+        node = Mock()
+        node.poll.return_value = None
+        node.wait.side_effect = [subprocess.TimeoutExpired("owned-anvil", 10), None]
+        with patch.object(subprocess, "Popen", return_value=node), \
+                patch.object(Path, "read_text", side_effect=AssertionError("intentional fixture failure")), \
+                self.assertRaisesRegex(AssertionError, "intentional fixture failure"):
+            AnvilProbeTests().test_owned_backend_with_real_event_and_no_log_negative_control()
+        node.terminate.assert_called_once()
+        node.kill.assert_called_once()
+        self.assertEqual(node.wait.call_count, 2, "forced shutdown must reap the owned process")

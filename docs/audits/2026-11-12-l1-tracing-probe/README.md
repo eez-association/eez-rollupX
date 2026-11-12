@@ -102,7 +102,9 @@ transactions' log contents, protocol calldata, blobs, gas accounting and executi
 replay are outside this check. It trusts the queried endpoint's evidence rather
 than independently authenticating a chain.
 
-RPC reads time out after ten seconds each and responses are capped at 32 MiB.
+RPC socket operations use a ten-second timeout; this is not a whole-RPC or
+overall deadline, so a trickling response can take longer. Responses are capped
+at 32 MiB.
 Tracer execution is requested with `4s`, matching the target fee consumer. A
 large/busy backend may fail this bounded diagnostic without proving a runtime
 defect. Failures return nonzero without printing remote error text or RPC URLs.
@@ -144,7 +146,8 @@ sandbox failure, malformed-HTTP first failure, subsequent check logs, Anvil log
 and small probe JSON. They are not retrievable from another checkout. The checked-in fixtures/test code and
 results below are the reproducible evidence, not a promise to retain bulk logs.
 
-All commands ran from the dedicated repository root:
+All commands ran from the dedicated repository root. The following table records
+original reviewed head `4ee14cd0`; subsequent correction results are below:
 
 | Check | Actual selection and outcome |
 | --- | --- |
@@ -198,7 +201,7 @@ runtime consumer would justify a further narrow fix; source parity or an empty
 smoke check would not. Parent main CI `43237662996`, issue #133, board metadata,
 production services and wallets were left untouched.
 
-Final Python source identities (SHA-256):
+Python source identities at reviewed head `4ee14cd0` (SHA-256):
 
 - `probe-l1-tracing.py`: `5a4351ae8e1fa4c685fe3f8134d4c8f7a2cbb52857153a9077f91938a494370e`
 - `test_l1_tracing_probe.py`: `9704cbf43f04265029391f5c62d78089b55dcd2267a767f6138a7e0e2773a1ca`
@@ -208,3 +211,75 @@ canonical block trace/log diagnostic and its isolated regressions. **Looks good.
 Ship.** Checked the full diff, target callers, error handling, nonempty selection,
 CI discovery and process ownership. **Not checked:** embedded shipping backends,
 full-network semantics and independent replay.
+
+## Claude Opus 5.5 review and corrections
+
+The owner requested an adversarial external-model review after opening PR #167,
+then authorized applying its fixes. Claude Code 2.1.322 reviewed head
+`4ee14cd069de9c4c10e5640c93ba2436d7e904bc` with the full diff and read/search tools.
+The run result identifies the first-party model as **`claude-opus-5-5`**, high
+effort, with 24 turns and zero permission denials. It executed no tests, commands,
+services or writes. This is an external-model code review, not independent
+execution or security qualification. It did not verify the source repository
+links or executable hashes. Its verdict was “ship, with optional fixes.”
+
+The full report remains local-only at
+`artifacts/issue147/claude-opus-5-5-review/report.txt`, SHA-256
+`4cdd0f7db3da82c59b78c808940e7f072d267c212a660481d3271a0d621cc250`.
+The three confirmed low-severity findings and their corrections are preserved here:
+
+| Finding at reviewed head | Correction and regression |
+| --- | --- |
+| `probe-l1-tracing.py:104-109`: the broad `ValueError` handler catches the probe's own 32 MiB limit error and replaces it with a generic RPC failure. | Re-raise `ProbeError` before sanitizing external exceptions. A real loopback response larger than 32 MiB now reports `RPC response exceeds probe limit`; the prior method-not-found and malformed-HTTP controls still check sanitized errors. |
+| `test_l1_tracing_probe.py:182-208`: concurrent invocations share/truncate `anvil.log`, so one can discover the other's port. | Give each invocation a unique retained artifact directory for its log and probe JSON. A barrier-controlled concurrent launch test fails with shared log paths at the reviewed head and passes with distinct paths. Two real concurrent backend fixtures also pass on distinct ports. |
+| `test_l1_tracing_probe.py:232-234`: SIGTERM followed by a timed wait can leave an orphan when the wait expires. | On `TimeoutExpired`, kill and reap only the owned process. A controlled process regression verifies that slow shutdown is reaped and the original test failure survives. Remove the unused `--state` option and its shutdown state dump. |
+
+The timeout description now states urllib's actual guarantee: ten seconds per
+socket operation, without a whole-RPC/overall deadline. This corrects the
+wording rather than introducing a new deadline requirement. The Anvil skip
+reason now says it checks for Anvil on `PATH`; CI supplies the pinned version.
+Other optional negative tests suggested by the reviewer remain suggestions;
+the original embedded-backend and independent-replay evidence limits still apply.
+
+The same three new regressions were run before implementation changes at
+`4ee14cd0`: three selected, two failures and one error (0.591s). The size message
+was masked, the two concurrent launches used the same log, and the slow-shutdown
+error escaped instead of preserving the original failure. The final controls were also rerun against exact `git show 4ee14cd0:<path>`
+sources: three selected, two failures and one error (0.570s). The slow-shutdown
+control models a still-running owned process, preserves an injected fixture
+failure, and verifies forced cleanup. All three are included in the passing
+final suite below. These are behavioral comparisons, not source-only claims.
+
+The first full correction run selected 12 tests: 11 passed and the real Anvil
+fixture errored (14.227s). Its first receipt request returned null immediately
+after `eth_sendTransaction`; the retained Anvil log shows mining afterward.
+The fixture now waits up to five seconds for each receipt before using it or
+running the probe. This is a wait for mining in the owned fixture, not a retry
+of a failed test, a runtime submission retry or a change to #142's tooling.
+After this correction, the complete 12-test suite passes on the final reviewed files (14.404s), zero skips.
+The earlier failure is retained and is not reported as a retry-only pass.
+
+Additional executed checks for this correction:
+
+- Two real backend test invocations ran concurrently: two selected and passed,
+  zero skips, two distinct retained listener logs/ports and probe results. Each
+  fixture terminated its own Anvil process.
+- Default CI unittest discovery selects all 12 current probe/lifecycle tests.
+- Python compilation, `git diff --check`, and local Markdown links pass. No
+  shell file changed. Unchanged lookup, artifact, and workflow checks above were
+  not repeated; their results belong to the original reviewed head.
+- No Rust/Solidity builds, embedded Ethereum/Gnosis qualification, full CI or
+  live-network validation were added by these fixes. Claude was not rerun after
+  the corrections; the regression evidence above validates the confirmed issues.
+
+First failures and subsequent outputs are retained locally under the same review
+artifact directory: `baseline-fix-regressions.log`, `fixed-regressions.log`,
+`baseline-final-regressions.log`, `final-fix-tests.log`,
+`final-fix-tests-with-receipts.log`, `final-reviewed-fix-tests.log` and
+`concurrent-backend-tests.log`. New Anvil logs/probe JSON use unique
+`artifacts/issue147/anvil-*` directories and cannot overwrite earlier runs.
+
+Corrected Python sources (SHA-256):
+
+- `probe-l1-tracing.py`: `718b6f284735808a3e098ed8a126ca00d30c7262432e2af1def714e7ca1fb241`
+- `test_l1_tracing_probe.py`: `38d674b925b3bb1458b621430f0108c31de77af3761daec5fc658856af3c71c6`

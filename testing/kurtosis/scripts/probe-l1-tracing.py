@@ -105,6 +105,8 @@ def main():
                 payload = json.loads(raw)
             require(payload.get("error") is None and "result" in payload, f"{method} RPC failed")
             return payload["result"]
+        except ProbeError:
+            raise
         except (OSError, ValueError, http.client.HTTPException) as error:
             raise ProbeError(f"{method} RPC failed") from error
 
