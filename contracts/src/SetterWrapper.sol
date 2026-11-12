@@ -36,6 +36,28 @@ contract SetterWrapper {
         require(lastNewValue == expected, "remote state did not roll back");
     }
 
+    // Deliberately changes the committed effects between intercepted composition
+    // and native manager execution. A quote must reject both variants.
+    function incrementWithGasDependentRollback(bool retry, uint256 expected) external {
+        uint256 beforeCall = gasleft();
+        try this.gasDependentIncrementFrame(retry) {}
+        catch (bytes memory reason) {
+            require(keccak256(reason) == keccak256(abi.encodeWithSelector(LocalFrameReverted.selector, expected)));
+        }
+        if (retry && beforeCall - gasleft() > 20_000) {
+            require(_increment() == expected);
+        }
+    }
+
+    function gasDependentIncrementFrame(bool alwaysRevert) external {
+        require(msg.sender == address(this));
+        uint256 beforeCall = gasleft();
+        uint256 result = _increment();
+        if (alwaysRevert || beforeCall - gasleft() < 20_000) {
+            revert LocalFrameReverted(result);
+        }
+    }
+
     function _increment() private returns (uint256) {
         (bool ok, bytes memory result) = proxy.call(abi.encodeWithSignature("increment()"));
         require(ok);

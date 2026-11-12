@@ -213,6 +213,7 @@ type SlotSessions =
 struct CompositionGas {
     source: u64,
     l1_target: u64,
+    folded_retries: bool,
 }
 
 /// A history-only Sync has no conditional cross-chain effects to remove.
@@ -383,6 +384,7 @@ fn compose_crosschain(
         gas_trace::note_address(action.target_address, "cross_chain_target");
     }
     let target_gas = l1_target_gas(&composition.actions);
+    let folded_retries = recorded_count != composition.actions.len();
     if gas_trace::active() {
         gas_trace::emit(serde_json::json!({
             "kind": "admission_simulation_result", "source_hash": source_hash,
@@ -405,6 +407,7 @@ fn compose_crosschain(
         CompositionGas {
             source: source.gas_used,
             l1_target: target_gas,
+            folded_retries,
         },
     ))
 }

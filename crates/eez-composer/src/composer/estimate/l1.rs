@@ -5,7 +5,8 @@ use alloy_sol_types::{SolCall, SolEvent};
 use reth_evm::execute::BlockExecutor as _;
 use revm::context_interface::ContextTr;
 use revm::interpreter::{
-    CallInputs, CallOutcome, CallScheme, Gas, InstructionResult, InterpreterResult,
+    CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
+    InterpreterResult,
 };
 use revm::{Inspector, Journal};
 
@@ -48,7 +49,7 @@ impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> fo
 
 enum SetupProof {
     GasOnly(AssumedProof),
-    Priced(super::super::fees::settlement::MeteredProof),
+    Priced(Box<super::super::fees::settlement::MeteredProof>),
 }
 impl SetupProof {
     fn valid(&self) -> bool {
@@ -59,6 +60,17 @@ impl SetupProof {
     }
 }
 impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> for SetupProof {
+    fn create(&mut self, context: &mut C, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+        match self {
+            Self::GasOnly(_) => None,
+            Self::Priced(p) => p.create(context, inputs),
+        }
+    }
+    fn create_end(&mut self, context: &mut C, inputs: &CreateInputs, outcome: &mut CreateOutcome) {
+        if let Self::Priced(p) = self {
+            p.create_end(context, inputs, outcome);
+        }
+    }
     fn call(&mut self, context: &mut C, inputs: &mut CallInputs) -> Option<CallOutcome> {
         match self {
             Self::GasOnly(p) => p.call(context, inputs),
@@ -107,7 +119,7 @@ pub(super) fn replay(
     .abi_encode()
     .into();
     let mut proof = if posting.is_some() {
-        SetupProof::Priced(
+        SetupProof::Priced(Box::new(
             super::super::fees::settlement::MeteredProof::setup(
                 estimator.l1.manager_address(),
                 estimator.verifier,
@@ -115,7 +127,7 @@ pub(super) fn replay(
                 estimator.rollup_id,
             )
             .map_err(unavailable)?,
-        )
+        ))
     } else {
         SetupProof::GasOnly(AssumedProof {
             registry: estimator.l1.manager_address(),

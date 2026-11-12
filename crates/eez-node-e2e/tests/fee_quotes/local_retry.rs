@@ -3,6 +3,7 @@ use super::*;
 alloy_sol_types::sol! {
     interface LocalRetry {
         function incrementWithLocalRetry(uint256 expected) external;
+        function incrementWithGasDependentRollback(bool retry, uint256 expected) external;
         function caught() external view returns (bool);
         function lastNewValue() external view returns (uint256);
     }
@@ -138,4 +139,83 @@ async fn inbound_local_revert_retry_can_be_quoted() {
     for option in options {
         assert!(option.get("gas").is_some(), "{response}");
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn inbound_lookup_cannot_authorize_a_committed_call_or_retry() {
+    let policy = crate::settlement_policy_cost::shadow_pricing_policy();
+    let settings = crate::settlement_policy_cost::fee_settings(
+        &policy,
+        &[
+            ("EEZ_FEES_L1_TO_L2_ENABLED", "true".into()),
+            ("EEZ_FEES_L1_REFUND_PERCENT", "90".into()),
+            (
+                "EEZ_FEES_L1_REFUND_RECIPIENT",
+                Address::repeat_byte(0x97).to_string(),
+            ),
+        ],
+    );
+    let world = setup_cross_chain_with_env(&settings).await.unwrap();
+    let client = reqwest::Client::new();
+    let source: PrivateKeySigner = INBOUND_USER.parse().unwrap();
+    let mut accepted = Vec::new();
+    for retry in [false, true] {
+        let data = Bytes::from(
+            LocalRetry::incrementWithGasDependentRollbackCall {
+                retry,
+                expected: U256::from(6),
+            }
+            .abi_encode(),
+        );
+        let response = wait_for(TIMEOUT, || async {
+            let response = quote_rpc(
+                &client,
+                &world.l1_xchain(),
+                "eez_debugQuoteFee",
+                json!([{"from":source.address(),"to":world.inbound_wrapper,"data":data},
+                    {"trace":"calls"}]),
+            )
+            .await?;
+            Ok((!quote_retry(&response)).then_some(response))
+        })
+        .await
+        .unwrap();
+        super::tracing::save_trace(&format!("inbound-lookup-commit-{retry}"), &response);
+        let options = response["result"]["options"].as_array().unwrap();
+        assert_eq!(options.len(), 2, "{response}");
+        if options.iter().any(|option| option.get("gas").is_some()) {
+            accepted.push(retry);
+            continue;
+        }
+        for option in options {
+            assert_eq!(
+                option["error"]["code"], "unsupported_transaction",
+                "{response}"
+            );
+        }
+        let diagnostics = response["result"]["diagnostics"]["options"]
+            .as_array()
+            .unwrap();
+        assert_eq!(diagnostics.len(), 2, "{response}");
+        for diagnostic in diagnostics {
+            assert_eq!(
+                diagnostic["error"]["details"]["reason"], "effects_mismatch",
+                "{response}"
+            );
+            assert_eq!(
+                diagnostic["error"]["details"]["stage"], "gas_estimation",
+                "{response}"
+            );
+            assert!(
+                diagnostic
+                    .to_string()
+                    .contains("actual cross-chain calls/outcomes differ"),
+                "must reach effect validation: {response}"
+            );
+        }
+    }
+    assert!(
+        accepted.is_empty(),
+        "lookup-only quote accepted committed effects (retry): {accepted:?}"
+    );
 }

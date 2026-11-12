@@ -23,7 +23,7 @@ use revm::{
     Database, Inspector, Journal,
     context::TxEnv,
     context_interface::ContextTr,
-    interpreter::{CallInputs, CallOutcome, CallScheme},
+    interpreter::{CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome},
 };
 
 use super::super::posting::{EffectInspector, PostingQuote, PostingRuntime};
@@ -720,6 +720,14 @@ impl MeteredProof {
 }
 
 impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> for MeteredProof {
+    fn create(&mut self, context: &mut C, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+        self.effects.create(context, inputs)
+    }
+
+    fn create_end(&mut self, context: &mut C, inputs: &CreateInputs, outcome: &mut CreateOutcome) {
+        self.effects.create_end(context, inputs, outcome);
+    }
+
     fn call(&mut self, context: &mut C, inputs: &mut CallInputs) -> Option<CallOutcome> {
         if self.matches(context, inputs) {
             self.matches += 1;

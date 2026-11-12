@@ -278,7 +278,8 @@ impl CompositionBuilder {
     /// 2. Apply any final queued target-session rollback, require every call
     ///    to be resolved, mutable, and supported, then validate its explicit
     ///    parent links and rollback spans as preorder.
-    /// 3. Materialize one active-entry stream per participating chain.
+    /// 3. Share identical adjacent successful inbound retries in flat,
+    ///    single-call rollback scopes, then materialize the active entries.
     /// 4. Package the entry rollup and sorted non-entry outputs.
     /// 5. Package the source and sorted target batches as [`Composition`].
     ///
