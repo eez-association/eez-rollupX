@@ -1,0 +1,30 @@
+{
+  "manifest_sha256": "054666c13c01671ec451a5541254cfd81e1d3ca6fce2ece97fa11e42678f72cc",
+  "resolutions": [
+    {
+      "finding": "N4",
+      "action": "existing_issue",
+      "issue": "https://github.com/eez-association/eez-rollupX/issues/139",
+      "reason": "Partially covered: shipping proto 0.26.2 already fixes the current RustSec proto findings, while net/resolver remain 0.26.1. Recommend a scoped 0.26.3 update after approval and runtime validation, including the separate vendored-Reth test lockfile. The repository assessment supplies compatibility, reachability, fresh scans, identity implications, residual risks and the implementation/check definition without changing existing completion criteria. Original input provenance was not independently checked.",
+      "evidence": [
+        {
+          "label": "Frozen source lockfile",
+          "url": "https://github.com/eez-association/eez-rollup0/blob/1b66d9bda675e6f8e83f514153a97136909acc06/Cargo.lock#L4852"
+        },
+        {
+          "label": "Frozen target lockfile",
+          "url": "https://github.com/eez-association/eez-rollupX/blob/31e148f50dd79730b17d113ac78795eb377eb5c5/Cargo.lock#L4577"
+        },
+        {
+          "label": "Fresh target lockfile, not frozen baseline",
+          "url": "https://github.com/eez-association/eez-rollupX/blob/20243f70839ec69df9312731e960cd311e060050/Cargo.lock#L4577"
+        },
+        {
+          "label": "Current dependency and identity contract, not frozen baseline",
+          "url": "https://github.com/eez-association/eez-rollupX/blob/20243f70839ec69df9312731e960cd311e060050/crates/eez-control-rpc/VALIDATION_IDENTITY.md#L164"
+        }
+      ]
+    }
+  ],
+  "drafts": []
+}

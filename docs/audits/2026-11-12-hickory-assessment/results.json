@@ -1,0 +1,642 @@
+{
+  "date_utc": "2026-11-12",
+  "target": "20243f70839ec69df9312731e960cd311e060050",
+  "rustsec_revision": "727b6ca6978e8f9037df3124cff51fec6a9a7941",
+  "tools": {
+    "rust_cargo": "1.95.0",
+    "cargo_audit": "0.22.2",
+    "cargo_deny": "0.20.2"
+  },
+  "files_sha256": {
+    "Cargo.lock": "f771a77eb4a5b17259157fd91829096015897e24979a4fda0df583d45719294f",
+    "Cargo.toml": "abca81700e4252ca474b54dddeb197b38cd26c38d6385fc0944e185c0be7e54c",
+    "crates/vendor/reth/Cargo.lock": "74eeccf94309d5c20220172e658754686cc4037b74c80b62ef3f1631066c269a"
+  },
+  "scratch_candidate_lock_sha256": "97e258cec5cfec14b2ec38f03bad0098c86b7b5fc081fc299b1eb9f02d2781f5",
+  "scratch_patch_sha256": "56f4b36ecada3706e55ab78733c076f2b80f424e90ceb4cb3b8d6ab85c5e9b10",
+  "scans": {
+    "audit-policy": {
+      "exit": 0,
+      "advisory_count": 1471,
+      "database_revision_in_report": "727b6ca6978e8f9037df3124cff51fec6a9a7941",
+      "vulnerabilities": [],
+      "raw_report_sha256_local_only": "654102fad2c54b299902a706dbd26c4f55e762ca3aef08db73809a84c21aeb3c",
+      "warning_set": "W1",
+      "contains_hickory_vulnerability": false
+    },
+    "audit-unfiltered": {
+      "exit": 1,
+      "advisory_count": 1471,
+      "database_revision_in_report": null,
+      "vulnerabilities": [
+        {
+          "id": "RUSTSEC-2026-0387",
+          "package": "crypto-bigint",
+          "version": "0.5.5"
+        },
+        {
+          "id": "RUSTSEC-2026-0391",
+          "package": "zstd",
+          "version": "0.13.3"
+        },
+        {
+          "id": "RUSTSEC-2026-0398",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0403",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0410",
+          "package": "zstd-sys",
+          "version": "2.0.16+zstd.1.5.7"
+        }
+      ],
+      "raw_report_sha256_local_only": "0a79bc3f2f6079f06cec1b824dc5504294100e9e02bc6d7961fcfdb713d093cb",
+      "warning_set": "W2",
+      "contains_hickory_vulnerability": false
+    },
+    "audit-candidate-unfiltered": {
+      "exit": 1,
+      "advisory_count": 1471,
+      "database_revision_in_report": null,
+      "vulnerabilities": [
+        {
+          "id": "RUSTSEC-2026-0387",
+          "package": "crypto-bigint",
+          "version": "0.5.5"
+        },
+        {
+          "id": "RUSTSEC-2026-0391",
+          "package": "zstd",
+          "version": "0.13.3"
+        },
+        {
+          "id": "RUSTSEC-2026-0398",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0403",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0410",
+          "package": "zstd-sys",
+          "version": "2.0.16+zstd.1.5.7"
+        }
+      ],
+      "raw_report_sha256_local_only": "0a79bc3f2f6079f06cec1b824dc5504294100e9e02bc6d7961fcfdb713d093cb",
+      "warning_set": "W2",
+      "contains_hickory_vulnerability": false
+    },
+    "audit-candidate-final": {
+      "exit": 1,
+      "advisory_count": 1471,
+      "database_revision_in_report": null,
+      "vulnerabilities": [
+        {
+          "id": "RUSTSEC-2026-0387",
+          "package": "crypto-bigint",
+          "version": "0.5.5"
+        },
+        {
+          "id": "RUSTSEC-2026-0391",
+          "package": "zstd",
+          "version": "0.13.3"
+        },
+        {
+          "id": "RUSTSEC-2026-0398",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0403",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0410",
+          "package": "zstd-sys",
+          "version": "2.0.16+zstd.1.5.7"
+        }
+      ],
+      "raw_report_sha256_local_only": "0a79bc3f2f6079f06cec1b824dc5504294100e9e02bc6d7961fcfdb713d093cb",
+      "warning_set": "W2",
+      "contains_hickory_vulnerability": false
+    },
+    "audit-vendor": {
+      "exit": 1,
+      "advisory_count": 1471,
+      "database_revision_in_report": null,
+      "vulnerabilities": [
+        {
+          "id": "RUSTSEC-2026-0387",
+          "package": "crypto-bigint",
+          "version": "0.5.5"
+        },
+        {
+          "id": "RUSTSEC-2026-0490",
+          "package": "hickory-proto",
+          "version": "0.26.1"
+        },
+        {
+          "id": "RUSTSEC-2026-0491",
+          "package": "hickory-proto",
+          "version": "0.26.1"
+        },
+        {
+          "id": "RUSTSEC-2026-0489",
+          "package": "hickory-proto",
+          "version": "0.26.1"
+        },
+        {
+          "id": "RUSTSEC-2026-0488",
+          "package": "hickory-proto",
+          "version": "0.26.1"
+        },
+        {
+          "id": "RUSTSEC-2026-0487",
+          "package": "hickory-proto",
+          "version": "0.26.1"
+        },
+        {
+          "id": "RUSTSEC-2026-0418",
+          "package": "libz-sys",
+          "version": "1.1.28"
+        },
+        {
+          "id": "RUSTSEC-2026-0391",
+          "package": "zstd",
+          "version": "0.13.3"
+        },
+        {
+          "id": "RUSTSEC-2026-0398",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0403",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0410",
+          "package": "zstd-sys",
+          "version": "2.0.16+zstd.1.5.7"
+        }
+      ],
+      "raw_report_sha256_local_only": "6f69f98c464c28fcb875cee8c8e021aa7fc8789a7c34e6180d98f03b1250f69a",
+      "warning_set": "W3",
+      "contains_hickory_vulnerability": true
+    },
+    "deny": {
+      "exit": 0,
+      "summary": {
+        "advisories": {
+          "errors": 0,
+          "helps": 0,
+          "notes": 12,
+          "warnings": 4
+        },
+        "bans": {
+          "errors": 0,
+          "helps": 0,
+          "notes": 0,
+          "warnings": 20
+        },
+        "sources": {
+          "errors": 0,
+          "helps": 0,
+          "notes": 113,
+          "warnings": 0
+        }
+      },
+      "raw_report_sha256_local_only": "be3956b2819638092f0734e8e9a521bfb6ae5cf6486ed63f32d1d3be082e9e20"
+    },
+    "deny-candidate": {
+      "exit": 0,
+      "summary": {
+        "advisories": {
+          "errors": 0,
+          "helps": 0,
+          "notes": 12,
+          "warnings": 4
+        },
+        "bans": {
+          "errors": 0,
+          "helps": 0,
+          "notes": 0,
+          "warnings": 20
+        },
+        "sources": {
+          "errors": 0,
+          "helps": 0,
+          "notes": 113,
+          "warnings": 0
+        }
+      },
+      "raw_report_sha256_local_only": "c8759a77a94894b353ec02ccdecc1554794ab5b572194d3527b368e32d1f3db0"
+    }
+  },
+  "checks": {
+    "dns-baseline": {
+      "exit": 101,
+      "log_sha256_local_only": "62eede40f6e1275fbdcc48a1842cf6b3c4c8384a0bbcc9edc193f0f7b636869e",
+      "executed": 0,
+      "error": "error: package `reth-dns-discovery` cannot be tested because it requires dev-dependencies and is not a member of the workspace"
+    },
+    "dns-candidate": {
+      "exit": 101,
+      "log_sha256_local_only": "62eede40f6e1275fbdcc48a1842cf6b3c4c8384a0bbcc9edc193f0f7b636869e",
+      "executed": 0,
+      "error": "error: package `reth-dns-discovery` cannot be tested because it requires dev-dependencies and is not a member of the workspace"
+    },
+    "dns-baseline-check": {
+      "exit": 0,
+      "log_sha256_local_only": "ce22e1d1c89fba33778e5387f19da34dfa6f7d52fbb2fe143475b245ed37fdde",
+      "kind": "compile only; no runtime tests"
+    },
+    "dns-candidate-check": {
+      "exit": 0,
+      "log_sha256_local_only": "35b33bce92c08ec2312db9b7cae879d5a3699bb79f6f79312f00b05f5e923d13",
+      "kind": "compile only; no runtime tests"
+    },
+    "identity-baseline": {
+      "exit": 0,
+      "log_sha256_local_only": "634ee299fea5215593e6b43a4b814f25eac0ef486efc804a21298d4525f30430",
+      "selected": 2,
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 4,
+      "test_names": [
+        "identity::tests::every_execution_identity_component_changes_the_namespace",
+        "identity::tests::portable_identity_vectors"
+      ],
+      "test_executable_sha256": "315b885775575a467f0ceb0ccc4218b26c4ccd6c2171b44a783b908f30a5ee19"
+    },
+    "identity-candidate": {
+      "exit": 0,
+      "log_sha256_local_only": "29d0994984ce41c2bd39ec17953f83f2a9b2179b8b071ae54e6ff9c0056598e0",
+      "selected": 2,
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 4,
+      "test_names": [
+        "identity::tests::every_execution_identity_component_changes_the_namespace",
+        "identity::tests::portable_identity_vectors"
+      ],
+      "test_executable_sha256": "a60e5deb67cb6915736703518ceff85f1d769a7a777c72259a0400ebfb953ce8"
+    },
+    "documentation": {
+      "local_links_resolved": 9,
+      "shell_blocks_bash_n": 1,
+      "json_parse": "pass",
+      "handoff_structure": "pass; no independent original input provenance",
+      "candidate_scope_assertion": "pass: only 3 versions/checksums differ",
+      "git_diff_check": "pass",
+      "first_failure": "Staged diff check flagged blank context lines in the embedded patch as trailing whitespace; regenerated the same patch with one context line.",
+      "resolved_feature_comparison": "pass; unchanged feature sets for all packages"
+    }
+  },
+  "coverage_limits": [
+    "No DNS/runtime/process/semantic replay or performance tests executed",
+    "No candidate vendor lock resolution or build",
+    "No full workspace/clippy/signer/native session/contract suites: assessment-only PR",
+    "Original backport input provenance not independently checked",
+    "Raw reports and build artifacts are local-only scratch; summaries retained here"
+  ],
+  "warning_sets": {
+    "W1": {
+      "unmaintained": [
+        {
+          "id": "RUSTSEC-2023-0089",
+          "package": "atomic-polyfill",
+          "version": "1.0.3"
+        },
+        {
+          "id": "RUSTSEC-2025-0141",
+          "package": "bincode",
+          "version": "1.3.3"
+        },
+        {
+          "id": "RUSTSEC-2024-0388",
+          "package": "derivative",
+          "version": "2.2.0"
+        },
+        {
+          "id": "RUSTSEC-2025-0119",
+          "package": "number_prefix",
+          "version": "0.4.0"
+        },
+        {
+          "id": "RUSTSEC-2024-0436",
+          "package": "paste",
+          "version": "1.0.15"
+        },
+        {
+          "id": "RUSTSEC-2026-0441",
+          "package": "pin-utils",
+          "version": "0.1.0"
+        },
+        {
+          "id": "RUSTSEC-2026-0173",
+          "package": "proc-macro-error2",
+          "version": "2.0.1"
+        }
+      ],
+      "unsound": [
+        {
+          "id": "RUSTSEC-2026-0253",
+          "package": "lru",
+          "version": "0.16.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0402",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0396",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0401",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0400",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0397",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0404",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0395",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0399",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0405",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0406",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        }
+      ],
+      "yanked": [
+        {
+          "id": null,
+          "package": "chacha20",
+          "version": "0.10.0"
+        },
+        {
+          "id": null,
+          "package": "spin",
+          "version": "0.9.8"
+        }
+      ]
+    },
+    "W2": {
+      "unmaintained": [
+        {
+          "id": "RUSTSEC-2023-0089",
+          "package": "atomic-polyfill",
+          "version": "1.0.3"
+        },
+        {
+          "id": "RUSTSEC-2025-0141",
+          "package": "bincode",
+          "version": "1.3.3"
+        },
+        {
+          "id": "RUSTSEC-2024-0388",
+          "package": "derivative",
+          "version": "2.2.0"
+        },
+        {
+          "id": "RUSTSEC-2025-0119",
+          "package": "number_prefix",
+          "version": "0.4.0"
+        },
+        {
+          "id": "RUSTSEC-2024-0436",
+          "package": "paste",
+          "version": "1.0.15"
+        },
+        {
+          "id": "RUSTSEC-2026-0441",
+          "package": "pin-utils",
+          "version": "0.1.0"
+        },
+        {
+          "id": "RUSTSEC-2026-0173",
+          "package": "proc-macro-error2",
+          "version": "2.0.1"
+        }
+      ],
+      "unsound": [
+        {
+          "id": "RUSTSEC-2026-0190",
+          "package": "anyhow",
+          "version": "1.0.102"
+        },
+        {
+          "id": "RUSTSEC-2026-0253",
+          "package": "lru",
+          "version": "0.16.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0402",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0396",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0401",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0400",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0397",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0404",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0395",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0399",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0405",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0406",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        }
+      ],
+      "yanked": [
+        {
+          "id": null,
+          "package": "chacha20",
+          "version": "0.10.0"
+        },
+        {
+          "id": null,
+          "package": "spin",
+          "version": "0.9.8"
+        }
+      ]
+    },
+    "W3": {
+      "unmaintained": [
+        {
+          "id": "RUSTSEC-2025-0141",
+          "package": "bincode",
+          "version": "1.3.3"
+        },
+        {
+          "id": "RUSTSEC-2024-0388",
+          "package": "derivative",
+          "version": "2.2.0"
+        },
+        {
+          "id": "RUSTSEC-2024-0436",
+          "package": "paste",
+          "version": "1.0.15"
+        },
+        {
+          "id": "RUSTSEC-2026-0441",
+          "package": "pin-utils",
+          "version": "0.1.0"
+        },
+        {
+          "id": "RUSTSEC-2026-0173",
+          "package": "proc-macro-error2",
+          "version": "2.0.1"
+        }
+      ],
+      "unsound": [
+        {
+          "id": "RUSTSEC-2026-0190",
+          "package": "anyhow",
+          "version": "1.0.102"
+        },
+        {
+          "id": "RUSTSEC-2026-0253",
+          "package": "lru",
+          "version": "0.16.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0486",
+          "package": "rustix",
+          "version": "1.1.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0402",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0396",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0401",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0400",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0397",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0404",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0395",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0399",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0405",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        },
+        {
+          "id": "RUSTSEC-2026-0406",
+          "package": "zstd-safe",
+          "version": "7.2.4"
+        }
+      ],
+      "yanked": [
+        {
+          "id": null,
+          "package": "chacha20",
+          "version": "0.10.0"
+        }
+      ]
+    }
+  },
+  "initial_broad_candidate_lock_sha256": "458f782149c170e43e946bc18e693f82e442a2f575b688e32d409dd4a2a9008a"
+}
