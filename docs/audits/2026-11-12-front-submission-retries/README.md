@@ -1,6 +1,6 @@
 # Bounded front submission retries — issue #142
 
-The [Ponytail and Claude Opus 5.5 follow-up](review-followup.md) supersedes the
+The [Ponytail and independent review follow-up](review-followup.md) supersedes the
 initial self-review verdict and records corrective regressions and validation.
 
 The task owner explicitly authorized implementing the safe harness fix in

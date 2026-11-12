@@ -29,7 +29,8 @@ class FrontSubmissionTest(unittest.TestCase):
         cls.hash = subprocess.check_output(["cast", "keccak", cls.raw], text=True).strip()
 
     def run_front(self, sends, observations=(), refused=False, tick=60, repeat=1,
-                  curl_config=None, parser_tick=0, real_clock=False, expire_before_curl=False):
+                  curl_config=None, parser_tick=0, real_clock=False, expire_before_curl=False,
+                  expire_after_curl=False):
         requests = []
         accepted = []
         sends, observations = list(sends), list(observations)
@@ -55,7 +56,7 @@ class FrontSubmissionTest(unittest.TestCase):
                         self.close_connection = True
                         return
                     if action == "accept_stall":
-                        time.sleep(2)
+                        time.sleep(3)
                         return
                     if action in ("empty", "accept_empty"):
                         self.send_response(200)
@@ -111,13 +112,24 @@ class FrontSubmissionTest(unittest.TestCase):
             clock_setup = "SECONDS=0" if real_clock else "unset SECONDS\nSECONDS=0"
             script = '''set -euo pipefail
 CLOCK_SETUP
-# Advance only the retry clock; use a handshake for the refused listener.
+clock_rebased=0
+# Real time keeps two ticks for the final send regardless of the first RPC's phase.
 sleep() {
-    SECONDS=$((SECONDS + TICK))
+    if (( REAL_CLOCK && !clock_rebased )); then
+        SECONDS=$((deadline - 2))
+        clock_rebased=1
+    else
+        SECONDS=$((SECONDS + TICK))
+    fi
     touch "$TRACE/retry"
     while [[ ! -e "$TRACE/listening" ]]; do command sleep 0.01; done
 }
-curl() { printf '%s\\n' "$*" >> "$TRACE/curl"; command curl "$@"; }
+curl() {
+    # Cross a real tick during the first RPC to expose phase-dependent setup.
+    if (( REAL_CLOCK )) && [[ ! -e "$TRACE/curl" ]]; then command sleep 1.1; fi
+    printf '%s\\n' "$*" >> "$TRACE/curl"
+    command curl "$@"
+}
 jq() {
     local rc=0
     command jq "$@" || rc=$?
@@ -128,6 +140,9 @@ source "$REPO/testing/kurtosis/scripts/lib.sh"
 if (( EXPIRE_BEFORE_CURL )); then
     set -T
     trap 'if [[ $BASH_COMMAND == left=* ]]; then SECONDS=$deadline; fi' DEBUG
+elif (( EXPIRE_AFTER_CURL )); then
+    set -T
+    trap 'if [[ $BASH_COMMAND == "(( SECONDS >= deadline ))" && -e "$TRACE/curl" ]]; then SECONDS=$deadline; fi' DEBUG
 fi
 for ((i=0; i<REPEAT; i++)); do send_front "$FRONT" "$RAW" "$HASH"; done
 echo ADMITTED
@@ -138,6 +153,7 @@ echo ADMITTED
                     "TRACE": tmp, "TICK": str(tick),
                     "REPEAT": str(repeat), "CURL_HOME": tmp, "PARSER_TICK": str(parser_tick),
                     "EXPIRE_BEFORE_CURL": str(int(expire_before_curl)),
+                    "EXPIRE_AFTER_CURL": str(int(expire_after_curl)), "REAL_CLOCK": str(int(real_clock)),
                     "FRONT": f"http://127.0.0.1:{server.server_address[1]}",
                 }, text=True, capture_output=True, timeout=15)
                 trace = (root / "curl").read_text() if (root / "curl").exists() else ""
@@ -236,7 +252,7 @@ echo ADMITTED
         started = time.monotonic()
         result, requests, _, trace = self.run_front([busy, "accept_drop"], ["stall"], tick=119)
         self.assert_admitted(result, False)
-        self.assertIn("--max-time 1", trace)
+        self.assertIn("--max-time 1 -X", trace)
         self.assertLess(time.monotonic() - started, 5)
         self.assertEqual(len(requests), 3)
 
@@ -247,7 +263,7 @@ echo ADMITTED
             [busy, "accept_stall"], ["owned"], tick=119)
         self.assert_admitted(result)
         self.assertIn("curl rc=28", result.stderr)
-        self.assertIn("--max-time 1", trace)
+        self.assertIn("--max-time 1 -X", trace)
         self.assertEqual(len(requests), 3)
         self.assertEqual(accepted, [self.raw])
 
@@ -291,6 +307,20 @@ echo ADMITTED
         self.assertEqual(requests, [])
         self.assertEqual(trace, "")
 
+    def test_success_reply_at_deadline_reports_unresolved_acceptance(self):
+        result, requests, accepted, _ = self.run_front(["success"], expire_after_curl=True)
+        self.assert_admitted(result, False)
+        self.assertIn("acceptance unresolved", result.stderr)
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(accepted, [self.raw])
+        refused, requests, accepted, _ = self.run_front(
+            ["success"], refused=True, expire_after_curl=True)
+        self.assert_admitted(refused, False)
+        self.assertIn("retry deadline reached", refused.stderr)
+        self.assertNotIn("unresolved", refused.stderr)
+        self.assertEqual(requests, [])
+        self.assertEqual(accepted, [])
+
     def test_curl_config_cannot_resubmit_after_lost_reply(self):
         result, requests, accepted, _ = self.run_front(
             ["accept_drop", "success"], ["owned"],
@@ -326,7 +356,7 @@ echo ADMITTED
             with self.subTest(send=send):
                 result, _, _, _ = self.run_front([send], observations, parser_tick=120)
                 self.assert_admitted(result, False)
-                self.assertIn("deadline", result.stderr)
+                self.assertIn("acceptance unresolved", result.stderr)
 
 
 if __name__ == "__main__":

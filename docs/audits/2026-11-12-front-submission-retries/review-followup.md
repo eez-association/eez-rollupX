@@ -24,7 +24,7 @@ review-input provenance was not independently checked.
 | A final timeout could be mislabeled as admission refusal exhaustion | An actual curl timeout with one second remaining exhausted Bash's real clock before ambiguity was recorded. Ambiguous-send classification now occurs before the deadline exit, retaining unresolved acceptance without starting another call. |
 | Successful static completion was treated as failure | `composer.rs:2721-2725` assigns `SourceCompleted` to successful source receipts with no mutable effects. It is now recognized alongside `Committed`; `SourceCompletedWithMissingEffects` and every other terminal failure remain failures. No new runtime outcome is introduced. |
 
-The wave-caller regression now invokes the function in an AND-list, where Bash
+The wave-caller regression invokes the function in a conditional list, where Bash
 suppresses `errexit`, proving that its explicit `|| exit 1` protects the caller.
 The startup wire-contract comment now distinguishes the testkit substring match
 from the harness's exact code/message match. That is the only Rust edit.
@@ -100,3 +100,77 @@ probes, native archive relocation and three runtime Docker builds.
 Ponytail verdict: Ship the bounded harness changes, with the initial broad-suite
 failure retained as environmental instability. No confirmed in-scope finding
 remains after the documented corrections and final affected checks.
+
+## CI check and final Fable 5.2 review
+
+The next review checked PR head `ebd812440960364b4ce9bd50d578f4417fac6709`.
+[CI run 43256905683](https://github.com/eez-association/eez-rollupX/actions/runs/43256905683)
+failed its Lint job at the history Gitleaks scan: three findings, before script
+tests, formatting or Clippy ran. Runtime artifact and debug-unit jobs were still
+running initially; both completed successfully by the last pre-push snapshot,
+while the E2E lanes remained queued/running. PR review, inline-comment and issue-
+comment endpoints were all empty. No existing workflow was manually cancelled or
+rerun.
+
+The PR-only history scan was clean. The same `--all -m` scan over local refs
+reproduced three findings, all in
+[PR #165](https://github.com/eez-association/eez-rollupX/pull/165)'s
+`d9b974c1c3d1081afbbfde05bfad4fc352aedea0`, at `workloads.json` lines 37, 159
+and 311 under `docs/audits/2026-11-12-streaming-deadlines/`. That commit is not
+an ancestor of #163. Each `vkey` exactly equals its existing native fixture's
+public NetworkProfile verification commitment and an already-reviewed exact
+Gitleaks value exception. These are public commitments, not signing credentials.
+
+The CI fix adds only that anchored evidence path to the three existing exact-
+digest AND rules. Value regexes and the all-ref scanning policy stay unchanged.
+The Git-based regression matrix now covers all three values at the new path,
+one-character value mutations, a different credential beside a permitted value,
+and the same public value outside its permitted paths. Original config: three
+new subcases fail. Corrected config: both scanner tests pass. The all-local-ref
+scan changes from three findings to zero over the same 903 commits / 205.47 MB.
+CI scanned 1,126 commits; local ref coverage is not asserted to be identical.
+
+Fable 5.2 reviewed the complete harness diff and connected callers/status
+producers using only Read, Grep and Glob. Claude Code 2.1.322 initialization and
+assistant responses both identify `claude-fable-5-2`; no fallback or subagents
+were used. Its source-only review confirmed the prior duplicate/response guards,
+and found four remaining issues:
+
+| Fable finding | Reproduction and correction |
+| --- | --- |
+| Real-clock regression depends on the first RPC's wall-clock phase | Delaying the first RPC through a real tick reproduces the original test failure. The fixture now sets two remaining real ticks from the existing deadline on the first retry, once only; its stalled send lasts longer than that budget. No busy-spin phase alignment is needed. |
+| Late completed replies still use the refusal-exhaustion diagnostic | Expiry immediately after curl or during positive-hash parsing now preserves unresolved acceptance. Controlled clock hooks reproduce both cases; return status remains failure and no late success/retry is allowed. |
+| `--max-time 1` assertion also matches `--max-time 10` | Added the following argument delimiter. A deliberate always-ten-second timeout mutation passes the old test and fails the corrected test. |
+| Startup wire comment omits `scripts/devnet-test.sh` | Source search confirms its substring consumer; the comment now names it alongside the testkit and distinguishes the Kurtosis exact match. |
+
+The combined behavior regressions select 20 tests: three subcases failed before
+these fixes, then all 20 passed. Fable executed no tests and did not validate
+live behavior or the frozen review-input provenance. A tool-free Fable 5.2 pass
+also checked the precise corrections and scanner exception scope. It found no
+remaining behavior bug, but identified two test gaps: the expiry hook matched
+the post-parse comparison rather than the new post-curl comparison, and the
+scanner matrix did not pin which rules admit the workload path. Both were
+corrected. The hook now targets `SECONDS >= deadline`; the paired refused-
+connection case asserts refusal exhaustion, not ambiguity. Removing either the
+ambiguity promotion or the curl-7 exemption fails the test. The scanner test
+asserts exactly the three intended rules match the workload path; adding that
+path to a fourth rule fails immediately. These final test-only changes were
+verified locally, not sent for another model pass.
+
+Validation in this follow-up:
+
+- First complete tooling run: 568 selected, 561 passed, seven opt-in probes
+  skipped; 398.477s, exit 0, before the Fable corrections.
+- Corrected implementation: 569 selected, **562 passed**, the same seven opt-in
+  probes skipped; 403.397s, exit 0. Compose 5.5.1 and Gitleaks 8.30.1 were used.
+- Final socket/scanner selection after the last assertion/hook changes:
+  **22 passed**, 31.601s, exit 0. These test-only changes followed full-suite
+  discovery, so this focused result establishes their execution.
+- Bash syntax, ShellCheck, Python compilation, Rust 1.95.0 format checking,
+  diff whitespace and edited local links pass. No Rust/native build or live
+  exercise was run for the comment/config/script changes.
+
+Logs remain task-local in `/tmp/issue142-final-review`; earlier failures and
+mutation results are retained. No model ran tests. Local scan coverage does not
+claim that the future GitHub run passed. Fresh GitHub CI is required for this
+follow-up revision; no existing run was manually cancelled, modified or rerun.

@@ -718,8 +718,9 @@ workload. Missing, unavailable or unrecognized status never authorizes another
 send or success, and unresolved acceptance fails at the original deadline.
 Replies must contain one complete JSON document and the exact expected hash.
 Submission curl skips `.curlrc` so the helper controls all retries. Admission
-must be confirmed before the deadline, including response parsing. A final-send
-timeout is reported as unresolved even when no time remains for a status poll.
+must be confirmed before the deadline, including response parsing. A completed reply
+or timeout past the budget is reported as unresolved when no time remains for a
+status poll.
 This helper confirms admission only; callers still check execution and settlement.
 Ordinary forwarded transactions without held-pool status can remain unresolved.
 A terminal failure also fails admission reconciliation for intentional poison

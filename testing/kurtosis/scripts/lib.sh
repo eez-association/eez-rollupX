@@ -227,7 +227,10 @@ send_front() { # <front_url> <raw_tx> <expected_hash> — eth_sendRawTransaction
             reconcile=1
             continue
         fi
-        (( SECONDS < deadline )) || break
+        if (( SECONDS >= deadline )); then
+            (( reconcile || rc == 7 )) || reconcile=1
+            break
+        fi
         if (( reconcile )); then
             # jq otherwise accepts streams of JSON values instead of one reply.
             if (( rc == 0 )) && jq -se --arg hash "${expected,,}" '
@@ -278,7 +281,7 @@ send_front() { # <front_url> <raw_tx> <expected_hash> — eth_sendRawTransaction
             length == 1 and (.[0] | .error == null and (.result | ascii_downcase) == $hash)
             ' <<<"$resp" >/dev/null 2>&1 \
             || { echo "    ✗ front changed the submitted transaction or returned malformed JSON: $resp" >&2; return 1; }
-        (( SECONDS < deadline )) || break
+        (( SECONDS < deadline )) || { reconcile=1; break; }
         return 0
     done
     if (( reconcile )); then
