@@ -1,7 +1,8 @@
 # Streaming deadline characterization: preparation and blocked measurements
 
-**Partial investigation for [#148](https://github.com/eez-association/eez-rollupX/issues/148).
-Fresh workload timing and runtime validation remain pending.** No latency samples,
+**Initial partial investigation for [#148](https://github.com/eez-association/eez-rollupX/issues/148).
+Subsequent runtime/release correctness passed; actual quiet-window timing remains
+pending in [the follow-up](followup.md).** No latency samples,
 deadline success rate, performance improvement or supported functional defect
 has been established by this work. This record does not complete #148.
 

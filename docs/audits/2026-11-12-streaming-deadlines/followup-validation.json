@@ -1,44 +1,706 @@
 {
-  "status": "in progress: native build and runtime validation pending; no timing collected",
-  "recorded_utc": "2026-11-12T17:42:36.242200+00:00",
-  "head": "7f92897e28c20674a6301a9b44502abca5dc218a",
+  "status": "release/archive and correctness passed; actual workload timing blocked by failed quiet admission; PR165 draft, issue148 open",
+  "recorded_utc": "2026-11-12T22:34:26.308893+00:00",
   "baseline": "601ebfa9c7e1a779f1afbd077bd31a3207e7a61b",
   "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
-  "runtime_binaries": null,
+  "cargo_lock_sha256": "df647e58f1853a844d37f86617941634b42c7342a79b8ff6b9ba06312247f054",
   "checks": [
     {
-      "kind": "default CI tooling",
-      "result": "557 selected; 548 passed; 9 skipped",
-      "path": "artifacts/issue148/tooling-suite.log",
-      "sha256": "1fb933848da25a4321328b22bb719a45d3d2840d7a33d045555c87c406ed8b59",
-      "availability": "local-only ignored log; summary committed"
+      "kind": "package unit tests",
+      "package": "eez-control-rpc",
+      "source": "ca76bb8744667f3045f5d839a920c011825999f9",
+      "binary_sha256": "71c6eee3b7b2c295d0dcda2f0bc2951c56cbc09aef6ca288e4d026edeb41c31f",
+      "result": [
+        "ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"
+      ],
+      "evidence": {
+        "path": "artifacts/issue148/final-unit-eez-control-rpc.log",
+        "sha256": "302d0ed08659dbaf65c4cb79307df2ba7777df1340aca4add4a1ed18850301ec",
+        "availability": "local retained log; compact summary committed"
+      }
     },
     {
-      "kind": "missing scanner follow-up",
-      "result": "2 passed with verified Gitleaks 8.30.1; seven original opt-in exclusions remain",
-      "path": "artifacts/issue148/secret-scan-tests.log",
-      "sha256": "9204d3a1855759ab0ba7d3e9c8609c0c72ddedd66428330ad653851f4f2074f5",
-      "availability": "local-only ignored log; summary committed"
+      "kind": "package unit tests",
+      "package": "eez-proof-signer",
+      "source": "ca76bb8744667f3045f5d839a920c011825999f9",
+      "binary_sha256": "42c077bb43c14140e59edb20a9c4be610d25afe1d1637c534c10557bc84a9186",
+      "result": [
+        "ok. 341 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 9.89s"
+      ],
+      "evidence": {
+        "path": "artifacts/issue148/final-unit-eez-proof-signer.log",
+        "sha256": "3b7c18736e68315588e4f82980720186f3c1fa5cd61600c98c595cbe234ada3d",
+        "availability": "local retained log; compact summary committed"
+      }
+    },
+    {
+      "kind": "package unit tests",
+      "package": "eez-prover-client",
+      "source": "ca76bb8744667f3045f5d839a920c011825999f9",
+      "binary_sha256": "dc59147859177ebb4d28c3afb02ab7ceb29b7209f63c26565c4ee78c2079f004",
+      "result": [
+        "ok. 38 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.83s"
+      ],
+      "evidence": {
+        "path": "artifacts/issue148/final-unit-eez-prover-client.log",
+        "sha256": "0ad2a48f0aaa6fac76f8e1a3b027b5f3ccf32c8cc67dfc93b9e254c208f85467",
+        "availability": "local retained log; compact summary committed"
+      }
+    },
+    {
+      "kind": "package unit tests",
+      "package": "eez-testkit",
+      "source": "ca76bb8744667f3045f5d839a920c011825999f9",
+      "binary_sha256": "47a818ce38c93e38498c553f663b01d2d5501423e1135d5dc9fd3439457d7e59",
+      "result": [
+        "ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.50s"
+      ],
+      "evidence": {
+        "path": "artifacts/issue148/final-unit-eez-testkit.log",
+        "sha256": "2c7505661c3165381e792d81f75145989a4b7828065549c3cbcd03bd33f6fce4",
+        "availability": "local retained log; compact summary committed"
+      }
+    },
+    {
+      "kind": "logical shared cutoff/retries",
+      "result": "22 passed; 433 filtered; paused-clock/model assertions, not workload timing",
+      "source": "88b1b505",
+      "evidence": {
+        "path": "artifacts/issue148/composer-retry-final.log",
+        "sha256": "efef44832dd0d5faecb5f02a6119bd51ae082046e7ab1e9ba56ce7b33bbbff7e",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "kind": "complete default tooling",
+      "result": "560 selected; 553 passed; 7 opt-in skips",
+      "source": "61f73a10",
+      "evidence": {
+        "path": "artifacts/issue148/tooling-final-61f73a10-approved.log",
+        "sha256": "0a825d30be7220d10653b42041fc89f2183270745f1b813340ea723690a85315",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "kind": "final observer checks",
+      "result": "12 passed; zero skips, corrected admission boundary included",
+      "source": "d99e58929d11d0d1a51fb7e690d7f48e66cd142e",
+      "evidence": {
+        "path": "artifacts/issue148/observer-d99e5892-tests.log",
+        "sha256": "6434f7310b6c661413985e4811d8fefcb9d2292e5a6728edc34ec8fa21f87aee",
+        "availability": "local retained log"
+      }
+    },
+    {
+      "kind": "workspace all-target lint",
+      "result": "pass with -D warnings; final method-reference correction now committed as ca76bb87",
+      "source": "d5f313c0 + recorded working diff = ca76bb87 Rust source",
+      "evidence": {
+        "path": "artifacts/issue148/workspace-clippy-corrected.log",
+        "sha256": "a838d821664835f634ad199b8708a58605dd5aca9a785075f7c5ba39bf352a82",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "kind": "signer all targets",
+      "result": "pass",
+      "source": "d5f313c0 + recorded working diff",
+      "evidence": {
+        "path": "artifacts/issue148/signer-check-corrected.log",
+        "sha256": "8a0bb21dfcffb9aaba0ef30e0509214effc17872d4b3619fb6646e0816407797",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "kind": "signer rustdoc",
+      "result": "pass with RUSTDOCFLAGS=-D warnings",
+      "source": "d5f313c0 + recorded working diff",
+      "evidence": {
+        "path": "artifacts/issue148/signer-doc-corrected.log",
+        "sha256": "d573cd13a88f237e6649047e5ab6d46f0d612a4907bae9955ab10a010f73657e",
+        "availability": "local retained log; compact summary intended for commit"
+      }
     },
     {
       "kind": "dependency policy",
-      "result": "exit 0: advisories, bans and sources ok",
-      "path": "artifacts/issue148/dependency-deny.log",
-      "sha256": "d8a3649b3d5158f419d87ea07eb3c5708b537d13992bc7b64a5264ee2ec6062e",
-      "availability": "local-only ignored log; summary committed"
+      "result": "pass advisories/bans/sources",
+      "source": "interim exact head not separately recorded; reused package graph; later d99e5892 CI Lint passed",
+      "evidence": {
+        "path": "artifacts/issue148/dependency-deny.log",
+        "sha256": "d8a3649b3d5158f419d87ea07eb3c5708b537d13992bc7b64a5264ee2ec6062e",
+        "availability": "local retained log; compact summary intended for commit"
+      }
     },
     {
-      "kind": "advisory audit",
-      "result": "exit 0 with 20 allowed warnings",
-      "path": "artifacts/issue148/dependency-audit.log",
-      "sha256": "2c7f6864ddb5dd6fc60d584eb7d158db0354c5f6ec8d6b89f98ed2c8b9dd54b3",
-      "availability": "local-only ignored log; summary committed"
+      "kind": "dependency advisories",
+      "result": "exit 0; 20 allowed warnings",
+      "source": "interim exact head not separately recorded; reused package graph; later d99e5892 CI Lint passed",
+      "evidence": {
+        "path": "artifacts/issue148/dependency-audit.log",
+        "sha256": "2c7f6864ddb5dd6fc60d584eb7d158db0354c5f6ec8d6b89f98ed2c8b9dd54b3",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "kind": "integration contracts build",
+      "result": "pass, inherited compiler lint warnings retained",
+      "source": "unchanged integration contracts",
+      "evidence": {
+        "path": "artifacts/issue148/contracts-build.log",
+        "sha256": "fbf9fba91ab7dfefed84be4f47edc15f63ad6d9c941a132514d420c6918c3520",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "command": [
+        "$REPO/target/issue148/debug/deps/node_e2e-9c9a287727624945",
+        "--exact",
+        "streaming::deadlines::native_workload_preparation_and_recovery_are_checked",
+        "cross_chain::minimal_bidirectional_cross_chain_smoke",
+        "cross_chain::outbound_static_read_with_static_callback_settles_and_replays",
+        "cross_chain::real_signer_rejects_tampered_post_batch_calldata",
+        "cross_chain::real_signer_rejects_tampered_witness",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2137.6373431682587,
+      "log": "artifacts/issue148/final-native-correctness.log",
+      "log_sha256": "d55e1c8ba2a48ea33fa8c6549b1c408cee1deccac9ff3087c6efe4b1644e18e0",
+      "kind": "final-native-correctness",
+      "source": "ca76bb8744667f3045f5d839a920c011825999f9",
+      "duration_interpretation": "command/build/correctness duration only, not workload latency evidence"
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/ci/with-compiler-cache.sh",
+        "runtime",
+        "cargo",
+        "build",
+        "--locked",
+        "--offline",
+        "--timings",
+        "--profile",
+        "release",
+        "-p",
+        "eez-node",
+        "-p",
+        "eez-follower",
+        "-p",
+        "eez-proof-signer",
+        "-p",
+        "eez-protocol",
+        "-p",
+        "eez-l1",
+        "--bin",
+        "eez-composer",
+        "--bin",
+        "eez-follower",
+        "--bin",
+        "eez-proof-signer",
+        "--example",
+        "genesis_state_root",
+        "--example",
+        "genesis_block_hash",
+        "--example",
+        "e2e-causal-verify",
+        "--example",
+        "verify_blob_evidence"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 4630.432100057602,
+      "log": "artifacts/issue148/local-release-runtime-build.log",
+      "log_sha256": "d81a556e3509b7edb146e5eb856c3ff5fb648e4e8d13fcedee6b475696bd782b",
+      "kind": "local-release-runtime-build",
+      "source": "ca76bb8744667f3045f5d839a920c011825999f9",
+      "duration_interpretation": "command/build/correctness duration only, not workload latency evidence"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/ci/native-tests.py",
+        "build",
+        "$REPO/artifacts/issue148/local-native-release",
+        "--runtime-bin",
+        "$REPO/target/issue148/release"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 520.9451401233673,
+      "log": "artifacts/issue148/local-release-native-archive.log",
+      "log_sha256": "4cfd0d02dea2dde9330eadc2166b4f5652b09d880f94938293c862f071d235b1",
+      "kind": "local-release-native-archive",
+      "source": "ca76bb8744667f3045f5d839a920c011825999f9",
+      "duration_interpretation": "command/build/correctness duration only, not workload latency evidence"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/ci/native-tests.py",
+        "seal",
+        "$REPO/artifacts/issue148/local-native-release",
+        "--runtime-archive",
+        "$REPO/artifacts/issue148/local-runtime-binaries.tar.gz"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.9695987701416016,
+      "log": "artifacts/issue148/local-release-seal.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "kind": "local-release-seal",
+      "source": "ca76bb8744667f3045f5d839a920c011825999f9",
+      "duration_interpretation": "command/build/correctness duration only, not workload latency evidence"
+    },
+    {
+      "command": [
+        "python3",
+        "scripts/ci/native-tests.py",
+        "run",
+        "$REPO/artifacts/issue148/local-native-release",
+        "--suite",
+        "producer"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 3.770893096923828,
+      "log": "artifacts/issue148/local-release-producer.log",
+      "log_sha256": "8d81f93a48219d480afad5e7ed059ae233514b4f525393dc2ad619f05b4a4155",
+      "kind": "local-release-producer",
+      "source": "ca76bb8744667f3045f5d839a920c011825999f9",
+      "duration_interpretation": "command/build/correctness duration only, not workload latency evidence"
+    },
+    {
+      "command": [
+        "$REPO/artifacts/issue148/release-execution/native-tests/target/release/deps/node_e2e-0e56ad39fba51c37",
+        "--exact",
+        "streaming::deadlines::native_workload_preparation_and_recovery_are_checked",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 41.645163774490356,
+      "log": "artifacts/issue148/final-release-native-correctness.log",
+      "log_sha256": "52e7fc65342df28b435fed213408a9a9db299fcdf49fae923043a583d805f5bf",
+      "kind": "final-release-native-correctness",
+      "source": "ca76bb8744667f3045f5d839a920c011825999f9",
+      "duration_interpretation": "command/build/correctness duration only, not workload latency evidence"
     }
   ],
-  "focused_runner_tests": 8,
+  "retained_first_failures": [
+    {
+      "kind": "native setup",
+      "description": "nested source-runtime build selected Rust1.56 without propagated Rustup pin; no workload reached",
+      "evidence": {
+        "path": "artifacts/issue148/native-correctness.log",
+        "sha256": "ceebc449d58265fc8be92cacd92a3a042815775cdc640dc001c14e3072f5da20",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "kind": "sandbox socket setup",
+      "description": "32 EPERM socket-creation failures; corrected complete approved-host run passed; signer seccomp retained",
+      "evidence": {
+        "path": "artifacts/issue148/tooling-final-311ac5d8.log",
+        "sha256": "a980bfe7582e50d235368d605e695c54227688e49d99b01cfeb1a9c80f2dd268",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "kind": "strict lint",
+      "description": "new observation closure lint failed; Vec::len correction passed full workspace lint",
+      "evidence": {
+        "path": "artifacts/issue148/workspace-clippy-final.log",
+        "sha256": "b1b620a949c36963839258fa5fb127ec4fa87dbe2175e9397cb2e8c03e006ca5",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "kind": "intentional prior observer regression",
+      "evidence": {
+        "path": "artifacts/issue148/runner-cleanup-baseline-regression.log",
+        "sha256": "112db444524c7a05c5e9fffcaeea8bda8582b76148bef70dfc3eddd5a19391ae",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "kind": "intentional prior observer regression",
+      "evidence": {
+        "path": "artifacts/issue148/interrupted-record-baseline-regression.log",
+        "sha256": "684fe2d7ba11d7502b3ea8db0dc01f3edae39d9cc3cc0689bdef7e57165eb26d",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "kind": "intentional prior observer regression",
+      "evidence": {
+        "path": "artifacts/issue148/process-name-baseline-regression.log",
+        "sha256": "adfd88588b1a99d4f88611cfed4ffa03412257a731a648ae420b6d02b80508f0",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "kind": "intentional prior observer regression",
+      "evidence": {
+        "path": "artifacts/issue148/cleanup-once-baseline-regression.log",
+        "sha256": "52adc51e4f7c51765d8e0b8496d3d07d4ca54a5193922b95070ea9fc9b42cb34",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "kind": "intentional prior observer regression",
+      "evidence": {
+        "path": "artifacts/issue148/post-observation-baseline-regression.log",
+        "sha256": "b0475925f6ff28696bf1bc488c9ab850c197ec35d6f837f8ed2db7fcc46b9e94",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "kind": "intentional prior observer regression",
+      "evidence": {
+        "path": "artifacts/issue148/native-inventory-baseline-regression.log",
+        "sha256": "eb8c9681ccb62a35e8c29463a8307c38ab1cc827ae735dc79cd099bbfe6419ea",
+        "availability": "local retained log; compact summary intended for commit"
+      }
+    },
+    {
+      "error": "StopIteration: signer test target is bin eez-proof-signer, not lib eez_proof_signer",
+      "phase": "test executable selection after control RPC6 passed; no signer/native/release invocation reached",
+      "source_head": "ca76bb8744667f3045f5d839a920c011825999f9"
+    },
+    {
+      "kind": "owned linker setup",
+      "description": "mold --version exit127 before owned dependencies supplied: missing libmimalloc.so.3 and libtbb.so.12; not a source/test failure"
+    }
+  ],
+  "initial_native_correctness": {
+    "source_head": "2ac63c71870066dc4225da2a2bbaca73c8d7964d",
+    "binary_sha256": "dd16d5b55415a5fadcd880640b0dd7b20a623f2005b5d02be53b4ef0067463fc",
+    "command": [
+      "/home/edu/.codex/worktrees/issue148-streaming-deadlines/repo/target/issue148/debug/deps/node_e2e-9c9a287727624945",
+      "--exact",
+      "streaming::deadlines::native_workload_preparation_and_recovery_are_checked",
+      "--nocapture",
+      "--test-threads=1"
+    ],
+    "prebuilt_overrides": "unset; standard source runtime builder retained",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+    "cases": 12,
+    "status": "pass",
+    "prior_failure": "native-correctness.log: dependency ff rust-toolchain.toml selected 1.56.0 without propagated RUSTUP_TOOLCHAIN; no daemon/workload assertion was reached",
+    "exit_code": 0,
+    "elapsed_seconds": 2270.230246427993,
+    "runtime_sha256": {
+      "eez-composer": "d24e60e13835bef2547065e0759d231773a987556daffde8087fcac8c08bd662",
+      "eez-follower": "979c2b780093e36aaa4df039daa400d5a227c8f061fdcd73d7ae3a7a10d21f60",
+      "eez-proof-signer": "57b051596b92f82c2787e3d1b629053213538b6e1f7deb61ee503a0aa3fb6723"
+    }
+  },
   "timing_samples": 0,
+  "eligible_timing_samples": 0,
   "main_ci_modified": false,
   "production_modified": false,
-  "source_state_note": "Interim summary; check logs preceded some final harness edits. Final frozen-source runtime validation remains pending.",
-  "working_tree_diff_sha256": "1589ee39b15375d42e8d2ebb36bb869bc8f84e5343501a5681aad1c0381629a2"
+  "original_review_input_provenance": "not independently checked; frozen N14 baselines preserved",
+  "mold_tool": {
+    "packages": [
+      {
+        "name": "libtbbmalloc2",
+        "version": "2022.3.0-2",
+        "sha256": "d79793e790d6d3dfd8cd5c4434e09c3bca2098ecf57d6f097bef4df9106a6d8d",
+        "source": "pool/universe/o/onetbb/libtbbmalloc2_2022.3.0-2_amd64.deb"
+      },
+      {
+        "name": "libtbbbind-2-5",
+        "version": "2022.3.0-2",
+        "sha256": "fb527d56921d375024b202a7ca7c0b5b8b4e8afb419552885b7db02c1c14e4b2",
+        "source": "pool/universe/o/onetbb/libtbbbind-2-5_2022.3.0-2_amd64.deb"
+      },
+      {
+        "name": "libtbb12",
+        "version": "2022.3.0-2",
+        "sha256": "9e58d374ec6f5c3a690f5a427819d7d762030d474aa3ea91f52d0c7226ff2741",
+        "source": "pool/universe/o/onetbb/libtbb12_2022.3.0-2_amd64.deb"
+      },
+      {
+        "name": "libmimalloc3",
+        "version": "3.2.8+ds-2",
+        "sha256": "9c61fbce8c5b6c08fe577f917fd1a7cd5f84676553f4611058c3a000d11e2454",
+        "source": "pool/universe/m/mimalloc/libmimalloc3_3.2.8+ds-2_amd64.deb"
+      },
+      {
+        "name": "mold",
+        "version": "2.40.4+dfsg-2.1ubuntu1",
+        "sha256": "9499a1a43065e77ee52361a9f5f4c65646bb65191d42151ea23208e04d6b2a24",
+        "source": "pool/universe/m/mold/mold_2.40.4+dfsg-2.1ubuntu1_amd64.deb"
+      }
+    ],
+    "binary_sha256": "08c67be8344aa78c3008ae4b724ddd15d39ba10c017cac1a67c3ac25b75d01b7",
+    "reported_version": "mold 2.40.4 (compatible with GNU ld)",
+    "installation": "owned extraction only; no system package installed",
+    "first_failure": "mold --version exit127 before owned dependencies supplied: missing libmimalloc.so.3 and libtbb.so.12; not a source/test failure",
+    "wrapper_sha256": "b449efae75b5d767f1d202e61193d0ad5bbdb841307c597fe9f44319a516ff2e",
+    "linker_threads": 1,
+    "cc_linker_probe": "pass; compile/link/execute owned empty program with -fuse-ld=mold",
+    "wrapper": "/tmp/issue148-streaming-deadlines/mold/linker-bin/ld.mold"
+  },
+  "binary_build_source": "ca76bb8744667f3045f5d839a920c011825999f9",
+  "observer_correction_source": "04bbb115901c88b1ccdbb6f15ab4cfd89662c5d9",
+  "measurement_checkout_source": "d99e58929d11d0d1a51fb7e690d7f48e66cd142e",
+  "release_inputs": {
+    "source_head": "ca76bb8744667f3045f5d839a920c011825999f9",
+    "test_binary": "artifacts/issue148/release-execution/native-tests/target/release/deps/node_e2e-0e56ad39fba51c37",
+    "test_sha256": "85eff313c0006db93923b4dc01c4445e0302babf9c03e5c705bffa3bb2b36753",
+    "signer_binary": "target/issue148/release/eez-proof-signer",
+    "signer_sha256": "ebaf852b59ee626fff8b580941ddca7efd53e053e04c50c658acb472907bca1f",
+    "manifest": "artifacts/issue148/local-native-release/manifest.json",
+    "manifest_sha256": "43ab119273f6bd696338ca9445e265c83acafd82b376f8533e9957e9135d78b4",
+    "build": "local standard shipping feature selection/release profile and guarded native archive; mold2.40.4 with one linker thread",
+    "correctness": "passed; no workload timing evidence from correctness invocations"
+  },
+  "release_manifest": {
+    "schema": 4,
+    "cargo_lock_sha256": "df647e58f1853a844d37f86617941634b42c7342a79b8ff6b9ba06312247f054",
+    "platform": "linux/amd64",
+    "profile": "release",
+    "rustflags": "-C link-arg=-fuse-ld=mold",
+    "nextest": "0.9.143",
+    "rust": "1.95.0",
+    "archives_sha256": {
+      "native-tests.tar.zst": "30e316a3c84cc97529b227d59d15d45a7b63eba8b0a414624ec83540be662f19"
+    },
+    "runtime_sha256": {
+      "eez-composer": "982c83bdc1af31f012a93c9e932d996c28ccb3b67dbf938684467e554252c910",
+      "eez-follower": "e2c58f6276c142bc310ca1206d565c1613c1b183cab11f1014d2389a001fbd51",
+      "eez-proof-signer": "ebaf852b59ee626fff8b580941ddca7efd53e053e04c50c658acb472907bca1f"
+    },
+    "glibc": "glibc 2.43",
+    "root_commit": "ca76bb8744667f3045f5d839a920c011825999f9",
+    "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "runtime_archive_sha256": "7469834d493d5f61bd6232cf5568bd68f026661e43d1340ef4697f9ad6cc4037"
+  },
+  "native_process_tests": {
+    "binary_sha256": "aea140eed3d61ecaa653da7d708b45fa44030166d7aebb995eddbafedcbbdabb",
+    "selected": [
+      "streaming::deadlines::native_workload_preparation_and_recovery_are_checked",
+      "cross_chain::minimal_bidirectional_cross_chain_smoke",
+      "cross_chain::outbound_static_read_with_static_callback_settles_and_replays",
+      "cross_chain::real_signer_rejects_tampered_post_batch_calldata",
+      "cross_chain::real_signer_rejects_tampered_witness"
+    ],
+    "runtime_sha256": {
+      "eez-composer": "d24e60e13835bef2547065e0759d231773a987556daffde8087fcac8c08bd662",
+      "eez-follower": "979c2b780093e36aaa4df039daa400d5a227c8f061fdcd73d7ae3a7a10d21f60",
+      "eez-proof-signer": "57b051596b92f82c2787e3d1b629053213538b6e1f7deb61ee503a0aa3fb6723"
+    },
+    "source": "ca76bb8744667f3045f5d839a920c011825999f9"
+  },
+  "source_equivalence": {
+    "binary_build_source": "ca76bb8744667f3045f5d839a920c011825999f9",
+    "observer_correction_source": "04bbb115901c88b1ccdbb6f15ab4cfd89662c5d9",
+    "checkout_source": "d99e58929d11d0d1a51fb7e690d7f48e66cd142e",
+    "correction_files": [
+      ".gitleaks.toml",
+      "docs/audits/2026-11-12-streaming-deadlines/followup.md",
+      "scripts/ci/tests/test_secret_scan.py",
+      "scripts/ci/tests/test_streaming_deadline_measurement.py",
+      "scripts/measure-streaming-deadlines.py"
+    ],
+    "correction_bytes_preserved_by_integration": true,
+    "relevant_source_tree_or_blob_ids_equal": {
+      "Cargo.toml": "5414eb869ff90bd6c7b9b630bed3439f30068748",
+      "Cargo.lock": "7a8269c24b6dc9fb8206ef7ae8268a52010b1b47",
+      "Dockerfile.runtime": "4a9d38b6d3088910f3b4a858c039cc048fcaa992",
+      ".config/nextest.toml": "f483798b0f609796bb71ec6f2bd1786b68948957",
+      "eez-core-protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+      "crates/eez-proof-signer": "9a8e7ea39f693760325281eb470ece6a839742e3",
+      "crates/eez-prover-client": "abccd94bb75b79d40e7397a677c707a0ad8e3cf1",
+      "crates/eez-control-rpc": "57132e534d55321564eb219e2a9c2fe9385efff9",
+      "crates/eez-testkit": "8b78984ce8c868a0edff69ce2eb38138137bbc08",
+      "crates/eez-node-e2e": "2d2a1b289ad804b70265e04afd999f866a3584df",
+      "crates/eez-prover": "e2c94fe7e4b602c6532ebb4f0b4fc9ab37ab3297",
+      "crates/eez-protocol": "2ee418c3808db751cf3cd6b6bef0bc42ab97bbbb",
+      "crates/eez-l1": "fa55a31bfe793c69dc2b27feb1f85eb70c028e14",
+      "scripts/ci/native-tests.py": "fc234f4dd01c17a0bd39f646f9a8d9eaa05d4fbc",
+      "scripts/ci/run-offline-signer.py": "498539a2a94362a9316262794d2f840603ebcccc"
+    },
+    "accepted_main_integration_paths": [
+      "contracts/test/ProtocolGroupFunding.t.sol",
+      "crates/eez-evm/src/block/tests/groups.rs",
+      "crates/eez-evm/src/tests.rs",
+      "crates/eez-node/src/ingress.rs",
+      "docs/audits/2026-11-12-eth-conservation/README.md",
+      "docs/audits/2026-11-12-eth-conservation/fable-review.md",
+      "docs/audits/2026-11-12-eth-conservation/validation.json",
+      "docs/audits/2026-11-12-front-submission-retries/README.md",
+      "docs/audits/2026-11-12-front-submission-retries/review-followup.md",
+      "docs/audits/2026-11-12-l1-tracing-probe/README.md",
+      "scripts/ci/tests/test_front_submission.py",
+      "scripts/ci/tests/test_kurtosis_fee_quotes.py",
+      "scripts/ci/tests/test_l1_tracing_probe.py",
+      "testing/kurtosis/README.md",
+      "testing/kurtosis/scripts/lib.sh",
+      "testing/kurtosis/scripts/probe-l1-tracing.py"
+    ],
+    "scope_note": "Whole crates tree differs due already-reviewed test-only additions; node ingress difference separately recorded as comment-only. Binary hashes/build manifests remain attributed to ca76bb87; observer source is 04bbb115."
+  },
+  "release_correctness": {
+    "status": "pass",
+    "selected_tests": 1,
+    "fixture_scenario_combinations": 12,
+    "filtered_tests": 212,
+    "not_workload_timing": true
+  },
+  "timing_status": "quiet window unavailable: zero warmups, attempts or eligible samples; timing criterion pending",
+  "merge_gates": {
+    "actual_timing_complete": false,
+    "final_bounded_fable_evidence_review": "pending",
+    "pr164_merged": false,
+    "all_13_fresh_exact_final_head_checks": "pending",
+    "pr165_draft": true,
+    "issue148_open": true
+  },
+  "fable_limitations": [
+    "Fixture-fed input, no Composer watermark or fresh witness capture/live posting timing.",
+    "Disconnect is ordinary transport EOF after 15 ACKs, not mid-flight lost ACK.",
+    "Lost-session case restarts owned signer behind proxy, not client-channel reconnect/capability re-agreement.",
+    "Expected identity is independent of server reply but uses shared identity library with local configuration; no independent frozen identity oracle.",
+    "Block/header charges are transmissions, not signer-side accepted-charge/quota proof; client bytes are recorded.",
+    "Worker permits/ownership and deadline boundaries are established by separate existing package tests, not timed driver.",
+    "Finalize bytes are not compared bitwise to capture; semantic equality uses independently expected digest.",
+    "SIGTERM/SIGHUP do not execute Python finally; ps SubprocessError cleans children but may omit summary; no eligible result claimed.",
+    "Release/profile/source binding is operator-asserted in runner; retain actual build/archive manifests and verify binary SHA256 independently."
+  ],
+  "quiet_window_attempt": {
+    "status": {
+      "status": "quiet window unavailable",
+      "eligible_performance_evidence": false,
+      "contaminated": false,
+      "complete": false,
+      "groups": {},
+      "operation_sample_note": "Proxy receipt-to-response intervals include queueing; operation samples are correlated within each workload repetition",
+      "limits": "Small fixed native workload through an instrumented loopback proxy on a shared host; no SLA or production-capacity claim"
+    },
+    "start_utc": "2026-11-12T22:03:12Z",
+    "end_utc": "2026-11-12T22:33:14Z",
+    "observed_seconds": 1802.1928852389974,
+    "snapshots": 178,
+    "phase_counts": {
+      "before": 178
+    },
+    "rejection_counts": {
+      "CPU idle below 70%": 89,
+      "swap traffic": 50
+    },
+    "longest_clean_sequence_seconds": 30.550488309992943,
+    "warmups": 0,
+    "attempts": 0,
+    "eligible_samples": 0,
+    "cpu_idle_percent": {
+      "minimum": 67.69901457699468,
+      "median": 69.99636924752654,
+      "maximum": 72.38782269407014
+    },
+    "maximum_iowait_percent": 0.3869264384559359,
+    "load1_range": [
+      7.0615234375,
+      9.671875
+    ],
+    "mem_available_kib_range": [
+      35154172,
+      35567244
+    ],
+    "swap_used_kib_range": [
+      8376664,
+      8382516
+    ],
+    "minimum_free_bytes": {
+      "/": 1154675884032,
+      "/tmp": 16656244736,
+      "/dev/shm": 27911442432,
+      "evidence_directory": 1154675884032
+    },
+    "swap_page_deltas": {
+      "swapin": 1336,
+      "swapout": 0
+    },
+    "local_evidence": {
+      "artifacts/issue148/quiet-window-01/executable-provenance.json": "2acbc178cf82b3145eada2aeb32161f811122e672568bcc8835822f2ba876d93",
+      "artifacts/issue148/quiet-window-01/driver.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "artifacts/issue148/quiet-window-01/manifest.json": "4a6c5f465ad1225805ba5752601295c3337179e2791640fe6ba104b60a440b8e",
+      "artifacts/issue148/quiet-window-01/host.jsonl": "6923a3ae1cb9c8776e570cbcc727ca4a5008acd1e0335478b0c1baa20629f9fd",
+      "artifacts/issue148/quiet-window-01/summary.json": "d35934254c546abcea9a037eb365d859e8d98e4089b1f10dbfc61edb30a04a58"
+    }
+  },
+  "measurement_repetitions_executed": 0,
+  "production_runtime_changed_by_issue148": false,
+  "ci_scope": "CI owns complete release/Kurtosis matrix; fresh exact-final-head 13 checks still required; no merge attempted",
+  "fable_evidence_review": {
+    "model": "claude-fable-5-2",
+    "fallback": false,
+    "delegation": false,
+    "tools": "11 Read calls only",
+    "status": "OK to publish PARTIAL evidence; no blocking factual/method errors; MERGE NOT APPROVED",
+    "required_completed_timing_review": "still pending; this partial review does not discharge it",
+    "independently_executed_tests_scans_hashing": false,
+    "nonblocking_wording_comments_corrected": [
+      "memory-only PSI gate",
+      "mixed-head validation provenance",
+      "below-threshold CPU median precision",
+      "whole utility abort",
+      "fixture-supplied expected digest distinct from client recomputation",
+      "existing reviewed scanner commitments"
+    ],
+    "review_log": {
+      "path": "artifacts/issue148/fable-final-evidence-review.json",
+      "sha256": "534c0040a8e378b1e2803db4a900fcbc8ba029bcdf3644ff2c464485d5e2ebd2"
+    },
+    "initial_setup_failure": {
+      "kind": "sandbox DNS EAI_AGAIN/connection_failed before any model turn",
+      "exit_code": 1,
+      "api_tokens": 0,
+      "path": "artifacts/issue148/fable-final-evidence-review-sandbox-first.json",
+      "sha256": "b9ce5b410a1e5ced972aacfe33c0e5ecc062a85d1ed6cf8f10d24533a9439712"
+    },
+    "not_independently_verified": [
+      "binary/log hashes",
+      "raw host counters",
+      "Git source equality/integration facts",
+      "retained test logs",
+      "scanner config/tests",
+      "CI status",
+      "source internals already covered by prior source review"
+    ]
+  },
+  "prior_head_ci_observation": {
+    "head": "d99e58929d11d0d1a51fb7e690d7f48e66cd142e",
+    "run_url": "https://github.com/eez-association/eez-rollupX/actions/runs/43314204098",
+    "lint": "success",
+    "runtime_artifact_build": "success",
+    "debug_unit_tests": "success",
+    "native_kurtosis": "in progress at observation",
+    "pr164": "open at observation",
+    "scope": "prior evidence head only; final evidence commit needs fresh exact-head CI",
+    "observed_utc": "2026-11-12T22:36:49.435653+00:00"
+  },
+  "exact_revision_map": {
+    "88b1b505": "88b1b5057dd71a70fbdd33c8320863298a3f79dc",
+    "61f73a10": "61f73a10076a6af6e84ddf2fa8bf71e1acae37e7",
+    "d5f313c0": "d5f313c030b50928e189e8c0d6537b245f4929f8"
+  },
+  "exclusions": {
+    "signer_generation_utilities": [
+      "test service::sessions::tests::vectors::regenerate_offline_vectors ... ignored, explicit frozen fixture generation; see conformance/README.md",
+      "test service::tests::derivation::captured::inventory_native_proving_fixtures ... ignored, explicit local native-fixture inventory utility",
+      "test service::tests::derivation::captured::regenerate_native_fixture_commitments ... ignored, explicit native commitment regeneration; see conformance/README.md",
+      "test service::tests::derivation::captured::supplement_native_lookup_capture_witness ... ignored, explicit supplemental witness generation from exact captured block replay",
+      "test service::tests::derivation::history_observations::regenerate_history_observation_process_fixtures ... ignored, explicit regeneration utility for the standalone signer process regression"
+    ],
+    "tooling_opt_in_probes": [
+      "test_scratch_payload_copies_out_without_execution_or_permission_loss (test_ci_payload.DockerPayloadTest.test_scratch_payload_copies_out_without_execution_or_permission_loss) ... skipped 'opt-in real data-only Docker image'",
+      "test_overrides_apply_before_creation_and_preserve_memory_and_command (test_kurtosis_ci.RealRelayResourcesTest.test_overrides_apply_before_creation_and_preserve_memory_and_command) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+      "test_readiness_wait_blocks_the_following_instruction_until_ready (test_kurtosis_ci.RealRelayResourcesTest.test_readiness_wait_blocks_the_following_instruction_until_ready) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+      "test_real_producer_and_all_consumers_without_build_machine_or_compiler (test_native_artifacts.NativeRelocationTest.test_real_producer_and_all_consumers_without_build_machine_or_compiler) ... skipped 'set EEZ_TEST_NATIVE_ARCHIVE=1 for real tiny-workspace relocation'",
+      "test_deploy_context_preserves_history_identity (test_runtime_docker.RuntimeDockerTest.test_deploy_context_preserves_history_identity) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+      "test_real_build_and_same_job_execution (test_runtime_docker.RuntimeDockerTest.test_real_build_and_same_job_execution) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+      "test_repository_source_context_preserves_genesis (test_runtime_docker.RuntimeDockerTest.test_repository_source_context_preserves_genesis) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'"
+    ],
+    "full_release_kurtosis_matrix": "CI-owned; local narrow process/release selections do not cover complete matrix"
+  }
 }

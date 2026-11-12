@@ -17,8 +17,10 @@ identity from independently loaded local configuration. The server's advertised
 identity never supplies that expectation. The real signer process runs under
 the existing outbound-network-denied launcher, with public fixture configuration
 and standard default resource limits. The production client independently
-verifies the returned proof; the driver also checks it against the fixture's
-input-derived digest and attester.
+verifies the returned proof by recomputing its digest. The driver additionally
+checks the expected digest and attester stored in the capture's `response.json`;
+it does not itself recompute that frozen expectation. The captured request must
+separately match its recorded Keccak before decoding.
 
 The existing test proxy supplies bounded observation: at most 4,096 events and
 4 MiB of serialized events. Its upstream response decode limit is 64 KiB when
@@ -96,7 +98,7 @@ Cargo.lock and binary hashes before observing host quiet. It uses the initial
 record's 120-second gate with full resource snapshots at 10-second intervals
 and additional process probes every second, rejects hidden host process
 visibility, and checks compiler/test/IO activity, CPU/load, disk, memory, swap
-traffic and PSI. It also retains `/tmp` and `/dev/shm` capacity. Normal production
+traffic and memory PSI (CPU and IO PSI are recorded, not gated). It also retains `/tmp` and `/dev/shm` capacity. Normal production
 background services remain running. A process-name screen cannot establish
 host isolation; CPU and pressure observations remain necessary.
 
@@ -115,7 +117,7 @@ smaller of three minutes or the remaining group budget. These utility safety
 bounds are separate from the production client's ten-minute exchange timeout
 and signer's ten-minute ordered-operation limit. A utility-budget failure
 cannot be classified as a signer deadline violation. An attempt-start record precedes
-every attempt. Failures/timeouts are retained and stop the group; they cannot
+every attempt. Failures/timeouts are retained and abort the entire utility; they cannot
 be silently retried or omitted. The runner separates warmups, successes and
 failures and only marks performance evidence eligible when all twelve groups
 have twenty successful measured samples and the before/during/after gate holds.
@@ -142,16 +144,11 @@ constrain comparisons and tail estimates.
 
 ## Validation status
 
-Implementation and validation are ongoing. Eleven focused Python tests currently
-pass, including actual cleanup of one owned process group while a separate
-owned control group remains alive, resource-boundary rejection, host visibility,
-compiler classification, short-lived build retention, published native-suite
-selection and percentile/failure accounting. The source-runtime build and all twelve native workload/recovery cases passed
-on the owned debug binaries. Logical cutoff checks and workspace linting are
-still running with one build job. Fresh independent follower replay and eligible
-latency distributions remain pending.
-The final run record will distinguish completed checks, first failures, exclusions,
-actual measurements and any remaining quiet-window blocker.
+Release/archive preparation and native correctness are complete. Actual timing
+remains blocked: the corrected observer's 30-minute admission attempt launched
+no workload. The final sections below and [validation record](followup-validation.json)
+supersede the earlier interim counts while preserving their first failures.
+PR #165 remains draft and #148 remains open.
 
 ## Retained setup failure and controller correction
 
@@ -194,7 +191,7 @@ Docker/Kurtosis/build probes were excluded. Dependency policy checks passed; `ca
 allowed warnings. The final frozen-source inventory and actual timing status
 will supersede this interim status without deleting these first observations.
 
-## Completed native correctness identity
+## Earlier native correctness identity (historical)
 
 The ordinary correctness test selected one non-ignored test containing all
 twelve combinations and passed. Its source was `2ac63c71870066dc4225da2a2bbaca73c8d7964d`;
@@ -270,15 +267,16 @@ controlled good/bad/good host sequence and a failed first snapshot both launch
 too early at the old head; the corrected runner waits the full 120 seconds
 from the next clean observation. The earlier runtime/release build remains
 frozen at `ca76bb87`; these observer, documentation and scanner changes do not
-alter Rust, Cargo, workloads or protocol source. Final release identities and
-actual measurement results remain pending with the owning agent.
+alter Rust, Cargo, workloads or protocol source. The final sections below record release identities and the actual failed
+quiet-window admission; workload measurements remain pending.
 
 The failed lint job scanned merge `8941f886` (parents `601ebfa9` and
 `ca76bb87`). Its six findings are the same three public workload verification
 commitments in original commit `d9b974c1` and the CI merge diff. The scanner
 correction reuses only the exact-value AND path exceptions already reviewed in
 PR #163, plus its rejection controls and PR #164's neighboring-path tests. No
-new value, broad path exclusion or suppression bypass is introduced. The
+commitment value beyond PR #163's three reviewed values, broad path exclusion
+or suppression bypass is introduced. The
 coordinator retains the redacted failed report, both test results and current
 all-ref scan evidence in its task scratch files; the failed CI run remains
 available. Original frozen review-input provenance is still not independently
@@ -292,3 +290,196 @@ Optional review caveats remain: SIGTERM/SIGHUP can bypass Python cleanup, and
 release profile/source binding is operator-asserted rather than established by
 the directory name. Retain each binary's actual build source and hashes beside
 the later observer source identity; folder naming alone is not provenance.
+
+
+## Frozen release validation and actual measurement outcome
+
+This is a continuation of frozen N14, not a fresh audit. The association baseline
+is `601ebfa9c7e1a779f1afbd077bd31a3207e7a61b`, with protocol
+`84a5b5207880f192a6a5896cbfe0bac5249db47f`. Original review-input provenance
+remains independently unverified. No new production deadline defect has been
+established; #43/#45's old preparation-ingestion defect remains fixed.
+
+### Executable and observer identities
+
+The release binaries were built at `ca76bb8744667f3045f5d839a920c011825999f9`.
+The corrected observer is from `04bbb115901c88b1ccdbb6f15ab4cfd89662c5d9`.
+Measurement checkout identity is `d99e58929d11d0d1a51fb7e690d7f48e66cd142e`.
+These identify different things; the binaries were not rebuilt at either later
+commit. Source equivalence was checked before the safe fast-forward. The
+correction changes exactly five observer/scanner/documentation files. Its merge
+with reviewed main preserves those five files byte-for-byte and adds accepted
+main tests, harness changes and a runtime comment. The whole crates tree is not
+identical to ca76bb87. Relevant signer/client/RPC/testkit/node-e2e/prover/protocol/
+L1 source trees, Cargo inputs, shipping Dockerfile and native archive tooling are
+identical. The separate ingress change is comment-only.
+
+| Release executable | SHA-256 |
+| --- | --- |
+| `node_e2e-0e56ad39fba51c37` | `85eff313c0006db93923b4dc01c4445e0302babf9c03e5c705bffa3bb2b36753` |
+| `eez-proof-signer` | `ebaf852b59ee626fff8b580941ddca7efd53e053e04c50c658acb472907bca1f` |
+| `eez-composer` | `982c83bdc1af31f012a93c9e932d996c28ccb3b67dbf938684467e554252c910` |
+| `eez-follower` | `e2c58f6276c142bc310ca1206d565c1613c1b183cab11f1014d2389a001fbd51` |
+
+The sealed local manifest SHA-256 is
+`43ab119273f6bd696338ca9445e265c83acafd82b376f8533e9957e9135d78b4`.
+The archive records ca76bb87, protocol 84a5b520, Rust 1.95.0, release profile,
+default shipping features and `RUSTFLAGS=-C link-arg=-fuse-ld=mold`.
+Release settings are opt-level 3, thin LTO, 16 codegen units, stripped symbols
+and unwind panic handling. One Cargo job and one Mold linker thread were used.
+Mold 2.40.4 and dependencies came from verified distribution packages extracted
+only to owned temporary paths. No system package, Cargo cache or dependency
+version was changed. The manifest is a local validation record, not a published
+CI artifact. The Python runner's profile string is operator-asserted; the sealed
+manifest, source comparison and manually rechecked executable hashes supply
+the provenance binding for this run.
+
+### Completed correctness and build checks
+
+All preparation finished before starting the host gate. The standard shipping
+release build passed. The existing guarded native archive invocation compiled
+only workspace crates, archived ten binaries and rechecked frozen runtime hashes
+unchanged. All 70 producer tests passed with zero skips. The ordinary release
+correctness selection passed one test containing all twelve capture/scenario
+combinations, with 212 unrelated tests filtered. Build and correctness command
+durations are not workload latency evidence.
+
+The final affected debug executables passed 406 tests: RPC 6, signer 341,
+client 38 and testkit 21. Five explicit signer artifact-generation utilities
+were ignored. The signer selection includes 29 frozen native-session transcript
+passes; those fresh executions are correctness checks, not fresh workload
+timing. Composer's 22 logical cutoff/retry checks passed with 433 tests filtered;
+virtual-clock/model assertions remain separate from wall-clock measurements.
+
+Five serial source-based process checks passed on ca76bb87: minimal bidirectional
+settlement, outbound static round-trip with independent follower replay, tampered
+post-batch calldata rejection, tampered witness rejection, and the twelve-case
+workload preparation/recovery correctness check. Prebuilt source overrides were
+unset. The source harness built the production entrypoints with Rust 1.95.0;
+their bytes remained equal to the prior debug correctness run.
+
+Workspace format, all-target Clippy with warnings denied, signer all-target
+checking and Rustdoc with warnings denied passed. The complete default tooling
+run selected 560 tests: 553 passed and seven opt-in Docker/Kurtosis/build probes
+were excluded. Subsequently changed observer tests pass all twelve cases, and
+both scanner regressions pass. Integration contracts built; inherited lint
+warnings remain in the log. Dependency policy passed; Cargo audit exited zero
+with twenty allowed warnings. CI owns the complete release/Kurtosis matrix. These are
+mixed-head checks: the [per-check source fields](followup-validation.json) identify
+Composer at `88b1b505`, full tooling at `61f73a10`, and Clippy/check/Rustdoc at
+`d5f313c0` plus the exact correction later committed as `ca76bb87`. Final affected
+unit/process/release executions are at `ca76bb87`; corrected observer checks are
+at `d99e5892`. Earlier dependency checks have no separately recorded source head;
+the subsequently successful `d99e5892` Lint lane supplies exact-head CI coverage.
+Unchanged valid checks are reused; this prose update triggers fresh CI.
+
+
+### First failures and review corrections
+
+First observations remain retained: the original sandbox mount quota failure
+before command execution; resource-starved preflight; nested source build selecting
+Rust 1.56 without propagated Rustup configuration; 32 sandbox socket-creation
+failures in the complete tooling run; the new closure's strict Clippy failure;
+the orchestration selector treating the signer's bin target as a lib; and the
+owned linker's initially missing libraries. Corrected runs are separately
+identified. These setup/tooling failures are not signer deadline reproductions.
+
+Observer regression evidence retains the previous implementations' failures for
+descendant cleanup, partial JSON, process names with spaces, truncated Rust/native
+test names, single cleanup and adjacent post intervals. Fable 5.2's required
+first-clean baseline correction and timing-method correction were applied before
+sampling. Both initial-failed and good/bad/good boundary subcases fail at old
+source; deleting the reset fails the new control. All twelve current observer
+tests pass. These are controlled observer assertions, not workload measurements.
+
+The six history-scanner findings in failed run 43289481559/job 131434460726 were
+independently classified as three public workload verification commitments twice,
+in d9b974c1 and exact CI merge 8941f886. The correction reuses already-reviewed
+exact-value AND path exceptions and retains neighboring-path rejection controls.
+No broad exclusion, detection weakening or valid fixture edit was made. Parent
+full-history scan: zero findings across 1,159 commits/743.07 MB; final patch and
+integration-commit scans: zero. Original failure and redacted classifications
+remain retained. Fresh CI is required after the final evidence commit.
+
+### Method limits to preserve in any final report
+
+Inputs are captured fixture witnesses reserialized through the real production
+client, not newly captured Composer preparation or live chain posting. Captures
+cover small V0 historical workloads under the current version-9 reader, not
+production V1 capacity. Expected identity is independent of the server reply
+but uses the same shared identity library with local configuration; it is not
+an independent frozen identity algorithm oracle. Finalize equivalence is by
+expected digest, not bit-for-bit equality with the old capture.
+
+The disconnected case is normal prevalidation EOF after fifteen ACKs, not
+midflight loss or lost ACK. The lost-session case restarts the owned signer
+behind a stable proxy, not a client-channel reconnect or capability re-agreement.
+Block/header charges are observed client transmissions, not independently
+asserted signer accepted-charge/quota counters; client bytes are recorded.
+Existing separate tests cover permits, worker ownership, cancellation and logical
+deadline boundaries. The workload driver does not replace those assertions.
+
+Each repetition starts a fresh signer. OS page caches are not flushed. Fixed
+ordering, loopback/proxy observation overhead, shared normal production services
+and 100 ms readiness polling constrain interpretation. The pre-proof
+preparation-only signer-log check runs inside complete_attempt_ms in all four
+cases, and outside the individual stage intervals. Later independent fixture
+assertions, trace extraction, final log read and teardown are outside the complete
+timer. Stages therefore need not sum to the complete interval.
+
+SIGTERM/SIGHUP can bypass Python cleanup; a process-observer subprocess exception
+can omit the summary after child cleanup. These optional limitations do not
+authorize eligible evidence. No host isolation, SLA, general tail guarantee,
+saturation capacity, production deployment or durable queue recovery is claimed.
+
+### Actual timing status
+
+The corrected observer completed its configured admission wait on 2026-11-12,
+22:03:12–22:33:14 UTC (1,802.19 observed seconds). It retained 178 full
+before snapshots plus one-second competing-process probes. CPU idle was below
+70% in 89 intervals; swap traffic occurred in 50 intervals (overlap possible).
+The longest clean sequence was 30.55 seconds, below the required 120 seconds.
+No compiler/test/IO process, storage, available-memory, memory-PSI or load rejection
+was reported. Normal production services remained running on this shared host.
+
+CPU idle ranged from 67.70% to 72.39% (median 69.996%, just under 70%); load1 ranged from
+7.06 to 9.67 on 22 available CPUs. Available memory remained 33.53–33.92 GiB,
+with about 7.99 GiB swap in use and 1,336 swap-in pages during observation.
+Minimum free space was about 1,075.38 GiB on root/evidence, 15.51 GiB on
+`/tmp` and 25.99 GiB on `/dev/shm`. These are resource diagnostics, not
+workload timing distributions. Exact counters and hashes are retained in the
+[validation record](followup-validation.json).
+
+The observer exited 1 with `quiet window unavailable`, `complete=false` and
+`eligible_performance_evidence=false`. It launched no workload: **zero warmups,
+zero attempts, zero eligible samples**. Consequently no during/after workload
+phases or latency distributions exist. There was no contaminated workload to
+count or discard. The empty driver log, manifest, provenance supplement,
+resource snapshots and summary remain locally retained with committed hashes.
+
+**Actual preparation/streaming/recovery measurements remain pending.** Rerun the
+same frozen, verified release inputs with the corrected observer into a new
+owned output directory when a sustained eligible window is available. Do not
+substitute correctness durations or transcript passes, relax the criteria,
+interrupt other tasks or stop normal services. No optimization or runtime fix
+was supported, so no baseline/candidate speedup is claimed. PR #165 stays draft
+and #148 stays open. Final bounded evidence review, all thirteen fresh exact-head
+CI checks, prerequisite #164's merge and final-main compatibility are still
+required before any authorized merge; no merge was attempted.
+
+### Bounded evidence review
+
+Claude Fable 5.2 (`claude-fable-5-2`, no fallback or delegation) approved
+publication of this partial evidence after eleven read-only file reads. It ran
+no commands, tests, scans or hashing and did not independently verify Git facts,
+raw host counters or retained test logs. It found no blocking factual/method
+error. Six non-blocking wording comments were corrected: memory-only PSI gating,
+mixed validation heads, the below-threshold rounded CPU median, whole-utility
+abort behavior, the fixture-supplied expected digest, and reuse of already-reviewed
+scanner values. The initial sandbox DNS failure reached no model turn; the
+approved-mechanism retry completed. Both first failure and review are retained
+locally with hashes in the validation record.
+
+This is approval to publish partial results only. The final Fable review of
+completed timing evidence remains pending because no actual timings exist.
+The merge gates remain unsatisfied; no ready/merge action was taken.
