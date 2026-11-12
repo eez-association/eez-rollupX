@@ -1,5 +1,8 @@
 # Bounded front submission retries — issue #142
 
+The [Ponytail and Claude Opus 5.5 follow-up](review-followup.md) supersedes the
+initial self-review verdict and records corrective regressions and validation.
+
 The task owner explicitly authorized implementing the safe harness fix in
 [#142](https://github.com/eez-association/eez-rollupX/issues/142), superseding its
 older requirement for a separate implementation issue. This completes handoff
@@ -35,7 +38,7 @@ curl is capped at the lesser of ten seconds and the remaining budget.
 | curl 7: connection could not be established | Retry the identical signed bytes/hash; no request reached admission on that connection. |
 | Exact startup refusal, `quote_busy`, `stale_context`, or the three existing recognized reconciliation/predecessor `quote_unavailable` responses | Retry the identical bytes; these responses refuse admission. |
 | Timeout, partial transfer, send/receive failure, empty reply or successful HTTP with empty body | Acceptance is ambiguous. Switch permanently to read-only status polling on the same front. |
-| Matching hash in active ownership (`queued`, `in_flight`, `composing`, `awaiting_evidence`) or terminal `Committed` | Confirm admission only; the caller still checks execution and settlement. |
+| Matching hash in active ownership (`queued`, `in_flight`, `composing`, `awaiting_evidence`) or terminal `Committed`/`SourceCompleted` | Confirm admission only; the caller still checks execution and settlement. |
 | Matching terminal failure | Fail without another admission. |
 | Missing, malformed, unavailable, unknown or mismatched status | Keep polling within the original deadline, then fail with unresolved acceptance. |
 | Tariff/profile rejection, unrecognized RPC refusal, changed response hash or other curl failure | Fail; no implicit success or new signature. |

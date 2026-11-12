@@ -28,7 +28,8 @@ class FrontSubmissionTest(unittest.TestCase):
         ], text=True).strip()
         cls.hash = subprocess.check_output(["cast", "keccak", cls.raw], text=True).strip()
 
-    def run_front(self, sends, observations=(), refused=False, tick=60, repeat=1):
+    def run_front(self, sends, observations=(), refused=False, tick=60, repeat=1,
+                  curl_config=None, parser_tick=0, real_clock=False, expire_before_curl=False):
         requests = []
         accepted = []
         sends, observations = list(sends), list(observations)
@@ -78,7 +79,8 @@ class FrontSubmissionTest(unittest.TestCase):
                         time.sleep(2)
                         return
                     response = action if isinstance(action, dict) and "error" in action else {"result": action}
-                body = json.dumps({"jsonrpc": "2.0", "id": 1, **response}).encode()
+                body = action if isinstance(action, bytes) else json.dumps(
+                    {"jsonrpc": "2.0", "id": 1, **response}).encode()
                 self.send_response(200)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
@@ -86,6 +88,8 @@ class FrontSubmissionTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory(prefix="eez-front-submission.") as tmp:
             root = Path(tmp)
+            if curl_config is not None:
+                (root / ".curlrc").write_text(curl_config)
             server = ThreadingHTTPServer(("127.0.0.1", 0), Handler, bind_and_activate=False)
             server.server_bind()  # Reserve an OS-assigned port even during refusal.
             if not refused:
@@ -104,9 +108,9 @@ class FrontSubmissionTest(unittest.TestCase):
 
             thread = threading.Thread(target=serve, daemon=True)
             thread.start()
+            clock_setup = "SECONDS=0" if real_clock else "unset SECONDS\nSECONDS=0"
             script = '''set -euo pipefail
-unset SECONDS
-SECONDS=0
+CLOCK_SETUP
 # Advance only the retry clock; use a handshake for the refused listener.
 sleep() {
     SECONDS=$((SECONDS + TICK))
@@ -114,18 +118,29 @@ sleep() {
     while [[ ! -e "$TRACE/listening" ]]; do command sleep 0.01; done
 }
 curl() { printf '%s\\n' "$*" >> "$TRACE/curl"; command curl "$@"; }
+jq() {
+    local rc=0
+    command jq "$@" || rc=$?
+    SECONDS=$((SECONDS + PARSER_TICK))
+    return "$rc"
+}
 source "$REPO/testing/kurtosis/scripts/lib.sh"
+if (( EXPIRE_BEFORE_CURL )); then
+    set -T
+    trap 'if [[ $BASH_COMMAND == left=* ]]; then SECONDS=$deadline; fi' DEBUG
+fi
 for ((i=0; i<REPEAT; i++)); do send_front "$FRONT" "$RAW" "$HASH"; done
 echo ADMITTED
-'''
+'''.replace("CLOCK_SETUP", clock_setup)
             try:
                 result = subprocess.run(["bash", "-c", script], env={
                     **os.environ, "REPO": str(REPO), "RAW": self.raw, "HASH": expected,
                     "TRACE": tmp, "TICK": str(tick),
-                    "REPEAT": str(repeat),
+                    "REPEAT": str(repeat), "CURL_HOME": tmp, "PARSER_TICK": str(parser_tick),
+                    "EXPIRE_BEFORE_CURL": str(int(expire_before_curl)),
                     "FRONT": f"http://127.0.0.1:{server.server_address[1]}",
                 }, text=True, capture_output=True, timeout=15)
-                trace = (root / "curl").read_text()
+                trace = (root / "curl").read_text() if (root / "curl").exists() else ""
             finally:
                 stopped.set()
                 if not refused or (root / "retry").exists():
@@ -185,7 +200,10 @@ echo ADMITTED
 
     def test_terminal_failure_wrong_hash_and_invalid_status_are_not_success(self):
         for status in (
-            {"hash": self.hash, "lifecycle": "terminal", "ownership": {"reason": "SimulationFailed"}},
+            *({"hash": self.hash, "lifecycle": "terminal", "ownership": {"reason": reason}}
+              for reason in ("SimulationFailed", "PoolDiscarded", "SourceReverted",
+                             "SourceCompletedWithMissingEffects", "SourceNonceSpent",
+                             "AttemptsExhausted", "NonceGap")),
             {"hash": "0x" + "ff" * 32, "lifecycle": "queued"},
             {"hash": self.hash, "lifecycle": "unknown"},
             {"error": {"code": -32601, "message": "method not found"}},
@@ -223,6 +241,7 @@ echo ADMITTED
         self.assertEqual(len(requests), 3)
 
     def test_timed_out_send_can_reconcile_accepted_identity(self):
+        # Frozen time isolates rc=28 handling; the real-clock test covers expiry.
         busy = {"error": {"code": -32003, "data": {"code": "quote_busy"}}}
         result, requests, accepted, trace = self.run_front(
             [busy, "accept_stall"], ["owned"], tick=119)
@@ -247,6 +266,67 @@ echo ADMITTED
             {"error": {"code": -32602, "message": "invalid field: starting up"}}])
         self.assert_admitted(result, False)
         self.assertEqual(len(requests), 1)
+
+    def test_source_completed_confirms_admission_without_resubmitting(self):
+        status = {"hash": self.hash, "lifecycle": "terminal",
+                  "ownership": {"state": "terminal", "reason": "SourceCompleted"}}
+        result, requests, accepted, _ = self.run_front(["accept_drop"], [status])
+        self.assert_admitted(result)
+        self.assertEqual(len(requests), 2)
+        self.assertEqual(accepted, [self.raw])
+
+    def test_real_clock_final_send_timeout_reports_unresolved_acceptance(self):
+        busy = {"error": {"code": -32003, "data": {"code": "quote_busy"}}}
+        result, requests, accepted, _ = self.run_front(
+            [busy, "accept_stall"], ["owned"], tick=119, real_clock=True)
+        self.assert_admitted(result, False)
+        self.assertIn("acceptance unresolved", result.stderr)
+        self.assertEqual([r["method"] for r in requests], ["eth_sendRawTransaction"] * 2)
+        self.assertEqual(accepted, [self.raw])
+
+    def test_deadline_crossing_before_timeout_calculation_makes_no_request(self):
+        result, requests, _, trace = self.run_front(["success"], expire_before_curl=True)
+        self.assert_admitted(result, False)
+        self.assertIn("deadline", result.stderr)
+        self.assertEqual(requests, [])
+        self.assertEqual(trace, "")
+
+    def test_curl_config_cannot_resubmit_after_lost_reply(self):
+        result, requests, accepted, _ = self.run_front(
+            ["accept_drop", "success"], ["owned"],
+            curl_config="retry = 1\nretry-all-errors\nretry-delay = 1\n")
+        self.assert_admitted(result)
+        self.assertEqual([r["method"] for r in requests],
+                         ["eth_sendRawTransaction", "eez_getCrossChainTransaction"])
+        self.assertEqual(accepted, [self.raw])
+
+    def test_submission_requires_complete_exact_hash_reply(self):
+        valid = json.dumps({"result": self.hash})
+        for body in (valid + " BROKEN", json.dumps({"result": self.hash + "\n"}),
+                     valid + "\n" + valid, valid + "\n" + json.dumps({"error": {
+                         "code": -32003, "data": {"code": "quote_busy"}}}),
+                     json.dumps({"result": self.hash, "error": {
+                         "code": -32003, "data": {"code": "quote_busy"}}})):
+            with self.subTest(body=body):
+                result, requests, _, _ = self.run_front([body.encode(), "success"])
+                self.assert_admitted(result, False)
+                self.assertEqual(len(requests), 1)
+
+    def test_reconciliation_requires_one_complete_status_object(self):
+        valid = json.dumps({"result": {"hash": self.hash, "lifecycle": "queued"}})
+        for body in (valid + "\n" + valid, "null\n" + valid, valid + " BROKEN"):
+            with self.subTest(body=body):
+                result, requests, _, _ = self.run_front(["accept_drop"], [body.encode()])
+                self.assert_admitted(result, False)
+                self.assertIn("unresolved", result.stderr)
+                self.assertEqual(sum(r["method"] == "eth_sendRawTransaction" for r in requests), 1)
+
+    def test_parsing_cannot_confirm_admission_after_deadline(self):
+        for send, observations in (("success", []), ("accept_drop", ["owned"])):
+            with self.subTest(send=send):
+                result, _, _, _ = self.run_front([send], observations, parser_tick=120)
+                self.assert_admitted(result, False)
+                self.assertIn("deadline", result.stderr)
 
 
 if __name__ == "__main__":

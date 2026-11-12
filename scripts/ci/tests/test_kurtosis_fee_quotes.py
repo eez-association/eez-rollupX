@@ -295,7 +295,9 @@ sign_fee_quoted() {
 }
 send_front() { [[ "$1" == "$L2F" && "$2" == 0xcd && "$3" == 0x1234 && "$ACCEPT" == 1 ]]; }
 source "$FIXTURE/wave-function.sh"
-mk_and_send out set 401
+# Conditional wave calls suppress errexit inside the function.
+rc=0; mk_and_send out set 401 || rc=$?
+(( rc == 0 ))
 [[ "$OUT_NONCE" == 8 && "${#OUT_HASHES[@]}" == 1 && "${#TX_META[@]}" == 1 ]]
 '''], env={**self.env, "ACCEPT": "1"}, capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)

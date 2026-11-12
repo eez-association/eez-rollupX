@@ -297,7 +297,8 @@ fn upfront_cost(envelope: &TxEnvelope) -> Result<U256, String> {
 }
 
 /// Refusal sent while the node is still reconciling with L1.
-/// WIRE CONTRACT: the e2e helper and the shell harnesses grep "starting up".
+/// WIRE CONTRACT: the e2e helper recognizes "starting up"; Kurtosis send_front
+/// matches code -32000 and this exact message.
 pub const STARTING_UP_MSG: &str =
     "eez node is starting up; cross-chain submissions are not accepted yet";
 

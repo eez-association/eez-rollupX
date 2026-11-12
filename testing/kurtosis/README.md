@@ -712,11 +712,18 @@ startup refusal, or a recognized temporary quote refusal retries the same signed
 bytes and hash. Tariff/profile rejections and changed hashes fail.
 After a timeout, reset, partial transfer or empty reply, it only polls
 `eez_getCrossChainTransaction` on the same Composer front. A matching active
-owner or `Committed` record confirms admission; a terminal failure fails the
+owner or successful terminal record (`Committed` or `SourceCompleted`) confirms
+admission; a terminal failure fails the
 workload. Missing, unavailable or unrecognized status never authorizes another
 send or success, and unresolved acceptance fails at the original deadline.
+Replies must contain one complete JSON document and the exact expected hash.
+Submission curl skips `.curlrc` so the helper controls all retries. Admission
+must be confirmed before the deadline, including response parsing. A final-send
+timeout is reported as unresolved even when no time remains for a status poll.
 This helper confirms admission only; callers still check execution and settlement.
 Ordinary forwarded transactions without held-pool status can remain unresolved.
+A terminal failure also fails admission reconciliation for intentional poison
+workloads; an old failure record cannot prove that a fresh send was admitted.
 The policy changes no runtime admission rules or wire/storage format; old harnesses
 still fail immediately on transport loss, and no runtime upgrade is required.
 
