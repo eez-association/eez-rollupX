@@ -1077,3 +1077,175 @@ mod reconciliation_tests {
         let _guard = reconciliation.await.unwrap();
     }
 }
+
+#[cfg(test)]
+mod witness_receiver_tests {
+    use super::*;
+    use alloy_rpc_types_engine::{PayloadId, PayloadStatus, PayloadStatusEnum};
+    use eez_primitives::engine::{EezBuiltPayload, EezEngineTypes};
+    use reth_engine_primitives::{BeaconEngineMessage, OnForkChoiceUpdated};
+    use reth_payload_builder::PayloadServiceCommand;
+    use reth_primitives_traits::RecoveredBlock;
+
+    // Exercise the real committer with only Engine/payload-builder responses mocked.
+    // A live receiver is the control: it must receive the exact canonical identity.
+    async fn commit_with_receiver(sequence: bool, feed_witness: bool, closed: bool) {
+        let initial = SealedHeader::seal_slow(alloy_consensus::Header::default());
+        let block = eez_primitives::Block {
+            header: alloy_consensus::Header {
+                number: 1,
+                timestamp: 1,
+                parent_hash: initial.hash(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let built = EezBuiltPayload::new(
+            Arc::new(RecoveredBlock::new_unhashed(block, vec![])),
+            Default::default(),
+            None,
+            None,
+        );
+        let header = built.block().sealed_header().clone();
+        let payload = EezEngineTypes::block_to_payload(built.block().clone(), None);
+        let (sender, mut witness) = mpsc::unbounded_channel();
+        if closed {
+            witness.close();
+        }
+        let (_commands, receiver) = mpsc::channel(COMMAND_BUFFER);
+        let (engine, mut engine_rx) = mpsc::unbounded_channel();
+        let (payloads, mut payload_rx) = mpsc::unbounded_channel();
+        let mut actor = Actor::<EezEngineTypes> {
+            receiver,
+            to_engine: ConsensusEngineHandle::new(engine),
+            payload_builder: PayloadBuilderHandle::new(payloads),
+            last_header: Arc::new(RwLock::new(initial.clone())),
+            unsafe_head_hash: initial.hash(),
+            safe_header: initial.clone(),
+            finalized_hash: initial.hash(),
+            witness_sender: Some(sender),
+        };
+        let commit = async {
+            if sequence {
+                let result = actor
+                    .process_sequence(
+                        initial.hash(),
+                        alloy_rpc_types_engine::PayloadAttributes {
+                            timestamp: 1,
+                            ..Default::default()
+                        }
+                        .into(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(result.header, header);
+            } else {
+                let result = actor
+                    .process_derive(payload, header.clone(), feed_witness)
+                    .await
+                    .unwrap();
+                assert_eq!(result.block_hash, header.hash());
+                assert_eq!(result.block_number, 1);
+            }
+            assert_eq!(*actor.last_header.read().unwrap(), header);
+            assert_eq!(actor.unsafe_head_hash, header.hash());
+            assert_eq!(actor.safe_header, initial);
+            assert_eq!(actor.finalized_hash, initial.hash());
+            // Failed delivery neither terminates the actor nor prevents the next command.
+            actor.process_refresh_forkchoice().await.unwrap();
+        };
+        let services = async {
+            let mut calls = Vec::new();
+            for _ in 0..if sequence { 4 } else { 3 } {
+                let valid = PayloadStatus::from_status(PayloadStatusEnum::Valid);
+                match engine_rx.recv().await.unwrap() {
+                    BeaconEngineMessage::NewPayload { payload, tx } => {
+                        assert_eq!(payload.block_hash(), header.hash());
+                        calls.push("new_payload");
+                        tx.send(Ok(valid)).unwrap();
+                    }
+                    BeaconEngineMessage::ForkchoiceUpdated {
+                        state,
+                        payload_attrs,
+                        tx,
+                    } => {
+                        assert_eq!(state.safe_block_hash, initial.hash());
+                        assert_eq!(state.finalized_block_hash, initial.hash());
+                        if payload_attrs.is_some() {
+                            assert_eq!(state.head_block_hash, initial.hash());
+                            calls.push("build");
+                            let (id_tx, id_rx) = oneshot::channel();
+                            id_tx.send(Ok(PayloadId::default())).unwrap();
+                            tx.send(Ok(OnForkChoiceUpdated::updated_with_pending_payload_id(
+                                valid, id_rx,
+                            )))
+                            .unwrap();
+                            let PayloadServiceCommand::Resolve(_, _, response) =
+                                payload_rx.recv().await.unwrap()
+                            else {
+                                panic!("expected payload resolution");
+                            };
+                            let built = built.clone();
+                            assert!(
+                                response
+                                    .send(Some(Box::pin(async move { Ok(built) })))
+                                    .is_ok()
+                            );
+                        } else {
+                            assert_eq!(state.head_block_hash, header.hash());
+                            calls.push("canonicalize_or_refresh");
+                            tx.send(Ok(OnForkChoiceUpdated::valid(valid))).unwrap();
+                        }
+                    }
+                    _ => panic!("unexpected Engine request"),
+                }
+            }
+            let expected = if sequence {
+                vec![
+                    "build",
+                    "new_payload",
+                    "canonicalize_or_refresh",
+                    "canonicalize_or_refresh",
+                ]
+            } else {
+                vec![
+                    "new_payload",
+                    "canonicalize_or_refresh",
+                    "canonicalize_or_refresh",
+                ]
+            };
+            assert_eq!(calls, expected);
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            tokio::join!(commit, services);
+        })
+        .await
+        .unwrap();
+        if !closed && (sequence || feed_witness) {
+            assert_eq!(
+                witness.try_recv().unwrap(),
+                eez_l1::L2Endpoint {
+                    number: 1,
+                    hash: header.hash()
+                }
+            );
+        }
+        assert!(witness.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn produced_commit_survives_closed_witness_receiver() {
+        for closed in [false, true] {
+            commit_with_receiver(true, true, closed).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn derived_commit_survives_closed_witness_receiver() {
+        for feed in [false, true] {
+            for closed in [false, true] {
+                commit_with_receiver(false, feed, closed).await;
+            }
+        }
+    }
+}

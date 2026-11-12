@@ -1,0 +1,126 @@
+{
+  "base": "20243f70839ec69df9312731e960cd311e060050",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "source_sha256": {
+    "crates/eez-driver/src/block_committer.rs": "d40dfcbb05ece8ddf3540300ad018a4e6aab7baee7e275cce43c23c5c3461cf3",
+    "crates/eez-node/src/witness_source.rs": "576dfa73860571fcaa7fe050303f564dceec94646e57410899416d4a7c608404"
+  },
+  "executables": [
+    {
+      "path": "/tmp/issue141-target/debug/deps/eez_driver-a34fcd44a2a5483c",
+      "sha256": "cdf883195df096a76ebdbac4e7e6d71ad70537ac20e8952770d54fa930bb5bc1"
+    },
+    {
+      "path": "/tmp/issue141-target/debug/deps/eez_node-424cf825823f93bb",
+      "sha256": "d4b0b9e9da2452f79a1f6bc0e5719ad6d92cd003bd3921cfc3d503566d42de30"
+    }
+  ],
+  "logs_local_only": [
+    {
+      "log": "baseline-driver.log",
+      "sha256": "812f828817bca7ed8370616c050efb01243489728c72790fcf961edbf6791730",
+      "result_lines": [
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 50 filtered out; finished in 0.00s"
+      ],
+      "exit_status": 0
+    },
+    {
+      "log": "unit-first.log",
+      "sha256": "e33b81d6f1b0534d31049cbec82f5c4e7b7895c9cd801c8a8f1769cc3b830930",
+      "result_lines": [],
+      "exit_status": 101
+    },
+    {
+      "log": "unit-second.log",
+      "sha256": "0370dd084b72cbc1e50a1f3d86f1776db2c0b75121ff1f68d486acae47d340c1",
+      "result_lines": [
+        "test result: ok. 76 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s",
+        "test result: FAILED. 88 passed; 16 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.53s"
+      ],
+      "exit_status": 101
+    },
+    {
+      "log": "unit-loopback.log",
+      "sha256": "9e0667fc6c2620e8eae4555b77c2b17d650ea6e03ef3a005dc5a127a9b89e106",
+      "result_lines": [
+        "test result: ok. 76 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s",
+        "test result: ok. 104 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.53s"
+      ],
+      "exit_status": 0
+    },
+    {
+      "log": "fmt-first.log",
+      "sha256": "414ea6066f0b5b4fb5d628ecba7d9f29614a894f191f49700abd0ea8fd5b3c3d",
+      "result_lines": [],
+      "exit_status": 1
+    },
+    {
+      "log": "fmt-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result_lines": [],
+      "exit_status": 0
+    },
+    {
+      "log": "clippy-first.log",
+      "exit_status": 101,
+      "sha256": "07a34ece24ada52031f4ecc620835cd012f9e6de1f9a8b31ff6c02bc4ec7c420",
+      "result_lines": []
+    },
+    {
+      "log": "clippy-second.log",
+      "exit_status": 0,
+      "sha256": "b5a7092c1455ddb6e9b96e06a0137c57114effff01fb1258878a3bedc999b909",
+      "result_lines": [
+        "Finished `dev` profile [optimized] target(s) in 1m 29s"
+      ]
+    }
+  ],
+  "sandbox_socket_failures": [
+    "fee_quotes::tests::front_rejects_trace_batches_before_executing_any_member",
+    "fee_quotes::tests::queued_predecessor_requires_stateful_admission_before_ordinary_forwarding",
+    "fee_quotes::tests::rpc_front_enforces_64_kib_calldata_boundary",
+    "fee_quotes::tests::rpc_front_preserves_ids_errors_readiness_and_notifications",
+    "ingress::tests::classification_error_redaction_preserves_fail_closed_admission",
+    "ingress::tests::codeless_target_is_rejected_with_the_remedy_and_pool_untouched",
+    "ingress::tests::creation_is_forwarded_upstream_and_never_held",
+    "ingress::tests::front_answers_composer_info_locally",
+    "ingress::tests::front_discovery_mixed_batches_keep_routing_ids_and_submission_guard",
+    "ingress::tests::front_discovery_works_before_readiness_on_both_chains_and_suppresses_notifications",
+    "ingress::tests::front_refuses_submissions_until_ready_without_touching_the_pool",
+    "ingress::tests::front_uses_original_authenticated_endpoint",
+    "ingress::tests::l2_fee_rpc_without_policy_reports_disabled_locally",
+    "ingress::tests::real_http_fronts_route_directions_and_preserve_replacement_suffix",
+    "ingress::tests::signed_ingress_uses_executed_l2_state_and_keeps_dispatch_guard",
+    "ingress::tests::url_credentials_are_redacted_from_front_transport_errors"
+  ],
+  "notes": {
+    "unit-first.log": "Compilation failed: new test accessed private PanickedTaskError::task_name; corrected to assert public Display output. No tests executed.",
+    "unit-second.log": "All 76 driver tests and 88 node tests passed; 16 existing node HTTP tests failed with EPERM at socket binds. All three new tests passed.",
+    "unit-loopback.log": "Identical test binaries; rerun with loopback permitted: 76 driver and 104 node passed. These are controlled environment-change retry results.",
+    "clippy-first.log": "Per-user /tmp quota exhausted before completion; first errors retained in local log.",
+    "clippy-second.log": "Passed after removing only this task incremental cache and setting CARGO_INCREMENTAL=0."
+  },
+  "test_environment": {
+    "rust": "1.95.0",
+    "llvm": "22.1.2",
+    "protoc": "3.21.12",
+    "CARGO_TARGET_DIR": "/tmp/issue141-target",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "LLVM_SYS_221_PREFIX": "/usr/lib/llvm-22",
+    "locked": true,
+    "offline": true,
+    "profile": "optimized test/dev; not a release artifact"
+  },
+  "investigation_test_names": [
+    "block_committer::witness_receiver_tests::produced_commit_survives_closed_witness_receiver",
+    "block_committer::witness_receiver_tests::derived_commit_survives_closed_witness_receiver",
+    "witness_source::tests::closed_witness_receiver_lifecycle_and_retained_store"
+  ],
+  "documentation_checks": {
+    "local_links_resolved": 13,
+    "bash_n": "passed",
+    "git_diff_check": "passed",
+    "fmt_all_check": "passed"
+  }
+}
