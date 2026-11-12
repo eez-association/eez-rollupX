@@ -17,7 +17,7 @@ use revm::{
     state::{AccountInfo, Bytecode},
 };
 
-const FEE_COLLECTOR: Address = address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266");
+pub(crate) const FEE_COLLECTOR: Address = address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266");
 
 pub(crate) fn factory() -> EezEvmFactory {
     EezEvmFactory::for_rollup(FEE_COLLECTOR).unwrap()
