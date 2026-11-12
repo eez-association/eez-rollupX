@@ -1,0 +1,404 @@
+{
+  "kind": "static census, not runtime or latency evidence",
+  "baseline": "601ebfa9c7e1a779f1afbd077bd31a3207e7a61b",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "validation_version": 9,
+  "workloads": [
+    {
+      "fixture": "native-offline-bidirectional",
+      "request_sha256": "8e5bdbbfd8038647ff430333af1e46b86cf5e695f723dc9475d850e085e4f948",
+      "length_delimited_bytes": 372458,
+      "protobuf_payload_bytes": 372390,
+      "grpc_messages": 32,
+      "begin_bytes": 74,
+      "finalize": {
+        "frame_bytes": 134218,
+        "from_block": 1,
+        "to_block": 30,
+        "abi_bytes": 3044,
+        "blob_count": 1,
+        "blob_bytes": 131072
+      },
+      "blocks_count": 30,
+      "block_frame_bytes": 238098,
+      "witness_items": 999,
+      "witness_data_bytes": 208965,
+      "l1_headers": 7,
+      "l1_header_bytes": 4387,
+      "max_block_frame_bytes": 25624,
+      "min_block_frame_bytes": 4176,
+      "identity": {
+        "gnosis_l1": false,
+        "l2_system_address": "0xfffffffffffffffffffffffffffffffffffffffe",
+        "proof_system": "0x948b3c65b89df0b4894abe91e6d02fe579834f8f",
+        "registry_address": "0x71c95911e9a5d330f4d621842ec243ee1343292e",
+        "rollup_id": 1,
+        "rollup_manager_address": "0xbcf26943c0197d2ee0e5d05c716be60cc2761508",
+        "vkey": "0xb1bfe68060d84db5ca2f0398bef39ea34e3cd1cef9ecf58c73de8df4d45d186b"
+      },
+      "prefix_1_through_15": {
+        "blocks": 15,
+        "block_frame_bytes": 138924,
+        "witness_items": 522,
+        "l1_headers": 4,
+        "l1_header_bytes": 2500
+      },
+      "suffix_after_15": {
+        "blocks": 15,
+        "block_frame_bytes": 99174,
+        "witness_items": 477,
+        "l1_headers": 3,
+        "l1_header_bytes": 1887
+      },
+      "block_frame_bytes_by_number": [
+        6910,
+        5842,
+        6082,
+        4176,
+        4206,
+        4238,
+        4270,
+        6412,
+        4440,
+        4367,
+        23251,
+        23228,
+        24900,
+        11920,
+        4682,
+        4679,
+        4608,
+        6692,
+        4933,
+        4775,
+        4789,
+        4704,
+        6873,
+        4959,
+        5010,
+        4769,
+        4886,
+        6921,
+        4952,
+        25624
+      ],
+      "l1_segments": [
+        {
+          "number": 1,
+          "headers": 1,
+          "bytes": 610
+        },
+        {
+          "number": 3,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 8,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 13,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 18,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 23,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 28,
+          "headers": 1,
+          "bytes": 627
+        }
+      ],
+      "configuration_sha256": {
+        "identity.json": "78b8ab8f8d31a9764492377b4675bed8c646ac7c350519863aff02e0ef72c715",
+        "l1-genesis.json": "20985041185c974013aedf9277da89995cc80f37733a22d7fe0271ef0243058a",
+        "l2-genesis.json": "6cdcdafa83ab60ad22be2ad4473fe788efb72ba18f91c97bc0c0e8786c51cce2",
+        "response.json": "0f2884a8045fdd2bc4c67f2a82897e0b44d57257aba2722476c6cbdee3e4aade"
+      }
+    },
+    {
+      "fixture": "native-osaka-lookup",
+      "request_sha256": "0d73c10fb10b8f000fa03bc0c59d956cb0479264edff240378e3127c0ab7a68c",
+      "length_delimited_bytes": 495704,
+      "protobuf_payload_bytes": 495605,
+      "grpc_messages": 47,
+      "begin_bytes": 74,
+      "finalize": {
+        "frame_bytes": 133290,
+        "from_block": 1,
+        "to_block": 45,
+        "abi_bytes": 2116,
+        "blob_count": 1,
+        "blob_bytes": 131072
+      },
+      "blocks_count": 45,
+      "block_frame_bytes": 362241,
+      "witness_items": 1649,
+      "witness_data_bytes": 321084,
+      "l1_headers": 10,
+      "l1_header_bytes": 6277,
+      "max_block_frame_bytes": 43416,
+      "min_block_frame_bytes": 4176,
+      "identity": {
+        "gnosis_l1": false,
+        "l2_system_address": "0xfffffffffffffffffffffffffffffffffffffffe",
+        "proof_system": "0x948b3c65b89df0b4894abe91e6d02fe579834f8f",
+        "registry_address": "0x71c95911e9a5d330f4d621842ec243ee1343292e",
+        "rollup_id": 1,
+        "rollup_manager_address": "0xbcf26943c0197d2ee0e5d05c716be60cc2761508",
+        "vkey": "0x808c11d36e6b7c4db0c94d9b6ee3443fc5d58b705342966c5e654f2f5fea9351"
+      },
+      "prefix_1_through_15": {
+        "blocks": 15,
+        "block_frame_bytes": 138924,
+        "witness_items": 522,
+        "l1_headers": 4,
+        "l1_header_bytes": 2500
+      },
+      "suffix_after_15": {
+        "blocks": 30,
+        "block_frame_bytes": 223317,
+        "witness_items": 1127,
+        "l1_headers": 6,
+        "l1_header_bytes": 3777
+      },
+      "block_frame_bytes_by_number": [
+        6910,
+        5842,
+        6082,
+        4176,
+        4206,
+        4238,
+        4270,
+        6412,
+        4440,
+        4367,
+        23251,
+        23228,
+        24900,
+        11920,
+        4682,
+        4679,
+        4608,
+        6692,
+        4933,
+        4775,
+        4789,
+        4704,
+        6873,
+        4959,
+        5010,
+        7088,
+        4855,
+        6887,
+        4918,
+        4884,
+        4870,
+        4870,
+        6968,
+        5113,
+        5001,
+        5001,
+        4884,
+        7110,
+        5216,
+        5214,
+        23898,
+        8599,
+        7347,
+        5156,
+        43416
+      ],
+      "l1_segments": [
+        {
+          "number": 1,
+          "headers": 1,
+          "bytes": 610
+        },
+        {
+          "number": 3,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 8,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 13,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 18,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 23,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 28,
+          "headers": 1,
+          "bytes": 627
+        },
+        {
+          "number": 33,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 38,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 43,
+          "headers": 1,
+          "bytes": 630
+        }
+      ],
+      "configuration_sha256": {
+        "identity.json": "0af574f05a95e64720e2d135d064bea33085d77fc6ffbe8776a20ff2fe8f0be6",
+        "l1-genesis.json": "575c1e48df4cf0715be1874ad677f835193b859a548ee59f5a49a0075ed0d902",
+        "l2-genesis.json": "28f0bad675b5d2aed6e032ca17b6cbee8bdc8722283d043dde43378f45b37c28",
+        "response.json": "a0a9562136dcd07450bd810f5ce9c8bdcdc3358c26562f536bc2ece4de18f731"
+      }
+    },
+    {
+      "fixture": "native-osaka-changing-static",
+      "request_sha256": "1fe166d45767246605c6e6b2ae62aea4fc3ca6047a81ea45994eb9b6e048f6d4",
+      "length_delimited_bytes": 375974,
+      "protobuf_payload_bytes": 375906,
+      "grpc_messages": 32,
+      "begin_bytes": 74,
+      "finalize": {
+        "frame_bytes": 135018,
+        "from_block": 1,
+        "to_block": 30,
+        "abi_bytes": 3844,
+        "blob_count": 1,
+        "blob_bytes": 131072
+      },
+      "blocks_count": 30,
+      "block_frame_bytes": 240814,
+      "witness_items": 1024,
+      "witness_data_bytes": 211321,
+      "l1_headers": 7,
+      "l1_header_bytes": 4387,
+      "max_block_frame_bytes": 28340,
+      "min_block_frame_bytes": 4176,
+      "identity": {
+        "gnosis_l1": false,
+        "l2_system_address": "0xfffffffffffffffffffffffffffffffffffffffe",
+        "proof_system": "0x948b3c65b89df0b4894abe91e6d02fe579834f8f",
+        "registry_address": "0x71c95911e9a5d330f4d621842ec243ee1343292e",
+        "rollup_id": 1,
+        "rollup_manager_address": "0xbcf26943c0197d2ee0e5d05c716be60cc2761508",
+        "vkey": "0x981d974d1b830553d0f9d7c05881262e034c23f6afb2831010e326fa1bb32c75"
+      },
+      "prefix_1_through_15": {
+        "blocks": 15,
+        "block_frame_bytes": 138924,
+        "witness_items": 522,
+        "l1_headers": 4,
+        "l1_header_bytes": 2500
+      },
+      "suffix_after_15": {
+        "blocks": 15,
+        "block_frame_bytes": 101890,
+        "witness_items": 502,
+        "l1_headers": 3,
+        "l1_header_bytes": 1887
+      },
+      "block_frame_bytes_by_number": [
+        6910,
+        5842,
+        6082,
+        4176,
+        4206,
+        4238,
+        4270,
+        6412,
+        4440,
+        4367,
+        23251,
+        23228,
+        24900,
+        11920,
+        4682,
+        4679,
+        4608,
+        6692,
+        4933,
+        4775,
+        4789,
+        4704,
+        6873,
+        4959,
+        5010,
+        4769,
+        4886,
+        6921,
+        4952,
+        28340
+      ],
+      "l1_segments": [
+        {
+          "number": 1,
+          "headers": 1,
+          "bytes": 610
+        },
+        {
+          "number": 3,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 8,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 13,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 18,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 23,
+          "headers": 1,
+          "bytes": 630
+        },
+        {
+          "number": 28,
+          "headers": 1,
+          "bytes": 627
+        }
+      ],
+      "configuration_sha256": {
+        "identity.json": "525505b0c3ad559c5287bd6f734e85d3de24806d09aa0ab6ea0106c52670d2b8",
+        "l1-genesis.json": "939cc3828ff10581f141c9153d4d977d275c2f0ae1f3555e0b4efb090c5c4231",
+        "l2-genesis.json": "594654f804f90ee15f058608330116d0a4c9ec48d62fa2b2ea8167f705d5bf76",
+        "response.json": "e9af173c7ca23b25e3f8dfeea54419dcb3ab9393bcd31b6ab33ae4adefd2c9c5"
+      }
+    }
+  ]
+}

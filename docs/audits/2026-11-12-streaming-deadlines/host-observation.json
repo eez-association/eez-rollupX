@@ -1,0 +1,199 @@
+{
+  "status": "ineligible: no workload timing attempted",
+  "start_utc": "2026-11-12T16:04:46.775354+00:00",
+  "end_utc": "2026-11-12T16:06:46.821841+00:00",
+  "sample_count": 13,
+  "affinity_cpus": 22,
+  "cpu_counters": "host /proc/stat, not affinity-restricted; no isolated-host claim",
+  "load_min": [
+    8.4423828125,
+    9.34375,
+    10.03369140625
+  ],
+  "load_max": [
+    9.28369140625,
+    9.71484375,
+    10.2333984375
+  ],
+  "mem_available_kib_min": 16841376,
+  "mem_available_kib_max": 17356300,
+  "swap_used_kib_min": 7577956,
+  "swap_used_kib_max": 7577980,
+  "disk_free_bytes": {
+    "/": {
+      "min": 506839040,
+      "max": 587632640
+    },
+    "/tmp": {
+      "min": 7175626752,
+      "max": 7520722944
+    },
+    "/dev/shm": {
+      "min": 18698543104,
+      "max": 18698543104
+    }
+  },
+  "intervals": [
+    {
+      "end_utc": "2026-11-12T16:04:56.790087+00:00",
+      "seconds": 10.015,
+      "cpu_idle_pct": 67.08,
+      "cpu_iowait_pct": 0.19,
+      "swapin_pages": 0,
+      "swapout_pages": 0
+    },
+    {
+      "end_utc": "2026-11-12T16:05:06.790868+00:00",
+      "seconds": 10.001,
+      "cpu_idle_pct": 63.83,
+      "cpu_iowait_pct": 0.17,
+      "swapin_pages": 0,
+      "swapout_pages": 0
+    },
+    {
+      "end_utc": "2026-11-12T16:05:16.791670+00:00",
+      "seconds": 10.001,
+      "cpu_idle_pct": 61.07,
+      "cpu_iowait_pct": 0.15,
+      "swapin_pages": 0,
+      "swapout_pages": 0
+    },
+    {
+      "end_utc": "2026-11-12T16:05:26.792662+00:00",
+      "seconds": 10.001,
+      "cpu_idle_pct": 64.6,
+      "cpu_iowait_pct": 0.18,
+      "swapin_pages": 0,
+      "swapout_pages": 0
+    },
+    {
+      "end_utc": "2026-11-12T16:05:36.793897+00:00",
+      "seconds": 10.001,
+      "cpu_idle_pct": 65.84,
+      "cpu_iowait_pct": 0.16,
+      "swapin_pages": 0,
+      "swapout_pages": 0
+    },
+    {
+      "end_utc": "2026-11-12T16:05:46.795057+00:00",
+      "seconds": 10.001,
+      "cpu_idle_pct": 66.61,
+      "cpu_iowait_pct": 0.2,
+      "swapin_pages": 0,
+      "swapout_pages": 0
+    },
+    {
+      "end_utc": "2026-11-12T16:05:56.817831+00:00",
+      "seconds": 10.023,
+      "cpu_idle_pct": 67.63,
+      "cpu_iowait_pct": 0.15,
+      "swapin_pages": 0,
+      "swapout_pages": 0
+    },
+    {
+      "end_utc": "2026-11-12T16:06:06.818781+00:00",
+      "seconds": 10.001,
+      "cpu_idle_pct": 70.82,
+      "cpu_iowait_pct": 0.16,
+      "swapin_pages": 0,
+      "swapout_pages": 0
+    },
+    {
+      "end_utc": "2026-11-12T16:06:16.819502+00:00",
+      "seconds": 10.001,
+      "cpu_idle_pct": 69.68,
+      "cpu_iowait_pct": 0.19,
+      "swapin_pages": 0,
+      "swapout_pages": 0
+    },
+    {
+      "end_utc": "2026-11-12T16:06:26.820217+00:00",
+      "seconds": 10.001,
+      "cpu_idle_pct": 65.85,
+      "cpu_iowait_pct": 0.2,
+      "swapin_pages": 0,
+      "swapout_pages": 0
+    },
+    {
+      "end_utc": "2026-11-12T16:06:36.821064+00:00",
+      "seconds": 10.001,
+      "cpu_idle_pct": 66.07,
+      "cpu_iowait_pct": 0.13,
+      "swapin_pages": 0,
+      "swapout_pages": 0
+    },
+    {
+      "end_utc": "2026-11-12T16:06:46.821841+00:00",
+      "seconds": 10.001,
+      "cpu_idle_pct": 65.45,
+      "cpu_iowait_pct": 0.17,
+      "swapin_pages": 0,
+      "swapout_pages": 0
+    }
+  ],
+  "process_checks": [
+    {
+      "utc": "2026-11-12T16:04:46.775354+00:00",
+      "top_commands": [
+        "beam.smp",
+        "eez-composer",
+        "rustc",
+        "caddy",
+        "python3"
+      ],
+      "build_test_commands": [
+        "cargo",
+        "cargo-clippy",
+        "rustc"
+      ]
+    },
+    {
+      "utc": "2026-11-12T16:05:46.795057+00:00",
+      "top_commands": [
+        "beam.smp",
+        "eez-composer",
+        "clippy-driver",
+        "caddy",
+        "postgres"
+      ],
+      "build_test_commands": [
+        "cargo",
+        "cargo-clippy"
+      ]
+    },
+    {
+      "utc": "2026-11-12T16:06:46.821841+00:00",
+      "top_commands": [
+        "beam.smp",
+        "eez-composer",
+        "rustc",
+        "caddy",
+        "postgres"
+      ],
+      "build_test_commands": [
+        "cargo",
+        "rustc"
+      ]
+    }
+  ],
+  "pressure_before": {
+    "cpu": "some avg10=0.00 avg60=0.00 avg300=0.05 total=2808174797\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "io": "some avg10=0.00 avg60=0.00 avg300=0.00 total=931323895\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=612431730",
+    "memory": "some avg10=0.00 avg60=0.00 avg300=0.00 total=50974062\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=46086002"
+  },
+  "pressure_during": {
+    "cpu": "some avg10=0.00 avg60=0.01 avg300=0.04 total=2808578712\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "io": "some avg10=0.00 avg60=0.00 avg300=0.00 total=931519674\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=612556685",
+    "memory": "some avg10=0.00 avg60=0.00 avg300=0.00 total=51023913\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=46135520"
+  },
+  "pressure_after": {
+    "cpu": "some avg10=0.00 avg60=0.00 avg300=0.03 total=2808940866\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+    "io": "some avg10=0.00 avg60=0.00 avg300=0.00 total=931728553\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=612684760",
+    "memory": "some avg10=0.00 avg60=0.00 avg300=0.00 total=51041483\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=46153088"
+  },
+  "raw_local_only": {
+    "path": "artifacts/issue148/host-observation.json",
+    "sha256": "f73555de4149c69eeffe4340b6018243a1815be8dcae702f3f21560bce4463f3",
+    "availability": "ignored, local-only; compact observations retained in this file"
+  }
+}
