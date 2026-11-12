@@ -487,6 +487,22 @@ it does not apply configuration changes. Recheck [health](#health-checks) afterw
 Use these diagnostics when startup fails or a running service stalls. Begin with
 [health and logs](#health-checks); do not delete state to clear an unexplained error.
 
+Node-owned RPC/beacon diagnostics identify configured endpoints by host only.
+Transport failures retain the operation, HTTP status or RPC code, and known
+connection/timeout categories. They omit URL userinfo, paths and queries, remote
+error bodies and arbitrary nested error text, which can echo credentials.
+Composer-generated front transport errors return HTTP 502 with `upstream request
+failed`; ordinary upstream RPC responses are still forwarded transparently.
+Check the named operation and status against the endpoint configuration locally;
+do not paste credential-bearing URLs into shared logs or issues. Third-party
+HTTP/RPC wire DEBUG or TRACE logging may include raw payloads; this redaction
+does not sanitize those dependency logs.
+
+This diagnostic-only change does not alter endpoint selection, authentication,
+queue ownership, protocol encoding or stored data. No migration or coordinated
+upgrade is required. Mixed versions retain their respective diagnostic behavior;
+rolling back restores the older credential-exposure risk.
+
 | Failure | First check and action |
 | --- | --- |
 | Missing configuration/bindings | Use `.env.chiado.example` as the configuration reference. A missing `deployments.env` requires completing deployment or restoring its original bindings; do not delete data. |

@@ -110,6 +110,25 @@ def main():
             write('history-ready.json', {'head': head['hash'],
                 'number': head['number'], 'timestamp': head['timestamp']})
             history_ready = True
+        hold = args.control / 'hold.json'
+        if hold.exists():
+            write('held.json', {'hash': head['hash'], 'number': head['number']})
+            release = args.control / 'resume.json'
+            while not release.exists():
+                time.sleep(0.05)
+            target = json.loads(release.read_text())
+            timestamp = target['timestamp']
+            if (target['parent'] != head['hash']
+                    or timestamp <= int(head['timestamp'], 16)
+                    or (timestamp - args.genesis_time) % args.block_seconds):
+                raise ValueError('held slot must extend its acknowledged parent')
+            # Keep the selected slot even when preparation outlasts wall time.
+            while timestamp > int(time.time()):
+                time.sleep(0.05)
+            head = adopt(build(head, timestamp))
+            hold.unlink()
+            release.unlink()
+            write('resumed.json', {'hash': head['hash']})
         delay_path = args.control / 'delay-slot.json'
         if delay_path.exists():
             pending = json.loads(delay_path.read_text())

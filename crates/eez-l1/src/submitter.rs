@@ -25,6 +25,7 @@ use alloy_provider::{Provider, ProviderBuilder, RootProvider};
 use tracing::{Level, event};
 
 use crate::config::{BuilderRelays, SubmitterConfig};
+use crate::diagnostics::{http_error, rpc_error};
 use crate::error::{L1Error, L1Result};
 use crate::l1_reader::L1Reader;
 
@@ -411,10 +412,12 @@ async fn rpc_block<P: Provider>(
     provider: &P,
     number: BlockNumberOrTag,
 ) -> L1Result<Option<alloy_rpc_types_eth::Block>> {
-    provider
-        .get_block_by_number(number)
-        .await
-        .map_err(|error| L1Error::Provider(format!("get_block_by_number({number}): {error}")))
+    provider.get_block_by_number(number).await.map_err(|error| {
+        L1Error::Provider(format!(
+            "get_block_by_number({number}): {}",
+            rpc_error(&error)
+        ))
+    })
 }
 
 /// Select the first unexpired slot for the observed head's immediate child.
@@ -745,7 +748,9 @@ impl Submitter {
                 http: reqwest::Client::builder()
                     .timeout(request_timeout)
                     .build()
-                    .map_err(|error| L1Error::Config(format!("submitter HTTP client: {error}")))?,
+                    .map_err(|error| {
+                        L1Error::Config(format!("submitter HTTP client: {}", http_error(&error)))
+                    })?,
             }),
         })
     }
@@ -923,10 +928,9 @@ impl Submitter {
             *post_batch_envelope.tx_hash()
         };
         let target_provider = &self.inner.target_provider;
-        let chain_id = target_provider
-            .get_chain_id()
-            .await
-            .map_err(|error| L1Error::Provider(format!("bundle source chain: {error}")))?;
+        let chain_id = target_provider.get_chain_id().await.map_err(|error| {
+            L1Error::Provider(format!("bundle source chain: {}", rpc_error(&error)))
+        })?;
         let mut reverting_hashes = inbound_revert_hashes(raw_txs, chain_id, post_batch_hash)?;
         let refund = quote.and_then(|pricing| pricing.refund);
         if let Some(refund) = refund {
@@ -1033,7 +1037,7 @@ impl Submitter {
             .target_provider
             .get_block_by_number(BlockNumberOrTag::Number(number))
             .await
-            .map_err(|error| L1Error::Provider(error.to_string()))?
+            .map_err(|error| L1Error::Provider(rpc_error(&error)))?
             .map(|block| block.header.hash))
     }
 
@@ -1045,7 +1049,7 @@ impl Submitter {
             .get_block_by_number(BlockNumberOrTag::Number(number))
             .hashes()
             .await
-            .map_err(|error| L1Error::Provider(error.to_string()))?
+            .map_err(|error| L1Error::Provider(rpc_error(&error)))?
             .ok_or_else(|| L1Error::Provider("target block is unavailable".into()))?;
         Ok(block.transactions.hashes().any(|hash| hash == tx_hash))
     }
@@ -1110,7 +1114,7 @@ impl Submitter {
             .get_block_by_hash(block.hash)
             .full()
             .await
-            .map_err(|e| L1Error::Provider(format!("refund block: {e}")))?
+            .map_err(|e| L1Error::Provider(format!("refund block: {}", rpc_error(&e))))?
             .ok_or_else(|| L1Error::Provider("refund block unavailable".into()))?;
         if full.header.hash != block.hash || full.header.number != block.number {
             return Err(L1Error::Provider("refund block identity changed".into()));
@@ -1156,7 +1160,7 @@ impl Submitter {
             let receipt = provider
                 .get_transaction_receipt(hash)
                 .await
-                .map_err(|e| L1Error::Provider(format!("refund receipt: {e}")))?
+                .map_err(|e| L1Error::Provider(format!("refund receipt: {}", rpc_error(&e))))?
                 .ok_or_else(|| L1Error::Provider("refund receipt unavailable".into()))?;
             if receipt.transaction_hash != hash
                 || receipt.block_hash != Some(block.hash)
@@ -1195,7 +1199,7 @@ impl Submitter {
             .target_provider
             .get_transaction_receipt(tx_hash)
             .await
-            .map_err(|e| L1Error::Provider(format!("get_transaction_receipt: {e}")))?
+            .map_err(|e| L1Error::Provider(format!("get_transaction_receipt: {}", rpc_error(&e))))?
             .is_some())
     }
 }
@@ -1216,7 +1220,9 @@ async fn canonical_target_was_skipped<P: Provider>(
     let target = provider
         .get_block_by_number(BlockNumberOrTag::Number(target_block))
         .await
-        .map_err(|error| L1Error::Provider(format!("canonical target header: {error}")))?
+        .map_err(|error| {
+            L1Error::Provider(format!("canonical target header: {}", rpc_error(&error)))
+        })?
         .ok_or_else(|| L1Error::Provider("canonical target header is unavailable".into()))?;
     if target.header.number != target_block {
         return Err(L1Error::Provider(
@@ -1234,7 +1240,9 @@ async fn canonical_target_was_skipped<P: Provider>(
     let parent = provider
         .get_block_by_number(BlockNumberOrTag::Number(parent_number))
         .await
-        .map_err(|error| L1Error::Provider(format!("canonical target parent: {error}")))?
+        .map_err(|error| {
+            L1Error::Provider(format!("canonical target parent: {}", rpc_error(&error)))
+        })?
         .ok_or_else(|| L1Error::Provider("canonical target parent is unavailable".into()))?;
     if parent.header.number != parent_number || target.header.parent_hash != parent.header.hash {
         return Err(L1Error::Provider(
@@ -1259,20 +1267,27 @@ async fn read_canonical_source<P: Provider>(
         .get_transaction_count(sender)
         .block_id(at.hash.into())
         .await
-        .map_err(|error| L1Error::Provider(format!("canonical source nonce: {error}")))?;
+        .map_err(|error| {
+            L1Error::Provider(format!("canonical source nonce: {}", rpc_error(&error)))
+        })?;
     // Alloy defaults a missing effectiveGasPrice to zero. Keep field presence
     // for accounting while still accepting the receipt's ownership evidence.
     let raw_receipt: serde_json::Value = provider
         .raw_request("eth_getTransactionReceipt".into(), (tx_hash,))
         .await
-        .map_err(|error| L1Error::Provider(format!("canonical source receipt: {error}")))?;
+        .map_err(|error| {
+            L1Error::Provider(format!("canonical source receipt: {}", rpc_error(&error)))
+        })?;
     let price_present = raw_receipt
         .get("effectiveGasPrice")
         .or_else(|| raw_receipt.get("gasPrice"))
         .is_some_and(|value| !value.is_null());
     let receipt: Option<alloy_rpc_types_eth::TransactionReceipt> =
         serde_json::from_value(raw_receipt).map_err(|error| {
-            L1Error::Provider(format!("canonical source receipt encoding: {error}"))
+            L1Error::Provider(format!(
+                "canonical source receipt encoding: {:?}",
+                error.classify()
+            ))
         })?;
     let receipt = match receipt {
         Some(receipt) => {
@@ -1339,7 +1354,7 @@ async fn require_canonical_block<P: Provider>(
     let canonical = provider
         .get_block_by_number(BlockNumberOrTag::Number(block.number))
         .await
-        .map_err(|error| L1Error::Provider(format!("canonical block: {error}")))?;
+        .map_err(|error| L1Error::Provider(format!("canonical block: {}", rpc_error(&error))))?;
     if canonical.is_none_or(|canonical| canonical.header.hash != block.hash) {
         return Err(L1Error::Provider(format!(
             "L1 block {} is missing or no longer canonical",
@@ -1615,7 +1630,7 @@ impl Inner {
                                 name: "eez.submitter.observe.head_read_failed",
                                 Level::WARN,
                                 tx_hash = %tx_hash,
-                                error = %err,
+                                error = %rpc_error(&err),
                                 "head read failed during bundle observation; retrying",
                             ),
                         },
@@ -1625,7 +1640,7 @@ impl Inner {
                     name: "eez.submitter.observe.receipt_read_failed",
                     Level::WARN,
                     tx_hash = %tx_hash,
-                    error = %err,
+                    error = %rpc_error(&err),
                     "receipt read failed during bundle observation; retrying",
                 ),
             }
@@ -1861,21 +1876,6 @@ async fn fan_out_bundle(
     }
 }
 
-/// Describe a relay HTTP failure without its URL, which may carry credentials.
-/// `reqwest` puts the URL only in the outer error; the source chain (connect,
-/// timeout, status or decode cause) is kept for diagnosis.
-fn relay_error(error: reqwest::Error) -> String {
-    let error = error.without_url();
-    let mut message = error.to_string();
-    let mut source = std::error::Error::source(&error);
-    while let Some(cause) = source {
-        message.push_str(": ");
-        message.push_str(&cause.to_string());
-        source = cause.source();
-    }
-    message
-}
-
 /// `X-Flashbots-Signature` value authenticating one serialized request body:
 /// `<address>:<signature>`, where the signature is an EIP-191 personal-message
 /// signature over the 0x-prefixed lowercase hex TEXT of `keccak256(body)`
@@ -1944,12 +1944,12 @@ async fn post_bundle(
         .body(body)
         .send()
         .await
-        .map_err(|e| L1Error::Provider(format!("eth_sendBundle POST: {}", relay_error(e))))?
+        .map_err(|e| L1Error::Provider(format!("eth_sendBundle POST: {}", http_error(&e))))?
         .error_for_status()
-        .map_err(|e| L1Error::Submission(format!("eth_sendBundle HTTP: {}", relay_error(e))))?
+        .map_err(|e| L1Error::Submission(format!("eth_sendBundle HTTP: {}", http_error(&e))))?
         .json()
         .await
-        .map_err(|e| L1Error::Provider(format!("eth_sendBundle decode: {}", relay_error(e))))?;
+        .map_err(|e| L1Error::Provider(format!("eth_sendBundle decode: {}", http_error(&e))))?;
     event!(
         name: "eez.submitter.bundle.sent",
         Level::INFO,
@@ -1957,7 +1957,7 @@ async fn post_bundle(
         builder_host = relays.host(index),
         target_block,
         tx_count,
-        response = %resp,
+        rpc_error_code = ?resp.pointer("/error/code").and_then(serde_json::Value::as_i64),
         "eth_sendBundle response received",
     );
     if let Some(err) = resp.get("error") {
@@ -1967,7 +1967,10 @@ async fn post_bundle(
         if err.get("code").and_then(serde_json::Value::as_i64) == Some(-32601) {
             return Err(L1Error::BundleRpcUnsupported);
         }
-        return Err(L1Error::Submission(format!("eth_sendBundle: {err}")));
+        return Err(L1Error::Submission(format!(
+            "eth_sendBundle: RPC error code {:?}",
+            err.get("code").and_then(serde_json::Value::as_i64)
+        )));
     }
     // Correlation metadata is optional: null and unfamiliar success payloads
     // keep their existing acknowledgement semantics. Never retain arbitrary
@@ -2137,7 +2140,7 @@ async fn pinned_slot_check<P: Provider>(
                 Level::WARN,
                 tx_hash = %tx_hash,
                 target_block = target.block,
-                error = %err,
+                error = %rpc_error(&err),
                 "pinned block read failed during bundle observation; retrying",
             );
             PinnedVerdict::Pending
@@ -2178,6 +2181,60 @@ mod tests {
         SubmissionTiming, SubmissionWindowState, TargetPreparation, bundle_request, pinned_verdict,
         prepare_submission_target, submission_window_bounds, submission_window_state,
     };
+
+    #[derive(Clone, Default)]
+    struct CapturedLogs(std::sync::Arc<std::sync::Mutex<String>>);
+
+    impl tracing::field::Visit for CapturedLogs {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            use std::fmt::Write;
+            write!(self.0.lock().unwrap(), " {field}={value:?}").unwrap();
+        }
+    }
+
+    impl tracing::Subscriber for CapturedLogs {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, attrs: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            attrs.record(&mut self.clone());
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, values: &tracing::span::Record<'_>) {
+            values.record(&mut self.clone());
+        }
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            event.record(&mut self.clone());
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    #[tokio::test]
+    async fn pinned_observation_redacts_remote_errors_and_stays_pending() {
+        use tracing::instrument::WithSubscriber as _;
+        let replies = alloy_transport::mock::Asserter::new();
+        replies.push_failure(serde_json::from_value(serde_json::json!({"code":-32603,"message":"sentinel-credential","data":{"url":"https://user:sentinel-password@example.test/sentinel-path?key=sentinel-query"}})).unwrap());
+        let provider = alloy_provider::ProviderBuilder::default().connect_mocked_client(replies);
+        let logs = CapturedLogs::default();
+        let verdict = super::pinned_slot_check(
+            &provider,
+            PreparedTarget {
+                block: 1,
+                timestamp: PIN,
+                expected_parent_hash: None,
+            },
+            B256::ZERO,
+        )
+        .with_subscriber(logs.clone())
+        .await;
+        assert_eq!(verdict, PinnedVerdict::Pending);
+        let logs = logs.0.lock().unwrap();
+        assert!(logs.contains("pinned block read failed"), "{logs}");
+        assert!(logs.contains("-32603"), "{logs}");
+        assert!(!logs.contains("sentinel-"), "{logs}");
+    }
 
     const PIN: u64 = 1_700_000_012;
 
@@ -2854,7 +2911,7 @@ mod tests {
     }
 
     fn rejection(code: i64) -> serde_json::Value {
-        serde_json::json!({"error": {"code": code, "message": "fixture relay rejection"}})
+        serde_json::json!({"error": {"code": code, "message": format!("fixture relay rejection {RELAY_SECRET}"), "data": {"nested": RELAY_SECRET}}})
     }
 
     async fn run_fan_out(
@@ -2971,6 +3028,24 @@ mod tests {
 
     fn assert_redacted(text: &str) {
         assert!(!text.contains(RELAY_SECRET), "relay secret leaked: {text}");
+    }
+
+    #[tokio::test]
+    async fn url_credentials_are_redacted_from_nested_relay_errors() {
+        let response = serde_json::json!({"error": {"code":-32000,"message":RELAY_SECRET,"data":{"nested":RELAY_SECRET}}});
+        let (url, _, server) = fake_relay(Some(response), Duration::ZERO).await;
+        let (result, relays) = run_fan_out(vec![url], Some(Duration::from_secs(5)), None).await;
+        let error = result.into_acknowledgement(&relays).unwrap_err();
+        server.await.unwrap();
+        for text in [
+            format!("{error}"),
+            format!("{error:?}"),
+            format!("{error:#}"),
+        ] {
+            assert_redacted(&text);
+            assert!(text.contains("eth_sendBundle"), "{text}");
+            assert!(text.contains("-32000"), "{text}");
+        }
     }
 
     #[tokio::test]

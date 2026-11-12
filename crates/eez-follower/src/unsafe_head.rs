@@ -124,7 +124,7 @@ where
             .sequencer_rpc
             .get_block_by_number(BlockNumberOrTag::Latest)
             .await
-            .map_err(|e| FollowerError::Rpc(e.to_string()))?
+            .map_err(|e| FollowerError::Rpc(eez_l1::diagnostics::rpc_error(&e)))?
         else {
             event!(
                 name: "eez.node.follower.block.not_yet_produced",

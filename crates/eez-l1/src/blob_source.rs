@@ -21,6 +21,7 @@ use tokio::sync::OnceCell;
 use url::Url;
 
 use crate::{
+    diagnostics::{http_error, rpc_error},
     error::{L1Error, L1Result},
     scan::ScannedBatch,
 };
@@ -115,8 +116,9 @@ impl BeaconBlobSource {
                     .await
                     .map_err(|error| {
                         L1Error::Provider(format!(
-                            "get_block_by_hash({}): {error}",
-                            scanned.l1_block_hash
+                            "get_block_by_hash({}): {}",
+                            scanned.l1_block_hash,
+                            rpc_error(&error)
                         ))
                     })?
                     .ok_or_else(|| L1Error::SourceIncomplete {
@@ -292,25 +294,27 @@ impl BeaconBlobSource {
             .get(endpoint.clone())
             .send()
             .await
-            .map_err(|error| L1Error::Provider(format!("beacon GET {endpoint}: {error}")))?;
+            .map_err(|error| {
+                L1Error::Provider(format!("beacon GET {path}: {}", http_error(&error)))
+            })?;
         let status = response.status();
         if !status.is_success() {
-            let response_detail = response.text().await.unwrap_or_default();
             if let Some((block, tx_hash, slot)) = sidecar_context {
                 return Err(L1Error::SourceIncomplete {
                     block,
                     tx_hash,
-                    detail: format!(
-                        "beacon blob sidecars for slot {slot} returned HTTP {status}: {response_detail}"
-                    ),
+                    detail: format!("beacon blob sidecars for slot {slot} returned HTTP {status}"),
                 });
             }
             return Err(L1Error::Provider(format!(
-                "beacon GET {endpoint} returned HTTP {status}: {response_detail}"
+                "beacon GET {path} returned HTTP {status}"
             )));
         }
         response.json::<Value>().await.map_err(|error| {
-            L1Error::Provider(format!("decode beacon JSON from {endpoint}: {error}"))
+            L1Error::Provider(format!(
+                "decode beacon JSON for {path}: {}",
+                http_error(&error)
+            ))
         })
     }
 
@@ -333,7 +337,9 @@ impl BeaconBlobSource {
             .get(endpoint.clone())
             .send()
             .await
-            .map_err(|error| L1Error::Provider(format!("beacon GET {endpoint}: {error}")))?;
+            .map_err(|error| {
+                L1Error::Provider(format!("beacon GET {path}: {}", http_error(&error)))
+            })?;
         let status = response.status();
         if status == reqwest::StatusCode::NOT_FOUND
             || status == reqwest::StatusCode::METHOD_NOT_ALLOWED
@@ -341,22 +347,22 @@ impl BeaconBlobSource {
             return Ok(None);
         }
         if !status.is_success() {
-            let response_detail = response.text().await.unwrap_or_default();
             if let Some((block, tx_hash, slot)) = sidecar_context {
                 return Err(L1Error::SourceIncomplete {
                     block,
                     tx_hash,
-                    detail: format!(
-                        "beacon blobs for slot {slot} returned HTTP {status}: {response_detail}"
-                    ),
+                    detail: format!("beacon blobs for slot {slot} returned HTTP {status}"),
                 });
             }
             return Err(L1Error::Provider(format!(
-                "beacon GET {endpoint} returned HTTP {status}: {response_detail}"
+                "beacon GET {path} returned HTTP {status}"
             )));
         }
         response.json::<Value>().await.map(Some).map_err(|error| {
-            L1Error::Provider(format!("decode beacon JSON from {endpoint}: {error}"))
+            L1Error::Provider(format!(
+                "decode beacon JSON for {path}: {}",
+                http_error(&error)
+            ))
         })
     }
 }
@@ -830,6 +836,57 @@ mod tests {
             error.to_string().contains("containing fork maximum is 6"),
             "{error}"
         );
+    }
+
+    #[tokio::test]
+    async fn url_credentials_are_redacted_from_beacon_errors() {
+        for optional in [false, true] {
+            for (status, payload, sidecar) in [
+                (503, "sentinel-response", false),
+                (503, "sentinel-response", true),
+                (200, "not JSON sentinel-response", false),
+            ] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (mut stream, _) = listener.accept().await.unwrap();
+                    let mut bytes = [0; 4096];
+                    let n = stream.read(&mut bytes).await.unwrap();
+                    let request = String::from_utf8_lossy(&bytes[..n]);
+                    assert!(request.starts_with("GET /sentinel-path/eth/v1/test "));
+                    assert!(
+                        request
+                            .to_ascii_lowercase()
+                            .contains("authorization: basic ")
+                    );
+                    stream.write_all(format!("HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}", payload.len()).as_bytes()).await.unwrap();
+                });
+                let url = format!("http://sentinel-user:sentinel-password@{address}/sentinel-path/?key=sentinel-query").parse().unwrap();
+                let source = BeaconBlobSource::new(Some(url));
+                let context = sidecar.then_some((42, B256::ZERO, 7));
+                let error = if optional {
+                    source
+                        .get_json_if_present("eth/v1/test", context)
+                        .await
+                        .unwrap_err()
+                } else {
+                    source.get_json("eth/v1/test", context).await.unwrap_err()
+                };
+                server.await.unwrap();
+                for text in [
+                    format!("{error}"),
+                    format!("{error:?}"),
+                    format!("{error:#}"),
+                ] {
+                    assert!(!text.contains("sentinel-"), "{text}");
+                    assert!(
+                        text.contains(if status == 503 { "503" } else { "decode" }),
+                        "{text}"
+                    );
+                }
+                assert_eq!(error.is_source_incomplete(), sidecar);
+            }
+        }
     }
 
     async fn serve_json_responses(responses: Vec<String>) -> Url {

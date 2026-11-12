@@ -264,7 +264,7 @@ impl PostingRuntime {
         let chain_id = provider
             .get_chain_id()
             .await
-            .map_err(|e| PostingError::Unavailable(e.to_string()))?;
+            .map_err(|e| PostingError::Unavailable(eez_l1::diagnostics::rpc_error(&e)))?;
         if chain_id != self.ctx.l1_chain_id
             || chain_id != self.chain.evm_config.chain_spec().chain().id()
         {
@@ -275,7 +275,7 @@ impl PostingRuntime {
         let head = provider
             .get_block_by_number(pinned.map_or(BlockNumberOrTag::Latest, |b| b.number.into()))
             .await
-            .map_err(|e| PostingError::Unavailable(e.to_string()))?
+            .map_err(|e| PostingError::Unavailable(eez_l1::diagnostics::rpc_error(&e)))?
             .ok_or_else(|| PostingError::Unavailable("canonical fee sample is missing".into()))?;
         let sample = L1BlockRef {
             number: head.header.number,
@@ -337,7 +337,12 @@ impl PostingRuntime {
                     &[f64::from(percentile)],
                 )
                 .await
-                .map_err(|e| PostingError::Unavailable(format!("priority fee history: {e}")))?;
+                .map_err(|e| {
+                    PostingError::Unavailable(format!(
+                        "priority fee history: {}",
+                        eez_l1::diagnostics::rpc_error(&e)
+                    ))
+                })?;
             let rewards = history.reward.as_deref();
             Some(estimate_next_block_priority_fee(
                 history.oldest_block,
@@ -363,7 +368,7 @@ impl PostingRuntime {
         let check = provider
             .get_block_by_number(pinned.map_or(BlockNumberOrTag::Latest, |b| b.number.into()))
             .await
-            .map_err(|e| PostingError::Unavailable(e.to_string()))?
+            .map_err(|e| PostingError::Unavailable(eez_l1::diagnostics::rpc_error(&e)))?
             .ok_or_else(|| PostingError::Unavailable("fee sample disappeared".into()))?;
         if check.header.hash != sample.hash || check.header.number != sample.number {
             return Err(PostingError::Unavailable(
@@ -573,7 +578,7 @@ impl PostingRuntime {
             .get_balance(self.ctx.l1_poster_signer.address())
             .block_id(quote.quote.sample.hash.into())
             .await
-            .map_err(|e| PostingError::Unavailable(e.to_string()))?;
+            .map_err(|e| PostingError::Unavailable(eez_l1::diagnostics::rpc_error(&e)))?;
         let probe_gas = quote
             .quote
             .affordable_gas(balance, quote.gas_budget, blobs)?

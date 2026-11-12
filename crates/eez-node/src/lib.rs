@@ -848,7 +848,12 @@ async fn launch_composer(
             tokio::time::timeout(L1_CHAIN_ID_READ_TIMEOUT, l1_provider.get_chain_id())
                 .await
                 .map_err(|_| eyre::eyre!("timed out reading chain id from EEZ_L1_RPC_URL"))?
-                .map_err(|e| eyre::eyre!("read chain id from EEZ_L1_RPC_URL: {e}"))?;
+                .map_err(|e| {
+                    eyre::eyre!(
+                        "read chain id from EEZ_L1_RPC_URL: {}",
+                        eez_l1::diagnostics::rpc_error(&e)
+                    )
+                })?;
         let l1_poster_key = env::var("EEZ_L1_POSTER_KEY")
             .map_err(|_| eyre::eyre!("EEZ_L1_POSTER_KEY required for L1 postBatch signing"))?;
         let l1_poster_signer =
@@ -1296,7 +1301,7 @@ fn read_xchain_front_config(
     let url = match env::var(url_env) {
         Ok(value) => Some(value),
         Err(env::VarError::NotPresent) => None,
-        Err(err) => return Err(eyre::eyre!("{url_env} is not valid unicode: {err}")),
+        Err(_) => return Err(eyre::eyre!("{url_env} is not valid unicode")),
     };
     parse_xchain_front_config(port_env, url_env, port.as_deref(), url.as_deref())
 }
@@ -1316,7 +1321,7 @@ fn parse_xchain_front_config(
     };
     let parsed = url_raw
         .parse::<reqwest::Url>()
-        .map_err(|err| eyre::eyre!("{url_env}={url_raw:?} malformed: {err}"))?;
+        .map_err(|err| eyre::eyre!("{url_env} malformed: {err}"))?;
     Ok((port, url_raw.to_string(), parsed))
 }
 
@@ -1638,7 +1643,28 @@ mod tests {
         let err = parse_xchain_front_config("PORT", "URL", Some("8546"), Some("not a url"))
             .unwrap_err()
             .to_string();
-        assert!(err.contains("URL=\"not a url\" malformed"));
+        assert!(err.contains("URL malformed"));
+    }
+
+    #[test]
+    fn xchain_front_malformed_url_does_not_echo_credentials() {
+        let error = parse_xchain_front_config(
+            "PORT",
+            "URL",
+            Some("8546"),
+            Some(
+                "http://sentinel-user:sentinel-password@bad host/sentinel-path?key=sentinel-query",
+            ),
+        )
+        .unwrap_err();
+        for text in [
+            format!("{error}"),
+            format!("{error:#}"),
+            format!("{error:?}"),
+        ] {
+            assert!(text.contains("URL malformed"));
+            assert!(!text.contains("sentinel-"), "{text}");
+        }
     }
 
     #[test]

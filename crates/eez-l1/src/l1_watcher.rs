@@ -35,6 +35,7 @@ use tracing::{Level, event};
 use url::Url;
 
 use crate::blob_source::BeaconBlobSource;
+use crate::diagnostics::{endpoint_host, rpc_error};
 use crate::error::{L1Error, L1Result};
 use crate::scan::ScannedBatch;
 
@@ -138,7 +139,7 @@ pub enum L1Event {
 }
 
 /// Configuration for the [`L1Watcher`].
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct L1WatcherConfig {
     /// L1 RPC endpoint (HTTP / HTTPS). Uses the same `EEZ_L1_RPC_URL` as
     /// [`L1ReaderConfig`](crate::L1ReaderConfig).
@@ -157,6 +158,18 @@ pub struct L1WatcherConfig {
     /// bound. Configurable so dev / testnet operators can tighten or
     /// loosen.
     pub reorg_max_depth: usize,
+}
+
+impl std::fmt::Debug for L1WatcherConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("L1WatcherConfig")
+            .field("rpc_url", &endpoint_host(&self.rpc_url))
+            .field("beacon_url", &self.beacon_url.as_ref().map(endpoint_host))
+            .field("eez", &self.eez)
+            .field("rollup_id", &self.rollup_id)
+            .field("reorg_max_depth", &self.reorg_max_depth)
+            .finish()
+    }
 }
 
 impl L1WatcherConfig {
@@ -241,13 +254,7 @@ struct Inner {
 impl std::fmt::Debug for L1Watcher {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("L1Watcher")
-            .field("rpc_url", &self.inner.config.rpc_url.as_str())
-            .field(
-                "beacon_url",
-                &self.inner.config.beacon_url.as_ref().map(Url::as_str),
-            )
-            .field("eez", &self.inner.config.eez)
-            .field("reorg_max_depth", &self.inner.config.reorg_max_depth)
+            .field("config", &self.inner.config)
             .field("subscribers", &self.inner.event_tx.receiver_count())
             .finish()
     }
@@ -1040,7 +1047,7 @@ async fn fetch_block_by_tag(
     let block = provider
         .get_block_by_number(tag)
         .await
-        .map_err(|e| L1Error::Provider(format!("get_block({tag:?}): {e}")))?
+        .map_err(|e| L1Error::Provider(format!("get_block({tag:?}): {}", rpc_error(&e))))?
         .ok_or_else(|| L1Error::Provider(format!("block({tag:?}) returned None")))?;
     Ok(BlockSnapshot {
         number: block.header.number,
@@ -1054,7 +1061,7 @@ async fn fetch_block_by_hash(provider: &impl Provider, hash: B256) -> L1Result<B
     let block = provider
         .get_block_by_hash(hash)
         .await
-        .map_err(|e| L1Error::Provider(format!("get_block_by_hash({hash}): {e}")))?
+        .map_err(|e| L1Error::Provider(format!("get_block_by_hash({hash}): {}", rpc_error(&e))))?
         .ok_or_else(|| L1Error::Provider(format!("block({hash}) returned None")))?;
     Ok(BlockSnapshot {
         number: block.header.number,

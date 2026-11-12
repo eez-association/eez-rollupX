@@ -13,6 +13,7 @@ use eez_protocol::abi::{
 };
 use tracing::{Level, event};
 
+use crate::diagnostics::rpc_error;
 use crate::error::{L1Error, L1Result};
 
 /// Initial block span for historical log scans. Wide catch-up gaps are
@@ -304,6 +305,10 @@ pub(crate) fn is_range_too_wide(err: &L1Error) -> bool {
     let L1Error::Provider(msg) = err else {
         return false;
     };
+    range_message_too_wide(msg)
+}
+
+fn range_message_too_wide(msg: &str) -> bool {
     let m = msg.to_ascii_lowercase();
     m.contains("exceeds max results")
         || m.contains("query returned more than")
@@ -314,6 +319,17 @@ pub(crate) fn is_range_too_wide(err: &L1Error) -> bool {
         || m.contains("range is too large")
         || m.contains("block range too large")
         || m.contains("too many results")
+}
+
+/// Retain only the existing query-splitting decision from the remote message.
+/// Arbitrary provider text must not escape into logs or nested errors.
+pub(crate) fn log_query_error(error: &alloy_transport::TransportError) -> String {
+    let summary = rpc_error(error);
+    if range_message_too_wide(&error.to_string()) {
+        format!("{summary}; block range too large")
+    } else {
+        summary
+    }
 }
 
 /// Scan `[from, to]`, halving the upper bound until the provider accepts. Returns
@@ -388,10 +404,9 @@ pub(crate) async fn scan_batch_logs_range(
         .event_signature(BatchPosted::SIGNATURE_HASH)
         .from_block(from_block)
         .to_block(BlockNumberOrTag::Number(to_block));
-    let logs = provider
-        .get_logs(&filter)
-        .await
-        .map_err(|e| L1Error::Provider(format!("get_logs(BatchPosted): {e}")))?;
+    let logs = provider.get_logs(&filter).await.map_err(|e| {
+        L1Error::Provider(format!("get_logs(BatchPosted): {}", log_query_error(&e)))
+    })?;
 
     // Keep settlement outcomes in one RPC query. Besides reducing scan work,
     // this guarantees that performed and skipped entries are observed over the
@@ -405,10 +420,12 @@ pub(crate) async fn scan_batch_logs_range(
         ])
         .from_block(from_block)
         .to_block(BlockNumberOrTag::Number(to_block));
-    let outcome_logs = provider
-        .get_logs(&outcomes_filter)
-        .await
-        .map_err(|e| L1Error::Provider(format!("get_logs(settlement outcomes): {e}")))?;
+    let outcome_logs = provider.get_logs(&outcomes_filter).await.map_err(|e| {
+        L1Error::Provider(format!(
+            "get_logs(settlement outcomes): {}",
+            log_query_error(&e)
+        ))
+    })?;
     let rollup_topic = B256::from(U256::from(rollup_id));
     let winner_logs = outcome_logs
         .iter()
@@ -895,7 +912,8 @@ async fn fetch_log_transaction(
         .await
         .map_err(|e| {
             L1Error::Provider(format!(
-                "get_tx({l1_block_hash}#{tx_index} for {tx_hash}): {e}"
+                "get_tx({l1_block_hash}#{tx_index} for {tx_hash}): {}",
+                rpc_error(&e)
             ))
         })?
     else {
@@ -2118,7 +2136,7 @@ mod tests {
             .await
             .expect_err("a one-block range cannot be narrowed further");
         assert!(
-            err.to_string().contains("exceeds max results"),
+            err.to_string().contains("block range too large"),
             "got: {err}"
         );
         assert_eq!(chunks.ranges.len(), 1, "range preserved for retry");
@@ -2142,7 +2160,7 @@ mod tests {
             .await
             .expect_err("injected failure must propagate");
         assert!(
-            err.to_string().contains("injected"),
+            err.to_string().contains("RPC error -32603"),
             "unexpected error: {err}"
         );
         // Range NOT consumed.

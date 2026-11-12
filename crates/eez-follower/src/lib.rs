@@ -43,7 +43,7 @@ impl FollowerSystemConfig {
 }
 
 /// Follower-specific CLI arguments layered on top of reth's CLI.
-#[derive(clap::Args, Debug, Clone)]
+#[derive(clap::Args, Clone)]
 struct FollowerArgs {
     /// Trusted L1 profile: mainnet, chiado, or a genesis/ChainConfig file.
     #[arg(long, env = "EEZ_L1_CHAIN_CONFIG")]
@@ -52,6 +52,21 @@ struct FollowerArgs {
     /// overlay; safe and finalized remain L1-derived.
     #[arg(long, env = "EEZ_SEQUENCER_RPC")]
     sequencer_rpc: Option<url::Url>,
+}
+
+impl std::fmt::Debug for FollowerArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FollowerArgs")
+            .field("l1_chain_config", &self.l1_chain_config)
+            .field(
+                "sequencer_rpc",
+                &self
+                    .sequencer_rpc
+                    .as_ref()
+                    .map(eez_l1::diagnostics::endpoint_host),
+            )
+            .finish()
+    }
 }
 
 /// Launch an L1-derived follower node.
@@ -303,4 +318,23 @@ fn read_l1_chain_id() -> eyre::Result<u64> {
     value
         .parse::<u64>()
         .map_err(|err| eyre::eyre!("EEZ_L1_CHAIN_ID={value:?} malformed: {err}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn url_credentials_are_redacted_from_follower_args() {
+        let url: url::Url = "http://sentinel-user:sentinel-password@localhost:8545/sentinel-path?key=sentinel-query".parse().unwrap();
+        let args = FollowerArgs {
+            l1_chain_config: None,
+            sequencer_rpc: Some(url.clone()),
+        };
+        for debug in [format!("{args:?}"), format!("{args:#?}")] {
+            assert!(!debug.contains("sentinel-"), "{debug}");
+            assert!(debug.contains("localhost"), "{debug}");
+        }
+        assert_eq!(args.sequencer_rpc, Some(url));
+    }
 }

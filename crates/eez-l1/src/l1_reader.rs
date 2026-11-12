@@ -9,6 +9,7 @@ use alloy_sol_types::SolEvent as _;
 
 use crate::blob_source::BeaconBlobSource;
 use crate::config::L1ReaderConfig;
+use crate::diagnostics::rpc_error;
 use crate::error::{L1Error, L1Result};
 use crate::scan::{BatchLogChunks, ScannedBatch, scan_next_batch_log_chunk};
 
@@ -88,7 +89,7 @@ impl L1Reader {
         let latest = provider
             .get_block_number()
             .await
-            .map_err(|e| L1Error::Provider(format!("get_block_number: {e}")))?;
+            .map_err(|e| L1Error::Provider(format!("get_block_number: {}", rpc_error(&e))))?;
         Ok(BatchLogChunks::new(from_block, latest))
     }
 
@@ -128,7 +129,9 @@ impl L1Reader {
         Ok(provider
             .get_block_by_number(BlockNumberOrTag::Number(number))
             .await
-            .map_err(|e| L1Error::Provider(format!("get_block_by_number({number}): {e}")))?
+            .map_err(|e| {
+                L1Error::Provider(format!("get_block_by_number({number}): {}", rpc_error(&e)))
+            })?
             .map(|b| b.header.hash))
     }
 
@@ -146,7 +149,9 @@ impl L1Reader {
         let canonical = provider
             .get_block_by_number(block.number.into())
             .await
-            .map_err(|error| L1Error::Provider(format!("canonical anchor header: {error}")))?
+            .map_err(|error| {
+                L1Error::Provider(format!("canonical anchor header: {}", rpc_error(&error)))
+            })?
             .filter(|header| {
                 header.header.hash == block.hash && header.header.number == block.number
             })
@@ -172,10 +177,9 @@ impl L1Reader {
         provider: &impl Provider,
         genesis_hash: alloy_primitives::B256,
     ) -> L1Result<RegistrationAnchor> {
-        let tip = provider
-            .get_block_number()
-            .await
-            .map_err(|error| L1Error::Provider(format!("registration head: {error}")))?;
+        let tip = provider.get_block_number().await.map_err(|error| {
+            L1Error::Provider(format!("registration head: {}", rpc_error(&error)))
+        })?;
         let mut from = self.config.deploy_block;
         while from <= tip {
             let mut to = from
@@ -193,7 +197,10 @@ impl L1Reader {
                 match provider.get_logs(&filter).await {
                     Ok(logs) => break logs,
                     Err(error) => {
-                        let error = L1Error::Provider(format!("registration logs: {error}"));
+                        let error = L1Error::Provider(format!(
+                            "registration logs: {}",
+                            crate::scan::log_query_error(&error)
+                        ));
                         if to > from && crate::scan::is_range_too_wide(&error) {
                             to = from + (to - from) / 2;
                         } else {
@@ -239,7 +246,9 @@ impl L1Reader {
                 let block = provider
                     .get_block_by_number(number.into())
                     .await
-                    .map_err(|error| L1Error::Provider(format!("registration block: {error}")))?
+                    .map_err(|error| {
+                        L1Error::Provider(format!("registration block: {}", rpc_error(&error)))
+                    })?
                     .ok_or_else(|| L1Error::Provider("registration block unavailable".into()))?;
                 if block.header.hash != hash || block.header.number != number {
                     return Err(L1Error::Provider(
@@ -278,7 +287,7 @@ impl L1Reader {
         self.build_provider()
             .get_chain_id()
             .await
-            .map_err(|e| L1Error::Provider(format!("eth_chainId: {e}")))
+            .map_err(|e| L1Error::Provider(format!("eth_chainId: {}", rpc_error(&e))))
     }
 
     /// Highest block number reported by the canonical L1 source.
@@ -290,7 +299,7 @@ impl L1Reader {
         self.build_provider()
             .get_block_number()
             .await
-            .map_err(|e| L1Error::Provider(format!("get_block_number: {e}")))
+            .map_err(|e| L1Error::Provider(format!("get_block_number: {}", rpc_error(&e))))
     }
 
     /// The L1 source's finalized block `(number, hash)`, or `None` when the
@@ -305,7 +314,7 @@ impl L1Reader {
         Ok(provider
             .get_block_by_number(BlockNumberOrTag::Finalized)
             .await
-            .map_err(|e| L1Error::Provider(format!("get_block(finalized): {e}")))?
+            .map_err(|e| L1Error::Provider(format!("get_block(finalized): {}", rpc_error(&e))))?
             .map(|b| (b.header.number, b.header.hash)))
     }
 
@@ -332,6 +341,59 @@ impl L1Reader {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn url_credentials_are_redacted_and_reader_uses_original_endpoint() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut bytes = [0; 4096];
+            let n = stream.read(&mut bytes).await.unwrap();
+            let request = String::from_utf8_lossy(&bytes[..n]);
+            assert!(request.starts_with("POST /sentinel-path?key=sentinel-query "));
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("authorization: basic ")
+            );
+            let body = r#"{"jsonrpc":"2.0","id":0,"error":{"code":-32603,"message":"sentinel-password","data":{"url":"sentinel-query"}}}"#;
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+        });
+        let reader = L1Reader::new(L1ReaderConfig {
+            rpc_url: format!(
+                "http://sentinel-user:sentinel-password@{address}/sentinel-path?key=sentinel-query"
+            )
+            .parse()
+            .unwrap(),
+            beacon_url: None,
+            eez: alloy_primitives::Address::ZERO,
+            rollup_id: 42,
+            deploy_block: 0,
+        });
+        let error = reader.chain_id().await.unwrap_err();
+        server.await.unwrap();
+        assert!(error.to_string().contains("eth_chainId"));
+        assert!(error.to_string().contains("-32603"));
+        let nested = eyre::Report::new(error).wrap_err("reader startup");
+        for text in [
+            format!("{nested}"),
+            format!("{nested:#}"),
+            format!("{nested:?}"),
+        ] {
+            assert!(!text.contains("sentinel-"), "{text}");
+        }
+    }
+
     use alloy_primitives::{Address, B256, U64};
     use alloy_transport::mock::Asserter;
     use std::sync::atomic::{AtomicBool, Ordering};

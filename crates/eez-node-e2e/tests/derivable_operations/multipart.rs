@@ -539,39 +539,19 @@ async fn catch_up(
             network_profile: profile.clone(),
             header_rules,
         };
-        let actual_target = if to == terminal_number {
-            // Leave one exact future inclusion slot for the final ordinary
-            // range. Skipped slots add no fabricated headers. Arm this only
-            // after the cold signer build, so compilation cannot use its time.
-            let head = wait_for(TIMEOUT, || async {
-                let head = l1
-                    .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
-                    .await?
-                    .unwrap();
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
-                Ok((head.header.timestamp + 3 > now).then_some(head))
-            })
+        let mut control = world.l1_reorg_control.take().unwrap();
+        control.hold().await.unwrap();
+        let head = l1
+            .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
             .await
+            .unwrap()
             .unwrap();
-            let control = world.l1_reorg_control.as_mut().unwrap();
-            for slot in 1..12 {
-                control
-                    .skip_slot(head.header.timestamp + slot * 5)
-                    .await
-                    .unwrap();
-            }
-            Some(L1PostingContext {
-                chain_id: context.l1_chain_id,
-                parent_number: head.header.number,
-                parent_hash: head.header.hash.to_vec(),
-                target_timestamp: head.header.timestamp + 60,
-            })
-        } else {
-            None
-        };
+        let actual_target = (to == terminal_number).then(|| L1PostingContext {
+            chain_id: context.l1_chain_id,
+            parent_number: head.header.number,
+            parent_hash: head.header.hash.to_vec(),
+            target_timestamp: head.header.timestamp + 60,
+        });
         let actual_parent = actual_target.is_some();
         let part_started = Instant::now();
         let (batch, sidecar, target) = prove_cold_window(
@@ -593,7 +573,20 @@ async fn catch_up(
         assert_eq!(batch.blockNumber == u64::MAX, actual_parent);
         assert_eq!(cold.streaming_attestations().unwrap(), 1);
         let terminal = &blocks.last().unwrap().header;
-        post_native_proof(&world, batch, sidecar, target, terminal.hash_slow()).await;
+        // Cross a complete slot to exercise slow preparation against the held parent.
+        if parts == 0 {
+            tokio::time::sleep(Duration::from_secs(6)).await;
+        }
+        post_native_proof(
+            &world,
+            batch,
+            sidecar,
+            target,
+            terminal.hash_slow(),
+            Some(&mut control),
+        )
+        .await;
+        world.l1_reorg_control = Some(control);
         // Receipt success is not progress: wait for the runtime's canonical
         // consumption and compare the exact accepted block-hash commitment.
         wait_for_safe_prefix_convergence(&[&world.node], to, TIMEOUT)

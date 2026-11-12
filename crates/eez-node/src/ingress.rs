@@ -30,6 +30,7 @@ use alloy_eips::eip2718::Decodable2718 as _;
 use alloy_primitives::{Address, B256, Bytes, U256, keccak256};
 use alloy_provider::{Provider as _, RootProvider};
 use eez_composer::{AdmissionError, Direction, HeldPool, HeldTx};
+use eez_l1::diagnostics::{endpoint_host, http_error, rpc_error as provider_error};
 use http_body_util::{BodyExt as _, Full};
 use hyper::body::Bytes as HyperBytes;
 use hyper::header::CONTENT_LENGTH;
@@ -101,7 +102,8 @@ pub async fn gate_and_hold(
         Ok(_) => {}
         Err(e) => {
             return Admission::Rejected(format!(
-                "source-chain code lookup failed for target {to}: {e}"
+                "source-chain code lookup failed for target {to}: {}",
+                provider_error(&e)
             ));
         }
     }
@@ -110,7 +112,10 @@ pub async fn gate_and_hold(
     let balance = match validation_provider.get_balance(sender).await {
         Ok(b) => b,
         Err(e) => {
-            return Admission::Rejected(format!("source-chain balance lookup failed: {e}"));
+            return Admission::Rejected(format!(
+                "source-chain balance lookup failed: {}",
+                provider_error(&e)
+            ));
         }
     };
     if balance < cost {
@@ -141,7 +146,12 @@ pub async fn gate_and_hold(
         .await
     {
         Ok(n) => n,
-        Err(e) => return Admission::Rejected(format!("source-chain nonce lookup failed: {e}")),
+        Err(e) => {
+            return Admission::Rejected(format!(
+                "source-chain nonce lookup failed: {}",
+                provider_error(&e)
+            ));
+        }
     };
     if let Err(err) = held_pool.push_contiguous(tx, on_chain) {
         return Admission::Rejected(match err {
@@ -263,7 +273,7 @@ async fn check_block_gas_limit(
     let block = validation_provider
         .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
         .await
-        .map_err(|e| format!("source-chain block lookup failed: {e}"))?
+        .map_err(|e| format!("source-chain block lookup failed: {}", provider_error(&e)))?
         .ok_or_else(|| "source-chain block lookup returned no block".to_string())?;
     let block_gas_limit = block.header.gas_limit;
     if envelope.gas_limit() > block_gas_limit {
@@ -324,7 +334,10 @@ pub async fn validate_cross_chain_front(
     expected_source_chain_id: u64,
 ) -> eyre::Result<()> {
     let upstream = validation_provider.get_chain_id().await.map_err(|e| {
-        eyre::eyre!("cross-chain front: upstream chain id lookup failed at startup: {e}")
+        eyre::eyre!(
+            "cross-chain front: upstream chain id lookup failed at startup: {}",
+            provider_error(&e)
+        )
     })?;
     if upstream != expected_source_chain_id {
         return Err(eyre::eyre!(
@@ -394,12 +407,13 @@ pub(crate) async fn run_cross_chain_front_with_estimator(
     let listener = TcpListener::bind(addr).await?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
-        .build()?;
+        .build()
+        .map_err(|e| eyre::eyre!("front HTTP client: {}", http_error(&e)))?;
     event!(
         name: "eez.xchain_front.listening",
         Level::INFO,
         %port,
-        %upstream_rpc_url,
+        upstream_host = reqwest::Url::parse(&upstream_rpc_url).ok().as_ref().map(endpoint_host),
         direction = ?direction,
         expected_source_chain_id,
         %dispatch_address,
@@ -837,17 +851,14 @@ async fn transaction_is_cross_chain(ctx: &Ctx, envelope: &TxEnvelope) -> Result<
         .json(&request)
         .send()
         .await
-        .map_err(|e| format!("debug_traceCall transport failed: {e}"))?;
+        .map_err(|e| format!("debug_traceCall transport failed: {}", http_error(&e)))?;
     let response: Value = response
         .json()
         .await
-        .map_err(|e| format!("debug_traceCall response decode failed: {e}"))?;
+        .map_err(|e| format!("debug_traceCall response decode failed: {}", http_error(&e)))?;
     let trace = response.get("result").ok_or_else(|| {
-        let detail = response
-            .get("error")
-            .cloned()
-            .unwrap_or_else(|| Value::String("missing result".into()));
-        format!("debug_traceCall failed: {detail}")
+        let code = response.pointer("/error/code").and_then(Value::as_i64);
+        format!("debug_traceCall failed: RPC error code {code:?}")
     })?;
     Ok(trace_contains_cross_chain_call(trace, ctx.dispatch_address))
 }
@@ -982,10 +993,10 @@ async fn forward(ctx: &Ctx, body: Vec<u8>) -> Response<Full<HyperBytes>> {
                 .expect("valid response")
         }
         Err(e) => {
-            event!(name: "eez.xchain_front.upstream_error", Level::WARN, error = %e, "upstream error");
+            event!(name: "eez.xchain_front.upstream_error", Level::WARN, error = %http_error(&e), "upstream error");
             Response::builder()
                 .status(StatusCode::BAD_GATEWAY)
-                .body(Full::new(HyperBytes::from(format!("upstream error: {e}"))))
+                .body(Full::new(HyperBytes::from("upstream request failed")))
                 .expect("valid response")
         }
     }
@@ -1003,6 +1014,243 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[derive(Clone, Default)]
+    struct CapturedLogs(Arc<std::sync::Mutex<String>>);
+
+    impl tracing::field::Visit for CapturedLogs {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            use std::fmt::Write;
+            write!(self.0.lock().unwrap(), " {field}={value:?}").unwrap();
+        }
+    }
+
+    impl tracing::Subscriber for CapturedLogs {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, attrs: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            attrs.record(&mut self.clone());
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, values: &tracing::span::Record<'_>) {
+            values.record(&mut self.clone());
+        }
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            event.record(&mut self.clone());
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    #[tokio::test]
+    async fn url_credentials_are_redacted_from_front_transport_errors() {
+        let logs = CapturedLogs::default();
+        let _guard = tracing::subscriber::set_default(logs.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let upstream = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            drop(stream);
+        });
+        let url = format!(
+            "http://sentinel-user:sentinel-password@{address}/sentinel-path?key=sentinel-query"
+        );
+        let port = free_port();
+        let task = tokio::spawn(run_cross_chain_front(
+            port,
+            url.clone(),
+            Direction::Inbound,
+            Arc::new(HeldPool::new(Default::default())),
+            RootProvider::new_http(url.parse().unwrap()),
+            1,
+            Address::ZERO,
+            Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            Arc::new(json!({})),
+            None,
+        ));
+        wait_for_front(port).await;
+        let response = reqwest::Client::new()
+            .post(format!("http://127.0.0.1:{port}"))
+            .json(&json!({"jsonrpc":"2.0", "id":1, "method":"eth_chainId", "params":[]}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        let body = response.text().await.unwrap();
+        task.abort();
+        upstream.await.unwrap();
+        let logs = logs.0.lock().unwrap();
+        assert!(!logs.contains("sentinel-"), "{logs}");
+        assert!(logs.contains("cross-chain front listening"), "{logs}");
+        assert!(logs.contains("HTTP request failed"), "{logs}");
+        assert!(body.contains("upstream"));
+        assert!(
+            !body.contains("sentinel-"),
+            "credential in front error: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn url_credentials_are_redacted_from_admission_errors() {
+        let (_, envelope, raw) = signed_eip1559(31337, U256::ZERO, 21_000, 1);
+        for (stage, expected) in [
+            (0, "block lookup"),
+            (1, "code lookup"),
+            (2, "balance lookup"),
+            (3, "nonce lookup"),
+        ] {
+            let pool = HeldPool::new(Default::default());
+            let asserter = Asserter::new();
+            if stage > 0 {
+                push_latest_block(&asserter, SOURCE_BLOCK_GAS_LIMIT);
+            }
+            if stage > 1 {
+                asserter.push_success(&Bytes::from_static(&[0x60]));
+            }
+            if stage > 2 {
+                asserter.push_success(&U256::from(1_000_000));
+            }
+            asserter.push_failure(serde_json::from_value(json!({"code":-32603,"message":"sentinel-password","data":{"url":"http://sentinel-user@localhost/sentinel-path?key=sentinel-query"}})).unwrap());
+            let provider = ProviderBuilder::default().connect_mocked_client(asserter);
+            let reason = rejection(
+                gate_and_hold(&envelope, &raw, Direction::Inbound, &pool, 31337, &provider).await,
+            );
+            let response = rpc_error(json!(9), -32000, &reason)
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes();
+            let text = String::from_utf8(response.to_vec()).unwrap();
+            assert!(text.contains(expected), "{text}");
+            assert!(text.contains("-32603"), "{text}");
+            assert!(!text.contains("sentinel-"), "{text}");
+            assert_eq!(pool.len(), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn classification_error_redaction_preserves_fail_closed_admission() {
+        use jsonrpsee::{RpcModule, server::ServerBuilder, types::ErrorObjectOwned};
+        let logs = CapturedLogs::default();
+        use tracing::instrument::WithSubscriber as _;
+        let upstream = ServerBuilder::default().build("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", upstream.local_addr().unwrap());
+        let mut module = RpcModule::new(());
+        module
+            .register_method("debug_traceCall", |_, _, _| {
+                Err::<Value, _>(ErrorObjectOwned::owned(
+                    -32603,
+                    "sentinel-password",
+                    Some(json!({"nested":"sentinel-query"})),
+                ))
+            })
+            .unwrap();
+        let server = upstream.start(module);
+        let asserter = Asserter::new();
+        push_admission_lookups(&asserter, 1_000_000, 0);
+        let pool = Arc::new(HeldPool::new(Default::default()));
+        let ctx = Ctx {
+            ready: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            client: reqwest::Client::new(),
+            upstream_rpc_url: url,
+            direction: Direction::Inbound,
+            held_pool: pool.clone(),
+            validation_provider: ProviderBuilder::default().connect_mocked_client(asserter),
+            expected_source_chain_id: 31337,
+            dispatch_address: Address::ZERO,
+            composer_info: Arc::new(json!({})),
+            composer_methods: jsonrpsee::RpcModule::new(()),
+            estimator: None,
+            fee_quotes: None,
+        };
+        let (_, _, raw) = signed_eip1559(31337, U256::ZERO, 21_000, 1);
+        // Bind capture to every poll of the production interception future;
+        // thread-local guards do not follow asynchronous work reliably.
+        let response = intercept_send_raw(&ctx, &raw.to_string(), &json!({"id":1}))
+            .with_subscriber(logs.clone())
+            .await
+            .unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let response: Value = serde_json::from_slice(&body).unwrap();
+        server.stop().unwrap();
+        assert_eq!(response["result"], json!(keccak256(raw.as_ref())));
+        assert_eq!(pool.len(), 1);
+        let logs = logs.0.lock().unwrap();
+        assert!(
+            logs.contains("transaction trace classification failed"),
+            "{logs}"
+        );
+        assert!(logs.contains("-32603"), "{logs}");
+        assert!(!logs.contains("sentinel-"), "{logs}");
+    }
+
+    #[tokio::test]
+    async fn front_uses_original_authenticated_endpoint() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            http1::Builder::new()
+                .serve_connection(
+                    TokioIo::new(stream),
+                    service_fn(|request: Request<hyper::body::Incoming>| async move {
+                        assert_eq!(
+                            request.uri().path_and_query().unwrap().as_str(),
+                            "/sentinel-path?key=sentinel-query"
+                        );
+                        assert_eq!(
+                            request.headers()[hyper::header::AUTHORIZATION],
+                            "Basic c2VudGluZWwtdXNlcjpzZW50aW5lbC1wYXNzd29yZA=="
+                        );
+                        let bytes = request.into_body().collect().await.unwrap().to_bytes();
+                        let request: Value = serde_json::from_slice(&bytes).unwrap();
+                        assert_eq!(request["method"], "eth_chainId");
+                        Ok::<_, std::convert::Infallible>(
+                            Response::builder()
+                                .header("connection", "close")
+                                .body(Full::new(HyperBytes::from_static(
+                                    br#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#,
+                                )))
+                                .unwrap(),
+                        )
+                    }),
+                )
+                .await
+                .unwrap();
+        });
+        let port = free_port();
+        let url = format!(
+            "http://sentinel-user:sentinel-password@{address}/sentinel-path?key=sentinel-query"
+        );
+        let task = tokio::spawn(run_cross_chain_front(
+            port,
+            url,
+            Direction::Inbound,
+            Arc::new(HeldPool::new(Default::default())),
+            ProviderBuilder::default().connect_mocked_client(Asserter::new()),
+            1,
+            Address::ZERO,
+            Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            Arc::new(json!({})),
+            None,
+        ));
+        wait_for_front(port).await;
+        let response: Value = reqwest::Client::new()
+            .post(format!("http://127.0.0.1:{port}"))
+            .json(&json!({"jsonrpc":"2.0", "id":1,"method":"eth_chainId","params":[]}))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(response["result"], "0x1");
+        server.await.unwrap();
+        task.abort();
+    }
 
     fn test_signer() -> PrivateKeySigner {
         PrivateKeySigner::from_bytes(&B256::with_last_byte(1)).expect("valid signer")

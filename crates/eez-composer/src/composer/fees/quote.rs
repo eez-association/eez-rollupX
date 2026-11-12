@@ -508,13 +508,14 @@ where
             .advisory_quote(sample, self.inner.emission.timing.l1_block_time().as_secs())
             .await
             .map_err(|e| unavailable("L1 pricing", e))?;
-        let escrow = super::super::IEEZReader::new(posting.registry, &posting.ctx.l1_provider)
-            .rollups(rollup_id)
-            .block(quote.quote.sample.hash.into())
-            .call()
-            .await
-            .map_err(|e| unavailable("L1 escrow", e))?
-            .etherBalance;
+        let escrow = super::super::read_anchored_escrow(
+            &posting.ctx.l1_provider,
+            posting.registry,
+            rollup_id,
+            quote.quote.sample.hash,
+        )
+        .await
+        .map_err(|e| unavailable("L1 escrow", e))?;
         Ok(PreparedL2FeeQuote {
             direction,
             request,

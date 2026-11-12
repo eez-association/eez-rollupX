@@ -71,7 +71,12 @@ impl PriorityHistory {
                     None => provider
                         .get_block_by_hash(hash)
                         .await
-                        .map_err(|e| PostingError::Unavailable(format!("fee sample block: {e}")))?
+                        .map_err(|e| {
+                            PostingError::Unavailable(format!(
+                                "fee sample block: {}",
+                                eez_l1::diagnostics::rpc_error(&e)
+                            ))
+                        })?
                         .ok_or_else(|| {
                             PostingError::Unavailable("fee sample block missing".into())
                         })?,
@@ -84,7 +89,12 @@ impl PriorityHistory {
                 let receipts = provider
                     .get_block_receipts(hash.into())
                     .await
-                    .map_err(|e| PostingError::Unavailable(format!("fee sample receipts: {e}")))?
+                    .map_err(|e| {
+                        PostingError::Unavailable(format!(
+                            "fee sample receipts: {}",
+                            eez_l1::diagnostics::rpc_error(&e)
+                        ))
+                    })?
                     .ok_or_else(|| {
                         PostingError::Unavailable("fee sample receipts missing".into())
                     })?;
@@ -111,7 +121,10 @@ impl PriorityHistory {
                         )
                         .await
                         .map_err(|e| {
-                            PostingError::Unavailable(format!("fee sample call trace: {e}"))
+                            PostingError::Unavailable(format!(
+                                "fee sample call trace: {}",
+                                eez_l1::diagnostics::rpc_error(&e)
+                            ))
                         })?;
                     let touched = registry_calls(&block, &traces, registry)?;
                     sample = sample_with_calls(&block, &receipts, poster, registry, &touched)?;
