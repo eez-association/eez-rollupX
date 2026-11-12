@@ -1,0 +1,144 @@
+{
+  "scope": "Issue 145 bounded component investigation; no production behavior change",
+  "base_commit": "dbe1cdb9047e7f3502505f381aaa602e6ebf552f",
+  "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "cargo_lock_sha256": "f771a77eb4a5b17259157fd91829096015897e24979a4fda0df583d45719294f",
+  "test_source_sha256": {
+    "crates/eez-l1/src/chain_config/offline.rs": "f2d0332e654f3ac2905784bc0cd4da703fff588af486f9e6614bc60741cf1f79",
+    "crates/eez-node-common/src/lib.rs": "0b2696b6341b509839b96630f3f210400959726f60934728716eb213d14dcbeb",
+    "crates/eez-composer/src/composer/posting.rs": "4cbcfc6079dab3d49fe661981519680469cfb49350ac8d4c6988b4bd391dbfe3"
+  },
+  "test_patch_sha256": "e7fef5f369be5bfd0d0ef978f4491bd3c42675a823577bc8f243d9b69c6a9a5b",
+  "toolchain": "Rust/Cargo 1.95.0",
+  "build_environment": {
+    "CARGO_TARGET_DIR": "/tmp/issue145-target",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "LLVM_SYS_221_PREFIX": "/usr/lib/llvm-22",
+    "later_CARGO_BUILD_JOBS": "2",
+    "after_relocation_TMPDIR": "/dev/shm/rollupx-issue145-tmp-3c94"
+  },
+  "runs": [
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-l1 --lib --features chain-spec derivation::tests:: -- --test-threads=1",
+      "exit_code": 101,
+      "local_log": "/tmp/issue145-evidence/baseline-l1.log",
+      "log_sha256": "250ea9e5fd219abad01d4a1f99d6d4903a95e1389d975b696a7a640ece40c3b1",
+      "log_bytes": 37724,
+      "counts": {
+        "passed": 6,
+        "failed": 1,
+        "ignored": 0,
+        "measured": 0,
+        "filtered_out": 205
+      }
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-l1 --lib --features chain-spec -- --test-threads=1",
+      "exit_code": 101,
+      "local_log": "/tmp/issue145-evidence/l1-full.log",
+      "log_sha256": "994fffb2819069900da61ab4a44cfcb0eb2cfef845615a5b17734f2352bb7ff0",
+      "log_bytes": 4096,
+      "truncated": true
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-l1 --lib --features chain-spec -- --test-threads=1",
+      "exit_code": 0,
+      "local_log": "/tmp/issue145-evidence/l1-full-retry.log",
+      "log_sha256": "ea3dfe1566a248720d3a7a82bf997f572b0f0183291aba17adea84fdbbcdd222",
+      "log_bytes": 19035,
+      "counts": {
+        "passed": 212,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered_out": 0
+      },
+      "executable": {
+        "local_path": "/tmp/issue145-target/debug/deps/eez_l1-052e89f88f51486b",
+        "sha256": "7e69c5dc0ecb133e9f28c76c94a1aa517e2d72f22c65ee8fe924b0ffb1387c05"
+      }
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-node-common --features l1-startup --lib -- --test-threads=1",
+      "exit_code": 0,
+      "local_log": "/tmp/issue145-evidence/node-common.log",
+      "log_sha256": "3678f6773e90b952ad4dd3998e93bcebcdadecc96029a185a816e1c23270b67c",
+      "log_bytes": 13062,
+      "counts": {
+        "passed": 34,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered_out": 0
+      },
+      "executable": {
+        "local_path": "/tmp/issue145-target/debug/deps/eez_node_common-f2c22872951ceb8b",
+        "sha256": "bceb8ca016cfa9847f74a94d1c5a951201bfd39eb207dd8e63cc843f31d826b7"
+      }
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-l1 --features chain-spec --example verify_blob_evidence -- prefixes::tests:: --test-threads=1",
+      "exit_code": 0,
+      "local_log": "/tmp/issue145-evidence/genesis-replay.log",
+      "log_sha256": "51790107d6d77fa072e5ae9aefcee23a69e305f68378d5c04ea80d2e9b17ef5a",
+      "log_bytes": 2063,
+      "counts": {
+        "passed": 19,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered_out": 1
+      },
+      "executable": {
+        "local_path": "/tmp/issue145-target/debug/examples/verify_blob_evidence-16b0b89de220aa22",
+        "sha256": "53cebd8daecdcad44b2cd1bc8bf25a3ecaed9436ec6316fa76d2f9591d320194"
+      }
+    },
+    {
+      "command": "cargo +1.95.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "local_log": "/tmp/issue145-evidence/clippy.log",
+      "log_sha256": "7e7039c6a26d1ee63a72201646b0e58bf68e7964e68453b4cdb10a54dc63804f",
+      "log_bytes": 33519
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-composer --lib -- --test-threads=1",
+      "exit_code": 0,
+      "local_log": "/tmp/issue145-evidence/composer.log",
+      "log_sha256": "79f690ad65637f0e7324097ac9c4e600105bb8c5713a739c30ab42511f91c0e8",
+      "log_bytes": 57140,
+      "counts": {
+        "passed": 454,
+        "failed": 0,
+        "ignored": 1,
+        "measured": 0,
+        "filtered_out": 0
+      },
+      "executable": {
+        "local_path": "/tmp/issue145-target/debug/deps/eez_composer-6a2f0e4ead0cf3ba",
+        "sha256": "bf3dd20b5c079b1bb9138818b9d2e135425b00a6b7131dc7ca81b2e834563391"
+      }
+    }
+  ],
+  "additional_checks": {
+    "cargo +1.95.0 fmt --all --check": "passed",
+    "git diff --check": "passed"
+  },
+  "new_cases": {
+    "profile_and_authentication": 18,
+    "startup_reference": 2,
+    "posting_quote": 4
+  },
+  "limitations": {
+    "original_handoff_provenance_independently_verified": false,
+    "logs_and_executables": "local-only ephemeral files, not published artifacts",
+    "l1_history": "flaky/retry-only; initial socket-denied failure and truncated quota-incident failure retained",
+    "full_process_mismatch_matrix_executed": false,
+    "live_network_executed": false,
+    "independent_live_chain_replay_executed": false,
+    "composer_ignored": "held_pool::tests::profile_blocked_backlog_discovery (manual timing profile)",
+    "replay_filtered": "tests::settlement_endpoints_require_the_forks_continuous_single_rollup_chain"
+  }
+}

@@ -327,6 +327,7 @@ mod tests {
                 let (tag, _): (String, bool) = params.parse()?;
                 let mut block: alloy_rpc_types_eth::Block = Default::default();
                 block.header.inner.number = if tag == "finalized" { finalized } else { 5 };
+                block.header.hash = block.header.inner.hash_slow();
                 Ok::<_, ErrorObjectOwned>(block)
             })
             .unwrap();
@@ -376,6 +377,66 @@ mod tests {
         .unwrap_err();
         assert!(error.to_string().contains("serves chain 2, expected 1"));
         server.stop().unwrap();
+    }
+
+    #[tokio::test]
+    async fn chain_readiness_still_requires_reference_hash_authentication() {
+        use alloy_consensus::Header;
+        use alloy_primitives::{Address, B256};
+        use eez_l1::derivation::DerivationError;
+        use eez_protocol::l2::{DerivationConfig, GenesisL1Reference, Schedule};
+
+        let reference = Header {
+            number: 5,
+            ..Default::default()
+        };
+        for matching in [true, false] {
+            let (reader, server) = pruned_source(1, 80).await;
+            let result = tokio::time::timeout(Duration::from_secs(5), async {
+                super::wait_for_l1_ready(&reader, 5, 1, 5).await.unwrap();
+                let schedule = Schedule::new(
+                    DerivationConfig {
+                        fee_collector: Address::repeat_byte(1),
+                        block_interval_seconds: 2,
+                        sync_interval_blocks: 6,
+                        history_update_offset: 0,
+                        l1_reference: GenesisL1Reference {
+                            chain_id: 1,
+                            number: 5,
+                            hash: if matching {
+                                reference.hash_slow()
+                            } else {
+                                B256::repeat_byte(1)
+                            },
+                            timestamp: reference.timestamp,
+                            prev_randao: reference.mix_hash,
+                        },
+                    },
+                    &Header {
+                        timestamp: 12,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+                reader.derivation_source(schedule).await
+            })
+            .await;
+            server.stop().unwrap();
+            let result = result.expect("readiness and authentication must terminate");
+            if matching {
+                assert!(result.is_ok(), "{result:?}");
+            } else {
+                assert!(
+                    matches!(
+                        result,
+                        Err(DerivationError::Mismatch(
+                            "finalized genesis reference header"
+                        ))
+                    ),
+                    "{result:?}"
+                );
+            }
+        }
     }
 
     #[tokio::test]
