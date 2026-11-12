@@ -232,6 +232,7 @@ def main():
                 previous = current
                 interval_heavy = wait_interval(child.pid if child else None)
             if child is not None:
+                previous = current
                 terminate_owned(child)
                 cleaned = True
                 # Post-observation is required even after failure or contamination.

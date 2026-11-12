@@ -234,3 +234,10 @@ reuse of a numerical process-group ID is unnecessary. The regression covers
 both normal exit and contamination and fails against `61f73a10`; all eleven
 focused tests pass after the change. No other task or production process was
 signalled by this test.
+
+A final observer regression also fixes the transition to post-observation:
+the first post interval now starts at the final during snapshot, rather than
+reusing the preceding snapshot and accidentally averaging two intervals. Both
+normal-exit and contamination paths fail this assertion against `ed74c9eb` and
+pass after the correction. This preserves the documented ten-second resource
+interval instead of smoothing the first post interval over twenty seconds.

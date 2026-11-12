@@ -42,10 +42,16 @@ class QuietWindowTests(unittest.TestCase):
                     snapshot.tick += 120
                     return row
                 snapshot.tick = 0
+                check_reasons = measure.reasons
+                def reasons(previous, current):
+                    if current["monotonic"] == 360:
+                        self.assertEqual(previous["monotonic"], 240, "post interval must start at the final during snapshot")
+                    return check_reasons(previous, current)
                 with mock.patch.object(sys, "argv", ["measure", str(test), str(signer), str(output)]), \
                         mock.patch.object(measure.subprocess, "check_output", side_effect=lambda cmd, **kw: measure.TEST+": test" if "--list" in cmd else ""), \
                         mock.patch.object(measure.subprocess, "Popen", side_effect=launch), \
                         mock.patch.object(measure, "snapshot", side_effect=snapshot), \
+                        mock.patch.object(measure, "reasons", side_effect=reasons), \
                         mock.patch.object(measure, "wait_interval", return_value=[]), \
                         mock.patch.object(measure, "terminate_owned") as cleanup:
                     self.assertEqual(measure.main(), 1)
