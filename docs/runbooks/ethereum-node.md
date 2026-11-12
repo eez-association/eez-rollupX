@@ -370,6 +370,24 @@ a history-serving source or a consistent supported backup; do not advance the
 deployment block, delete the index, or reset L2 to bypass validation. Execution
 RPC history does not replace missing Beacon blob data.
 
+Missing or pruned native blobs remain unavailable even after their containing
+L1 block finalizes. The reader retains the failed chunk and the watcher retries
+without publishing batch/scan completion. A malformed beacon response is a
+provider observation failure; authenticated bytes with invalid native encoding
+still fail terminally. Restore a source serving the required blobs; neither
+finality nor execution calldata replaces them. Provider failures retain the
+boot transport budget below; `SourceIncomplete` observations keep waiting with
+backoff. Neither outcome releases unresolved requests or charges a source retry.
+Beacon requests have a 30-second total timeout, including response bodies, so
+a stalled endpoint returns to that retry policy.
+See the [policy qualification and evidence](../audits/2026-11-12-missing-blobs/README.md).
+
+This observation correction changes no wire format, stored data, validation
+identity, protocol pin or configuration. Upgrade Composer/follower readers
+independently of the signer; no migration is required. Older readers can halt
+on malformed beacon replies and consume a failed in-memory chunk. Rollback
+restores those behaviors without a data-format rollback.
+
 Unavailable history now fails during catch-up rather than the deployment-block
 preflight. Readiness stays closed while catch-up retries; persistent RPC errors
 (including the receipt-pruning error) exhaust the existing 32-failure budget and

@@ -101,20 +101,37 @@ impl L1Reader {
     /// - [`L1Error::Provider`] on RPC failure (log fetch, tx fetch).
     /// - [`L1Error::SourceIncomplete`] when a canonical batch tx is not
     ///   served by the L1 source yet — retryable once the source syncs.
+    ///
+    /// Errors leave the chunk range unconsumed, including blob hydration errors.
     pub async fn next_batch_log_chunk(
         &self,
         chunks: &mut BatchLogChunks,
     ) -> L1Result<Option<Vec<ScannedBatch>>> {
         let provider = self.build_provider();
-        let Some(mut scanned) =
-            scan_next_batch_log_chunk(&provider, self.config.eez, self.config.rollup_id, chunks)
-                .await?
+        self.next_batch_log_chunk_from(&provider, chunks).await
+    }
+
+    async fn next_batch_log_chunk_from(
+        &self,
+        provider: &impl Provider,
+        chunks: &mut BatchLogChunks,
+    ) -> L1Result<Option<Vec<ScannedBatch>>> {
+        // Log decoding alone cannot commit a range whose blob DA is unavailable.
+        let mut pending = chunks.clone();
+        let Some(mut scanned) = scan_next_batch_log_chunk(
+            provider,
+            self.config.eez,
+            self.config.rollup_id,
+            &mut pending,
+        )
+        .await?
         else {
             return Ok(None);
         };
         self.blob_source
-            .hydrate_scanned_batches(&provider, self.config.rollup_id, &mut scanned)
+            .hydrate_scanned_batches(provider, self.config.rollup_id, &mut scanned)
             .await?;
+        *chunks = pending;
         Ok(Some(scanned))
     }
 
@@ -341,6 +358,60 @@ impl L1Reader {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn blob_hydration_failure_retains_chunk_until_recovery() {
+        use crate::blob_source::test_support::{BlobFixture, beacon, timing};
+        let fixture = BlobFixture::new();
+        let mut responses = timing();
+        responses.push((
+            "eth/v1/beacon/blobs/5",
+            200,
+            serde_json::json!({"data": []}),
+        ));
+        responses.push(("eth/v1/beacon/blobs/5", 200, fixture.blobs.clone()));
+        let (url, server) = beacon(responses).await;
+        let reader = L1Reader::new(L1ReaderConfig {
+            rpc_url: "http://127.0.0.1:1".parse().unwrap(),
+            beacon_url: Some(url),
+            eez: Address::ZERO,
+            rollup_id: 1,
+            deploy_block: 42,
+        });
+        let replies = Asserter::new();
+        let provider =
+            alloy_provider::ProviderBuilder::new().connect_mocked_client(replies.clone());
+        let mut chunks = crate::BatchLogChunks::new(42, 42);
+        fixture.scan_replies(&replies);
+        replies.push_success(&fixture.block);
+        let error = reader
+            .next_batch_log_chunk_from(&provider, &mut chunks)
+            .await
+            .unwrap_err();
+        assert!(error.is_source_incomplete(), "{error}");
+        assert!(
+            !chunks.is_empty(),
+            "hydration failure must not consume the range"
+        );
+        fixture.scan_replies(&replies);
+        replies.push_success(&fixture.block);
+        let batches = reader
+            .next_batch_log_chunk_from(&provider, &mut chunks)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].operations_payload, fixture.payload);
+        assert!(chunks.is_empty());
+        assert!(
+            reader
+                .next_batch_log_chunk_from(&provider, &mut chunks)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        server.await.unwrap();
+    }
+
     #[tokio::test]
     async fn url_credentials_are_redacted_and_reader_uses_original_endpoint() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};

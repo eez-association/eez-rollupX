@@ -14,6 +14,8 @@ use eez_testkit::{
 
 const TIMEOUT: Duration = Duration::from_mins(3);
 
+mod missing_blobs;
+
 fn assert_no_capacity_split(signals: &[eez_testkit::NodeSignal]) {
     // Retained ordinary settlement uses the historical path even when the
     // whole range fits. Capacity rejection, rather than that path's name,

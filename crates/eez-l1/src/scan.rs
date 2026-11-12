@@ -59,7 +59,7 @@ struct DecodedBatchLog {
 
 /// Stateful `BatchPosted` log chunks. Callers own when scanned ranges are
 /// committed to their local cursors.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BatchLogChunks {
     to_block: u64,
     ranges: Vec<(u64, u64)>,
