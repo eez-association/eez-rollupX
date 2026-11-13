@@ -3714,6 +3714,117 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
     assert_no_capacity_split(&signals);
 }
 
+// The general health assertion rejects every resync failure. This outage test
+// accepts only its own header-read error in the captured fault/recovery window;
+// semantic replay failures and failures outside that window remain errors.
+fn validate_rpc_outage_signals(
+    signals: &[eez_testkit::NodeSignal],
+    outage: &[eez_testkit::NodeSignal],
+) -> anyhow::Result<()> {
+    use eez_testkit::signals::DERIVER_RESYNC_FAILED;
+    // Logs are append-only: after the recovery snapshot, a later failure
+    // increases the total instead of being absorbed by this allowance.
+    let expected = outage
+        .iter()
+        .filter(|event| event.name == DERIVER_RESYNC_FAILED)
+        .count();
+    let fatal = signals
+        .iter()
+        .filter(|event| eez_testkit::FATAL_SIGNALS.contains(&event.name.as_str()))
+        .collect::<Vec<_>>();
+    anyhow::ensure!(
+        fatal.len() == expected,
+        "unaccounted fatal signals: {fatal:?}"
+    );
+    for event in fatal {
+        let block = event
+            .fields
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|error| {
+                error
+                    .strip_prefix("L1 catch-up scan error: L1 provider error: get_block_by_number(")
+            })
+            .and_then(|error| error.strip_suffix("): RPC error -32000"))
+            .and_then(|number| number.parse::<u64>().ok());
+        anyhow::ensure!(
+            event.name == DERIVER_RESYNC_FAILED
+                && block.is_some()
+                && event
+                    .fields
+                    .get("message")
+                    .and_then(serde_json::Value::as_str)
+                    == Some("resync failed; will retry after the next L1 event"),
+            "unexpected resync failure during RPC outage: {event:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn rpc_outage_health_rejects_unrelated_and_late_failures() {
+    use eez_testkit::{NodeSignal, signals};
+    // This is the structured error produced by the canonical read fault,
+    // including the numbered-header context used by the deriver.
+    let injected = NodeSignal {
+        name: signals::DERIVER_RESYNC_FAILED.into(),
+        fields: serde_json::json!({
+            "message": "resync failed; will retry after the next L1 event",
+            "error": "L1 catch-up scan error: L1 provider error: get_block_by_number(6): RPC error -32000"
+        }).as_object().unwrap().clone(),
+    };
+    let one = std::slice::from_ref(&injected);
+    validate_rpc_outage_signals(&[], &[]).unwrap();
+    validate_rpc_outage_signals(one, one).unwrap();
+    assert!(
+        validate_rpc_outage_signals(one, &[])
+            .unwrap_err()
+            .to_string()
+            .starts_with("unaccounted fatal signals")
+    );
+    assert!(
+        validate_rpc_outage_signals(&[injected.clone(), injected.clone()], one)
+            .unwrap_err()
+            .to_string()
+            .starts_with("unaccounted fatal signals")
+    );
+    for error in [
+        "L1 catch-up scan error: L1 provider error: get_block_by_number(6): RPC error -32601",
+        "L1 catch-up scan error: L1 provider error: get_block_by_number(NaN): RPC error -32000",
+        "L2 state root mismatch",
+    ] {
+        let mut unexpected = injected.clone();
+        unexpected.fields.insert("error".into(), error.into());
+        let events = std::slice::from_ref(&unexpected);
+        assert!(
+            validate_rpc_outage_signals(events, events)
+                .unwrap_err()
+                .to_string()
+                .starts_with("unexpected resync failure during RPC outage")
+        );
+    }
+    let mut divergence = injected.clone();
+    divergence.name = signals::DERIVER_STATE_DIVERGED_POST.into();
+    assert!(
+        validate_rpc_outage_signals(std::slice::from_ref(&divergence), one)
+            .unwrap_err()
+            .to_string()
+            .starts_with("unexpected resync failure during RPC outage")
+    );
+    let mut startup = injected.clone();
+    startup.fields.insert(
+        "message".into(),
+        "post-subscribe resync failed; deriver may have a gap".into(),
+    );
+    let events = std::slice::from_ref(&startup);
+    assert!(
+        validate_rpc_outage_signals(events, events)
+            .unwrap_err()
+            .to_string()
+            .starts_with("unexpected resync failure during RPC outage")
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ethereum_ordinary_burst_is_budgeted_across_sync_intervals() {
     ordinary_burst_is_budgeted(eez_testkit::NativeL1Profile::EthereumOsaka, 6).await;
@@ -3760,6 +3871,8 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     let l2_seconds = milliseconds("EEZ_L2_BLOCK_TIME_MS") / 1000;
     let k = milliseconds("EEZ_L1_BLOCK_TIME_MS") / milliseconds("EEZ_L2_BLOCK_TIME_MS");
     let outage_start = l2.get_block_number().await.unwrap();
+    world.node.assert_no_divergence_failure_logs();
+    let outage_cursor = world.node.signal_cursor().unwrap();
     world.fail_rpc_methods(&["eth_getBlockByNumber"]).unwrap();
     let last_available_origin = l1.get_block_number().await.unwrap();
     let current_origin = || async {
@@ -3979,6 +4092,10 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         assert_eq!(replayed.block_hash, receipt.block_hash);
         assert_eq!(replayed.status(), receipt.status());
     }
+    // Matching canonical replay closes recovery: the same deriver has handled
+    // settlement after its failed scan. A header read rejected during the
+    // outage may have failed resync too; any later failure remains unexpected.
+    let outage_signals = world.node.signals_since(outage_cursor).unwrap();
     // The original incident starved queued bridges behind ordinary history.
     // Verify a cross-chain source still executes after draining this burst.
     let source = sign_and_send(
@@ -4085,7 +4202,25 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
             .unwrap(),
         0
     );
-    world.node.assert_no_divergence_failure_logs();
+    validate_rpc_outage_signals(&world.node.signals_since(0).unwrap(), &outage_signals).unwrap();
+    assert!(
+        world.node.exit_status().is_none(),
+        "Composer exited after RPC recovery: {}",
+        world.node.log_tail(80)
+    );
+    assert_eq!(
+        world
+            .node
+            .log_count_matching(&[
+                "Fatal",
+                "UnexpectedStaticFile",
+                "engine rejected safe/finalized FCU",
+                "payload builder returned no payload",
+            ])
+            .unwrap(),
+        0,
+        "RPC recovery must preserve the process/engine health checks"
+    );
     follower.assert_no_divergence_failure_logs();
 }
 
