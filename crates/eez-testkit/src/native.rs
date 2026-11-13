@@ -4,8 +4,8 @@
 
 use super::{
     ANVIL_ADDR, ANVIL_KEY_3, CROSS_CHAIN_L1_BLOCK_TIME_MS, CROSS_CHAIN_L2_BLOCK_TIME_MS,
-    CrossChainWorld, DEV_CHAIN_ID, NodeBinary, NodeConfig, NodeHandle, PortLease, SETUP_TIMEOUT,
-    signer_address, wait_for,
+    CrossChainWorld, DEV_CHAIN_ID, NativeWorld, NodeBinary, NodeConfig, NodeHandle, PortLease,
+    SETUP_TIMEOUT, signer_address, wait_for,
 };
 use crate::artifacts::FailureDatadir;
 use alloy_consensus::Transaction as _;
@@ -45,7 +45,7 @@ impl Drop for MirrorComposer {
 }
 
 pub async fn spawn_composer(
-    world: &CrossChainWorld,
+    world: &NativeWorld,
     builder_url: &str,
     extra_env: &[(&'static str, String)],
 ) -> Result<MirrorComposer> {
@@ -101,7 +101,7 @@ pub async fn spawn_composer(
         datadir.path(),
         &NodeConfig {
             binary: NodeBinary::Composer,
-            genesis_path: Some(&world.cfg.l2_genesis.0),
+            genesis_path: None,
         },
         &env,
         port_leases.into(),
