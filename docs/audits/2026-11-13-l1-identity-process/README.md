@@ -211,9 +211,10 @@ first-party provider, standard speed and no fallback or spawned agents. The
 complete changed code/tests and critical production callers read, plus its
 explicit verification limits. It executed no tests or digest checks.
 
-There were no blocking findings. The two nonblocking corrections were accepted:
-name both owning anchor rejections explicitly, and disclose that the anchor
-hash fence is not specific to genesis. The independent canonical Anvil table label and tooling count were
+There were no blocking findings. The genesis-scope disclosure was accepted.
+The first log-count recommendation was initially applied as `> 0` at
+`9f58ce89`, but its production mechanism was later found mistaken, as recorded
+below. The independent canonical Anvil table label and tooling count were
 also clarified. The report remains the original review of the frozen commit;
 its findings are not silently removed after correction.
 
@@ -227,3 +228,26 @@ second path completed. The final assertion instead requires the anchor error
 on a line from **each** owning emitter before checking no signatures, relay
 dispatch, eviction or canonical batches. The height disclosure was corrected
 at the same time. These are test/evidence corrections, not production fixes.
+
+The [final corrected-code verification](fable-final-verification.md) at
+`20746f3c2241062a6aacc4ae74a785ab660cef2e` found no actionable test-code
+findings. Its two remaining historical-wording corrections were applied to the
+record after review, and the execution metadata was appended separately. Actual
+CLI metadata again identifies only canonical `claude-fable-5-2`, standard speed,
+first-party provider, no fallback and zero spawned agents. All three reports
+remain unaltered static reviews, not execution approval.
+
+Only the paired-genesis test changed after the seven-pass matrix and five
+existing process regressions; those runs used the pre-review source. The final
+two-emitter assertion was rerun specifically: **1 passed, 0 failed, 0 ignored,
+220 filtered out**. The exact command, commit, log digest, fresh test/runtime
+executable digests and public fixture digests are recorded separately in the
+manifest. The three rebuilt runtime binaries have the same digests as the
+seven-pass matrix; the changed test binary has its own digest.
+
+Final-source workspace Clippy (`--locked --workspace --all-targets -- -D warnings`)
+passed again after the two-emitter correction. Final workspace format, diff,
+JSON/link, baseline/pin/lock, source-snapshot, retained run-log and actual
+model/report identity checks passed. The intermediate comparator edit also
+required a rustfmt indentation correction before its clean check. No code was
+changed after the final process rerun/review; closeout changes only this audit.

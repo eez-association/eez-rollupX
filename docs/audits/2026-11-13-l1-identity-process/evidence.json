@@ -234,6 +234,72 @@
         }
       ],
       "superseded_assertion": true
+    },
+    {
+      "label": "final-both-anchor-paths-process-rerun",
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- l1_identity::same_id_different_embedded_genesis_rejects_canonical_proof_anchor_before_signing --test-threads=1 --nocapture",
+      "local_log": "artifacts/issue145/logs/both-anchor-paths.log",
+      "sha256": "bb5388a4cde4f11f3f23e9b758ac58729c7c0b0d9a42a703724378acf0ee1fb5",
+      "bytes": 14390,
+      "summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 220 filtered out; finished in 190.37s"
+      ],
+      "exit_code": 0,
+      "log_dir": "artifacts/issue145/both-anchor-paths/logs",
+      "datadir_dir": "artifacts/issue145/both-anchor-paths/datadirs",
+      "code_commit": "20746f3c2241062a6aacc4ae74a785ab660cef2e",
+      "executables": [
+        {
+          "local_path": "target/issue145/debug/eez-composer",
+          "sha256": "f41d474b8cbbfda10447373e98068b08ea0ec9de3e28981361b6f0506d0aea7f"
+        },
+        {
+          "local_path": "target/issue145/debug/eez-follower",
+          "sha256": "e633d83c1ee0fc0e9c384faeeb67449390ae0a35e865b2f0d67f2084444e36fe"
+        },
+        {
+          "local_path": "target/issue145/debug/eez-proof-signer",
+          "sha256": "39493c5b30a5e9aa585d2be14ff35ff1d83a6a16b2fb92145c43aa12e7150a53"
+        },
+        {
+          "local_path": "target/issue145/debug/deps/node_e2e-385dbc4e454dfa7d",
+          "sha256": "817d574c65b0f207ff428e1195d377ee75e2147f535120258631243ecad40605"
+        }
+      ]
+    },
+    {
+      "label": "clippy-intermediate-one-error-correction",
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+      "local_log": "artifacts/issue145/logs/clippy-post-review.log",
+      "sha256": "e08b8adefa47bee922e364d54ab873076cf9856b27e52bbc3c589462a90911b8",
+      "bytes": 6554,
+      "exit_code": 0,
+      "code_commit": "9f58ce89de95041aa66aa4174e3a211ad66c282f"
+    },
+    {
+      "label": "clippy-final-both-anchor-paths",
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+      "local_log": "artifacts/issue145/logs/clippy-both-anchor-paths.log",
+      "sha256": "f833c47304f7733a1ef513d5f17f9bbe9b13921d0c543249ba4799ae4864a089",
+      "bytes": 6554,
+      "exit_code": 0,
+      "code_commit": "20746f3c2241062a6aacc4ae74a785ab660cef2e"
+    },
+    {
+      "label": "fmt-final",
+      "command": "cargo +1.95.0 fmt --all --check",
+      "local_log": "artifacts/issue145/logs/fmt-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "exit_code": 0
+    },
+    {
+      "label": "documentation-final",
+      "command": "inline Python: JSON/link/source/run-log/model/report identity verification; git diff --check",
+      "local_log": "artifacts/issue145/logs/documentation-final.log",
+      "sha256": "a7463c8aec47de878aada9b433d81e734767cb679877264d286e2f341a0e51cc",
+      "bytes": 156,
+      "exit_code": 0
     }
   ],
   "process_final_test_executable": [
@@ -482,7 +548,8 @@
       "fallback": false,
       "spawned_agents": 0,
       "scope": "Read-only static review of complete final code/test changes, accepted contracts and critical production callers; reviewer executed no tests or digest checks.",
-      "verdict": "No blocking defects. Correct misleading duplicated-log count and disclose non-genesis-specific anchor comparison; label independent canonical Anvil accurately."
+      "verdict": "No blocking defects. Correct misleading duplicated-log count and disclose non-genesis-specific anchor comparison; label independent canonical Anvil accurately.",
+      "finding_1_disposition": "Its duplicate-log premise was mistaken. The final assertion observes both distinct preparation fences; see correction_fable and final_verification_fable."
     },
     "correction_fable": {
       "reviewed_commit": "9f58ce89de95041aa66aa4174e3a211ad66c282f",
@@ -501,6 +568,26 @@
       "spawned_agents": 0,
       "scope": "Static correction review plus relevant production callers and contracts; no execution or hash checks.",
       "verdict": "No blocking finding. Corrected its own prior duplicate-log mechanism, requested both owning paths, precise anchor height and supplemental execution provenance. Accepted."
+    },
+    "final_verification_fable": {
+      "reviewed_commit": "20746f3c2241062a6aacc4ae74a785ab660cef2e",
+      "local_result": "artifacts/issue145/review/both-paths.json",
+      "result_sha256": "15b1dc8548cb6c01b70c3c2fbed0e668317e5081ee2fd76853f00b49c160b53f",
+      "local_transcript": "artifacts/issue145/review/both-paths-transcript.jsonl",
+      "transcript_sha256": "c4a6a54f3e6dd3df16c67a36ade3778b34935439401c374c71c1969618369d6e",
+      "report": "fable-final-verification.md",
+      "report_sha256": "07d55052e4c91ffa0a97ace35d6ef9d7d9d1597d4144d78453be9adc6b00c7f9",
+      "model_usage_keys": [
+        "claude-fable-5-2"
+      ],
+      "canonical_model": "claude-fable-5-2",
+      "provider": "firstParty",
+      "speed": "standard",
+      "fallback": false,
+      "spawned_agents": 0,
+      "scope": "Static final corrected-code and relevant caller verification, relying on prior complete-scope contract review for unchanged sections; no execution or hash checks.",
+      "verdict": "No actionable test-code finding. Clarify two remaining historical wordings and append exact final execution results; these metadata-only dispositions are applied after review.",
+      "dispositions": "Historical wording clarified without altering any report. Exact final single-test process rerun and final-source Clippy/format/documentation checks passed and are appended as separate runs. All later changes are audit metadata only."
     }
   },
   "limits": {
@@ -575,14 +662,31 @@
     "path": "crates/eez-node-e2e/tests/l1_identity.rs",
     "sha256": "4f191c7fdc33737e3ee68f7af3b0ce90d59b28b95ca81df3b93afb8ade23defc",
     "change": "Require anchor-error conjunction with each sync-slot and retained-ordinary emitter before negative assertions. They are two preparations in one slot, not duplicate logs. No production change.",
-    "reviewed_predecessor_commit": "9f58ce89de95041aa66aa4174e3a211ad66c282f"
+    "reviewed_predecessor_commit": "9f58ce89de95041aa66aa4174e3a211ad66c282f",
+    "code_commit": "20746f3c2241062a6aacc4ae74a785ab660cef2e",
+    "execution": "final-both-anchor-paths-process-rerun: 1 passed, zero failed/ignored, 220 filtered"
   },
   "intermediate_test_correction": {
     "path": "crates/eez-node-e2e/tests/l1_identity.rs",
     "sha256": "a606100ed3b6db0c33862a6af208a9bfd3d31bcb303360eb32b2ff47e6866603",
-    "change": "Require one owning canonical proof-anchor rejection rather than two log lines emitted for the same rejected attempt; no production change.",
+    "change": "Require one owning canonical proof-anchor rejection rather than two log lines emitted for the same rejected attempt; no production change. This initial premise was mistaken: two preparations ran in one slot, not duplicate logging of one rejected candidate. Superseded by post_review_test_correction.",
     "original_code_snapshot": "a0a3b7850c511da6c2e0e70f004400d2ead94b06",
     "reviewed_commit": "e84f8b7eb78c1cb3969da7f62690c84c6b01e63f",
     "superseded": true
-  }
+  },
+  "post_review_fixture_identities": [
+    {
+      "local_path": "artifacts/issue145/both-anchor-paths/logs/embedded-genesis-.tmp0YgDfC.json",
+      "sha256": "105bde0453c6941240929002a943ac2be8cc5e60d70381825cb73c4d880294d7"
+    },
+    {
+      "local_path": "artifacts/issue145/both-anchor-paths/logs/simulation-canonical-genesis-.tmph0PqfB.json",
+      "sha256": "4b221615ced4601f1e3edd74c178aca770e8310c4a3143c74d723fc7ccfb9ccb"
+    },
+    {
+      "local_path": "artifacts/issue145/both-anchor-paths/logs/simulation-l2-genesis-.tmphmu2pq.json",
+      "sha256": "75e303d36435d23d4de0490430f72773260b6fabfb9e10e579c96f44023ba048"
+    }
+  ],
+  "format_iteration": "The first format check after the intermediate one-error comparator edit requested indentation; cargo fmt corrected it. Diagnostic retained in task tool transcript, no standalone first-format log. Final format passed."
 }
