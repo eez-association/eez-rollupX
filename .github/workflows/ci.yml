@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      measure_streaming_deadlines:
+        description: Also measure streaming deadlines after consuming this run's verified release artifacts
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -337,10 +343,73 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
+  streaming-deadline-measurement:
+    name: Manual streaming deadline measurement
+    needs: [build-runtime, cross-chain-e2e]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.measure_streaming_deadlines && needs.build-runtime.outputs.published == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      packages: read
+    env:
+      EEZ_NATIVE_PAYLOAD_REF: ${{ needs.build-runtime.outputs.tests-ref }}
+      EEZ_NATIVE_PRODUCER_RUN_ID: ${{ needs.build-runtime.outputs.producer-run-id }}
+      EEZ_NATIVE_PRODUCER_RUN_ATTEMPT: ${{ needs.build-runtime.outputs.producer-run-attempt }}
+    steps:
+      - name: Require an explicit Codex measurement branch
+        shell: bash
+        run: |
+          case "$GITHUB_REF" in refs/heads/codex/*) ;; *) echo 'Use a reviewed codex/ branch, never main' >&2; exit 1 ;; esac
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: Initialize pinned submodules
+        timeout-minutes: 6
+        run: bash scripts/ci/init-submodules.sh
+      - uses: ./.github/actions/native-test-artifact
+        with:
+          payload-ref: ${{ needs.build-runtime.outputs.tests-ref }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Initialize owned measurement staging
+        shell: bash
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          from pathlib import Path
+          import tempfile
+          target = Path(tempfile.mkdtemp(prefix="eez-streaming.", dir=os.environ["RUNNER_TEMP"])).resolve()
+          if target.is_relative_to(Path(os.environ["GITHUB_WORKSPACE"]).resolve()):
+              raise SystemExit("measurement staging must be outside the source checkout")
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write(f"CARGO_TARGET_DIR={target}\n")
+          PYTHON
+      - name: Measure the verified release utility inside the unchanged quiet gate
+        timeout-minutes: 225
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          python3 scripts/ci/native-tests.py measure "$EEZ_NATIVE_TEST_DIR" \
+            --output-dir "$PWD/artifacts/streaming-deadlines" \
+            2>&1 | tee artifacts/streaming-deadlines.log
+      - name: Retain measurement and rejected-window evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: streaming-deadlines-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/streaming-deadlines
+            artifacts/streaming-deadlines.artifact-provenance.json
+            artifacts/streaming-deadlines.artifact-post.json
+            artifacts/streaming-deadlines.log
+          if-no-files-found: warn
+          retention-days: 3
+
   ci-result:
     name: CI Result
     if: always()
-    needs: [build-runtime, lint, debug-unit-tests, embedded-e2e, cross-chain-e2e, kurtosis-e2e]
+    needs: [build-runtime, lint, debug-unit-tests, embedded-e2e, cross-chain-e2e, kurtosis-e2e, streaming-deadline-measurement]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -354,6 +423,7 @@ jobs:
       - name: Require every validation lane
         env:
           RESULTS: ${{ toJSON(needs) }}
+          MEASUREMENT_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.measure_streaming_deadlines }}
         run: |
           python3 - <<'PY'
           import json, os
@@ -361,9 +431,17 @@ jobs:
           published = jobs['build-runtime']['outputs'].get('published')
           if published not in ('true', 'false'):
               raise SystemExit('producer did not report its execution mode')
+          requested = os.environ['MEASUREMENT_REQUESTED']
+          if requested not in ('true', 'false'):
+              raise SystemExit('measurement request mode is missing or invalid')
+          if requested == 'true' and published != 'true':
+              raise SystemExit('requested measurement requires published same-run artifacts')
           remote = {'embedded-e2e', 'cross-chain-e2e', 'kurtosis-e2e'}
           for name, job in jobs.items():
-              expected = 'skipped' if name in remote and published == 'false' else 'success'
+              if name == 'streaming-deadline-measurement':
+                  expected = 'success' if requested == 'true' else 'skipped'
+              else:
+                  expected = 'skipped' if name in remote and published == 'false' else 'success'
               if job['result'] != expected:
                   raise SystemExit(f"{name}: {job['result']} (expected {expected})")
           print('All required validation passed for the release candidate.')

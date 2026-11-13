@@ -248,6 +248,154 @@ class NativeArtifactTest(unittest.TestCase):
             self.assertTrue((destination / "target" / relative).is_file())
         self.assertEqual(native.runtime_hashes(destination / "target/release/eez-runtime"), self.manifest["runtime_sha256"])
 
+    def measure_export(self, payload, failure=None, producer_run="123", producer_attempt="1", consumer_attempt="2"):
+        self.measure_target = self.root / "measurement-target"
+        self.measure_output = self.root / "evidence"
+        with patch.object(native, "identity", return_value=self.identity), \
+                patch.object(native, "check_nextest"), \
+                patch.object(native, "output", return_value="glibc 2.39"), \
+                patch.object(native.subprocess, "run", side_effect=failure) as run, \
+                patch.dict(os.environ, CARGO_TARGET_DIR=str(self.measure_target),
+                           GITHUB_SHA=self.identity["root_commit"],
+                           GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT=consumer_attempt,
+                           EEZ_NATIVE_PRODUCER_RUN_ID=producer_run, EEZ_NATIVE_PRODUCER_RUN_ATTEMPT=producer_attempt,
+                           EEZ_NATIVE_PAYLOAD_REF="ghcr.io/example/repo-ci-tests@sha256:" + "f" * 64):
+            try:
+                native.measure(payload, self.measure_output)
+            finally:
+                self.measure_calls = run.call_args_list
+
+    def test_measurement_uses_verified_export_and_identical_shipping_copy(self):
+        payload, manifest = self.export_fixture()
+        self.measure_export(payload)
+        self.assertEqual(len(self.measure_calls), 1)
+        call = self.measure_calls[0]
+        command = call.args[0]
+        self.assertEqual(command[:2], [sys.executable, str(REPO / "scripts/measure-streaming-deadlines.py")])
+        self.assertEqual(command[2], str(payload / "target/release/deps/eez-node-e2e-node_e2e-123"))
+        staged = self.measure_target / "release/eez-proof-signer"
+        self.assertEqual(command[3:], [str(staged), str(self.measure_output)])
+        self.assertEqual(native.digest(staged), manifest["runtime_sha256"]["eez-proof-signer"])
+        self.assertEqual(call.kwargs["env"]["EEZ_TEST_PREBUILT"], "1")
+        self.assertEqual(call.kwargs["env"]["EEZ_TEST_RUNTIME_BIN_DIR"], str(payload / "target/release/eez-runtime"))
+        libraries = call.kwargs["env"]["LD_LIBRARY_PATH"].split(os.pathsep)
+        self.assertIn(str(payload / "target/release/deps"), libraries)
+        self.assertIn(str(payload / "target/nextest/libdirs/host"), libraries)
+        self.assertNotIn("/build/target", libraries)
+        record = json.loads(self.measure_output.with_suffix(".artifact-provenance.json").read_text())
+        self.assertEqual(record["artifact_source"], record["workflow_source"])
+        self.assertEqual(record["producer_run_attempt"], "1")
+        self.assertEqual(record["workflow_run_attempt"], "2")
+        self.assertEqual(record["signer_sha256"], manifest["runtime_sha256"]["eez-proof-signer"])
+        self.assertEqual(record["test_sha256"], manifest["files_sha256"]["target/release/deps/eez-node-e2e-node_e2e-123"])
+        self.assertFalse((payload / native.PRODUCER_PASSED).exists(), "measurement must not certify producer success")
+        self.assertTrue(json.loads(self.measure_output.with_suffix(".artifact-post.json").read_text())["input_bytes_unchanged"])
+
+    def test_measurement_first_attempt_drops_ambient_library_injection(self):
+        payload, _ = self.export_fixture()
+        with patch.dict(os.environ, LD_LIBRARY_PATH="/ambient/unverified", LD_PRELOAD="/ambient/unverified.so"):
+            self.measure_export(payload, producer_attempt="1", consumer_attempt="1")
+        env = self.measure_calls[0].kwargs["env"]
+        self.assertNotIn("/ambient/unverified", env["LD_LIBRARY_PATH"])
+        self.assertNotIn("LD_PRELOAD", env)
+        record = json.loads(self.measure_output.with_suffix(".artifact-provenance.json").read_text())
+        self.assertEqual(record["producer_run_attempt"], record["workflow_run_attempt"])
+
+    def test_measurement_checks_realistic_present_and_missing_linked_paths(self):
+        payload, manifest = self.export_fixture()
+        path = payload / "target/nextest/binaries-metadata.json"
+        metadata = json.loads(path.read_text())
+        metadata["rust-build-meta"]["linked-paths"] = ["release/build/foo/out"]
+        path.write_text(json.dumps(metadata))
+        manifest["files_sha256"][str(path.relative_to(payload))] = native.digest(path)
+        (payload / "manifest.json").write_text(json.dumps(manifest))
+        self.measure_export(payload)
+        self.assertIn(str(payload / "target/release/build/foo/out"),
+                      self.measure_calls[0].kwargs["env"]["LD_LIBRARY_PATH"].split(os.pathsep))
+        shutil.rmtree(self.measure_target)
+        for suffix in (".artifact-provenance.json", ".artifact-post.json"):
+            self.measure_output.with_suffix(suffix).unlink()
+        metadata["rust-build-meta"]["linked-paths"] = ["release/build/absent/out"]
+        path.write_text(json.dumps(metadata))
+        manifest["files_sha256"][str(path.relative_to(payload))] = native.digest(path)
+        (payload / "manifest.json").write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "missing or escapes"):
+            self.measure_export(payload)
+        self.assertEqual(self.measure_calls, [])
+
+    def test_measurement_rejects_archive_and_stale_source_before_execution(self):
+        payload, manifest = self.export_fixture()
+        with self.assertRaisesRegex(ValueError, "E2E-only"):
+            self.measure_export(self.root)
+        self.assertEqual(self.measure_calls, [])
+        manifest["root_commit"] = "0" * 40
+        (payload / "manifest.json").write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "root_commit"):
+            self.measure_export(payload)
+        self.assertEqual(self.measure_calls, [])
+
+    def test_measurement_detects_changed_unused_shipping_binary(self):
+        payload, manifest = self.export_fixture()
+        path = payload / "target/release/eez-runtime/eez-composer"
+        path.write_text("modified composer, not the signer selected for timing")
+        manifest["files_sha256"][str(path.relative_to(payload))] = native.digest(path)
+        (payload / "manifest.json").write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "shipping candidate"):
+            self.measure_export(payload)
+        self.assertEqual(self.measure_calls, [])
+
+    def test_measurement_rejects_unlisted_library_and_escaping_search_path(self):
+        payload, manifest = self.export_fixture()
+        injected = payload / "target/release/deps/unlisted.so"
+        injected.write_text("unlisted executable bytes")
+        with self.assertRaisesRegex(ValueError, "outside its verified inventory"):
+            self.measure_export(payload)
+        self.assertEqual(self.measure_calls, [])
+        injected.unlink()
+        metadata_path = payload / "target/nextest/binaries-metadata.json"
+        metadata = json.loads(metadata_path.read_text())
+        metadata["rust-build-meta"]["linked-paths"] = ["../../outside"]
+        metadata_path.write_text(json.dumps(metadata))
+        manifest["files_sha256"][str(metadata_path.relative_to(payload))] = native.digest(metadata_path)
+        (payload / "manifest.json").write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError, "invalid exported native library path"):
+            self.measure_export(payload)
+        self.assertEqual(self.measure_calls, [])
+
+    def test_measurement_preserves_rejected_window_exit_and_first_provenance(self):
+        payload, _ = self.export_fixture()
+        with self.assertRaises(subprocess.CalledProcessError) as failure:
+            self.measure_export(payload, subprocess.CalledProcessError(1, ["quiet gate"]))
+        self.assertEqual(failure.exception.returncode, 1)
+        post = json.loads(self.measure_output.with_suffix(".artifact-post.json").read_text())
+        self.assertEqual(post["observer_exit_code"], 1)
+        self.assertTrue(post["input_bytes_unchanged"])
+        record = self.measure_output.with_suffix(".artifact-provenance.json")
+        retained = record.read_bytes()
+        shutil.rmtree(self.measure_target)
+        with self.assertRaises(FileExistsError):
+            self.measure_export(payload)
+        self.assertEqual(record.read_bytes(), retained)
+        self.assertEqual(self.measure_calls, [])
+
+    def test_measurement_rejects_other_run_or_future_producer_attempt(self):
+        payload, _ = self.export_fixture()
+        for run, attempt in (("124", "1"), ("123", "3"), ("123", "")):
+            with self.subTest(run=run, attempt=attempt):
+                with self.assertRaisesRegex(ValueError, "same-run producer identity"):
+                    self.measure_export(payload, producer_run=run, producer_attempt=attempt)
+                self.assertEqual(self.measure_calls, [])
+
+    def test_measurement_rejects_input_mutation_after_observer(self):
+        payload, _ = self.export_fixture()
+        def mutate(command, **_):
+            Path(command[2]).write_text("changed during execution")
+        with self.assertRaisesRegex(ValueError, "input bytes changed"):
+            self.measure_export(payload, failure=mutate)
+        post = json.loads(self.measure_output.with_suffix(".artifact-post.json").read_text())
+        self.assertFalse(post["input_bytes_unchanged"])
+        self.assertTrue(self.measure_output.with_suffix(".artifact-provenance.json").is_file())
+
     def test_lean_payload_detects_tampering_and_incomplete_inventory(self):
         destination, manifest = self.export_fixture()
         for relative in ("target/nextest/binaries-metadata.json", "target/nextest/cargo-metadata.json",

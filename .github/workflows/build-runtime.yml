@@ -15,6 +15,12 @@ on:
       images:
         description: Runtime image manifest entries for promotion after validation
         value: ${{ jobs.build.outputs.images }}
+      producer-run-id:
+        description: Run that published the immutable execution payloads
+        value: ${{ jobs.build.outputs.producer-run-id }}
+      producer-run-attempt:
+        description: Publishing producer attempt, retained on consumer-only reruns
+        value: ${{ jobs.build.outputs.producer-run-attempt }}
 
 permissions:
   contents: read
@@ -37,6 +43,8 @@ jobs:
       tests-ref: ${{ steps.payloads.outputs.tests-ref }}
       published: ${{ steps.init.outputs.published }}
       images: ${{ steps.payloads.outputs.images }}
+      producer-run-id: ${{ steps.payloads.outputs.producer-run-id }}
+      producer-run-attempt: ${{ steps.payloads.outputs.producer-run-attempt }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -114,6 +122,8 @@ jobs:
           bash scripts/ci/ci-payload.sh publish runtime "$EEZ_RUNTIME_OUTPUT_DIR"
           bash scripts/ci/ci-payload.sh publish tests "$EEZ_NATIVE_TEST_DIR"
           echo "images=$(jq -c .images "$EEZ_RUNTIME_OUTPUT_DIR/manifest.json")" >> "$GITHUB_OUTPUT"
+          echo "producer-run-id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "producer-run-attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
       - name: Install Foundry for no-publication validation
         id: local-foundry
         if: ${{ steps.init.outputs.published == 'false' }}
