@@ -181,6 +181,26 @@
       "summaries": [],
       "exit_code": 0,
       "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e --no-run"
+    },
+    {
+      "label": "selected-existing-process-regressions",
+      "local_log": "artifacts/issue145/logs/regressions-final.log",
+      "sha256": "7173cb3484e852c1a0c8607087ca14aa68c0b16e16ec992143f9dfe4631a5544",
+      "bytes": 69074,
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- e2e::node_fixture_ignores_parent_dotenv cross_chain::minimal_bidirectional_cross_chain_smoke cross_chain::real_signer_rejects_tampered_witness native_system::two_composers_two_keyless_followers settlement_policy::restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint --test-threads=1 --nocapture",
+      "filters": [
+        "e2e::node_fixture_ignores_parent_dotenv",
+        "cross_chain::minimal_bidirectional_cross_chain_smoke",
+        "cross_chain::real_signer_rejects_tampered_witness",
+        "native_system::two_composers_two_keyless_followers",
+        "settlement_policy::restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint"
+      ],
+      "exit_code": 0,
+      "summaries": [
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 216 filtered out; finished in 357.83s"
+      ],
+      "log_dir": "artifacts/issue145/regressions-final/logs",
+      "datadir_dir": "artifacts/issue145/regressions-final/datadirs"
     }
   ],
   "process_final_test_executable": [
@@ -421,7 +441,7 @@
     "standalone_full_chain_verifier_replay": false,
     "live_public_network": false,
     "release_artifact_kurtosis_matrix": "CI-owned; not run locally",
-    "selected_existing_process_regressions": "running; pending closeout",
+    "selected_existing_process_regressions": "5 passed, zero failed/ignored, 216 filtered; serial in one fresh source invocation after matrix",
     "target_changed": "Complete quote/target binding; process assertion does not isolate its chain-ID term",
     "followers": "No Composer capability handshake; genesis difference unobserved under equal consumed header rules",
     "composer_ignored": "held_pool::tests::profile_blocked_backlog_discovery",
@@ -438,5 +458,46 @@
     "test_repository_source_context_preserves_genesis (test_runtime_docker.RuntimeDockerTest.test_repository_source_context_preserves_genesis) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
     "test_public_fixture_is_allowed_but_new_keys_and_inline_suppressions_fail (test_secret_scan.SecretScanTest.test_public_fixture_is_allowed_but_new_keys_and_inline_suppressions_fail) ... skipped 'requires Gitleaks (installed by CI)'",
     "test_reviewed_values_are_scoped_to_exact_values_and_paths (test_secret_scan.SecretScanTest.test_reviewed_values_are_scoped_to_exact_values_and_paths) ... skipped 'requires Gitleaks (installed by CI)'"
-  ]
+  ],
+  "code_snapshot_commit": "a0a3b7850c511da6c2e0e70f004400d2ead94b06",
+  "prior_pr_162": {
+    "base": "dbe1cdb9047e7f3502505f381aaa602e6ebf552f",
+    "head": "e763148a3e40bc82308cb4a74279fe32cd605409",
+    "merge": "a4ced23276352df9da828263c0e771ab0fcac5dc",
+    "state": "closed"
+  },
+  "association_main_checked_before_pr": "0d46d64891854357865471770d5063ceb8bb3a05",
+  "regression_test_executables": [
+    {
+      "sha256": "3255d765d80e9a83dc1c5799aa08f1f5a1018152368e12020a9461fb4444f46e",
+      "local_path": "target/issue145/debug/deps/node_e2e-385dbc4e454dfa7d"
+    }
+  ],
+  "regression_runtime_executables": [
+    {
+      "sha256": "f41d474b8cbbfda10447373e98068b08ea0ec9de3e28981361b6f0506d0aea7f",
+      "local_path": "target/issue145/debug/eez-composer"
+    },
+    {
+      "sha256": "e633d83c1ee0fc0e9c384faeeb67449390ae0a35e865b2f0d67f2084444e36fe",
+      "local_path": "target/issue145/debug/eez-follower"
+    },
+    {
+      "sha256": "39493c5b30a5e9aa585d2be14ff35ff1d83a6a16b2fb92145c43aa12e7150a53",
+      "local_path": "target/issue145/debug/eez-proof-signer"
+    }
+  ],
+  "cancelled_regression_invocation": {
+    "pid": 1707459,
+    "executable": "/home/edu/.codex/worktrees/issue145-e2e-identity/repo/target/issue145/debug/deps/node_e2e-385dbc4e454dfa7d",
+    "filter": "e2e::node_fixture_ignores_parent_dotenv",
+    "cancelled_before_role_launch": true,
+    "cargo_pid": 1697034,
+    "wrapper_pid": 1697032,
+    "active_cargo_children": [],
+    "zombie_children": [
+      1707464
+    ],
+    "source_qualification": "none; cancelled before first role launch, retained empty signer log"
+  }
 }

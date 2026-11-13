@@ -1,6 +1,6 @@
 # L1 identity process qualification
 
-Status: bounded process matrix passed; regression/review closeout underway for [#145](https://github.com/eez-association/eez-rollupX/issues/145).
+Status: bounded process qualification passed; final adversarial review pending for [#145](https://github.com/eez-association/eez-rollupX/issues/145).
 This extends [#162's component assessment](../2026-11-12-l1-identity/README.md)
 with production entrypoint tests. Historical component results remain historical;
 they are not process evidence for this change.
@@ -134,8 +134,12 @@ Early builds ran while the new tests were being edited and are not an exact
 commit snapshot claim. The final code-source digests, executable/log digests,
 commands and limits are in [evidence.json](evidence.json). Paths under `artifacts/`
 are local retained evidence, not published downloadable artifacts. The five
-selected existing source-based process regressions are running separately and
-serially after the matrix; their results will be recorded before closeout.
+selected existing source-based process regressions ran separately and serially
+after the matrix: **5 passed, 0 failed, 0 ignored, 216 filtered out**. The exact
+filters are in the manifest: fixture dotenv isolation, bidirectional smoke, real
+signer witness rejection, two Composers/two followers, and pruned checkpoint
+restart/replay. The last includes missing-history rejection and recovery; it is
+not a nonzero-reference-plus-pruned-restart combined test.
 
 One queued regression invocation was cancelled before any role process launched
 to keep process execution serial and avoid a paused fixture's aged genesis. Its
@@ -171,5 +175,23 @@ negative expected a later guard than production permits. The tests were correcte
 to honour the last fixture override, inspect actual relay/registry progress and
 assert the earlier canonical-anchor hash fence. It also requested stronger
 ownership/attempt assertions, longer fault observation and accurate endpoint /
-follower/finality descriptions. Final execution and review must verify the
-corrected scope. This preliminary static review is not runtime approval.
+follower/finality descriptions. Execution verified the corrected scope. The preliminary static review is not
+runtime approval; a frozen-scope final review follows separately.
+
+### Ponytail self-review
+
+What this change does: it turns the earlier component assessment into bounded
+production-process qualification. It adds one test module and only the fixture
+support needed for independently selected genesis, raw startup observation,
+actual finality and endpoint-state inspection.
+
+Reviewed the complete diff and the startup, capability, reference, composition,
+witness-anchor, final pricing/simulation and submission callers. The assumed
+load is one serial local/CI fixture, with existing production worker/epoch and
+RPC quotas unchanged. Matching controls execute real settlement and follower
+replay; negative cases assert owning errors, live request ownership or exact
+state transitions. No new production policy, dependency or fallback is needed.
+
+Looks good. Ship the focused test/evidence change after final adversarial review.
+Not checked locally: the full release/Kurtosis lanes, public networks, external
+client conformance and a standalone complete-chain replay.
