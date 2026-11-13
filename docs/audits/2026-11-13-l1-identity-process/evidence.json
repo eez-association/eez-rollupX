@@ -201,6 +201,39 @@
       ],
       "log_dir": "artifacts/issue145/regressions-final/logs",
       "datadir_dir": "artifacts/issue145/regressions-final/datadirs"
+    },
+    {
+      "label": "intermediate-one-error-process-rerun",
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- l1_identity::same_id_different_embedded_genesis_rejects_canonical_proof_anchor_before_signing --test-threads=1 --nocapture",
+      "local_log": "artifacts/issue145/logs/review-correction.log",
+      "sha256": "afeb5324f853512084dc16ebd87d21c559f63e9f6131ac5528941206396c66d6",
+      "bytes": 14390,
+      "summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 220 filtered out; finished in 194.40s"
+      ],
+      "exit_code": 0,
+      "log_dir": "artifacts/issue145/review-correction/logs",
+      "datadir_dir": "artifacts/issue145/review-correction/datadirs",
+      "code_commit": "9f58ce89de95041aa66aa4174e3a211ad66c282f",
+      "executables": [
+        {
+          "local_path": "target/issue145/debug/eez-composer",
+          "sha256": "f41d474b8cbbfda10447373e98068b08ea0ec9de3e28981361b6f0506d0aea7f"
+        },
+        {
+          "local_path": "target/issue145/debug/eez-follower",
+          "sha256": "e633d83c1ee0fc0e9c384faeeb67449390ae0a35e865b2f0d67f2084444e36fe"
+        },
+        {
+          "local_path": "target/issue145/debug/eez-proof-signer",
+          "sha256": "39493c5b30a5e9aa585d2be14ff35ff1d83a6a16b2fb92145c43aa12e7150a53"
+        },
+        {
+          "local_path": "target/issue145/debug/deps/node_e2e-385dbc4e454dfa7d",
+          "sha256": "0e4ca02dab6099d5e102ef3789b7f10b14f5495c4728ad4c56e8c8fe6fb0d1b8"
+        }
+      ],
+      "superseded_assertion": true
     }
   ],
   "process_final_test_executable": [
@@ -450,6 +483,24 @@
       "spawned_agents": 0,
       "scope": "Read-only static review of complete final code/test changes, accepted contracts and critical production callers; reviewer executed no tests or digest checks.",
       "verdict": "No blocking defects. Correct misleading duplicated-log count and disclose non-genesis-specific anchor comparison; label independent canonical Anvil accurately."
+    },
+    "correction_fable": {
+      "reviewed_commit": "9f58ce89de95041aa66aa4174e3a211ad66c282f",
+      "local_result": "artifacts/issue145/review/correction.json",
+      "result_sha256": "ef1db5fbc6fc1596137d5ecf2816f8c4a17b0d64fc48c836cf3d34ed786335da",
+      "local_transcript": "artifacts/issue145/review/correction-transcript.jsonl",
+      "transcript_sha256": "760137380a7df0f8d360daa97573d65addfdf6d355d45a08da81666ea6269d88",
+      "report": "fable-correction-review.md",
+      "report_sha256": "d82c778c168ef520080696067c68b5a9b02c760d4de27af4958aa04c8b5dc08a",
+      "model_usage_keys": [
+        "claude-fable-5-2"
+      ],
+      "canonical_model": "claude-fable-5-2",
+      "speed": "standard",
+      "fallback": false,
+      "spawned_agents": 0,
+      "scope": "Static correction review plus relevant production callers and contracts; no execution or hash checks.",
+      "verdict": "No blocking finding. Corrected its own prior duplicate-log mechanism, requested both owning paths, precise anchor height and supplemental execution provenance. Accepted."
     }
   },
   "limits": {
@@ -466,7 +517,7 @@
     "composer_ignored": "held_pool::tests::profile_blocked_backlog_discovery",
     "tooling_skipped": 9,
     "reused_executable_paths": "Executable output paths are reused by later builds; each recorded digest identifies the bytes captured for that run, not a promise that the current path still holds those bytes.",
-    "anchor_fence": "Compares any differing hash at the target height, not genesis specifically. Independently mined paired fixture does not isolate genesis from later block divergence; one owning pre-signing rejection is asserted."
+    "anchor_fence": "Compares differing hashes at the proof-anchor height (the target's parent) and terminal witness selected L1 height, not genesis specifically. Independently mined paired fixture does not isolate genesis from later block divergence; both owning preparation rejections must be observed."
   },
   "tooling_skipped_tests": [
     "test_scratch_payload_copies_out_without_execution_or_permission_loss (test_ci_payload.DockerPayloadTest.test_scratch_payload_copies_out_without_execution_or_permission_loss) ... skipped 'opt-in real data-only Docker image'",
@@ -522,9 +573,16 @@
   },
   "post_review_test_correction": {
     "path": "crates/eez-node-e2e/tests/l1_identity.rs",
+    "sha256": "4f191c7fdc33737e3ee68f7af3b0ce90d59b28b95ca81df3b93afb8ade23defc",
+    "change": "Require anchor-error conjunction with each sync-slot and retained-ordinary emitter before negative assertions. They are two preparations in one slot, not duplicate logs. No production change.",
+    "reviewed_predecessor_commit": "9f58ce89de95041aa66aa4174e3a211ad66c282f"
+  },
+  "intermediate_test_correction": {
+    "path": "crates/eez-node-e2e/tests/l1_identity.rs",
     "sha256": "a606100ed3b6db0c33862a6af208a9bfd3d31bcb303360eb32b2ff47e6866603",
     "change": "Require one owning canonical proof-anchor rejection rather than two log lines emitted for the same rejected attempt; no production change.",
     "original_code_snapshot": "a0a3b7850c511da6c2e0e70f004400d2ead94b06",
-    "reviewed_commit": "e84f8b7eb78c1cb3969da7f62690c84c6b01e63f"
+    "reviewed_commit": "e84f8b7eb78c1cb3969da7f62690c84c6b01e63f",
+    "superseded": true
   }
 }

@@ -527,11 +527,21 @@ async fn same_id_different_embedded_genesis_rejects_canonical_proof_anchor_befor
     );
     wait_for(TIMEOUT, || async {
         node.assert_no_process_death();
-        Ok(
-            (node.log_count_matching(&["terminal witness and canonical proof anchor disagree"])?
-                > 0)
-            .then_some(()),
-        )
+        let log = std::fs::read_to_string(&node.log_path)?;
+        // One slot prepares both an in-memory candidate and a retained-ordinary
+        // candidate. Observe both fences before checking that neither signed.
+        let rejected = [
+            "minimal batch unavailable; retaining complete range without capacity splitting",
+            "retained ordinary settlement deferred",
+        ]
+        .iter()
+        .all(|message| {
+            log.lines().any(|line| {
+                line.contains(message)
+                    && line.contains("terminal witness and canonical proof anchor disagree")
+            })
+        });
+        Ok(rejected.then_some(()))
     })
     .await
     .unwrap_or_else(|error| {

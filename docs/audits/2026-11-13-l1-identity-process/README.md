@@ -83,9 +83,11 @@ The mismatched embedded-state fixture provisions G at the real signer and uses
 Core's existing owner-only `updateVerificationKey` on its owned local canonical
 chain, so a key mismatch cannot hide the earlier execution-history fence. This
 is a disposable test deployment, not an upgrade or migration procedure.
-The anchor fence compares hashes at the target height, not genesis specifically:
+The anchor fence compares hashes at the proof-anchor height (the target's parent) and the terminal witness's
+selected L1 height, not genesis specifically:
 this independently mined fixture does not isolate different genesis from later
-block divergence. One observed rejection establishes the pre-signing boundary.
+block divergence. The test observes both the sync-slot and retained-ordinary candidate rejections
+before asserting that neither signed or submitted.
 
 The existing builder stub captures/forwards real bundles and serves native blob
 availability through the beacon fixture. It is not a real builder ordering/refund
@@ -210,8 +212,18 @@ complete changed code/tests and critical production callers read, plus its
 explicit verification limits. It executed no tests or digest checks.
 
 There were no blocking findings. The two nonblocking corrections were accepted:
-assert one owning anchor rejection instead of counting two duplicate log lines
-as separate attempts, and disclose that the anchor hash fence is not specific
-to genesis. The independent canonical Anvil table label and tooling count were
+name both owning anchor rejections explicitly, and disclose that the anchor
+hash fence is not specific to genesis. The independent canonical Anvil table label and tooling count were
 also clarified. The report remains the original review of the frozen commit;
 its findings are not silently removed after correction.
+
+On 2026-11-13, the same exact model reviewed the correction at
+`9f58ce89de95041aa66aa4174e3a211ad66c282f` and corrected its own first finding:
+the two errors were separate sync-slot and retained-ordinary candidate
+preparations in one slot opportunity. The [correction report](fable-correction-review.md)
+is retained unaltered. The intermediate one-error assertion passed its specific
+process rerun (1 passed, 220 filtered), but could check negatives before the
+second path completed. The final assertion instead requires the anchor error
+on a line from **each** owning emitter before checking no signatures, relay
+dispatch, eviction or canonical batches. The height disclosure was corrected
+at the same time. These are test/evidence corrections, not production fixes.
