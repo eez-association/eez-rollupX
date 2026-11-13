@@ -529,8 +529,8 @@ async fn same_id_different_embedded_genesis_rejects_canonical_proof_anchor_befor
         node.assert_no_process_death();
         Ok(
             (node.log_count_matching(&["terminal witness and canonical proof anchor disagree"])?
-                >= 2)
-                .then_some(()),
+                > 0)
+            .then_some(()),
         )
     })
     .await

@@ -1,6 +1,6 @@
 # L1 identity process qualification
 
-Status: bounded process qualification passed; final adversarial review pending for [#145](https://github.com/eez-association/eez-rollupX/issues/145).
+Status: bounded process qualification passed; final adversarial review found no blocking defects for [#145](https://github.com/eez-association/eez-rollupX/issues/145).
 This extends [#162's component assessment](../2026-11-12-l1-identity/README.md)
 with production entrypoint tests. Historical component results remain historical;
 they are not process evidence for this change.
@@ -55,7 +55,7 @@ history distinguishes the earlier failed test iterations.
 | --- | --- |
 | Matching local profile and canonical source | Composer signer agreement; follower authenticated catch-up, beyond mere RPC binding |
 | Canonical C, local A | Exact `EEZ_L1_RPC_URL serves chain …, expected …` startup error in each role |
-| Canonical G, local A, initial reference A/0 | Readiness followed by `L1 genesis reference header` rejection in each role |
+| Independent canonical Anvil, local A, initial reference A/0 | Readiness followed by `L1 genesis reference header` rejection in each role |
 | Local/configured C, initial reference A | Composer `L1 reference/profile chain mismatch`; follower explicit configured-ID error |
 | Embedded G, canonical A, signer A | Capability identity disagreement before sequencing |
 | Existing A database, configured G | Reth stored-genesis/chainspec error before signer agreement; original config reopens |
@@ -83,6 +83,9 @@ The mismatched embedded-state fixture provisions G at the real signer and uses
 Core's existing owner-only `updateVerificationKey` on its owned local canonical
 chain, so a key mismatch cannot hide the earlier execution-history fence. This
 is a disposable test deployment, not an upgrade or migration procedure.
+The anchor fence compares hashes at the target height, not genesis specifically:
+this independently mined fixture does not isolate different genesis from later
+block divergence. One observed rejection establishes the pre-signing boundary.
 
 The existing builder stub captures/forwards real bundles and serves native blob
 availability through the beacon fixture. It is not a real builder ordering/refund
@@ -131,7 +134,7 @@ comparison. Production code remains the requested `0d46d648` baseline.
 
 First failures, logs/datadirs and executable identities are retained separately.
 Early builds ran while the new tests were being edited and are not an exact
-commit snapshot claim. The final code-source digests, executable/log digests,
+commit snapshot claim. The pre-review code-source digests, post-review test correction digest, executable/log digests,
 commands and limits are in [evidence.json](evidence.json). Paths under `artifacts/`
 are local retained evidence, not published downloadable artifacts. The five
 selected existing source-based process regressions ran separately and serially
@@ -149,7 +152,7 @@ The source test build uses Rust 1.95.0, the normal optimized dev profile, two
 build jobs, Foundry 1.7.1 and LLVM 22. Targets and retained logs/datadirs are owned
 by this checkout. Prebuilt overrides are cleared; dependencies stay locked.
 
-The full tooling rerun passed 607 tests with 9 explicit skips using checksum-pinned
+The full tooling rerun ran 607 tests: 598 passed and 9 were explicitly skipped using checksum-pinned
 Compose 5.5.1. The initial sandbox run had 3 failures and 102 errors, including
 socket-denied tests and the missing new-module CI inventory entry, which was
 corrected. That first log is retained. The 9 skips are opt-in Docker/Kurtosis /
@@ -176,7 +179,7 @@ to honour the last fixture override, inspect actual relay/registry progress and
 assert the earlier canonical-anchor hash fence. It also requested stronger
 ownership/attempt assertions, longer fault observation and accurate endpoint /
 follower/finality descriptions. Execution verified the corrected scope. The preliminary static review is not
-runtime approval; a frozen-scope final review follows separately.
+runtime approval; the frozen-scope final review is recorded below.
 
 ### Ponytail self-review
 
@@ -192,6 +195,23 @@ RPC quotas unchanged. Matching controls execute real settlement and follower
 replay; negative cases assert owning errors, live request ownership or exact
 state transitions. No new production policy, dependency or fallback is needed.
 
-Looks good. Ship the focused test/evidence change after final adversarial review.
+Looks good. Ship the focused test/evidence change with the bounded process and review evidence.
 Not checked locally: the full release/Kurtosis lanes, public networks, external
 client conformance and a standalone complete-chain replay.
+
+### Final adversarial review
+
+The actual CLI review at frozen commit
+`e84f8b7eb78c1cb3969da7f62690c84c6b01e63f` returned only
+`claude-fable-5-2` in `modelUsage`, with canonical model `claude-fable-5-2`,
+first-party provider, standard speed and no fallback or spawned agents. The
+[unaltered static report](fable-review.md) records the accepted contracts,
+complete changed code/tests and critical production callers read, plus its
+explicit verification limits. It executed no tests or digest checks.
+
+There were no blocking findings. The two nonblocking corrections were accepted:
+assert one owning anchor rejection instead of counting two duplicate log lines
+as separate attempts, and disclose that the anchor hash fence is not specific
+to genesis. The independent canonical Anvil table label and tooling count were
+also clarified. The report remains the original review of the frozen commit;
+its findings are not silently removed after correction.

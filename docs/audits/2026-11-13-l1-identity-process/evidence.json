@@ -430,7 +430,26 @@
         "claude-fable-5-2"
       ],
       "canonical_model": "claude-fable-5-2",
-      "source_limit": "Uncommitted tree rooted at base, read while editing; stale initial diff identified by reviewer; no exact snapshot claim. Final frozen-scope review pending."
+      "source_limit": "Uncommitted tree rooted at base, read while editing; stale initial diff identified by reviewer; no exact snapshot claim. Superseded by final frozen-scope review."
+    },
+    "final_fable": {
+      "reviewed_commit": "e84f8b7eb78c1cb3969da7f62690c84c6b01e63f",
+      "local_result": "artifacts/issue145/review/final.json",
+      "result_sha256": "62b5759db6c1f0c735942e993619af62836a50a40f21fbff614e1081c31ea312",
+      "local_transcript": "artifacts/issue145/review/final-transcript.jsonl",
+      "transcript_sha256": "d662d94ac682b7a179c9ee59da4babc40c9dc4853dc5253363bfd9d72569d5f6",
+      "report": "fable-review.md",
+      "report_sha256": "cd9c0447ea8087d2ae0df2b1bbe1892e450c15a5233bf387d6ea7514b1b53078",
+      "model_usage_keys": [
+        "claude-fable-5-2"
+      ],
+      "canonical_model": "claude-fable-5-2",
+      "provider": "firstParty",
+      "speed": "standard",
+      "fallback": false,
+      "spawned_agents": 0,
+      "scope": "Read-only static review of complete final code/test changes, accepted contracts and critical production callers; reviewer executed no tests or digest checks.",
+      "verdict": "No blocking defects. Correct misleading duplicated-log count and disclose non-genesis-specific anchor comparison; label independent canonical Anvil accurately."
     }
   },
   "limits": {
@@ -446,7 +465,8 @@
     "followers": "No Composer capability handshake; genesis difference unobserved under equal consumed header rules",
     "composer_ignored": "held_pool::tests::profile_blocked_backlog_discovery",
     "tooling_skipped": 9,
-    "reused_executable_paths": "Executable output paths are reused by later builds; each recorded digest identifies the bytes captured for that run, not a promise that the current path still holds those bytes."
+    "reused_executable_paths": "Executable output paths are reused by later builds; each recorded digest identifies the bytes captured for that run, not a promise that the current path still holds those bytes.",
+    "anchor_fence": "Compares any differing hash at the target height, not genesis specifically. Independently mined paired fixture does not isolate genesis from later block divergence; one owning pre-signing rejection is asserted."
   },
   "tooling_skipped_tests": [
     "test_scratch_payload_copies_out_without_execution_or_permission_loss (test_ci_payload.DockerPayloadTest.test_scratch_payload_copies_out_without_execution_or_permission_loss) ... skipped 'opt-in real data-only Docker image'",
@@ -499,5 +519,12 @@
       1707464
     ],
     "source_qualification": "none; cancelled before first role launch, retained empty signer log"
+  },
+  "post_review_test_correction": {
+    "path": "crates/eez-node-e2e/tests/l1_identity.rs",
+    "sha256": "a606100ed3b6db0c33862a6af208a9bfd3d31bcb303360eb32b2ff47e6866603",
+    "change": "Require one owning canonical proof-anchor rejection rather than two log lines emitted for the same rejected attempt; no production change.",
+    "original_code_snapshot": "a0a3b7850c511da6c2e0e70f004400d2ead94b06",
+    "reviewed_commit": "e84f8b7eb78c1cb3969da7f62690c84c6b01e63f"
   }
 }
