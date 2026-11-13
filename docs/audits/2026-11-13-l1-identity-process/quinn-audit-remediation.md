@@ -108,5 +108,13 @@ reproduced, the same database verifies the correction, and shipping graph/ELF
 comparisons establish the bounded runtime-impact conclusion. No additional
 abstraction, fallback, policy exception or version bump is needed.
 
-The final exact-model adversarial review will be recorded separately after
-reviewing this frozen scope.
+An actual read-only follow-up review ran against frozen source
+`20f1f2d6abc80a28c5ce1e61036eda2efe42e18d`. Its metadata records only
+canonical `claude-fable-5-2`, first-party provider, standard speed, no fallback
+and zero spawned agents. It hit the five-hour usage limit before returning a
+verdict (`is_error: true`, `terminal_reason: api_error`, exit 1). The
+[unaltered CLI result](quinn-fable-review-attempt.md) and transcript/result
+hashes are retained. This follow-up review is **incomplete**, and no approval is
+claimed. The earlier completed reviews remain evidence for their original
+code/test revisions. No replacement model was used. The reviewer executed no
+tests or hash checks. Subsequent closeout changes only the audit metadata.

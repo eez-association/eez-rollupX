@@ -3,7 +3,13 @@
   "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
   "advisory_database": {
     "repository": "https://github.com/RustSec/advisory-db",
-    "revision": "4ef2df8e806a65e2f1ecc14f56f51249062b23d6"
+    "revision": "4ef2df8e806a65e2f1ecc14f56f51249062b23d6",
+    "clean_checkout_verified": true,
+    "source_sha256": {
+      "crates/quinn-proto/RUSTSEC-2026-0523.md": "73e110da23b023c36a84187817a6187d1f1efe6bd19d34f3144453af98a64204",
+      "crates/quinn-proto/RUSTSEC-2026-0524.md": "93a5adcf4ba366223bfe8beb7d67c8343e37070629c1dd4fd0b1a2c43f254daf",
+      "crates/quinn-udp/RUSTSEC-2026-0538.md": "25fc2f0e56109e6adf22b43059cacba4e3d964c51d0c103aea47522d147dcb5e"
+    }
   },
   "lock_delta": {
     "Cargo.lock": {
@@ -159,7 +165,10 @@
     },
     "deny-after": {
       "exit_code": 0,
-      "summary": "advisories ok, bans ok, sources ok; repository policy unchanged except task-owned db-path override"
+      "summary": "advisories ok, bans ok, sources ok; repository policy unchanged except task-owned db-path override",
+      "policy_comparison": "Parsed temporary config equals repository policy after removing only the task-owned db-path",
+      "temporary_config_sha256": "25d2949ff670991b45b15bf90f3d1f77d9b5b20e434741f533c5d6c52822ebf7",
+      "database_revision": "4ef2df8e806a65e2f1ecc14f56f51249062b23d6"
     },
     "shipping_target_build": {
       "command": "cargo +1.95.0 build --locked -p eez-node -p eez-follower -p eez-proof-signer -p eez-protocol -p eez-l1 --bin eez-composer --bin eez-follower --bin eez-proof-signer --example genesis_state_root --example genesis_block_hash --example e2e-causal-verify --example verify_blob_evidence",
@@ -212,7 +221,31 @@
   },
   "review": {
     "ponytail_revision": "96608e078b2d5ea607c5c3b8b5a54d1c1fba6846",
-    "self_review": "No production source, compiled package/feature, profile/wire identity, Core pin, dependency-policy exception or vendored cleanup/quota patch changed. Optional HTTP3 upstream fixes are meaningful if enabled later; supported shipping graphs exclude Quinn. Final exact-model adversarial review pending."
+    "self_review": "No production source, compiled package/feature, profile/wire identity, Core pin, dependency-policy exception or vendored cleanup/quota patch changed. Optional HTTP3 upstream fixes are meaningful if enabled later; supported shipping graphs exclude Quinn. Actual follow-up adversarial review attempted, but usage quota prevented a final verdict; see adversarial_attempt. No completed approval is claimed.",
+    "adversarial_attempt": {
+      "status": "incomplete_usage_limit",
+      "reviewed_source_commit": "20f1f2d6abc80a28c5ce1e61036eda2efe42e18d",
+      "is_error": true,
+      "terminal_reason": "api_error",
+      "exit_code": 1,
+      "verdict": null,
+      "result_text": "You've hit your 5-hour limit \u00b7 resets 4:30pm (UTC)",
+      "local_result": "artifacts/issue145/quinn-update/review-result.json",
+      "result_sha256": "83e4ed381d43683218fb77779d13c57ac888f16ff3a709e63ed7a452a2e30068",
+      "local_transcript": "artifacts/issue145/quinn-update/review-transcript.jsonl",
+      "transcript_sha256": "320a16165869bc886efe140e4446a69bb4f6320ab88771651b5485f8b6dbc258",
+      "retained_result": "quinn-fable-review-attempt.md",
+      "retained_result_sha256": "0a466bdef5d8e267e991b091b1d03adabf972062004a3d0af6498c7928a0d8e8",
+      "model_usage_keys": [
+        "claude-fable-5-2"
+      ],
+      "canonical_model": "claude-fable-5-2",
+      "provider": "firstParty",
+      "speed": "standard",
+      "fallback": false,
+      "spawned_agents": 0,
+      "limit": "Requested exact model hit its five-hour usage quota before returning a final report. No substitute model, fabricated verdict, test execution or hash verification by the reviewer."
+    }
   },
   "logs": {
     "artifacts/issue145/quinn-update/audit-after.exit": {
