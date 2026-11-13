@@ -110,6 +110,13 @@ def main():
             write('history-ready.json', {'head': head['hash'],
                 'number': head['number'], 'timestamp': head['timestamp']})
             history_ready = True
+        finalize_path = args.control / 'finalize-head.json'
+        if finalize_path.exists():
+            finalize_path.rename(args.control / 'finalize-head.used.json')
+            finalized = head
+            final_hash = head['hash']
+            fcu(final_hash)
+            write('finalized-head.json', {'number': head['number'], 'hash': final_hash})
         hold = args.control / 'hold.json'
         if hold.exists():
             write('held.json', {'hash': head['hash'], 'number': head['number']})

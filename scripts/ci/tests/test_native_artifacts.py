@@ -430,7 +430,7 @@ class NativeArtifactTest(unittest.TestCase):
                                          "public_inputs_hash_vectors", "rolling_hash_vectors", "causal_evidence",
                                      "ethereum_kzg_compatibility", "call_patterns", "issue35"])
         self.assertEqual(sorted(native.E2E_MODULES), sorted([
-            "e2e", "cross_chain", "native_system", "derivable_operations", "chained_interstate", "partial_consumption",
+            "e2e", "cross_chain", "l1_identity", "native_system", "derivable_operations", "chained_interstate", "partial_consumption",
             "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay",
             "dynamic_admission", "queue_liveness", "queue_reorg", "fee_quotes", "safe_fee_quotes", "transaction_references", "streaming"]))
         # Workspace lib/bin unit tests belong to the debug lane, not the archive.

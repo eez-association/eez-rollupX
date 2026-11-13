@@ -1,0 +1,692 @@
+{
+  "scope": "Issue 145 bounded process qualification; no production behavior change",
+  "base_commit": "0d46d64891854357865471770d5063ceb8bb3a05",
+  "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "frozen_n11": {
+    "source": "1b66d9bda675e6f8e83f514153a97136909acc06",
+    "source_protocol": "143d87e62cade98bfc122d612638dcaaf1c85633",
+    "target": "31e148f50dd79730b17d113ac78795eb377eb5c5",
+    "target_protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "original_input_provenance_independently_verified": false
+  },
+  "code_source_sha256": {
+    "crates/eez-node-e2e/tests/l1_identity.rs": "59ee0be4b3afaa6c2a4961ec74b0cc5daf924d9716ebb92c9ba8362ec67b16cf",
+    "crates/eez-node-e2e/tests/main.rs": "c8d74edbb8e74065f2a740311605f27d5e59532b574dba03d9ddb5da63e652ce",
+    "crates/eez-testkit/src/lib.rs": "8e516bc83fc144975280d7dd704c45c13f1be5502242f2eacbf236b3d3207d1c",
+    "crates/eez-testkit/src/native.rs": "c6bce3cd2001b654ed88e6769bfb3a7cbca1c4aec27df433b2d0b4db2dcd965b",
+    "crates/eez-testkit/src/l1_reorg.rs": "33d970015ea3c531f21163ed83391689fdd660a9697c4324f57618d9fa9922bd",
+    "scripts/native-l1-consensus.py": "1675212387058093ac7ba86ba6d2b96a58759776ab3532d0eb04e32ebe410ecb",
+    "scripts/ci/native-tests.py": "ed2d97903222a5a829fdd73a419b72df07a40abb5679a3e5d836514d89ba2e0d",
+    "scripts/ci/tests/test_native_artifacts.py": "8551fad9c71659b323b09dede44ebd75e4452cdf2a23006bb810dd29c5331ede"
+  },
+  "critical_baseline_source_sha256": {
+    "crates/eez-node/src/lib.rs": "f984978c993a216a5bad36ac332bfeda33c61cf8db76349299d243a3aba4a0ba",
+    "crates/eez-follower/src/lib.rs": "91e1b7818de223233aaedf68630480bd2b9187c5f7f3c01b20c954b5f86e9cad",
+    "crates/eez-node-common/src/lib.rs": "b8fa38f0e5c99cd4e4877486db14d353354f1f73d03d59a14d5a3773183b3932",
+    "crates/eez-l1/src/derivation.rs": "7c763f87911e75d878c028d464d2cbdee67f9e81e2a194ce0f261be97af52f2c",
+    "crates/eez-l1/src/chain_config/offline.rs": "f2d0332e654f3ac2905784bc0cd4da703fff588af486f9e6614bc60741cf1f79",
+    "crates/eez-composer/src/composer.rs": "c8cc82ae9866e15a0d0798b33e22ae2f65be296bcf6c2362c65e7d3716bbd2a7",
+    "crates/eez-composer/src/composer/posting.rs": "4cbcfc6079dab3d49fe661981519680469cfb49350ac8d4c6988b4bd391dbfe3",
+    "crates/eez-l1/src/submitter.rs": "5aa0bd07522e58aa0cd2230b0f143ca75ca935bb61b5bb57eb88b1575f31e97a",
+    "crates/eez-prover-client/src/connection.rs": "5eb60bfe1dd3ab0e53e580e28f33af964f0dc69cc10e9c7ab6d692b8449e7fbe",
+    "crates/eez-control-rpc/VALIDATION_IDENTITY.md": "8fd1a995f233c0bccbb5c0879c0151a3838dd0fbeaa3337e577459d5ec4a9326",
+    "crates/eez-proof-signer/SPEC.md": "6d0d1ba71d787648d3222265599730c0dff074fb43fb3384ef360ecb46d881c2"
+  },
+  "cargo_lock_sha256": "df647e58f1853a844d37f86617941634b42c7342a79b8ff6b9ba06312247f054",
+  "toolchain": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\ncargo 1.95.0 (f2d3ce0bd 2026-03-21)\nforge Version: 1.7.1\nCommit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8\nBuild Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)\nBuild Profile: dist\n22.1.2\nlibprotoc 3.21.12\n5.5.1\n",
+  "build": {
+    "profile": "normal dev / opt-level 1",
+    "jobs": 2,
+    "target": "target/issue145",
+    "prebuilt_overrides": "unset",
+    "cargo": "1.95.0 --locked, offline dependencies"
+  },
+  "runs": [
+    {
+      "label": "baseline-build",
+      "local_log": "artifacts/issue145/logs/baseline-build.log",
+      "sha256": "376d4ba0c99d50eb5be7faa7802e4af499ead87907770e763e2c62059126a6c5",
+      "bytes": 37760,
+      "summaries": [],
+      "command": "cargo +1.95.0 test --locked --offline -p eez-node-e2e --test node_e2e --no-run",
+      "exit_code": 0
+    },
+    {
+      "label": "contracts-build",
+      "local_log": "artifacts/issue145/logs/contracts-build.log",
+      "sha256": "0e29ca20285e16d5417c50909518fddde37197430d48ddbf83d8badb877f395c",
+      "bytes": 7927,
+      "summaries": [],
+      "command": "forge build --root contracts --threads 2",
+      "exit_code": 0
+    },
+    {
+      "label": "tooling",
+      "local_log": "artifacts/issue145/logs/tooling.log",
+      "sha256": "378be5fdd4b858d64cd04e129491651ff691fe1c4794a93cc7a2b159c0474da5",
+      "bytes": 255354,
+      "summaries": [
+        "Ran 607 tests in 368.853s",
+        "FAILED (failures=3, errors=102, skipped=9)"
+      ],
+      "command": "python3 -m unittest discover -s scripts/ci/tests -v",
+      "exit_code": 1
+    },
+    {
+      "label": "tooling-unsandboxed",
+      "local_log": "artifacts/issue145/logs/tooling-unsandboxed.log",
+      "sha256": "789672e3816da49f30880200ebe9f5028d50909c0c11f9f8c8eebc23ce85b0ec",
+      "bytes": 105735,
+      "summaries": [
+        "Ran 607 tests in 389.272s",
+        "OK (skipped=9)"
+      ],
+      "command": "python3 -m unittest discover -s scripts/ci/tests -v",
+      "exit_code": 0
+    },
+    {
+      "label": "settlement-config",
+      "local_log": "artifacts/issue145/logs/settlement-config.log",
+      "sha256": "222753303f6808349cdaced42dea80b19b22024b81d353a5634662b3653e430a",
+      "bytes": 136,
+      "summaries": [],
+      "command": "python3 scripts/check-settlement-policy-config.py",
+      "exit_code": 0
+    },
+    {
+      "label": "process-first",
+      "local_log": "artifacts/issue145/logs/process-first.log",
+      "sha256": "52eac37f77810dc71584520105ff6b8cf553f3df352218ce57b9a7fab286fb8d",
+      "bytes": 220721,
+      "summaries": [
+        "test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 214 filtered out; finished in 1630.34s"
+      ],
+      "exit_code": 101,
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- l1_identity:: --test-threads=1 --nocapture",
+      "log_dir": "artifacts/issue145/process-first/logs",
+      "datadir_dir": "artifacts/issue145/process-first/datadirs"
+    },
+    {
+      "label": "process-corrected",
+      "local_log": "artifacts/issue145/logs/process-corrected.log",
+      "sha256": "9b3f185c7f6aa0f051ff3aba901efc072789573f86d83fde4ddd0529b985afda",
+      "bytes": 256214,
+      "summaries": [
+        "test result: FAILED. 4 passed; 3 failed; 0 ignored; 0 measured; 214 filtered out; finished in 988.69s"
+      ],
+      "exit_code": 101,
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- l1_identity:: --test-threads=1 --nocapture",
+      "log_dir": "artifacts/issue145/process-corrected/logs",
+      "datadir_dir": "artifacts/issue145/process-corrected/datadirs"
+    },
+    {
+      "label": "process-final",
+      "local_log": "artifacts/issue145/logs/process-final.log",
+      "sha256": "8e57fc108ef1717b81caa3649852d882361b099b78d4419716f77b4ca5e2441e",
+      "bytes": 34818,
+      "summaries": [
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 214 filtered out; finished in 454.15s"
+      ],
+      "exit_code": 0,
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- l1_identity:: --test-threads=1 --nocapture",
+      "log_dir": "artifacts/issue145/process-final/logs",
+      "datadir_dir": "artifacts/issue145/process-final/datadirs"
+    },
+    {
+      "label": "clippy-first",
+      "local_log": "artifacts/issue145/logs/clippy-first.log",
+      "sha256": "4b0db970e4d38e7db67564ce628a8308c7611dbc6b3305495d5d924045a2c242",
+      "bytes": 33636,
+      "summaries": [],
+      "exit_code": 101,
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings"
+    },
+    {
+      "label": "clippy-corrected",
+      "local_log": "artifacts/issue145/logs/clippy-corrected.log",
+      "sha256": "738e941df35c1bab14e1886cae82c94b28c10eef9b4a59e5a07270edaf501277",
+      "bytes": 900,
+      "summaries": [],
+      "exit_code": 0,
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings"
+    },
+    {
+      "label": "clippy-final",
+      "local_log": "artifacts/issue145/logs/clippy-final.log",
+      "sha256": "043d965520b914b17c61dec4693eabe31510d0231d16f210dcd395dea6cf05ca",
+      "bytes": 6554,
+      "summaries": [],
+      "exit_code": 0,
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings"
+    },
+    {
+      "label": "unit-regressions",
+      "local_log": "artifacts/issue145/logs/unit-regressions.log",
+      "sha256": "7316b084fe5391ef54dce928ca3dc9b4960361ac5e0d789959e9f92ff6014abd",
+      "bytes": 81506,
+      "summaries": [
+        "test result: ok. 454 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.86s",
+        "test result: ok. 216 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 35.80s",
+        "test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s",
+        "test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.54s"
+      ],
+      "exit_code": 0,
+      "command": "cargo +1.95.0 test --locked -p eez-testkit -p eez-l1 -p eez-node-common -p eez-composer --lib --features eez-node-common/l1-startup -- --test-threads=1"
+    },
+    {
+      "label": "final-test-build",
+      "local_log": "artifacts/issue145/logs/final-test-build.log",
+      "sha256": "8c403ef5be4c77011af0886cc3eafa10469aa1e4a52e126aab02035b7140685d",
+      "bytes": 6468,
+      "summaries": [],
+      "exit_code": 0,
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e --no-run"
+    },
+    {
+      "label": "selected-existing-process-regressions",
+      "local_log": "artifacts/issue145/logs/regressions-final.log",
+      "sha256": "7173cb3484e852c1a0c8607087ca14aa68c0b16e16ec992143f9dfe4631a5544",
+      "bytes": 69074,
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- e2e::node_fixture_ignores_parent_dotenv cross_chain::minimal_bidirectional_cross_chain_smoke cross_chain::real_signer_rejects_tampered_witness native_system::two_composers_two_keyless_followers settlement_policy::restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint --test-threads=1 --nocapture",
+      "filters": [
+        "e2e::node_fixture_ignores_parent_dotenv",
+        "cross_chain::minimal_bidirectional_cross_chain_smoke",
+        "cross_chain::real_signer_rejects_tampered_witness",
+        "native_system::two_composers_two_keyless_followers",
+        "settlement_policy::restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint"
+      ],
+      "exit_code": 0,
+      "summaries": [
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 216 filtered out; finished in 357.83s"
+      ],
+      "log_dir": "artifacts/issue145/regressions-final/logs",
+      "datadir_dir": "artifacts/issue145/regressions-final/datadirs"
+    },
+    {
+      "label": "intermediate-one-error-process-rerun",
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- l1_identity::same_id_different_embedded_genesis_rejects_canonical_proof_anchor_before_signing --test-threads=1 --nocapture",
+      "local_log": "artifacts/issue145/logs/review-correction.log",
+      "sha256": "afeb5324f853512084dc16ebd87d21c559f63e9f6131ac5528941206396c66d6",
+      "bytes": 14390,
+      "summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 220 filtered out; finished in 194.40s"
+      ],
+      "exit_code": 0,
+      "log_dir": "artifacts/issue145/review-correction/logs",
+      "datadir_dir": "artifacts/issue145/review-correction/datadirs",
+      "code_commit": "9f58ce89de95041aa66aa4174e3a211ad66c282f",
+      "executables": [
+        {
+          "local_path": "target/issue145/debug/eez-composer",
+          "sha256": "f41d474b8cbbfda10447373e98068b08ea0ec9de3e28981361b6f0506d0aea7f"
+        },
+        {
+          "local_path": "target/issue145/debug/eez-follower",
+          "sha256": "e633d83c1ee0fc0e9c384faeeb67449390ae0a35e865b2f0d67f2084444e36fe"
+        },
+        {
+          "local_path": "target/issue145/debug/eez-proof-signer",
+          "sha256": "39493c5b30a5e9aa585d2be14ff35ff1d83a6a16b2fb92145c43aa12e7150a53"
+        },
+        {
+          "local_path": "target/issue145/debug/deps/node_e2e-385dbc4e454dfa7d",
+          "sha256": "0e4ca02dab6099d5e102ef3789b7f10b14f5495c4728ad4c56e8c8fe6fb0d1b8"
+        }
+      ],
+      "superseded_assertion": true
+    },
+    {
+      "label": "final-both-anchor-paths-process-rerun",
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- l1_identity::same_id_different_embedded_genesis_rejects_canonical_proof_anchor_before_signing --test-threads=1 --nocapture",
+      "local_log": "artifacts/issue145/logs/both-anchor-paths.log",
+      "sha256": "bb5388a4cde4f11f3f23e9b758ac58729c7c0b0d9a42a703724378acf0ee1fb5",
+      "bytes": 14390,
+      "summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 220 filtered out; finished in 190.37s"
+      ],
+      "exit_code": 0,
+      "log_dir": "artifacts/issue145/both-anchor-paths/logs",
+      "datadir_dir": "artifacts/issue145/both-anchor-paths/datadirs",
+      "code_commit": "20746f3c2241062a6aacc4ae74a785ab660cef2e",
+      "executables": [
+        {
+          "local_path": "target/issue145/debug/eez-composer",
+          "sha256": "f41d474b8cbbfda10447373e98068b08ea0ec9de3e28981361b6f0506d0aea7f"
+        },
+        {
+          "local_path": "target/issue145/debug/eez-follower",
+          "sha256": "e633d83c1ee0fc0e9c384faeeb67449390ae0a35e865b2f0d67f2084444e36fe"
+        },
+        {
+          "local_path": "target/issue145/debug/eez-proof-signer",
+          "sha256": "39493c5b30a5e9aa585d2be14ff35ff1d83a6a16b2fb92145c43aa12e7150a53"
+        },
+        {
+          "local_path": "target/issue145/debug/deps/node_e2e-385dbc4e454dfa7d",
+          "sha256": "817d574c65b0f207ff428e1195d377ee75e2147f535120258631243ecad40605"
+        }
+      ]
+    },
+    {
+      "label": "clippy-intermediate-one-error-correction",
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+      "local_log": "artifacts/issue145/logs/clippy-post-review.log",
+      "sha256": "e08b8adefa47bee922e364d54ab873076cf9856b27e52bbc3c589462a90911b8",
+      "bytes": 6554,
+      "exit_code": 0,
+      "code_commit": "9f58ce89de95041aa66aa4174e3a211ad66c282f"
+    },
+    {
+      "label": "clippy-final-both-anchor-paths",
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+      "local_log": "artifacts/issue145/logs/clippy-both-anchor-paths.log",
+      "sha256": "f833c47304f7733a1ef513d5f17f9bbe9b13921d0c543249ba4799ae4864a089",
+      "bytes": 6554,
+      "exit_code": 0,
+      "code_commit": "20746f3c2241062a6aacc4ae74a785ab660cef2e"
+    },
+    {
+      "label": "fmt-final",
+      "command": "cargo +1.95.0 fmt --all --check",
+      "local_log": "artifacts/issue145/logs/fmt-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "exit_code": 0
+    },
+    {
+      "label": "documentation-final",
+      "command": "inline Python: JSON/link/source/run-log/model/report identity verification; git diff --check",
+      "local_log": "artifacts/issue145/logs/documentation-final.log",
+      "sha256": "a7463c8aec47de878aada9b433d81e734767cb679877264d286e2f341a0e51cc",
+      "bytes": 156,
+      "exit_code": 0
+    }
+  ],
+  "process_final_test_executable": [
+    {
+      "sha256": "3255d765d80e9a83dc1c5799aa08f1f5a1018152368e12020a9461fb4444f46e",
+      "local_path": "target/issue145/debug/deps/node_e2e-385dbc4e454dfa7d"
+    }
+  ],
+  "process_final_runtime_executables": [
+    {
+      "sha256": "f41d474b8cbbfda10447373e98068b08ea0ec9de3e28981361b6f0506d0aea7f",
+      "local_path": "target/issue145/debug/eez-composer"
+    },
+    {
+      "sha256": "e633d83c1ee0fc0e9c384faeeb67449390ae0a35e865b2f0d67f2084444e36fe",
+      "local_path": "target/issue145/debug/eez-follower"
+    },
+    {
+      "sha256": "39493c5b30a5e9aa585d2be14ff35ff1d83a6a16b2fb92145c43aa12e7150a53",
+      "local_path": "target/issue145/debug/eez-proof-signer"
+    }
+  ],
+  "first_process_test_executable": [
+    {
+      "sha256": "be38fbdce16320fdcd98de3d64dee640ddb151e46c2845315e658f320f7b25cf",
+      "local_path": "target/issue145/debug/deps/node_e2e-385dbc4e454dfa7d"
+    }
+  ],
+  "first_process_runtime_executables": [
+    {
+      "sha256": "f41d474b8cbbfda10447373e98068b08ea0ec9de3e28981361b6f0506d0aea7f",
+      "local_path": "target/issue145/debug/eez-composer"
+    },
+    {
+      "sha256": "e633d83c1ee0fc0e9c384faeeb67449390ae0a35e865b2f0d67f2084444e36fe",
+      "local_path": "target/issue145/debug/eez-follower"
+    },
+    {
+      "sha256": "39493c5b30a5e9aa585d2be14ff35ff1d83a6a16b2fb92145c43aa12e7150a53",
+      "local_path": "target/issue145/debug/eez-proof-signer"
+    }
+  ],
+  "corrected_process_test_executable": [
+    {
+      "sha256": "f0bdcde8ba883ea464e3c47fb30eabb074d69abd2bd5d15e33ae0ff42386b949",
+      "local_path": "target/issue145/debug/deps/node_e2e-385dbc4e454dfa7d"
+    }
+  ],
+  "unit_executables": [
+    {
+      "sha256": "b51dcd86d6ab64f0cf25d1dba65b1c9323d76e943c0089d2ce431a59cbede24f",
+      "local_path": "target/issue145/debug/deps/eez_composer-428c942634f2bd99"
+    },
+    {
+      "sha256": "cd48bb0e66f3ceced062b9f4099373e05398d5ee365b6790b0bb732d9710bdac",
+      "local_path": "target/issue145/debug/deps/eez_l1-0942ccd3f85b1ec3"
+    },
+    {
+      "sha256": "8ebc04ae43af15202392efdf47cdcd5994c5166e4e8792a7d7890c1ce6add08b",
+      "local_path": "target/issue145/debug/deps/eez_node_common-44269e3350de6a18"
+    },
+    {
+      "sha256": "2ce85b766b26c7b4ea4c4d3b94dc19a2f56abbdd15d0b953eb679ffc35115315",
+      "local_path": "target/issue145/debug/deps/eez_testkit-5cadc6c93b91029f"
+    }
+  ],
+  "final_fixture_identities": [
+    {
+      "local_path": "artifacts/issue145/process-final/logs/database-l2-genesis-.tmpArxtbW.json",
+      "sha256": "699b4cbc987e48ade68ce6d6b423545c05616bc82b40282c563de25791ece045",
+      "l1_reference": {
+        "chainId": 1337,
+        "hash": "0xe9f10ef8d55b7e95c7ce465d3a481f8c4af056abec74907a12e81d9fc015189b",
+        "number": 0,
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp": 1794577943
+      }
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/database-original-genesis-.tmpiox0Xk.json",
+      "sha256": "62eeae3d27b79f7c8cead1bcaa54c3bf8d4aa07dabb7b7d6057a95ad325ae446"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/embedded-genesis-.tmpTDpg0s.json",
+      "sha256": "6839153c665700bb322f96e70263860d1be8187200b62bd8088950510894f059"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/follower-other-genesis-.tmp9of0Oi.json",
+      "sha256": "7fdb5c006762adcdbfe1817de0be1413326cf51fd45d41cf70c0c158461faa84"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/nonzero-canonical-genesis-.tmpQzUzL7.json",
+      "sha256": "13792ef64e1eee6df9fdc749ca2d20b6b661f1a1706121d56ab46f063513b42a"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/nonzero-l2-genesis-.tmp9of0Oi.json",
+      "sha256": "925b8f83f669a12af76ab2db33eb0a034047ae76f592ca1b47116f0617fae481",
+      "l1_reference": {
+        "chainId": 1337,
+        "hash": "0xc7fb33c0c3ab6af4b0cb2782fcd6896784f6d4f38473a547fbfc84385eb2858e",
+        "number": 1,
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp": 1794577979
+      }
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/other-genesis-.tmpynyQaD.json",
+      "sha256": "71a4d6850a7ab60dbd6ba2971dae6bc19a3555428d5474962a01da90d1c86259"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/rpc-canonical-genesis-.tmpPL8mYS.json",
+      "sha256": "091bd30445f561aaabad0628e86af4692a58055ce88ed85e5363673d0644bd63"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/rpc-l2-genesis-.tmpzhWury.json",
+      "sha256": "e96280ec8c39195e0b3cdbd6cf466dac374ff8e8af0395d33c9c50a6afcbc325",
+      "l1_reference": {
+        "chainId": 1337,
+        "hash": "0x4246cd2535080a6e0300857e2a8db74b55394bec0f98c405d52cb82c02a15a37",
+        "number": 0,
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp": 1794577710
+      }
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/simulation-canonical-genesis-.tmpH1iiFc.json",
+      "sha256": "8917bd4ff1096367cd840247667e0449f30b75ce866349be10505892f590ce53"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/simulation-l2-genesis-.tmpVWQa4o.json",
+      "sha256": "7f6937daae89301a695bd6bcd5a64e98bca0a18f2116d4a653654918cc1806f3",
+      "l1_reference": {
+        "chainId": 1337,
+        "hash": "0x802989baf0b8b11a4123498242f0b6b79f57e819c5cb87ff69ff8a396d56cd32",
+        "number": 0,
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp": 1794578005
+      }
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/startup-canonical-genesis-.tmpBYqi4M.json",
+      "sha256": "324700c2be70ea78cfeb1954a20d3e08d15d60e7519fc6725dc3fee30a7841e2"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/startup-canonical-genesis-.tmpHmPvrl.json",
+      "sha256": "5f0f3a541f6b9bb2a513d69bfdab47e760f72bcc3cf7cd2160c3d8b1d57c4b2b"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/startup-canonical-genesis-.tmpOxLEnd.json",
+      "sha256": "5bf403d3be0c6d14af33e1daab8bd330af6b9ca3b20beeef4f517c824c93070c"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/startup-l2-genesis-.tmpJq5JKX.json",
+      "sha256": "87b3bbe2516f7c39f926627f119cd46ea5197f87806867033c8a3a15c130ec2d",
+      "l1_reference": {
+        "chainId": 1337,
+        "hash": "0x5fcc5238b0ce43bbcbf3aacaa2817ae1576b11793c0dfc1be22d69a546064fc3",
+        "number": 0,
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp": 1794578030
+      }
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/startup-l2-genesis-.tmpRisZjO.json",
+      "sha256": "a19e19656361420b30309813806fb8277bd32e73e9374cb3828cf6df2d84671f",
+      "l1_reference": {
+        "chainId": 1337,
+        "hash": "0x292d03156b3738b7ce3c8866ee98122a53420955cb10788d718a03babc4caa12",
+        "number": 0,
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp": 1794578074
+      }
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/startup-l2-genesis-.tmpWalFmT.json",
+      "sha256": "02228a5e881dba3d31b94be0431acf5b0643fc254968047b42a6867475ae622e",
+      "l1_reference": {
+        "chainId": 1337,
+        "hash": "0xe193a5d04a0a3e9861ebeac2ae37b7b836840e40844ee6d19076b1840fc8ab5d",
+        "number": 0,
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp": 1794578119
+      }
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/wrong-chain-.tmpJAhPBP.json",
+      "sha256": "dcd1d38bbc40dbe302a395a86e8966122174ea2111a772ce3694bc2606939583"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/wrong-chain-.tmpadrxlA.json",
+      "sha256": "76917bafdd923fa7cc08ceb9398b607f6fe2f852dcee09138baf1cf396034186"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/wrong-chain-.tmpgGftSM.json",
+      "sha256": "a7bda3855f0684c851c0fc4ac82388ea459dda633660079211318af08dc0cba4"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/wrong-genesis-.tmpJAhPBP.json",
+      "sha256": "e3f40e305b46501109f6f5343a1f7ac0bf517996bc1684589d6e1ddcf8f3cb6f"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/wrong-genesis-.tmpadrxlA.json",
+      "sha256": "2a0c4f78117414f1ff4757996e6d4ab93d88b38f54e04dfd1447c315ca5ccb54"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/wrong-genesis-.tmpgGftSM.json",
+      "sha256": "77d3f2dc1dd1f58e2f02b539575e7ac42e0dfd8f27327711010b8dd8378fb43f"
+    },
+    {
+      "local_path": "artifacts/issue145/process-final/logs/wrong-nonzero-reference-.tmp9of0Oi.json",
+      "sha256": "3394b4a8f0d03afcf905d10dbfcddc804ea6aee82d2c49872bd8f313ed122fcc",
+      "l1_reference": {
+        "chainId": 1337,
+        "hash": "0x9191919191919191919191919191919191919191919191919191919191919191",
+        "number": 1,
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp": 1794577979
+      }
+    }
+  ],
+  "reviews": {
+    "ponytail_revision": "96608e078b2d5ea607c5c3b8b5a54d1c1fba6846",
+    "preliminary_fable": {
+      "local_report": "artifacts/issue145/review/preliminary.json",
+      "sha256": "ef4207fc20f43e72fca6493aa3b420310816eae7d492161f59dd78c0eee67cac",
+      "model_usage_keys": [
+        "claude-fable-5-2"
+      ],
+      "canonical_model": "claude-fable-5-2",
+      "source_limit": "Uncommitted tree rooted at base, read while editing; stale initial diff identified by reviewer; no exact snapshot claim. Superseded by final frozen-scope review."
+    },
+    "final_fable": {
+      "reviewed_commit": "e84f8b7eb78c1cb3969da7f62690c84c6b01e63f",
+      "local_result": "artifacts/issue145/review/final.json",
+      "result_sha256": "62b5759db6c1f0c735942e993619af62836a50a40f21fbff614e1081c31ea312",
+      "local_transcript": "artifacts/issue145/review/final-transcript.jsonl",
+      "transcript_sha256": "d662d94ac682b7a179c9ee59da4babc40c9dc4853dc5253363bfd9d72569d5f6",
+      "report": "fable-review.md",
+      "report_sha256": "cd9c0447ea8087d2ae0df2b1bbe1892e450c15a5233bf387d6ea7514b1b53078",
+      "model_usage_keys": [
+        "claude-fable-5-2"
+      ],
+      "canonical_model": "claude-fable-5-2",
+      "provider": "firstParty",
+      "speed": "standard",
+      "fallback": false,
+      "spawned_agents": 0,
+      "scope": "Read-only static review of complete final code/test changes, accepted contracts and critical production callers; reviewer executed no tests or digest checks.",
+      "verdict": "No blocking defects. Correct misleading duplicated-log count and disclose non-genesis-specific anchor comparison; label independent canonical Anvil accurately.",
+      "finding_1_disposition": "Its duplicate-log premise was mistaken. The final assertion observes both distinct preparation fences; see correction_fable and final_verification_fable."
+    },
+    "correction_fable": {
+      "reviewed_commit": "9f58ce89de95041aa66aa4174e3a211ad66c282f",
+      "local_result": "artifacts/issue145/review/correction.json",
+      "result_sha256": "ef1db5fbc6fc1596137d5ecf2816f8c4a17b0d64fc48c836cf3d34ed786335da",
+      "local_transcript": "artifacts/issue145/review/correction-transcript.jsonl",
+      "transcript_sha256": "760137380a7df0f8d360daa97573d65addfdf6d355d45a08da81666ea6269d88",
+      "report": "fable-correction-review.md",
+      "report_sha256": "d82c778c168ef520080696067c68b5a9b02c760d4de27af4958aa04c8b5dc08a",
+      "model_usage_keys": [
+        "claude-fable-5-2"
+      ],
+      "canonical_model": "claude-fable-5-2",
+      "speed": "standard",
+      "fallback": false,
+      "spawned_agents": 0,
+      "scope": "Static correction review plus relevant production callers and contracts; no execution or hash checks.",
+      "verdict": "No blocking finding. Corrected its own prior duplicate-log mechanism, requested both owning paths, precise anchor height and supplemental execution provenance. Accepted."
+    },
+    "final_verification_fable": {
+      "reviewed_commit": "20746f3c2241062a6aacc4ae74a785ab660cef2e",
+      "local_result": "artifacts/issue145/review/both-paths.json",
+      "result_sha256": "15b1dc8548cb6c01b70c3c2fbed0e668317e5081ee2fd76853f00b49c160b53f",
+      "local_transcript": "artifacts/issue145/review/both-paths-transcript.jsonl",
+      "transcript_sha256": "c4a6a54f3e6dd3df16c67a36ade3778b34935439401c374c71c1969618369d6e",
+      "report": "fable-final-verification.md",
+      "report_sha256": "07d55052e4c91ffa0a97ace35d6ef9d7d9d1597d4144d78453be9adc6b00c7f9",
+      "model_usage_keys": [
+        "claude-fable-5-2"
+      ],
+      "canonical_model": "claude-fable-5-2",
+      "provider": "firstParty",
+      "speed": "standard",
+      "fallback": false,
+      "spawned_agents": 0,
+      "scope": "Static final corrected-code and relevant caller verification, relying on prior complete-scope contract review for unchanged sections; no execution or hash checks.",
+      "verdict": "No actionable test-code finding. Clarify two remaining historical wordings and append exact final execution results; these metadata-only dispositions are applied after review.",
+      "dispositions": "Historical wording clarified without altering any report. Exact final single-test process rerun and final-source Clippy/format/documentation checks passed and are appended as separate runs. All later changes are audit metadata only."
+    }
+  },
+  "limits": {
+    "logs_datadirs_executables": "local retained files, not published downloadable artifacts",
+    "early_builds": "tests edited during initial builds; no exact-commit runtime claim",
+    "independent_follower_replay": true,
+    "external_client_replay": false,
+    "standalone_full_chain_verifier_replay": false,
+    "live_public_network": false,
+    "release_artifact_kurtosis_matrix": "CI-owned; not run locally",
+    "selected_existing_process_regressions": "5 passed, zero failed/ignored, 216 filtered; serial in one fresh source invocation after matrix",
+    "target_changed": "Complete quote/target binding; process assertion does not isolate its chain-ID term",
+    "followers": "No Composer capability handshake; genesis difference unobserved under equal consumed header rules",
+    "composer_ignored": "held_pool::tests::profile_blocked_backlog_discovery",
+    "tooling_skipped": 9,
+    "reused_executable_paths": "Executable output paths are reused by later builds; each recorded digest identifies the bytes captured for that run, not a promise that the current path still holds those bytes.",
+    "anchor_fence": "Compares differing hashes at the proof-anchor height (the target's parent) and terminal witness selected L1 height, not genesis specifically. Independently mined paired fixture does not isolate genesis from later block divergence; both owning preparation rejections must be observed."
+  },
+  "tooling_skipped_tests": [
+    "test_scratch_payload_copies_out_without_execution_or_permission_loss (test_ci_payload.DockerPayloadTest.test_scratch_payload_copies_out_without_execution_or_permission_loss) ... skipped 'opt-in real data-only Docker image'",
+    "test_overrides_apply_before_creation_and_preserve_memory_and_command (test_kurtosis_ci.RealRelayResourcesTest.test_overrides_apply_before_creation_and_preserve_memory_and_command) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+    "test_readiness_wait_blocks_the_following_instruction_until_ready (test_kurtosis_ci.RealRelayResourcesTest.test_readiness_wait_blocks_the_following_instruction_until_ready) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+    "test_real_producer_and_all_consumers_without_build_machine_or_compiler (test_native_artifacts.NativeRelocationTest.test_real_producer_and_all_consumers_without_build_machine_or_compiler) ... skipped 'set EEZ_TEST_NATIVE_ARCHIVE=1 for real tiny-workspace relocation'",
+    "test_deploy_context_preserves_history_identity (test_runtime_docker.RuntimeDockerTest.test_deploy_context_preserves_history_identity) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+    "test_real_build_and_same_job_execution (test_runtime_docker.RuntimeDockerTest.test_real_build_and_same_job_execution) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+    "test_repository_source_context_preserves_genesis (test_runtime_docker.RuntimeDockerTest.test_repository_source_context_preserves_genesis) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+    "test_public_fixture_is_allowed_but_new_keys_and_inline_suppressions_fail (test_secret_scan.SecretScanTest.test_public_fixture_is_allowed_but_new_keys_and_inline_suppressions_fail) ... skipped 'requires Gitleaks (installed by CI)'",
+    "test_reviewed_values_are_scoped_to_exact_values_and_paths (test_secret_scan.SecretScanTest.test_reviewed_values_are_scoped_to_exact_values_and_paths) ... skipped 'requires Gitleaks (installed by CI)'"
+  ],
+  "code_snapshot_commit": "a0a3b7850c511da6c2e0e70f004400d2ead94b06",
+  "prior_pr_162": {
+    "base": "dbe1cdb9047e7f3502505f381aaa602e6ebf552f",
+    "head": "e763148a3e40bc82308cb4a74279fe32cd605409",
+    "merge": "a4ced23276352df9da828263c0e771ab0fcac5dc",
+    "state": "closed"
+  },
+  "association_main_checked_before_pr": "0d46d64891854357865471770d5063ceb8bb3a05",
+  "regression_test_executables": [
+    {
+      "sha256": "3255d765d80e9a83dc1c5799aa08f1f5a1018152368e12020a9461fb4444f46e",
+      "local_path": "target/issue145/debug/deps/node_e2e-385dbc4e454dfa7d"
+    }
+  ],
+  "regression_runtime_executables": [
+    {
+      "sha256": "f41d474b8cbbfda10447373e98068b08ea0ec9de3e28981361b6f0506d0aea7f",
+      "local_path": "target/issue145/debug/eez-composer"
+    },
+    {
+      "sha256": "e633d83c1ee0fc0e9c384faeeb67449390ae0a35e865b2f0d67f2084444e36fe",
+      "local_path": "target/issue145/debug/eez-follower"
+    },
+    {
+      "sha256": "39493c5b30a5e9aa585d2be14ff35ff1d83a6a16b2fb92145c43aa12e7150a53",
+      "local_path": "target/issue145/debug/eez-proof-signer"
+    }
+  ],
+  "cancelled_regression_invocation": {
+    "pid": 1707459,
+    "executable": "/home/edu/.codex/worktrees/issue145-e2e-identity/repo/target/issue145/debug/deps/node_e2e-385dbc4e454dfa7d",
+    "filter": "e2e::node_fixture_ignores_parent_dotenv",
+    "cancelled_before_role_launch": true,
+    "cargo_pid": 1697034,
+    "wrapper_pid": 1697032,
+    "active_cargo_children": [],
+    "zombie_children": [
+      1707464
+    ],
+    "source_qualification": "none; cancelled before first role launch, retained empty signer log"
+  },
+  "post_review_test_correction": {
+    "path": "crates/eez-node-e2e/tests/l1_identity.rs",
+    "sha256": "4f191c7fdc33737e3ee68f7af3b0ce90d59b28b95ca81df3b93afb8ade23defc",
+    "change": "Require anchor-error conjunction with each sync-slot and retained-ordinary emitter before negative assertions. They are two preparations in one slot, not duplicate logs. No production change.",
+    "reviewed_predecessor_commit": "9f58ce89de95041aa66aa4174e3a211ad66c282f",
+    "code_commit": "20746f3c2241062a6aacc4ae74a785ab660cef2e",
+    "execution": "final-both-anchor-paths-process-rerun: 1 passed, zero failed/ignored, 220 filtered"
+  },
+  "intermediate_test_correction": {
+    "path": "crates/eez-node-e2e/tests/l1_identity.rs",
+    "sha256": "a606100ed3b6db0c33862a6af208a9bfd3d31bcb303360eb32b2ff47e6866603",
+    "change": "Require one owning canonical proof-anchor rejection rather than two log lines emitted for the same rejected attempt; no production change. This initial premise was mistaken: two preparations ran in one slot, not duplicate logging of one rejected candidate. Superseded by post_review_test_correction.",
+    "original_code_snapshot": "a0a3b7850c511da6c2e0e70f004400d2ead94b06",
+    "reviewed_commit": "e84f8b7eb78c1cb3969da7f62690c84c6b01e63f",
+    "superseded": true
+  },
+  "post_review_fixture_identities": [
+    {
+      "local_path": "artifacts/issue145/both-anchor-paths/logs/embedded-genesis-.tmp0YgDfC.json",
+      "sha256": "105bde0453c6941240929002a943ac2be8cc5e60d70381825cb73c4d880294d7"
+    },
+    {
+      "local_path": "artifacts/issue145/both-anchor-paths/logs/simulation-canonical-genesis-.tmph0PqfB.json",
+      "sha256": "4b221615ced4601f1e3edd74c178aca770e8310c4a3143c74d723fc7ccfb9ccb"
+    },
+    {
+      "local_path": "artifacts/issue145/both-anchor-paths/logs/simulation-l2-genesis-.tmphmu2pq.json",
+      "sha256": "75e303d36435d23d4de0490430f72773260b6fabfb9e10e579c96f44023ba048"
+    }
+  ],
+  "format_iteration": "The first format check after the intermediate one-error comparator edit requested indentation; cargo fmt corrected it. Diagnostic retained in task tool transcript, no standalone first-format log. Final format passed."
+}

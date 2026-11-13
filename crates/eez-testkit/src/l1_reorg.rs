@@ -158,6 +158,39 @@ impl L1ReorgControl {
         Ok(())
     }
 
+    /// Finalize the actual current head through Engine API and acknowledge its
+    /// identity. Subsequent fixture reorgs cannot cross this boundary.
+    pub async fn finalize_head(&mut self) -> Result<alloy_eips::BlockNumHash> {
+        self.check_running()?;
+        let acknowledged = self.control.path().join("finalized-head.json");
+        if acknowledged.exists() {
+            std::fs::remove_file(&acknowledged)?;
+        }
+        std::fs::write(self.control.path().join("finalize-head.json"), b"{}")?;
+        wait_for(Duration::from_secs(10), || async {
+            Ok(acknowledged.exists().then_some(()))
+        })
+        .await
+        .with_context(|| format!("L1 finalization failed: {}", self.diagnostics()))?;
+        self.check_running()?;
+        let record: Value = serde_json::from_slice(&std::fs::read(acknowledged)?)?;
+        let number = record["number"]
+            .as_str()
+            .context("finalized number missing")?;
+        Ok(alloy_eips::BlockNumHash::new(
+            u64::from_str_radix(
+                number
+                    .strip_prefix("0x")
+                    .context("finalized number is not hex")?,
+                16,
+            )?,
+            record["hash"]
+                .as_str()
+                .context("finalized hash missing")?
+                .parse()?,
+        ))
+    }
+
     /// Hold the canonical parent until the caller submits and releases an exact slot.
     pub async fn hold(&mut self) -> Result<()> {
         self.check_running()?;

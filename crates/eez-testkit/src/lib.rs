@@ -1234,6 +1234,7 @@ pub struct NodeHandle {
     /// Owned node database. CI retains it only if this test unwinds in failure.
     owned_datadir: Option<FailureDatadir>,
     pub http_port: u16,
+    embedded_l1_rpc_url: String,
     l2_composer_url: String,
 }
 
@@ -1357,6 +1358,7 @@ impl NodeHandle {
         let l1_datadir = datadir.join("embedded-l1");
         let env_genesis = env
             .iter()
+            .rev()
             .find(|(k, _)| *k == TEST_L2_GENESIS_ENV)
             .map(|(_, v)| v.as_str())
             .filter(|v| !v.is_empty())
@@ -1478,6 +1480,14 @@ impl NodeHandle {
             _keep_alive: log_tempdir.into_iter().collect(),
             owned_datadir: None,
             http_port,
+            embedded_l1_rpc_url: format!(
+                "http://127.0.0.1:{}",
+                env.iter()
+                    .rev()
+                    .find(|(name, _)| *name == "EEZ_L1_HTTP_PORT")
+                    .map(|(_, port)| port.clone())
+                    .unwrap_or_else(|| l1_http_port.to_string())
+            ),
             l2_composer_url: format!(
                 "http://127.0.0.1:{}",
                 env.iter()
@@ -1494,9 +1504,24 @@ impl NodeHandle {
         cfg: &NodeConfig<'_>,
         env: &[(&'static str, String)],
     ) -> Result<Self> {
-        let mut datadir = FailureDatadir::new(&format!("eez-node-{name}"))?;
-        let mut handle = Self::start_with_datadir(name, datadir.path(), cfg, env).await?;
-        datadir.fixture_ready();
+        let mut handle = Self::spawn(name, cfg, env).await?;
+        handle
+            .wait_for_rpc(&handle.l2_rpc_url(), Duration::from_mins(3), "L2 RPC")
+            .await?;
+        handle.fixture_ready();
+        Ok(handle)
+    }
+
+    /// Spawn without waiting for RPC readiness, so startup rejection tests can
+    /// observe the owning error even when RPC binds before authentication.
+    /// Call [`Self::fixture_ready`] after asserting the expected startup outcome.
+    pub async fn spawn(
+        name: &str,
+        cfg: &NodeConfig<'_>,
+        env: &[(&'static str, String)],
+    ) -> Result<Self> {
+        let datadir = FailureDatadir::new(&format!("eez-node-{name}"))?;
+        let mut handle = Self::spawn_with(name, datadir.path(), cfg, env).await?;
         handle.owned_datadir = Some(datadir);
         Ok(handle)
     }
@@ -1516,6 +1541,20 @@ impl NodeHandle {
 
     pub fn l2_rpc_url(&self) -> String {
         format!("http://127.0.0.1:{}", self.http_port)
+    }
+
+    /// The Composer's local executor RPC, independently of its canonical reader.
+    /// Follower processes do not launch an embedded L1 at this address.
+    pub fn embedded_l1_rpc_url(&self) -> &str {
+        &self.embedded_l1_rpc_url
+    }
+
+    /// Mark an explicitly observed startup outcome as successful fixture setup.
+    /// Unwinding still retains its database; ordinary teardown can now clean it.
+    pub fn fixture_ready(&mut self) {
+        if let Some(datadir) = &mut self.owned_datadir {
+            datadir.fixture_ready();
+        }
     }
 
     /// Composer-only observations belong on the front, not the node RPC.
@@ -2014,7 +2053,8 @@ pub struct Chain<'a> {
 }
 
 impl<'a> Chain<'a> {
-    fn new(rpc_url: &'a str, dep: &Deployment) -> Self {
+    /// Inspect an owned deployment, including a second registry on the same L1.
+    pub fn new(rpc_url: &'a str, dep: &Deployment) -> Self {
         Self {
             rpc_url,
             eez_address: dep.eez_address,
@@ -2857,7 +2897,8 @@ fn write_fixture_genesis(
 /// Bind a newly created fixture before calculating its registration commitment.
 /// This never rewrites a running node's genesis. Private fixtures select their
 /// actual cadence explicitly, and runtime startup authenticates this L1 header.
-fn bind_l2_genesis_reference(
+/// The reference can be a nonzero finalized header; binding does not authenticate it.
+pub fn bind_l2_genesis_reference(
     path: &std::path::Path,
     reference: &alloy_consensus::Header,
     block_interval_seconds: u64,
@@ -6694,6 +6735,7 @@ mod framework_tests {
             _keep_alive: vec![directory],
             owned_datadir: None,
             http_port: 0,
+            embedded_l1_rpc_url: "http://127.0.0.1:0".into(),
             l2_composer_url: "http://127.0.0.1:0".into(),
         }
     }
