@@ -1,0 +1,218 @@
+{
+  "scope": "Test-only correction for the expected RPC-outage resync signal rejected by the general fatal health assertion. Production/testkit runtime health dictionary, policies, pin, locks and semantic identities unchanged.",
+  "baseline": {
+    "head": "dbe3d556180aa088e320fef737807fcb2f864176",
+    "source_sha256": {
+      "crates/eez-node-e2e/tests/settlement_policy.rs": "b5e131ee2668c221eb37208c5d050fb0e4ccc6f4743d5392a078880af50f3f7a",
+      "crates/eez-testkit/src/signals.rs": "c22a9356ce576edd8eff58ca47931c3baa94441aa7b4de33fbca5f4a2111d743",
+      "crates/eez-testkit/src/lib.rs": "8e516bc83fc144975280d7dd704c45c13f1be5502242f2eacbf236b3d3207d1c",
+      "crates/eez-deriver/src/deriver.rs": "8f576d0e9ded0f5e5cfae142fd09d0fc2314f3c41c32dd93a15fa9f173c7aa5c",
+      "scripts/builder-stub.py": "5dbdfdc8f8d6fe8ec0c553b139d832a31041e6637692bcaf46fa58ebb868e226",
+      "Cargo.lock": "4a2e0203fb711b9cc9f39c7e00bd0e68a65ad00e71d32a6ba4e121b472d543f0"
+    },
+    "same_as_original_base": {
+      "crates/eez-node-e2e/tests/settlement_policy.rs": true,
+      "crates/eez-testkit/src/signals.rs": true,
+      "crates/eez-testkit/src/lib.rs": false,
+      "crates/eez-deriver/src/deriver.rs": true,
+      "scripts/builder-stub.py": true,
+      "Cargo.lock": false
+    },
+    "ci_run": 43460984461,
+    "ci_job": 132029985896,
+    "artifact_id": 14059788284,
+    "archive_sha256": "edf11d977deddc8e5bac2b61c077e3048f6971b3bfd84d791a035443e3765c91",
+    "ci_diagnostic_limit": "Only logs and nextest output retained by CI; no failing datadir or executable payload is in this diagnostic zip."
+  },
+  "ci_checkout": {
+    "parents": [
+      "0d46d64891854357865471770d5063ceb8bb3a05",
+      "dbe3d556180aa088e320fef737807fcb2f864176"
+    ],
+    "sha": "24256c95a6b526e6fef6e030b31c723f907eb7fc",
+    "tree": "faa94f46e259d6f554e16edbe6f814db01a787ec"
+  },
+  "ci_payload": "ghcr.io/eez-association/eez-rollupx-ci-tests@sha256:645c1ca5bea9cffa611264fcee67b870ad9b354e4edba9ddfcab2c7362062d09",
+  "ci_job_log": "artifacts/issue145/quinn-update/embedded-slice3-failed.log",
+  "ci_job_log_sha256": "b72a6dd10e41233cd9a758fe37d3626c9d12da4eb04a30e5e25c2fd9e21875f1",
+  "ci_observed_failure": [
+    {
+      "line": 118,
+      "timestamp": "2026-11-13T16:59:13.034917Z",
+      "level": "ERROR",
+      "fields": {
+        "message": "resync failed; will retry after the next L1 event",
+        "event_name": "eez.deriver.resync.failed",
+        "error": "L1 catch-up scan error: L1 provider error: get_block_by_number(6): RPC error -32000"
+      },
+      "target": "eez_deriver::deriver"
+    }
+  ],
+  "ci_safe_prefixes": {
+    "composer": [
+      30,
+      130,
+      140
+    ],
+    "follower": [
+      30,
+      130,
+      140
+    ]
+  },
+  "corrected_source": {
+    "path": "crates/eez-node-e2e/tests/settlement_policy.rs",
+    "sha256": "885e9bcf53c12bd39e189489d1e939ea852b3db9a1afcccd00516ae0934e19b6",
+    "production_source_changed": false
+  },
+  "reviewed_commit": "2a428467d7a8c1cfe080d1e4fcd7e1fd7ee1d8f0",
+  "corrected_build_state": "The new test source was uncommitted on dbe3d556 when unit/process commands began; its recorded digest was frozen and is identical to the source committed at 2a428467 during the process run. No code changed during execution or review. No exact clean-commit build claim for that invocation.",
+  "baseline_executables": [
+    {
+      "path": "target/issue145/debug/eez-composer",
+      "sha256": "f41d474b8cbbfda10447373e98068b08ea0ec9de3e28981361b6f0506d0aea7f"
+    },
+    {
+      "path": "target/issue145/debug/eez-follower",
+      "sha256": "e633d83c1ee0fc0e9c384faeeb67449390ae0a35e865b2f0d67f2084444e36fe"
+    },
+    {
+      "path": "target/issue145/debug/eez-proof-signer",
+      "sha256": "39493c5b30a5e9aa585d2be14ff35ff1d83a6a16b2fb92145c43aa12e7150a53"
+    },
+    {
+      "path": "target/issue145/debug/deps/node_e2e-385dbc4e454dfa7d",
+      "sha256": "817d574c65b0f207ff428e1195d377ee75e2147f535120258631243ecad40605"
+    }
+  ],
+  "corrected_executables": [
+    {
+      "path": "target/issue145/debug/eez-composer",
+      "sha256": "f41d474b8cbbfda10447373e98068b08ea0ec9de3e28981361b6f0506d0aea7f",
+      "same_as_baseline": true
+    },
+    {
+      "path": "target/issue145/debug/eez-follower",
+      "sha256": "e633d83c1ee0fc0e9c384faeeb67449390ae0a35e865b2f0d67f2084444e36fe",
+      "same_as_baseline": true
+    },
+    {
+      "path": "target/issue145/debug/eez-proof-signer",
+      "sha256": "39493c5b30a5e9aa585d2be14ff35ff1d83a6a16b2fb92145c43aa12e7150a53",
+      "same_as_baseline": true
+    },
+    {
+      "path": "target/issue145/debug/deps/node_e2e-385dbc4e454dfa7d",
+      "sha256": "f07130f6b88684827fd9bc3fabb021c43f7b99a9229f28b376bfdf39afd130f2",
+      "same_as_baseline": false
+    }
+  ],
+  "runs": [
+    {
+      "label": "baseline",
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- settlement_policy::ethereum_ordinary_burst_is_budgeted_across_sync_intervals --test-threads=1 --nocapture",
+      "local_log": "artifacts/issue145/ci-failure-43460984461/baseline.log",
+      "sha256": "d3d4a0dcf28361e968076d72ae57517d198a68274c6e59540a4ab62c1e794f80",
+      "exit_code": 0,
+      "summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 220 filtered out; finished in 310.96s"
+      ]
+    },
+    {
+      "label": "fresh-baseline",
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- e2e::node_fixture_ignores_parent_dotenv settlement_policy::ethereum_ordinary_burst_is_budgeted_across_sync_intervals --test-threads=1 --nocapture",
+      "local_log": "artifacts/issue145/ci-failure-43460984461/fresh-baseline.log",
+      "sha256": "40966636104eb7b03296d3e9c12549810cefd5e0a3eb18e64891e5e39c886d3d",
+      "exit_code": 0,
+      "summaries": [
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 219 filtered out; finished in 321.02s"
+      ]
+    },
+    {
+      "label": "health-regression",
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- settlement_policy::rpc_outage_health_rejects_unrelated_and_late_failures --test-threads=1",
+      "local_log": "artifacts/issue145/ci-failure-43460984461/health-regression.log",
+      "sha256": "e40a7ecb82a5859fc8c739263ad1230c59ac920efd644f3863a7ed6dd95ce34c",
+      "exit_code": 0,
+      "summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 221 filtered out; finished in 0.00s"
+      ],
+      "source": "Intermediate observer implementation before moving recovery-window closure to matching canonical replay; source digest retained in health-unit-initial-source.sha256. Passed, superseded."
+    },
+    {
+      "label": "health-regression-final",
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- settlement_policy::rpc_outage_health_rejects_unrelated_and_late_failures --test-threads=1",
+      "local_log": "artifacts/issue145/ci-failure-43460984461/health-regression-final.log",
+      "sha256": "3747d7e9d693750e01e50a90bef696740e26116fbd625c1cb48504db1c2c2549",
+      "exit_code": 0,
+      "summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 221 filtered out; finished in 0.00s"
+      ]
+    },
+    {
+      "label": "corrected",
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- e2e::node_fixture_ignores_parent_dotenv settlement_policy::ethereum_ordinary_burst_is_budgeted_across_sync_intervals settlement_policy::gnosis_ordinary_burst_is_budgeted_across_sync_intervals --test-threads=1 --nocapture",
+      "local_log": "artifacts/issue145/ci-failure-43460984461/corrected.log",
+      "sha256": "6049de87b99cda4a69d082d294a848dd2399e4a5da52654fcb8b7610876b6bcf",
+      "exit_code": 0,
+      "summaries": [
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 219 filtered out; finished in 463.27s"
+      ]
+    },
+    {
+      "label": "clippy",
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+      "local_log": "artifacts/issue145/ci-failure-43460984461/clippy.log",
+      "sha256": "e4e0d96f10414f8295b06ed4239b0cc7efff10bfb537644940fe04ca348f5cc7",
+      "exit_code": 0,
+      "summaries": []
+    }
+  ],
+  "review": {
+    "model_usage_keys": [
+      "claude-fable-5-2"
+    ],
+    "canonical_model": "claude-fable-5-2",
+    "provider": "firstParty",
+    "speed": "standard",
+    "fallback": false,
+    "spawned_agents": 0,
+    "is_error": false,
+    "reviewed_commit": "2a428467d7a8c1cfe080d1e4fcd7e1fd7ee1d8f0",
+    "report": "ci-resync-fable-review.md",
+    "report_sha256": "a99ecf5ab4188054c60072bf4ff26c68be9717327149f4e8317f4b77a3ebccda",
+    "local_result": "artifacts/issue145/ci-failure-43460984461/review-result.json",
+    "result_sha256": "e34c1edecbd3200ab786d97f72c9e27e531f34cacee26042d75c4e7ce577575d",
+    "local_transcript": "artifacts/issue145/ci-failure-43460984461/review-transcript.jsonl",
+    "transcript_sha256": "d72de8d96e44cdd92849df0fcbc1ac4d07ae79c8f1bff02c6b4c562d490c2b6d",
+    "verdict": "No actionable code/test findings; Quinn update sound and health correction correct. Correct stale documentation and append exact completed process results. Static review only; no test or hash verification by reviewer.",
+    "closes_quinn_review_gap": true,
+    "ponytail_revision": "96608e078b2d5ea607c5c3b8b5a54d1c1fba6846"
+  },
+  "limits": {
+    "local_baseline": "Both unchanged local baseline invocations passed without resync.failed events. The intermittent failure was not reproduced locally; original failed CI run is the failing execution evidence, with a deterministic observer regression replaying its exact error. A retry-only pass is not claimed as a fix.",
+    "corrected_process_fault_branch": "All three corrected local node logs have zero resync.failed events. Semantic recovery/budget/replay ran in real processes; acceptance of the captured resync error is unit-observer replay, not a newly triggered runtime branch.",
+    "unit": "One test, two accepted controls and seven specific rejections. Runs no node/signing processes.",
+    "ci_artifacts": "Failure zip contains logs/nextest output only; no failed CI datadir or individual runtime/test ELF hashes. CI payload OCI digest and exact virtual merge checkout are recorded separately.",
+    "profile": "Rust1.95.0, LLVM22, normal optimized local dev profile, two jobs, own target/issue145, prebuilt overrides cleared. Source warm-up control precedes fresh timed scenario. No performance comparison or release-byte equality claim.",
+    "selected_source_processes": "Owned local EthereumOsaka/GnosisPrague fixtures with actual Composer/follower/signer, native DA, canonical settlement, receipts/replay and post-recovery cross-chain service. Existing builder-stub RPC fault is synthetic; only owning RPC error is permitted during bounded recovery.",
+    "not_rerun": "Original seven identity tests, full release/Kurtosis matrix, other protocol/ABI/signing suites, public networks and external clients were not rerun for this one-file test correction. Their previous exact-source results remain historical.",
+    "policy": "Global FATAL dictionary and all other health callers unchanged. No production error-text retry classification, no retry-budget/queue/identity/wire/storage/profile/pin change. The test-only exact-message gate fails closed if wording changes; no cap on matching resync count inside recovery, but canonical replay must complete before the strict later phase."
+  },
+  "checks": {
+    "format": {
+      "command": "cargo +1.95.0 fmt --all --check",
+      "exit_code": 0,
+      "local_log": "artifacts/issue145/ci-failure-43460984461/fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "diff": "git diff --check passed",
+    "new_test_count": 222
+  },
+  "corrected_process_resync_counts": {
+    "eez-node-node-2441389-11.log": 0,
+    "eez-node-node-2441389-3.log": 0,
+    "eez-node-node-2441389-7.log": 0
+  },
+  "strict_global_health_functions_unchanged_from_original_base": true
+}

@@ -10,6 +10,9 @@ The process/review record below describes the original PR head
 [Quinn audit remediation](quinn-audit-remediation.md) updates two optional
 dependency versions in both lockfiles, with separately recorded before/after
 audit and runtime-impact evidence. It does not relabel the original test runs.
+The subsequent [CI outage health-check correction](ci-resync-health.md) records
+the retained failing process run, a narrowly scoped test-only fix, its local
+regressions and the completed Fable review of both follow-ups.
 
 ## Baselines and contract
 

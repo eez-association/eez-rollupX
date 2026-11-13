@@ -245,6 +245,14 @@
       "fallback": false,
       "spawned_agents": 0,
       "limit": "Requested exact model hit its five-hour usage quota before returning a final report. No substitute model, fabricated verdict, test execution or hash verification by the reviewer."
+    },
+    "subsequent_completed_review": {
+      "reviewed_commit": "2a428467d7a8c1cfe080d1e4fcd7e1fd7ee1d8f0",
+      "report": "ci-resync-fable-review.md",
+      "evidence": "ci-resync-health-evidence.json",
+      "scope": "Completed exact-model review covers both Quinn dependency follow-up and test-only CI health correction. The earlier quota-limited attempt remains incomplete historical evidence.",
+      "canonical_model": "claude-fable-5-2",
+      "verdict": "No actionable code/test findings; documentation closeout corrected."
     }
   },
   "logs": {
@@ -462,5 +470,12 @@
     ".cargo/audit.toml": "81eb812227ac9a4423b19695cd51468df2ee9b31255eb0a31d2d9570bec24bb6",
     "deny.toml": "4c4bd268aa61a34e27ee27574da66f575954c443a11ce4482bd465865b3491f5",
     "Dockerfile.runtime": "1b81da8cb2d58e0559d33a95dcbbed077274820d46429156708c7d5c5dda6b52"
+  },
+  "runtime_before_provenance": {
+    "description": "The pre-update runtime hashes are the outputs retained from the original source-harness process checks. They match the separately recorded final-both-anchor-paths-process-rerun executable hashes at source20746f3c in evidence.json; that source harness builds all three real production entrypoints on its blocking worker. The later shipping-target command is separately recorded for the after build.",
+    "prior_manifest": "evidence.json",
+    "prior_run": "final-both-anchor-paths-process-rerun",
+    "prior_code_commit": "20746f3c2241062a6aacc4ae74a785ab660cef2e",
+    "limit": "No claim that the before files were produced by the later five-package/example shipping command or by a release Docker build."
   }
 }

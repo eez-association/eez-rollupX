@@ -117,4 +117,7 @@ verdict (`is_error: true`, `terminal_reason: api_error`, exit 1). The
 hashes are retained. This follow-up review is **incomplete**, and no approval is
 claimed. The earlier completed reviews remain evidence for their original
 code/test revisions. No replacement model was used. The reviewer executed no
-tests or hash checks. Subsequent closeout changes only the audit metadata.
+tests or hash checks. The `dbe3d556` closeout changed only audit metadata. A later
+[CI-failure investigation](ci-resync-health.md) adds a test-only health correction
+and a completed exact-model review covering both follow-ups. The quota-limited
+attempt remains retained as an incomplete historical result.
