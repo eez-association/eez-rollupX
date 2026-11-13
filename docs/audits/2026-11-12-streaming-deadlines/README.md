@@ -1,10 +1,13 @@
-# Streaming deadline characterization: preparation and blocked measurements
+# Streaming deadline characterization
 
-**Initial partial investigation for [#148](https://github.com/eez-association/eez-rollupX/issues/148).
-Subsequent runtime/release correctness passed; actual quiet-window timing remains
-pending in [the follow-up](followup.md).** No latency samples,
-deadline success rate, performance improvement or supported functional defect
-has been established by this work. This record does not complete #148.
+**The [completed bounded timing record](timing-results.md) reports the actual
+quiet-window campaign for [#148](https://github.com/eez-association/eez-rollupX/issues/148).
+Release/archive and correctness checks passed. No SLA, performance improvement or
+new runtime defect is claimed; final feature/main CI gates remain required.**
+
+The initial resource-blocked investigation below is historical. Its lack of
+runtime/timing evidence at that phase and the original input-provenance limit
+remain preserved; the later result does not rewrite those first observations.
 
 The [measurement-driver follow-up](followup.md) records subsequent implementation
 and validation after resource recovery; the initial results below remain historical.

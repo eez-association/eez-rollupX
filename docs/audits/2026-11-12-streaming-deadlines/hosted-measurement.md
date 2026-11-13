@@ -121,4 +121,7 @@ executables and supplies no native workload/timing evidence.
 
 The [source validation record](hosted-validation.json) distinguishes the retained
 first failures, full-suite skips, focused controls and source-only reviews.
-Hosted workload execution remains pending until an actual run passes.
+The later [completed campaign](timing-results.md) passed the actual artifact
+consumer, native utility and all fourteen jobs without changing the quiet gates.
+The source-validation record remains historical; final-feature/main validation
+still applies.

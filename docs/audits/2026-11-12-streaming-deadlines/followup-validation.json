@@ -1,4 +1,6 @@
 {
+  "record_scope": "Historical local validation recorded at its original recorded_utc, with ca76bb87 binaries and the initial failed quiet admission; original fields below are preserved.",
+  "completed_hosted_evidence": "timing-results.json",
   "status": "release/archive and correctness passed; actual workload timing blocked by failed quiet admission; PR165 draft, issue148 open",
   "recorded_utc": "2026-11-12T22:34:26.308893+00:00",
   "baseline": "601ebfa9c7e1a779f1afbd077bd31a3207e7a61b",

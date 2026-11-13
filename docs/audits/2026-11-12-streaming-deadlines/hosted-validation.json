@@ -1,4 +1,6 @@
 {
+  "record_scope": "Historical reviewed source validation at cd612739 before the hosted execution. source_sha256 binds that committed revision, including its then-current documentation, rather than later prose updates.",
+  "completed_hosted_evidence": "timing-results.json",
   "base": "942b9d1fc667f1e0cdb53625094a86c34d16f411",
   "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
   "scope": "Optional same-run hosted measurement only; no native runtime, Cargo, protocol, observer, resource criteria, runner selection or production changes",

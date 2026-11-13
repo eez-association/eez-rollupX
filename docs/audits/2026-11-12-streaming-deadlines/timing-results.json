@@ -1,0 +1,2035 @@
+{
+  "kind": "Completed bounded workload characterization; aggregated evidence only",
+  "recorded_utc": "2026-11-13T05:04:41Z",
+  "issue": 148,
+  "baseline": "601ebfa9c7e1a779f1afbd077bd31a3207e7a61b",
+  "measured_source": "cd612739e5e519100b06e233d80193b993cf3276",
+  "observer_code_origin": "04bbb115901c88b1ccdbb6f15ab4cfd89662c5d9",
+  "observer_git_blob": "cbcd896591b3bb350edc61539ed1894764951464",
+  "observer_sha256": "317809a6bdea0b7cd4b531772fa7690fa4153b6b7cc15b2b4e207ff40d304e41",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "validation_version": 9,
+  "signing_domain": 7,
+  "workflow": {
+    "run_id": 43349501992,
+    "producer_attempt": 1,
+    "consumer_attempt": 1,
+    "url": "https://github.com/eez-association/eez-rollupX/actions/runs/43349501992",
+    "all14jobs": "success:13normal checks plus requested measurement; no required lane skipped",
+    "artifact_id": 14008340286,
+    "artifact_url": "https://github.com/eez-association/eez-rollupX/actions/runs/43349501992/artifacts/14008340286",
+    "artifact_name": "streaming-deadlines-43349501992-1",
+    "artifact_expires_at": "2026-11-16T03:37:07Z",
+    "archive_sha256": "7ee4b473c5e6a79bf686488da0f97e5aee6fa6f632848ef2947355bcd101099b",
+    "archive_bytes": 869280,
+    "download_digest_matches_github": true,
+    "measurement_utility_test": "streaming::deadlines::characterize_native_streaming_workload",
+    "test_result": "1 passed,0 failed;276 inner attempts; no native rerun for this record",
+    "promotion": "The manually dispatched codex/issue148-hosted-measurement run 43349501992 skipped deployment-tag promotion because its ref was not main."
+  },
+  "hosted_artifacts": {
+    "tests_payload": "ghcr.io/eez-association/eez-rollupx-ci-tests@sha256:0cda798c1c59daa9437d5643d0aec64d715428fc2da2b37be15565223e81de24",
+    "sealed_native_manifest_sha256": "557aea54dee9032ceb022bd096971e58727632434c43e341b87fb1ce9a7df4a5",
+    "test_binary_sha256": "764855f11a8731c3d7999ebf3fb29533168abb62a462347b6968933338c98796",
+    "signer_binary_sha256": "0aefba198e48e2e114ad1ca8fa68f459b4bfba4d48c07074b81d76eecabd4866",
+    "runtime_binaries_sha256": {
+      "eez-composer": "2aec4bfb2a3ad8e93f93e6cbc550425a5c4fed2662b4b09278e1419425adf550",
+      "eez-follower": "ea402c29c9d39249798294905c8e2f7dde373b05ad6dc28e8e54e6369957b9d0",
+      "eez-proof-signer": "0aefba198e48e2e114ad1ca8fa68f459b4bfba4d48c07074b81d76eecabd4866"
+    },
+    "immutable_role_and_payload_refs": {
+      "ghcr.io/eez-association/eez-rollupx-node": "ghcr.io/eez-association/eez-rollupx-node@sha256:4b989bb262f0ba39a8ddffed51e0c206296749d48e69faedbada8d622123a86a",
+      "ghcr.io/eez-association/eez-rollupx-proof-signer": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:bae24834aa492bb87436bc76b60eaa754c9e5d18729c552fd9d23a587ba30091",
+      "ghcr.io/eez-association/eez-rollupx-deploy": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:fd62073da515e127fcbc7c7e216f70010c7849effad84689af3ce0a789bc253d",
+      "ghcr.io/eez-association/eez-rollupx-ci-runtime": "ghcr.io/eez-association/eez-rollupx-ci-runtime@sha256:cb3060f3dc2f19c9ee7aa8e2ac61b3a898300daf229fc8a1f68d81e7c30ea37f",
+      "ghcr.io/eez-association/eez-rollupx-ci-tests": "ghcr.io/eez-association/eez-rollupx-ci-tests@sha256:0cda798c1c59daa9437d5643d0aec64d715428fc2da2b37be15565223e81de24"
+    },
+    "post_input_bytes_unchanged": true
+  },
+  "environment": {
+    "platform": "linux/amd64",
+    "producer_glibc": "glibc 2.36",
+    "consumer_glibc": "glibc 2.39",
+    "rust": "1.95.0",
+    "nextest": "0.9.143",
+    "rustflags": "-C link-arg=-fuse-ld=mold",
+    "cargo_lock_sha256": "df647e58f1853a844d37f86617941634b42c7342a79b8ff6b9ba06312247f054",
+    "cargo_release_profile": {
+      "opt-level": 3,
+      "lto": "thin",
+      "debug": "none",
+      "strip": "symbols",
+      "panic": "unwind",
+      "codegen-units": 16
+    },
+    "features": "Default shipping selection; guarded single release archive; debug unit lane separate",
+    "python": "3.12.3",
+    "kernel": "7.0.0-1017-azure",
+    "affinity_cpus": 4,
+    "host_cpus": 4,
+    "runner_image": {
+      "ImageOS": "ubuntu24",
+      "ImageVersion": "20261111.370.1",
+      "RUNNER_OS": "Linux",
+      "RUNNER_ARCH": "X64"
+    },
+    "host_isolated": false,
+    "normal_services_changed": false,
+    "library_paths": "Verified payload only; ambient LD_LIBRARY_PATH and LD_PRELOAD dropped. Exported paths affect observer tools; signer keeps env_clear."
+  },
+  "local_frozen_preparation": {
+    "source": "ca76bb8744667f3045f5d839a920c011825999f9",
+    "test_binary_sha256": "85eff313c0006db93923b4dc01c4445e0302babf9c03e5c705bffa3bb2b36753",
+    "signer_binary_sha256": "ebaf852b59ee626fff8b580941ddca7efd53e053e04c50c658acb472907bca1f",
+    "glibc": "2.43",
+    "use": "Previously passed release/archive/correctness; no accepted local timing. Never relabelled as hosted or final-target bytes."
+  },
+  "integration": {
+    "repair_code_head": "cd612739e5e519100b06e233d80193b993cf3276",
+    "real_local_repair_merge": "4f7cccfd53f6e9333498e1c72322e6b00aafebf4",
+    "tested_main": "c30a7fffa2c4054d4b9c9372e9d12d7a35167802",
+    "real_local_main_merge": "e2c3480d3dd9bb7f28bd1c3b2dab52ca3767cea9",
+    "scope": "Only final evidence/docs are added above these merges. Final feature/main commits and their CI are reported separately; these timings belong to CD artifacts. Main adds accepted L1 blob-reader/RPC-spec/test changes, not a whole-crates equality claim.",
+    "final_gate": "Fresh exact-final-feature-head normal CI and final Fable evidence approval required before #165 merge; final current-main CI/promotion/public verification required afterwards"
+  },
+  "workload_identity": {
+    "census": "workloads.json",
+    "census_sha256": "eb1da3ecdddaf815e3481377d5f5537219519c10cd9c7281c31ad5659f28e288",
+    "requests_and_configuration_hashes": "All3request files and each captured identity/genesis/response file match frozen census; all276vkeys match; validation identity stable per fixture",
+    "capabilities": {
+      "profile_id": 2,
+      "operations_tag": 1,
+      "max_window_blocks": 65536,
+      "max_request_bytes": 536870912,
+      "max_request_witness_items": 1000000,
+      "max_message_bytes": 268435456,
+      "stream_idle_timeout_millis": 120000,
+      "request_timeout_millis": 600000
+    }
+  },
+  "counts": {
+    "attempt_starts": 276,
+    "successful_results": 276,
+    "warmups": 36,
+    "measured_results": 240,
+    "groups": 12,
+    "repetitions_per_group": 23,
+    "measured_per_group": 20
+  },
+  "time_source": "Rust Instant durations and proxy elapsed ms; Python monotonic for eligibility; UTC only for correlation",
+  "sampling": "3planned warmups then20measured per case, fresh signer each; fixed corpus/scenario order; failures would abort entire utility, none occurred",
+  "semantics": {
+    "process_assertions": "Client proof verification; every ACK hash/root; capture expected digest and public attester; one signature/Proof/EOF; prevalidation never signs; expected controls/NOT_FOUND and backfill; network-denied signer",
+    "independent_record_checks": "Every276block/transport sequence, per-block/total headers, bytes, controls and Proof/EOF shape; source/config/payload/post hashes; all raw scalar and operation quantiles; every host eligibility interval",
+    "separate_crypto_or_execution_rerun": false,
+    "coordinator_independent_audit_sha256": "18a3411c0948d8343aa335ff28dad6f714263fc779034d4feefa9febc5bc263d"
+  },
+  "quiet_window": {
+    "phase_counts": {
+      "before": 13,
+      "during": 72,
+      "after": 12
+    },
+    "first_utc": "2026-11-13T03:20:57Z",
+    "last_utc": "2026-11-13T03:37:06Z",
+    "last_before_utc": "2026-11-13T03:22:58Z",
+    "first_during_utc": "2026-11-13T03:23:08Z",
+    "last_during_utc": "2026-11-13T03:35:05Z",
+    "clean_baseline_seconds": 121.181876921,
+    "post_seconds": 121.09379606999994,
+    "bad_before_snapshots": 0,
+    "minimum_cpu_idle_percent": 75.68773234200744,
+    "maximum_iowait_percent": 1.810965021086579,
+    "maximum_load1": 1.3076171875,
+    "minimum_memory_available_GiB": 14.268959045410156,
+    "minimum_process_count": 153,
+    "swap_traffic_pages": 0,
+    "minimum_free_GiB": {
+      "/": 84.23495483398438,
+      "/tmp": 84.23495483398438,
+      "/dev/shm": 7.804561614990234,
+      "/home/runner/work/eez-rollupX/eez-rollupX/artifacts/streaming-deadlines": 84.23495483398438
+    },
+    "heavy_detections": 0,
+    "CPU_and_IO_PSI": "recorded, not admission thresholds; memory PSI is gated",
+    "initial_IO_PSI_some_avg10": 21.71,
+    "pressure_observations": {
+      "CPU_PSI_some_peak_avg10": 18.19,
+      "CPU_peak_utc": "2026-11-13T03:25:30Z",
+      "CPU_peak_phase": "during",
+      "CPU_some_total_stall_counter_increase_us": 2870677,
+      "CPU_peak_interval_seconds": 10.104229221999958,
+      "CPU_idle_in_peak_interval_percent": 76.1515601783061,
+      "rejected_reason_at_CPU_peak": [],
+      "CPU_following_avg10": [
+        7.59,
+        2.79
+      ],
+      "IO_baseline_initial_some_avg10": 21.71,
+      "IO_baseline_final_some_avg10": 1.16,
+      "IO_sustained_approx_5_percent_through": "2026-11-13T03:22:38Z",
+      "IO_baseline_total_stall_counter_increase_us": 5950021,
+      "IO_final_baseline_interval_stall_counter_increase_us": 73,
+      "interpretation": "Pressure was present, not just a first-snapshot transient. CPU/IO PSI were recorded but not admission thresholds. Every declared gate passed; no new threshold/causal attribution is invented. Raw records lack per-attempt absolute timestamps, so the CPU spike is not assigned to particular repetitions."
+    }
+  },
+  "metric_units": "milliseconds",
+  "statistics": "median; nearest-rank p90/p95; min/max; nearest-rank interquartile range. No outlier exclusion. Operation intervals include queueing and are correlated within repetitions.",
+  "charges": {
+    "native-offline-bidirectional/cold": {
+      "blocks_sent": 30,
+      "client_protobuf_bytes": 373506,
+      "l1_headers_sent": 7,
+      "l1_header_bytes_sent": 4387
+    },
+    "native-offline-bidirectional/prepared": {
+      "blocks_sent": 31,
+      "client_protobuf_bytes": 399278,
+      "l1_headers_sent": 7,
+      "l1_header_bytes_sent": 4387
+    },
+    "native-offline-bidirectional/disconnected": {
+      "blocks_sent": 30,
+      "client_protobuf_bytes": 373544,
+      "l1_headers_sent": 7,
+      "l1_header_bytes_sent": 4387
+    },
+    "native-offline-bidirectional/lost_session": {
+      "blocks_sent": 45,
+      "client_protobuf_bytes": 513082,
+      "l1_headers_sent": 11,
+      "l1_header_bytes_sent": 6887
+    },
+    "native-osaka-lookup/cold": {
+      "blocks_sent": 45,
+      "client_protobuf_bytes": 497261,
+      "l1_headers_sent": 10,
+      "l1_header_bytes_sent": 6277
+    },
+    "native-osaka-lookup/prepared": {
+      "blocks_sent": 46,
+      "client_protobuf_bytes": 540825,
+      "l1_headers_sent": 10,
+      "l1_header_bytes_sent": 6277
+    },
+    "native-osaka-lookup/disconnected": {
+      "blocks_sent": 45,
+      "client_protobuf_bytes": 497299,
+      "l1_headers_sent": 10,
+      "l1_header_bytes_sent": 6277
+    },
+    "native-osaka-lookup/lost_session": {
+      "blocks_sent": 60,
+      "client_protobuf_bytes": 636837,
+      "l1_headers_sent": 14,
+      "l1_header_bytes_sent": 8777
+    },
+    "native-osaka-changing-static/cold": {
+      "blocks_sent": 30,
+      "client_protobuf_bytes": 377022,
+      "l1_headers_sent": 7,
+      "l1_header_bytes_sent": 4387
+    },
+    "native-osaka-changing-static/prepared": {
+      "blocks_sent": 31,
+      "client_protobuf_bytes": 405510,
+      "l1_headers_sent": 7,
+      "l1_header_bytes_sent": 4387
+    },
+    "native-osaka-changing-static/disconnected": {
+      "blocks_sent": 30,
+      "client_protobuf_bytes": 377060,
+      "l1_headers_sent": 7,
+      "l1_header_bytes_sent": 4387
+    },
+    "native-osaka-changing-static/lost_session": {
+      "blocks_sent": 45,
+      "client_protobuf_bytes": 516598,
+      "l1_headers_sent": 11,
+      "l1_header_bytes_sent": 6887
+    }
+  },
+  "distributions": {
+    "native-offline-bidirectional/cold": {
+      "successes": 20,
+      "failures": 0,
+      "metrics": {
+        "capability_ms": {
+          "n": 20,
+          "minimum": 0.806202,
+          "median": 40.7326725,
+          "p90": 41.301425,
+          "p95": 41.425402,
+          "maximum": 41.504279,
+          "iqr": 0.511164000000008
+        },
+        "complete_attempt_ms": {
+          "n": 20,
+          "minimum": 97.690776,
+          "median": 137.75685299999998,
+          "p90": 139.069372,
+          "p95": 139.47510499999999,
+          "maximum": 139.691029,
+          "iqr": 2.073870999999997
+        },
+        "fixture_load_ms": {
+          "n": 20,
+          "minimum": 1.667965,
+          "median": 1.74296,
+          "p90": 1.7977349999999999,
+          "p95": 1.820243,
+          "maximum": 1.833884,
+          "iqr": 0.07190199999999991
+        },
+        "preparation_ms": {
+          "n": 20,
+          "minimum": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "maximum": 0.0,
+          "iqr": 0.0
+        },
+        "prove_verify_eof_ms": {
+          "n": 20,
+          "minimum": 95.463881,
+          "median": 96.978871,
+          "p90": 97.886475,
+          "p95": 97.974019,
+          "maximum": 98.999345,
+          "iqr": 0.9219619999999935
+        },
+        "restart_readiness_ms": {
+          "n": 20,
+          "minimum": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "maximum": 0.0,
+          "iqr": 0.0
+        },
+        "startup_readiness_ms": {
+          "n": 20,
+          "minimum": 1826.8341769999997,
+          "median": 1928.56943,
+          "p90": 1930.337603,
+          "p95": 1931.0421089999998,
+          "maximum": 1931.12894,
+          "iqr": 101.56447299999991
+        }
+      },
+      "operation_intervals_ms": {
+        "Begin/Ready": {
+          "n": 20,
+          "minimum": 0.10267500000000007,
+          "median": 0.1357849999999985,
+          "p90": 0.17135900000000248,
+          "p95": 0.17327600000000132,
+          "maximum": 0.284048999999996,
+          "iqr": 0.03824800000000428
+        },
+        "Block/Validated": {
+          "n": 600,
+          "minimum": 1.1901730000000015,
+          "median": 1.9271930000000026,
+          "p90": 2.602374999999995,
+          "p95": 2.8343600000000038,
+          "maximum": 3.288691,
+          "iqr": 0.6256550000000018
+        },
+        "Finalize/Proof": {
+          "n": 20,
+          "minimum": 10.215756999999996,
+          "median": 10.818758500000001,
+          "p90": 11.104731999999998,
+          "p95": 11.165759999999992,
+          "maximum": 11.192110999999983,
+          "iqr": 0.3527730000000133
+        }
+      }
+    },
+    "native-offline-bidirectional/prepared": {
+      "successes": 20,
+      "failures": 0,
+      "metrics": {
+        "capability_ms": {
+          "n": 20,
+          "minimum": 0.805791,
+          "median": 40.9112085,
+          "p90": 41.46529,
+          "p95": 41.510905,
+          "maximum": 42.122237,
+          "iqr": 40.226059
+        },
+        "complete_attempt_ms": {
+          "n": 20,
+          "minimum": 179.29926600000002,
+          "median": 220.81104699999997,
+          "p90": 222.498881,
+          "p95": 224.147605,
+          "maximum": 229.748899,
+          "iqr": 41.95740999999998
+        },
+        "fixture_load_ms": {
+          "n": 20,
+          "minimum": 1.598252,
+          "median": 1.727514,
+          "p90": 1.785215,
+          "p95": 1.9394289999999998,
+          "maximum": 2.460735,
+          "iqr": 0.04970799999999986
+        },
+        "preparation_ms": {
+          "n": 20,
+          "minimum": 87.65802000000001,
+          "median": 89.003073,
+          "p90": 89.989731,
+          "p95": 90.03054,
+          "maximum": 90.031877,
+          "iqr": 0.9703659999999985
+        },
+        "prove_verify_eof_ms": {
+          "n": 20,
+          "minimum": 90.372759,
+          "median": 90.76682050000001,
+          "p90": 91.08260899999999,
+          "p95": 92.814753,
+          "maximum": 99.940769,
+          "iqr": 0.27174300000000073
+        },
+        "restart_readiness_ms": {
+          "n": 20,
+          "minimum": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "maximum": 0.0,
+          "iqr": 0.0
+        },
+        "startup_readiness_ms": {
+          "n": 20,
+          "minimum": 1825.708142,
+          "median": 1928.8813810000001,
+          "p90": 1930.265393,
+          "p95": 1930.9155119999998,
+          "maximum": 1930.953979,
+          "iqr": 100.64549799999986
+        }
+      },
+      "operation_intervals_ms": {
+        "Begin/Ready": {
+          "n": 20,
+          "minimum": 0.09771299999999994,
+          "median": 0.12923300000000282,
+          "p90": 0.17402700000000237,
+          "p95": 0.1787259999999975,
+          "maximum": 0.18850900000000337,
+          "iqr": 0.05263099999999099
+        },
+        "Block/Validated": {
+          "n": 620,
+          "minimum": 1.1891250000000042,
+          "median": 1.9050980000000024,
+          "p90": 2.6009519999999924,
+          "p95": 2.7782550000000015,
+          "maximum": 3.655275000000003,
+          "iqr": 0.6998950000000121
+        },
+        "Resume/Ready": {
+          "n": 20,
+          "minimum": 0.08885399999999777,
+          "median": 0.10217949999999831,
+          "p90": 0.11020600000000513,
+          "p95": 0.11162399999999195,
+          "maximum": 0.11335100000002285,
+          "iqr": 0.014034999999992692
+        },
+        "Rewind/Ready": {
+          "n": 20,
+          "minimum": 0.1579979999999921,
+          "median": 0.19690050000001236,
+          "p90": 0.21012900000002332,
+          "p95": 0.21194600000001174,
+          "maximum": 0.21298799999999574,
+          "iqr": 0.027502000000026783
+        },
+        "Finalize/Proof": {
+          "n": 20,
+          "minimum": 9.513556999999992,
+          "median": 10.260694000000015,
+          "p90": 10.780719000000005,
+          "p95": 12.174776000000008,
+          "maximum": 12.712900999999988,
+          "iqr": 0.46758599999995454
+        }
+      }
+    },
+    "native-offline-bidirectional/disconnected": {
+      "successes": 20,
+      "failures": 0,
+      "metrics": {
+        "capability_ms": {
+          "n": 20,
+          "minimum": 0.826589,
+          "median": 41.143679000000006,
+          "p90": 41.363668,
+          "p95": 41.40838,
+          "maximum": 41.488744000000004,
+          "iqr": 0.48504400000000913
+        },
+        "complete_attempt_ms": {
+          "n": 20,
+          "minimum": 179.335115,
+          "median": 219.349381,
+          "p90": 220.343303,
+          "p95": 221.494703,
+          "maximum": 221.585889,
+          "iqr": 2.3354889999999955
+        },
+        "fixture_load_ms": {
+          "n": 20,
+          "minimum": 1.634483,
+          "median": 1.7451555,
+          "p90": 1.821731,
+          "p95": 1.8702079999999999,
+          "maximum": 1.942604,
+          "iqr": 0.059514999999999985
+        },
+        "preparation_ms": {
+          "n": 20,
+          "minimum": 84.73079999999999,
+          "median": 85.02118850000001,
+          "p90": 85.988002,
+          "p95": 86.290006,
+          "maximum": 86.922934,
+          "iqr": 0.40425500000000625
+        },
+        "prove_verify_eof_ms": {
+          "n": 20,
+          "minimum": 91.8493,
+          "median": 92.961366,
+          "p90": 93.912238,
+          "p95": 93.91431299999999,
+          "maximum": 93.924296,
+          "iqr": 1.1161829999999924
+        },
+        "restart_readiness_ms": {
+          "n": 20,
+          "minimum": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "maximum": 0.0,
+          "iqr": 0.0
+        },
+        "startup_readiness_ms": {
+          "n": 20,
+          "minimum": 1928.032967,
+          "median": 1929.9473484999999,
+          "p90": 1931.154504,
+          "p95": 1931.350422,
+          "maximum": 1931.9315000000001,
+          "iqr": 1.2487859999998818
+        }
+      },
+      "operation_intervals_ms": {
+        "Begin/Ready": {
+          "n": 20,
+          "minimum": 0.10334200000000004,
+          "median": 0.15357649999999623,
+          "p90": 0.18175399999999797,
+          "p95": 0.1836629999999957,
+          "maximum": 0.18574399999999258,
+          "iqr": 0.04537299999999833
+        },
+        "Block/Validated": {
+          "n": 600,
+          "minimum": 0.6306519999999978,
+          "median": 1.8669215000000037,
+          "p90": 2.70795099999998,
+          "p95": 2.984281999999993,
+          "maximum": 3.7363420000000076,
+          "iqr": 0.5610960000000063
+        },
+        "Resume/Ready": {
+          "n": 20,
+          "minimum": 0.08935500000001184,
+          "median": 0.11113250000000363,
+          "p90": 0.1189950000000124,
+          "p95": 0.1192010000000181,
+          "maximum": 0.12326199999999687,
+          "iqr": 0.014190999999996734
+        },
+        "Finalize/Proof": {
+          "n": 20,
+          "minimum": 10.195446000000004,
+          "median": 11.070246000000012,
+          "p90": 11.481544999999983,
+          "p95": 12.037973000000022,
+          "maximum": 18.959686000000005,
+          "iqr": 0.551004000000006
+        }
+      }
+    },
+    "native-offline-bidirectional/lost_session": {
+      "successes": 20,
+      "failures": 0,
+      "metrics": {
+        "capability_ms": {
+          "n": 20,
+          "minimum": 0.7829430000000001,
+          "median": 41.069839,
+          "p90": 41.419371000000005,
+          "p95": 41.427226,
+          "maximum": 41.517773,
+          "iqr": 40.338571
+        },
+        "complete_attempt_ms": {
+          "n": 20,
+          "minimum": 2142.2366309999998,
+          "median": 2243.1595335,
+          "p90": 2245.263787,
+          "p95": 2246.24628,
+          "maximum": 2246.41433,
+          "iqr": 40.47065199999952
+        },
+        "fixture_load_ms": {
+          "n": 20,
+          "minimum": 1.628345,
+          "median": 1.7339034999999998,
+          "p90": 1.796569,
+          "p95": 1.803218,
+          "maximum": 1.821566,
+          "iqr": 0.0502950000000002
+        },
+        "preparation_ms": {
+          "n": 20,
+          "minimum": 84.960228,
+          "median": 85.04980599999999,
+          "p90": 85.52193,
+          "p95": 85.95977500000001,
+          "maximum": 85.988355,
+          "iqr": 0.15076700000000187
+        },
+        "prove_verify_eof_ms": {
+          "n": 20,
+          "minimum": 177.78054200000003,
+          "median": 179.0366645,
+          "p90": 179.947763,
+          "p95": 180.018072,
+          "maximum": 180.22089499999998,
+          "iqr": 1.5798540000000116
+        },
+        "restart_readiness_ms": {
+          "n": 20,
+          "minimum": 1837.3853869999998,
+          "median": 1938.515336,
+          "p90": 1940.009418,
+          "p95": 1940.0534480000001,
+          "maximum": 1940.293934,
+          "iqr": 1.7430259999998725
+        },
+        "startup_readiness_ms": {
+          "n": 20,
+          "minimum": 1827.702433,
+          "median": 1930.0108770000002,
+          "p90": 1932.309558,
+          "p95": 1936.304916,
+          "maximum": 2032.8889860000002,
+          "iqr": 1.5007190000001174
+        }
+      },
+      "operation_intervals_ms": {
+        "Begin/Ready": {
+          "n": 40,
+          "minimum": 0.09922900000000001,
+          "median": 0.12713650000000598,
+          "p90": 0.17805399999999594,
+          "p95": 0.17996700000000487,
+          "maximum": 0.18294099999999958,
+          "iqr": 0.03722599999991871
+        },
+        "Block/Validated": {
+          "n": 900,
+          "minimum": 1.0929059999998572,
+          "median": 1.9548394999999346,
+          "p90": 2.6975829999996677,
+          "p95": 2.955538000000004,
+          "maximum": 3.681999999999988,
+          "iqr": 0.6704420000005484
+        },
+        "Resume/Rejected": {
+          "n": 20,
+          "minimum": 0.11466299999983676,
+          "median": 0.1319245000003093,
+          "p90": 0.14695599999981823,
+          "p95": 0.14941500000009,
+          "maximum": 0.1595310000000154,
+          "iqr": 0.011153000000831526
+        },
+        "Finalize/Proof": {
+          "n": 20,
+          "minimum": 9.802569999999832,
+          "median": 10.492968000000019,
+          "p90": 10.838979999999992,
+          "p95": 10.914204999999583,
+          "maximum": 10.997948000000179,
+          "iqr": 0.4385449999999764
+        }
+      }
+    },
+    "native-osaka-lookup/cold": {
+      "successes": 20,
+      "failures": 0,
+      "metrics": {
+        "capability_ms": {
+          "n": 20,
+          "minimum": 0.7492920000000001,
+          "median": 40.9085905,
+          "p90": 41.259512,
+          "p95": 41.322103,
+          "maximum": 41.354400999999996,
+          "iqr": 0.5392360000000025
+        },
+        "complete_attempt_ms": {
+          "n": 20,
+          "minimum": 108.354343,
+          "median": 149.5615085,
+          "p90": 151.09421,
+          "p95": 151.255503,
+          "maximum": 152.585365,
+          "iqr": 2.3733069999999827
+        },
+        "fixture_load_ms": {
+          "n": 20,
+          "minimum": 1.81084,
+          "median": 1.889575,
+          "p90": 1.967698,
+          "p95": 1.981084,
+          "maximum": 2.232537,
+          "iqr": 0.07845699999999978
+        },
+        "preparation_ms": {
+          "n": 20,
+          "minimum": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "maximum": 0.0,
+          "iqr": 0.0
+        },
+        "prove_verify_eof_ms": {
+          "n": 20,
+          "minimum": 99.003376,
+          "median": 108.751836,
+          "p90": 109.77071,
+          "p95": 110.266872,
+          "maximum": 111.158395,
+          "iqr": 1.350251
+        },
+        "restart_readiness_ms": {
+          "n": 20,
+          "minimum": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "maximum": 0.0,
+          "iqr": 0.0
+        },
+        "startup_readiness_ms": {
+          "n": 20,
+          "minimum": 1824.34536,
+          "median": 1827.0043489999998,
+          "p90": 1928.123961,
+          "p95": 1928.4954060000002,
+          "maximum": 1928.993131,
+          "iqr": 2.539357999999993
+        }
+      },
+      "operation_intervals_ms": {
+        "Begin/Ready": {
+          "n": 20,
+          "minimum": 0.08920399999999518,
+          "median": 0.10684349999999654,
+          "p90": 0.13031200000000354,
+          "p95": 0.13460300000000558,
+          "maximum": 0.1582429999999988,
+          "iqr": 0.010140000000006921
+        },
+        "Block/Validated": {
+          "n": 900,
+          "minimum": 1.046102999999988,
+          "median": 1.594229999999996,
+          "p90": 2.177053000000015,
+          "p95": 2.4435059999999993,
+          "maximum": 3.4548079999999857,
+          "iqr": 0.4627189999999928
+        },
+        "Finalize/Proof": {
+          "n": 20,
+          "minimum": 8.888960999999995,
+          "median": 9.408218500000018,
+          "p90": 9.79477700000001,
+          "p95": 9.979500000000002,
+          "maximum": 10.305352999999997,
+          "iqr": 0.19366399999996986
+        }
+      }
+    },
+    "native-osaka-lookup/prepared": {
+      "successes": 20,
+      "failures": 0,
+      "metrics": {
+        "capability_ms": {
+          "n": 20,
+          "minimum": 0.7437779999999999,
+          "median": 40.858081,
+          "p90": 41.327973,
+          "p95": 41.332274000000005,
+          "maximum": 41.387292,
+          "iqr": 0.6792000000000087
+        },
+        "complete_attempt_ms": {
+          "n": 20,
+          "minimum": 181.398203,
+          "median": 222.300834,
+          "p90": 223.45111400000002,
+          "p95": 224.43743999999998,
+          "maximum": 227.207575,
+          "iqr": 1.1074589999999773
+        },
+        "fixture_load_ms": {
+          "n": 20,
+          "minimum": 1.81075,
+          "median": 1.9005144999999999,
+          "p90": 1.93078,
+          "p95": 1.933404,
+          "maximum": 1.93449,
+          "iqr": 0.032583999999999946
+        },
+        "preparation_ms": {
+          "n": 20,
+          "minimum": 89.898723,
+          "median": 90.99507449999999,
+          "p90": 91.044469,
+          "p95": 91.166209,
+          "maximum": 95.020906,
+          "iqr": 1.0014019999999988
+        },
+        "prove_verify_eof_ms": {
+          "n": 20,
+          "minimum": 89.995265,
+          "median": 90.941772,
+          "p90": 91.176328,
+          "p95": 91.207156,
+          "maximum": 92.019935,
+          "iqr": 0.3661199999999951
+        },
+        "restart_readiness_ms": {
+          "n": 20,
+          "minimum": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "maximum": 0.0,
+          "iqr": 0.0
+        },
+        "startup_readiness_ms": {
+          "n": 20,
+          "minimum": 1825.335323,
+          "median": 1925.938535,
+          "p90": 1928.729056,
+          "p95": 1928.7327830000002,
+          "maximum": 1929.026583,
+          "iqr": 101.33725699999991
+        }
+      },
+      "operation_intervals_ms": {
+        "Begin/Ready": {
+          "n": 20,
+          "minimum": 0.09278099999999512,
+          "median": 0.0991749999999989,
+          "p90": 0.10955099999999618,
+          "p95": 0.11553999999999576,
+          "maximum": 0.1457060000000041,
+          "iqr": 0.009323000000001969
+        },
+        "Block/Validated": {
+          "n": 920,
+          "minimum": 0.598353000000003,
+          "median": 1.5502019999999987,
+          "p90": 2.193903000000006,
+          "p95": 2.425046999999992,
+          "maximum": 5.438259000000002,
+          "iqr": 0.46697000000000344
+        },
+        "Resume/Ready": {
+          "n": 20,
+          "minimum": 0.057036000000010745,
+          "median": 0.06798450000000855,
+          "p90": 0.07730599999999299,
+          "p95": 0.0806180000000154,
+          "maximum": 0.08267499999999472,
+          "iqr": 0.011251000000015665
+        },
+        "Rewind/Ready": {
+          "n": 20,
+          "minimum": 0.06701100000000793,
+          "median": 0.09219199999999717,
+          "p90": 0.10621000000000436,
+          "p95": 0.1074419999999634,
+          "maximum": 0.199942999999962,
+          "iqr": 0.016730000000023892
+        },
+        "Finalize/Proof": {
+          "n": 20,
+          "minimum": 9.229365000000001,
+          "median": 9.715493999999993,
+          "p90": 10.121060999999997,
+          "p95": 11.79049299999997,
+          "maximum": 12.714242000000041,
+          "iqr": 0.4281310000000076
+        }
+      }
+    },
+    "native-osaka-lookup/disconnected": {
+      "successes": 20,
+      "failures": 0,
+      "metrics": {
+        "capability_ms": {
+          "n": 20,
+          "minimum": 0.755847,
+          "median": 40.743414,
+          "p90": 41.137795,
+          "p95": 41.154119,
+          "maximum": 41.203833,
+          "iqr": 40.11422
+        },
+        "complete_attempt_ms": {
+          "n": 20,
+          "minimum": 219.471479,
+          "median": 260.1603655,
+          "p90": 261.726555,
+          "p95": 261.824338,
+          "maximum": 261.947294,
+          "iqr": 40.634996
+        },
+        "fixture_load_ms": {
+          "n": 20,
+          "minimum": 1.877065,
+          "median": 1.953765,
+          "p90": 1.9882469999999999,
+          "p95": 1.9928139999999999,
+          "maximum": 2.017132,
+          "iqr": 0.08228099999999983
+        },
+        "preparation_ms": {
+          "n": 20,
+          "minimum": 83.725205,
+          "median": 84.230245,
+          "p90": 85.023201,
+          "p95": 85.03571,
+          "maximum": 85.036435,
+          "iqr": 0.9719489999999951
+        },
+        "prove_verify_eof_ms": {
+          "n": 20,
+          "minimum": 94.65599399999999,
+          "median": 135.078578,
+          "p90": 135.959642,
+          "p95": 136.025211,
+          "maximum": 137.612259,
+          "iqr": 0.16819399999999973
+        },
+        "restart_readiness_ms": {
+          "n": 20,
+          "minimum": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "maximum": 0.0,
+          "iqr": 0.0
+        },
+        "startup_readiness_ms": {
+          "n": 20,
+          "minimum": 1825.5021769999998,
+          "median": 1827.9494485,
+          "p90": 1928.818772,
+          "p95": 1929.828528,
+          "maximum": 1930.058616,
+          "iqr": 100.301876
+        }
+      },
+      "operation_intervals_ms": {
+        "Begin/Ready": {
+          "n": 20,
+          "minimum": 0.09467400000000015,
+          "median": 0.10557550000000049,
+          "p90": 0.11902900000000005,
+          "p95": 0.12131800000000226,
+          "maximum": 0.13770799999999994,
+          "iqr": 0.0145619999999973
+        },
+        "Block/Validated": {
+          "n": 900,
+          "minimum": 0.3019950000000051,
+          "median": 1.5189560000000029,
+          "p90": 2.0071259999999995,
+          "p95": 2.256709999999984,
+          "maximum": 2.8713259999999963,
+          "iqr": 0.3149919999999895
+        },
+        "Resume/Ready": {
+          "n": 20,
+          "minimum": 0.06031500000000278,
+          "median": 0.07258249999998156,
+          "p90": 0.07706200000002639,
+          "p95": 0.07739700000000482,
+          "maximum": 0.1242419999999953,
+          "iqr": 0.004291999999992413
+        },
+        "Finalize/Proof": {
+          "n": 20,
+          "minimum": 9.011009000000001,
+          "median": 9.373170000000002,
+          "p90": 9.866850000000028,
+          "p95": 9.987650999999971,
+          "maximum": 11.511903000000018,
+          "iqr": 0.15674700000002417
+        }
+      }
+    },
+    "native-osaka-lookup/lost_session": {
+      "successes": 20,
+      "failures": 0,
+      "metrics": {
+        "capability_ms": {
+          "n": 20,
+          "minimum": 0.795467,
+          "median": 40.804787000000005,
+          "p90": 41.293965,
+          "p95": 41.334813,
+          "maximum": 41.346138999999994,
+          "iqr": 40.247982
+        },
+        "complete_attempt_ms": {
+          "n": 20,
+          "minimum": 2214.014871,
+          "median": 2256.139635,
+          "p90": 2258.573687,
+          "p95": 2261.988989,
+          "maximum": 2265.2654380000004,
+          "iqr": 40.3108830000001
+        },
+        "fixture_load_ms": {
+          "n": 20,
+          "minimum": 1.965874,
+          "median": 2.083176,
+          "p90": 2.185155,
+          "p95": 2.1894929999999997,
+          "maximum": 2.221571,
+          "iqr": 0.14948499999999987
+        },
+        "preparation_ms": {
+          "n": 20,
+          "minimum": 84.37436299999999,
+          "median": 85.0153295,
+          "p90": 85.192666,
+          "p95": 86.002201,
+          "maximum": 86.53031,
+          "iqr": 0.1081750000000028
+        },
+        "prove_verify_eof_ms": {
+          "n": 20,
+          "minimum": 189.648501,
+          "median": 191.0881935,
+          "p90": 192.063726,
+          "p95": 192.09340799999998,
+          "maximum": 192.29128400000002,
+          "iqr": 0.6538209999999935
+        },
+        "restart_readiness_ms": {
+          "n": 20,
+          "minimum": 1936.2639219999999,
+          "median": 1939.407524,
+          "p90": 1943.513515,
+          "p95": 1946.7948669999998,
+          "maximum": 1955.321455,
+          "iqr": 2.1054209999999784
+        },
+        "startup_readiness_ms": {
+          "n": 20,
+          "minimum": 1927.3092969999998,
+          "median": 1929.8462315,
+          "p90": 1930.909611,
+          "p95": 1931.638411,
+          "maximum": 1931.7076749999999,
+          "iqr": 1.3505400000001373
+        }
+      },
+      "operation_intervals_ms": {
+        "Begin/Ready": {
+          "n": 40,
+          "minimum": 0.07594599999993079,
+          "median": 0.11868000000012857,
+          "p90": 0.14470899999999887,
+          "p95": 0.16137200000000007,
+          "maximum": 0.17664300000000566,
+          "iqr": 0.033312999999687065
+        },
+        "Block/Validated": {
+          "n": 1200,
+          "minimum": 0.3197380000005978,
+          "median": 1.7412944999998672,
+          "p90": 2.400149000000056,
+          "p95": 2.716701999999998,
+          "maximum": 3.784995000000002,
+          "iqr": 0.5736500000000433
+        },
+        "Resume/Rejected": {
+          "n": 20,
+          "minimum": 0.11825899999939793,
+          "median": 0.13622350000014194,
+          "p90": 0.15911099999993894,
+          "p95": 0.1627400000002126,
+          "maximum": 0.16564500000004045,
+          "iqr": 0.011375999999927444
+        },
+        "Finalize/Proof": {
+          "n": 20,
+          "minimum": 9.362851000000319,
+          "median": 9.918363500000169,
+          "p90": 10.20099399999981,
+          "p95": 10.280663999999888,
+          "maximum": 10.359124999999949,
+          "iqr": 0.34783599999991566
+        }
+      }
+    },
+    "native-osaka-changing-static/cold": {
+      "successes": 20,
+      "failures": 0,
+      "metrics": {
+        "capability_ms": {
+          "n": 20,
+          "minimum": 0.833048,
+          "median": 40.8379515,
+          "p90": 41.259191,
+          "p95": 41.263031999999995,
+          "maximum": 41.332709,
+          "iqr": 0.37544799999999867
+        },
+        "complete_attempt_ms": {
+          "n": 20,
+          "minimum": 96.792165,
+          "median": 137.9230035,
+          "p90": 138.403969,
+          "p95": 138.449257,
+          "maximum": 138.506246,
+          "iqr": 0.333028000000013
+        },
+        "fixture_load_ms": {
+          "n": 20,
+          "minimum": 1.6871720000000001,
+          "median": 1.75844,
+          "p90": 1.8023049999999998,
+          "p95": 1.803528,
+          "maximum": 1.803979,
+          "iqr": 0.044147999999999854
+        },
+        "preparation_ms": {
+          "n": 20,
+          "minimum": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "maximum": 0.0,
+          "iqr": 0.0
+        },
+        "prove_verify_eof_ms": {
+          "n": 20,
+          "minimum": 95.89729700000001,
+          "median": 97.040919,
+          "p90": 97.38795999999999,
+          "p95": 97.501395,
+          "maximum": 98.718264,
+          "iqr": 0.15223000000000297
+        },
+        "restart_readiness_ms": {
+          "n": 20,
+          "minimum": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "maximum": 0.0,
+          "iqr": 0.0
+        },
+        "startup_readiness_ms": {
+          "n": 20,
+          "minimum": 1926.690974,
+          "median": 1929.321236,
+          "p90": 1930.381772,
+          "p95": 1930.549012,
+          "maximum": 1933.0627580000003,
+          "iqr": 1.413958999999977
+        }
+      },
+      "operation_intervals_ms": {
+        "Begin/Ready": {
+          "n": 20,
+          "minimum": 0.09813799999999873,
+          "median": 0.11677599999999799,
+          "p90": 0.15397799999999506,
+          "p95": 0.18565399999999954,
+          "maximum": 0.2144480000000044,
+          "iqr": 0.028677999999999315
+        },
+        "Block/Validated": {
+          "n": 600,
+          "minimum": 1.2663319999999914,
+          "median": 1.9026629999999969,
+          "p90": 2.545273000000009,
+          "p95": 2.755726000000003,
+          "maximum": 3.648834000000001,
+          "iqr": 0.6028499999999894
+        },
+        "Finalize/Proof": {
+          "n": 20,
+          "minimum": 10.281094999999993,
+          "median": 10.582136000000002,
+          "p90": 10.891753999999992,
+          "p95": 10.933831999999981,
+          "maximum": 10.962439000000003,
+          "iqr": 0.2700460000000078
+        }
+      }
+    },
+    "native-osaka-changing-static/prepared": {
+      "successes": 20,
+      "failures": 0,
+      "metrics": {
+        "capability_ms": {
+          "n": 20,
+          "minimum": 0.786338,
+          "median": 40.780369,
+          "p90": 41.178886,
+          "p95": 41.283308999999996,
+          "maximum": 41.556326999999996,
+          "iqr": 0.47854300000000194
+        },
+        "complete_attempt_ms": {
+          "n": 20,
+          "minimum": 178.45920700000002,
+          "median": 219.3847885,
+          "p90": 220.364576,
+          "p95": 220.706588,
+          "maximum": 222.267673,
+          "iqr": 1.171305000000018
+        },
+        "fixture_load_ms": {
+          "n": 20,
+          "minimum": 1.6712719999999999,
+          "median": 1.6994479999999998,
+          "p90": 1.783979,
+          "p95": 1.813965,
+          "maximum": 3.8726979999999998,
+          "iqr": 0.031156000000000184
+        },
+        "preparation_ms": {
+          "n": 20,
+          "minimum": 87.565326,
+          "median": 88.10876999999999,
+          "p90": 89.08735700000001,
+          "p95": 89.427705,
+          "maximum": 90.001018,
+          "iqr": 0.9970169999999996
+        },
+        "prove_verify_eof_ms": {
+          "n": 20,
+          "minimum": 89.812341,
+          "median": 90.0204005,
+          "p90": 90.30897,
+          "p95": 92.84855999999999,
+          "maximum": 92.995654,
+          "iqr": 0.14017099999999516
+        },
+        "restart_readiness_ms": {
+          "n": 20,
+          "minimum": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "maximum": 0.0,
+          "iqr": 0.0
+        },
+        "startup_readiness_ms": {
+          "n": 20,
+          "minimum": 1926.171179,
+          "median": 1929.5636145,
+          "p90": 1931.231634,
+          "p95": 1931.241837,
+          "maximum": 1936.528164,
+          "iqr": 2.5083499999998367
+        }
+      },
+      "operation_intervals_ms": {
+        "Begin/Ready": {
+          "n": 20,
+          "minimum": 0.10056199999999649,
+          "median": 0.11286900000000344,
+          "p90": 0.1264110000000045,
+          "p95": 0.1292049999999989,
+          "maximum": 0.1328410000000062,
+          "iqr": 0.007602000000007436
+        },
+        "Block/Validated": {
+          "n": 620,
+          "minimum": 1.2121700000000004,
+          "median": 1.887251500000005,
+          "p90": 2.536574999999999,
+          "p95": 2.7732329999999905,
+          "maximum": 3.6400460000000123,
+          "iqr": 0.7172589999999985
+        },
+        "Resume/Ready": {
+          "n": 20,
+          "minimum": 0.06188299999999458,
+          "median": 0.07996900000000551,
+          "p90": 0.09928399999998305,
+          "p95": 0.10205799999999954,
+          "maximum": 0.11977600000000166,
+          "iqr": 0.011153000000007296
+        },
+        "Rewind/Ready": {
+          "n": 20,
+          "minimum": 0.07838900000001559,
+          "median": 0.10150099999999895,
+          "p90": 0.14188899999999194,
+          "p95": 0.16496900000001347,
+          "maximum": 0.1658610000000067,
+          "iqr": 0.032157000000040625
+        },
+        "Finalize/Proof": {
+          "n": 20,
+          "minimum": 9.766136999999986,
+          "median": 10.159261999999998,
+          "p90": 10.286032000000006,
+          "p95": 10.321705000000037,
+          "maximum": 10.543788999999975,
+          "iqr": 0.2326410000000294
+        }
+      }
+    },
+    "native-osaka-changing-static/disconnected": {
+      "successes": 20,
+      "failures": 0,
+      "metrics": {
+        "capability_ms": {
+          "n": 20,
+          "minimum": 0.77631,
+          "median": 40.652390499999996,
+          "p90": 41.213375,
+          "p95": 41.221607,
+          "maximum": 41.320719,
+          "iqr": 40.13682599999999
+        },
+        "complete_attempt_ms": {
+          "n": 20,
+          "minimum": 177.444803,
+          "median": 217.8020725,
+          "p90": 219.08576799999997,
+          "p95": 219.221799,
+          "maximum": 234.069252,
+          "iqr": 39.69390800000002
+        },
+        "fixture_load_ms": {
+          "n": 20,
+          "minimum": 1.676517,
+          "median": 1.702449,
+          "p90": 1.716748,
+          "p95": 1.732412,
+          "maximum": 1.7489910000000002,
+          "iqr": 0.01894700000000027
+        },
+        "preparation_ms": {
+          "n": 20,
+          "minimum": 84.49599400000001,
+          "median": 85.01089449999999,
+          "p90": 85.212197,
+          "p95": 85.428955,
+          "maximum": 86.01138399999999,
+          "iqr": 0.02332900000000393
+        },
+        "prove_verify_eof_ms": {
+          "n": 20,
+          "minimum": 91.88565999999999,
+          "median": 92.02184,
+          "p90": 92.873565,
+          "p95": 101.74412500000001,
+          "maximum": 107.768588,
+          "iqr": 0.1463860000000068
+        },
+        "restart_readiness_ms": {
+          "n": 20,
+          "minimum": 0.0,
+          "median": 0.0,
+          "p90": 0.0,
+          "p95": 0.0,
+          "maximum": 0.0,
+          "iqr": 0.0
+        },
+        "startup_readiness_ms": {
+          "n": 20,
+          "minimum": 1927.54732,
+          "median": 1928.916899,
+          "p90": 1930.1333,
+          "p95": 1930.337055,
+          "maximum": 2031.106651,
+          "iqr": 0.7498980000000302
+        }
+      },
+      "operation_intervals_ms": {
+        "Begin/Ready": {
+          "n": 20,
+          "minimum": 0.09726600000000474,
+          "median": 0.1121290000000007,
+          "p90": 0.12524299999999755,
+          "p95": 0.12643700000000013,
+          "maximum": 0.1434420000000003,
+          "iqr": 0.010743999999994536
+        },
+        "Block/Validated": {
+          "n": 600,
+          "minimum": 0.3829780000000085,
+          "median": 1.8434055000000171,
+          "p90": 2.7748319999999964,
+          "p95": 3.0559889999999967,
+          "maximum": 8.475481000000002,
+          "iqr": 0.5626650000000097
+        },
+        "Resume/Ready": {
+          "n": 20,
+          "minimum": 0.06854400000000282,
+          "median": 0.08101450000000199,
+          "p90": 0.09233300000001066,
+          "p95": 0.09417799999999943,
+          "maximum": 0.1084030000000098,
+          "iqr": 0.010168000000007282
+        },
+        "Finalize/Proof": {
+          "n": 20,
+          "minimum": 10.465091999999999,
+          "median": 10.725421999999995,
+          "p90": 11.229287000000028,
+          "p95": 13.168976000000015,
+          "maximum": 20.554119000000014,
+          "iqr": 0.341477000000026
+        }
+      }
+    },
+    "native-osaka-changing-static/lost_session": {
+      "successes": 20,
+      "failures": 0,
+      "metrics": {
+        "capability_ms": {
+          "n": 20,
+          "minimum": 0.763684,
+          "median": 40.884426,
+          "p90": 41.357906,
+          "p95": 41.358586,
+          "maximum": 41.407405000000004,
+          "iqr": 0.48093500000000233
+        },
+        "complete_attempt_ms": {
+          "n": 20,
+          "minimum": 2202.6161709999997,
+          "median": 2243.032523,
+          "p90": 2245.966005,
+          "p95": 2246.325589,
+          "maximum": 2246.950185,
+          "iqr": 2.397989999999936
+        },
+        "fixture_load_ms": {
+          "n": 20,
+          "minimum": 1.66107,
+          "median": 1.7029095,
+          "p90": 1.7426679999999999,
+          "p95": 1.7540229999999999,
+          "maximum": 1.782468,
+          "iqr": 0.03051999999999988
+        },
+        "preparation_ms": {
+          "n": 20,
+          "minimum": 84.788343,
+          "median": 85.00854000000001,
+          "p90": 85.070457,
+          "p95": 85.127183,
+          "maximum": 85.383659,
+          "iqr": 0.040934999999990396
+        },
+        "prove_verify_eof_ms": {
+          "n": 20,
+          "minimum": 177.877649,
+          "median": 178.518384,
+          "p90": 179.511787,
+          "p95": 180.89639,
+          "maximum": 181.652914,
+          "iqr": 0.7633150000000057
+        },
+        "restart_readiness_ms": {
+          "n": 20,
+          "minimum": 1936.482381,
+          "median": 1938.767159,
+          "p90": 1939.82595,
+          "p95": 1940.295417,
+          "maximum": 1942.867621,
+          "iqr": 1.2411929999998392
+        },
+        "startup_readiness_ms": {
+          "n": 20,
+          "minimum": 1927.0770320000001,
+          "median": 1929.0274255,
+          "p90": 1930.6737460000002,
+          "p95": 1930.778948,
+          "maximum": 1931.443062,
+          "iqr": 1.7217009999997117
+        }
+      },
+      "operation_intervals_ms": {
+        "Begin/Ready": {
+          "n": 40,
+          "minimum": 0.079913999999917,
+          "median": 0.11114249999985049,
+          "p90": 0.12799500000028274,
+          "p95": 0.13232999999999606,
+          "maximum": 0.23986299999978655,
+          "iqr": 0.013979999999456538
+        },
+        "Block/Validated": {
+          "n": 900,
+          "minimum": 1.2098909999999705,
+          "median": 1.9260930000000371,
+          "p90": 2.588659000000007,
+          "p95": 2.8363649999999865,
+          "maximum": 3.3687250000002678,
+          "iqr": 0.6548439999992297
+        },
+        "Resume/Rejected": {
+          "n": 20,
+          "minimum": 0.1145529999998871,
+          "median": 0.13499149999984184,
+          "p90": 0.16075899999987087,
+          "p95": 0.18240900000000693,
+          "maximum": 0.2052400000002308,
+          "iqr": 0.01976500000046144
+        },
+        "Finalize/Proof": {
+          "n": 20,
+          "minimum": 9.700758999999834,
+          "median": 10.099966499999937,
+          "p90": 10.432409000000007,
+          "p95": 10.534065999999711,
+          "maximum": 10.792573999999604,
+          "iqr": 0.3620120000005045
+        }
+      }
+    }
+  },
+  "validation": {
+    "hosted_producer": {
+      "passed": 70,
+      "skipped": 0,
+      "binaries": 7,
+      "node_e2e": "Intentionally excluded producer suite; checked by native consumer matrices"
+    },
+    "hosted_tooling": {
+      "selected": 607,
+      "passed": 600,
+      "skipped": 7,
+      "scanner_regressions_passed": 2,
+      "fetched_history_commits": 1151,
+      "history_findings": 0
+    },
+    "hosted_cross_chain": {
+      "passed": 161,
+      "per_shard_passed": [
+        41,
+        40,
+        40,
+        40
+      ],
+      "ordinary12case_test": "passed in slice2/4; correctness-only, not timing",
+      "skip_note": "Per-shard172/173 are shard/filter exclusions; not unique ignored coverage"
+    },
+    "all4embedded": "success",
+    "debug_unit_lane": "success",
+    "kurtosis": "success",
+    "full_CI_Result": "success",
+    "prior_package_logical_process_checks": "Retained in followup-validation.json; controlled deadlines/permits/retries and historical transcripts are not wall-clock workload timing"
+  },
+  "raw_file_sha256": {
+    "streaming-deadlines/summary.json": "8c920f4ba5ae0d82afc5c9df771791f07479ad997d891174913794bd3be644fb",
+    "streaming-deadlines/host.jsonl": "c08f8f253d69f9a88e97d8553cd365afcb7d6e78495d0d9e97b1cd59478a675f",
+    "streaming-deadlines/attempts.jsonl": "8cccb950b355ed18eeb61a4883b53180ae7c9c981c1353658d97df53eccf4d4d",
+    "streaming-deadlines/manifest.json": "251249779885fa2aa35e29babef99090c8f73f56227ae30f8aa756ec499dabc1",
+    "streaming-deadlines.artifact-provenance.json": "0c57321cee5a6e211d20cb74eb1069c77fd3c0a4c0db54852a0ee1301df48104",
+    "streaming-deadlines.artifact-post.json": "c22fcb2a5b97b0ae10ad6fbcf78603492b1ea7aad9a16341ef423533f766f5bb"
+  },
+  "local_rejected_attempts": {
+    "controller": "Gracefully stopped after quiet-window-12 completed; no further native attempt started. Read-only PR/main tracking continues separately.",
+    "total_windows": 12,
+    "accepted_local_campaigns": 0,
+    "binary_source": "ca76bb8744667f3045f5d839a920c011825999f9",
+    "observer_code_origin": "04bbb115901c88b1ccdbb6f15ab4cfd89662c5d9",
+    "records": [
+      {
+        "name": "quiet-window-01",
+        "observer_checkout": "d99e58929d11d0d1a51fb7e690d7f48e66cd142e",
+        "first_utc": "2026-11-12T22:03:12Z",
+        "last_utc": "2026-11-12T22:33:14Z",
+        "status": "quiet window unavailable",
+        "eligible": false,
+        "complete": false,
+        "phase_counts": {
+          "before": 178
+        },
+        "longest_clean_admission_seconds": 30.550488309992943,
+        "rejection_counts": {
+          "CPU idle below 70%": 89,
+          "swap traffic": 50
+        },
+        "attempt_starts": 0,
+        "completed_warmups": 0,
+        "completed_measured": 0,
+        "malformed_lines_retained": 0,
+        "owned_preparation_note": "No owned heavy validation/evidence-reading marker recorded by this task in this window.",
+        "raw_file_sha256": {
+          "manifest.json": "4a6c5f465ad1225805ba5752601295c3337179e2791640fe6ba104b60a440b8e",
+          "host.jsonl": "6923a3ae1cb9c8776e570cbcc727ca4a5008acd1e0335478b0c1baa20629f9fd",
+          "summary.json": "d35934254c546abcea9a037eb365d859e8d98e4089b1f10dbfc61edb30a04a58",
+          "driver.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "driver_log_note": "empty; SHA256 is the empty-input digest"
+      },
+      {
+        "name": "quiet-window-02",
+        "observer_checkout": "942b9d1fc667f1e0cdb53625094a86c34d16f411",
+        "first_utc": "2026-11-12T23:05:38Z",
+        "last_utc": "2026-11-12T23:35:39Z",
+        "status": "quiet window unavailable",
+        "eligible": false,
+        "complete": false,
+        "phase_counts": {
+          "before": 178
+        },
+        "longest_clean_admission_seconds": 81.45539502499742,
+        "rejection_counts": {
+          "one-minute load too high": 18,
+          "CPU idle below 70%": 71,
+          "swap traffic": 48
+        },
+        "attempt_starts": 0,
+        "completed_warmups": 0,
+        "completed_measured": 0,
+        "malformed_lines_retained": 0,
+        "owned_preparation_note": "No owned heavy validation/evidence-reading marker recorded by this task in this window.",
+        "raw_file_sha256": {
+          "manifest.json": "3eb970ddbb1a994adbba8048bbacc7b16002f20d631af280a1b54d737c120901",
+          "host.jsonl": "7508b63909ac95aeada7a08c081187f0d6aad36491163a265bfdb26dea0ee114",
+          "summary.json": "d35934254c546abcea9a037eb365d859e8d98e4089b1f10dbfc61edb30a04a58",
+          "driver.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "driver_log_note": "empty; SHA256 is the empty-input digest"
+      },
+      {
+        "name": "quiet-window-03",
+        "observer_checkout": "942b9d1fc667f1e0cdb53625094a86c34d16f411",
+        "first_utc": "2026-11-12T23:35:39Z",
+        "last_utc": "2026-11-12T23:54:29Z",
+        "status": "contaminated; retained diagnostics, repeat in a new quiet window",
+        "eligible": false,
+        "complete": false,
+        "phase_counts": {
+          "before": 99,
+          "during": 1,
+          "after": 12
+        },
+        "longest_clean_admission_seconds": 122.16644222798641,
+        "rejection_counts": {
+          "swap traffic": 26,
+          "CPU idle below 70%": 20
+        },
+        "attempt_starts": 4,
+        "completed_warmups": 3,
+        "completed_measured": 0,
+        "malformed_lines_retained": 0,
+        "owned_preparation_note": "No owned heavy validation/evidence-reading marker recorded by this task in this window.",
+        "raw_file_sha256": {
+          "manifest.json": "3eb970ddbb1a994adbba8048bbacc7b16002f20d631af280a1b54d737c120901",
+          "host.jsonl": "20ad7eed298229ebc35e192c662a9a07e69382673e0c7be0ed64b9d20bac82ca",
+          "summary.json": "465e1a387235650a240ec4821c3329fb2825477c53a2bc3850d64f504705018a",
+          "driver.log": "86034373b7c3853246f86d29c2979530eb30bc5fa2997d29c638ea913b4038f1",
+          "attempts.jsonl": "b9e78363a6dda218a739ac524f15b8abcdeec0d405c04c40f7e8050dbfa56978"
+        },
+        "driver_log_note": "contaminated diagnostic output retained"
+      },
+      {
+        "name": "quiet-window-04",
+        "observer_checkout": "942b9d1fc667f1e0cdb53625094a86c34d16f411",
+        "first_utc": "2026-11-13T00:05:39Z",
+        "last_utc": "2026-11-13T00:35:41Z",
+        "status": "quiet window unavailable",
+        "eligible": false,
+        "complete": false,
+        "phase_counts": {
+          "before": 178
+        },
+        "longest_clean_admission_seconds": 91.6006777069997,
+        "rejection_counts": {
+          "CPU idle below 70%": 40,
+          "swap traffic": 40,
+          "one-minute load too high": 8
+        },
+        "attempt_starts": 0,
+        "completed_warmups": 0,
+        "completed_measured": 0,
+        "malformed_lines_retained": 0,
+        "owned_preparation_note": "No owned heavy validation/evidence-reading marker recorded by this task in this window.",
+        "raw_file_sha256": {
+          "manifest.json": "3eb970ddbb1a994adbba8048bbacc7b16002f20d631af280a1b54d737c120901",
+          "host.jsonl": "3822511e314b6ecfa10c5d6e236399c8a7ff5b2155adbf80e46752c79e9ef9f2",
+          "summary.json": "d35934254c546abcea9a037eb365d859e8d98e4089b1f10dbfc61edb30a04a58",
+          "driver.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "driver_log_note": "empty; SHA256 is the empty-input digest"
+      },
+      {
+        "name": "quiet-window-05",
+        "observer_checkout": "942b9d1fc667f1e0cdb53625094a86c34d16f411",
+        "first_utc": "2026-11-13T00:35:41Z",
+        "last_utc": "2026-11-13T01:05:43Z",
+        "status": "quiet window unavailable",
+        "eligible": false,
+        "complete": false,
+        "phase_counts": {
+          "before": 178
+        },
+        "longest_clean_admission_seconds": 81.42403869598638,
+        "rejection_counts": {
+          "CPU idle below 70%": 68,
+          "swap traffic": 30,
+          "unrelated compiler/test/IO work": 40
+        },
+        "attempt_starts": 0,
+        "completed_warmups": 0,
+        "completed_measured": 0,
+        "malformed_lines_retained": 0,
+        "owned_preparation_note": "Owned full tooling validation in part of the window.",
+        "raw_file_sha256": {
+          "manifest.json": "3eb970ddbb1a994adbba8048bbacc7b16002f20d631af280a1b54d737c120901",
+          "host.jsonl": "50c787e611a9304cbf11b701abeea1d5bf7addfb9d6c328aeacad4abfba45e8b",
+          "summary.json": "d35934254c546abcea9a037eb365d859e8d98e4089b1f10dbfc61edb30a04a58",
+          "driver.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "driver_log_note": "empty; SHA256 is the empty-input digest"
+      },
+      {
+        "name": "quiet-window-06",
+        "observer_checkout": "942b9d1fc667f1e0cdb53625094a86c34d16f411",
+        "first_utc": "2026-11-13T01:05:43Z",
+        "last_utc": "2026-11-13T01:35:45Z",
+        "status": "quiet window unavailable",
+        "eligible": false,
+        "complete": false,
+        "phase_counts": {
+          "before": 178
+        },
+        "longest_clean_admission_seconds": 61.10049729401362,
+        "rejection_counts": {
+          "swap traffic": 33,
+          "CPU idle below 70%": 44,
+          "unrelated compiler/test/IO work": 1,
+          "one-minute load too high": 14
+        },
+        "attempt_starts": 0,
+        "completed_warmups": 0,
+        "completed_measured": 0,
+        "malformed_lines_retained": 0,
+        "owned_preparation_note": "Brief owned frozen export preparation.",
+        "raw_file_sha256": {
+          "manifest.json": "3eb970ddbb1a994adbba8048bbacc7b16002f20d631af280a1b54d737c120901",
+          "host.jsonl": "6e385c0e02f7cbe30b861e956aac7f0df250a1c58dfc74bd6454d09291b3574e",
+          "summary.json": "d35934254c546abcea9a037eb365d859e8d98e4089b1f10dbfc61edb30a04a58",
+          "driver.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "driver_log_note": "empty; SHA256 is the empty-input digest"
+      },
+      {
+        "name": "quiet-window-07",
+        "observer_checkout": "942b9d1fc667f1e0cdb53625094a86c34d16f411",
+        "first_utc": "2026-11-13T01:35:45Z",
+        "last_utc": "2026-11-13T02:05:46Z",
+        "status": "quiet window unavailable",
+        "eligible": false,
+        "complete": false,
+        "phase_counts": {
+          "before": 178
+        },
+        "longest_clean_admission_seconds": 40.71532102301717,
+        "rejection_counts": {
+          "CPU idle below 70%": 109,
+          "swap traffic": 23,
+          "unrelated compiler/test/IO work": 81
+        },
+        "attempt_starts": 0,
+        "completed_warmups": 0,
+        "completed_measured": 0,
+        "malformed_lines_retained": 0,
+        "owned_preparation_note": "Owned full tooling and controlled CI regressions in part of the window.",
+        "raw_file_sha256": {
+          "manifest.json": "3eb970ddbb1a994adbba8048bbacc7b16002f20d631af280a1b54d737c120901",
+          "host.jsonl": "33f4edbbaee296a14db21d9542690537148c29f837c22b9f5d935b94754e4eba",
+          "summary.json": "d35934254c546abcea9a037eb365d859e8d98e4089b1f10dbfc61edb30a04a58",
+          "driver.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "driver_log_note": "empty; SHA256 is the empty-input digest"
+      },
+      {
+        "name": "quiet-window-08",
+        "observer_checkout": "942b9d1fc667f1e0cdb53625094a86c34d16f411",
+        "first_utc": "2026-11-13T02:05:47Z",
+        "last_utc": "2026-11-13T02:35:48Z",
+        "status": "quiet window unavailable",
+        "eligible": false,
+        "complete": false,
+        "phase_counts": {
+          "before": 178
+        },
+        "longest_clean_admission_seconds": 91.54973273698124,
+        "rejection_counts": {
+          "CPU idle below 70%": 51,
+          "swap traffic": 33
+        },
+        "attempt_starts": 0,
+        "completed_warmups": 0,
+        "completed_measured": 0,
+        "malformed_lines_retained": 0,
+        "owned_preparation_note": "No owned heavy validation/evidence-reading marker recorded by this task in this window.",
+        "raw_file_sha256": {
+          "manifest.json": "3eb970ddbb1a994adbba8048bbacc7b16002f20d631af280a1b54d737c120901",
+          "host.jsonl": "997e19b0fea0acb0df126246dc57c9783bb7de80b5038954ebb190278cb98515",
+          "summary.json": "d35934254c546abcea9a037eb365d859e8d98e4089b1f10dbfc61edb30a04a58",
+          "driver.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "driver_log_note": "empty; SHA256 is the empty-input digest"
+      },
+      {
+        "name": "quiet-window-09",
+        "observer_checkout": "942b9d1fc667f1e0cdb53625094a86c34d16f411",
+        "first_utc": "2026-11-13T02:35:49Z",
+        "last_utc": "2026-11-13T03:05:50Z",
+        "status": "quiet window unavailable",
+        "eligible": false,
+        "complete": false,
+        "phase_counts": {
+          "before": 178
+        },
+        "longest_clean_admission_seconds": 50.91194321101648,
+        "rejection_counts": {
+          "CPU idle below 70%": 41,
+          "swap traffic": 30,
+          "one-minute load too high": 12
+        },
+        "attempt_starts": 0,
+        "completed_warmups": 0,
+        "completed_measured": 0,
+        "malformed_lines_retained": 0,
+        "owned_preparation_note": "No owned heavy validation/evidence-reading marker recorded by this task in this window.",
+        "raw_file_sha256": {
+          "manifest.json": "3eb970ddbb1a994adbba8048bbacc7b16002f20d631af280a1b54d737c120901",
+          "host.jsonl": "46284bee80f1e1fc4e096f6d8efa27476469f3e35f58b4d2deb905ae423eccbd",
+          "summary.json": "d35934254c546abcea9a037eb365d859e8d98e4089b1f10dbfc61edb30a04a58",
+          "driver.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "driver_log_note": "empty; SHA256 is the empty-input digest"
+      },
+      {
+        "name": "quiet-window-10",
+        "observer_checkout": "942b9d1fc667f1e0cdb53625094a86c34d16f411",
+        "first_utc": "2026-11-13T03:05:51Z",
+        "last_utc": "2026-11-13T03:35:52Z",
+        "status": "quiet window unavailable",
+        "eligible": false,
+        "complete": false,
+        "phase_counts": {
+          "before": 178
+        },
+        "longest_clean_admission_seconds": 81.45443169598002,
+        "rejection_counts": {
+          "CPU idle below 70%": 61,
+          "swap traffic": 29,
+          "unrelated compiler/test/IO work": 1
+        },
+        "attempt_starts": 0,
+        "completed_warmups": 0,
+        "completed_measured": 0,
+        "malformed_lines_retained": 0,
+        "owned_preparation_note": "Brief owned finished-producer evidence retrieval.",
+        "raw_file_sha256": {
+          "manifest.json": "3eb970ddbb1a994adbba8048bbacc7b16002f20d631af280a1b54d737c120901",
+          "host.jsonl": "d13ff90bc43883c24473336780754d587fa8387d369cbd2093c68ca9a15bec72",
+          "summary.json": "d35934254c546abcea9a037eb365d859e8d98e4089b1f10dbfc61edb30a04a58",
+          "driver.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "driver_log_note": "empty; SHA256 is the empty-input digest"
+      },
+      {
+        "name": "quiet-window-11",
+        "observer_checkout": "942b9d1fc667f1e0cdb53625094a86c34d16f411",
+        "first_utc": "2026-11-13T03:35:52Z",
+        "last_utc": "2026-11-13T04:05:54Z",
+        "status": "quiet window unavailable",
+        "eligible": false,
+        "complete": false,
+        "phase_counts": {
+          "before": 178
+        },
+        "longest_clean_admission_seconds": 71.26646109300782,
+        "rejection_counts": {
+          "CPU idle below 70%": 52,
+          "swap traffic": 23,
+          "unrelated compiler/test/IO work": 1
+        },
+        "attempt_starts": 0,
+        "completed_warmups": 0,
+        "completed_measured": 0,
+        "malformed_lines_retained": 0,
+        "owned_preparation_note": "Brief owned finished-cross-chain evidence retrieval.",
+        "raw_file_sha256": {
+          "manifest.json": "3eb970ddbb1a994adbba8048bbacc7b16002f20d631af280a1b54d737c120901",
+          "host.jsonl": "dfd55de63308c251e133c912cb1017fbba664416e516b7d2f4581d87d69db0d2",
+          "summary.json": "d35934254c546abcea9a037eb365d859e8d98e4089b1f10dbfc61edb30a04a58",
+          "driver.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "driver_log_note": "empty; SHA256 is the empty-input digest"
+      },
+      {
+        "name": "quiet-window-12",
+        "observer_checkout": "942b9d1fc667f1e0cdb53625094a86c34d16f411",
+        "first_utc": "2026-11-13T04:05:54Z",
+        "last_utc": "2026-11-13T04:35:56Z",
+        "status": "quiet window unavailable",
+        "eligible": false,
+        "complete": false,
+        "phase_counts": {
+          "before": 178
+        },
+        "longest_clean_admission_seconds": 71.23124155402184,
+        "rejection_counts": {
+          "CPU idle below 70%": 59,
+          "unrelated compiler/test/IO work": 1,
+          "swap traffic": 32,
+          "one-minute load too high": 13
+        },
+        "attempt_starts": 0,
+        "completed_warmups": 0,
+        "completed_measured": 0,
+        "malformed_lines_retained": 0,
+        "owned_preparation_note": "Owned accepted-cloud download/record verification; graceful stop requested after validation.",
+        "raw_file_sha256": {
+          "manifest.json": "3eb970ddbb1a994adbba8048bbacc7b16002f20d631af280a1b54d737c120901",
+          "host.jsonl": "1d2806cc651fc17ab026e6134a719d49ee2960dee4948afb7ae47c3f65eb9ff8",
+          "summary.json": "d35934254c546abcea9a037eb365d859e8d98e4089b1f10dbfc61edb30a04a58",
+          "driver.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "driver_log_note": "empty; SHA256 is the empty-input digest"
+      }
+    ],
+    "interpretation": "All retained as unavailable/contaminated diagnostics; no local latency distributions reported or pooled. Mixed preparation windows explicitly labelled; not attributed solely to unrelated work."
+  },
+  "final_fable_evidence_review": {
+    "status": "PASS after required doc-only corrections; no blocking evidence/method issue",
+    "records": [
+      {
+        "evidence": "final-evidence-review.json",
+        "sha256": "32af2653c8527ca782a3fe4e1d394808de93d6aaf45dc18105c1b8cfe7c619b1",
+        "model": "claude-fable-5-2",
+        "canonical_model": "claude-fable-5-2",
+        "provider": "firstParty",
+        "is_error": false,
+        "fallback": false,
+        "delegation": false,
+        "status": "No blocking evidence/method defect; evidence approval conditional on R1/R2/R3 documentation corrections",
+        "scope": "8Read calls across all six frozen evidence/method copies, including manual arithmetic spot checks; no commands/tests/hashes/native rerun"
+      },
+      {
+        "evidence": "correction-verification2-review.json",
+        "sha256": "163ed05c74e59d2a32554cc3c959ac082c044233d0f7f769e79c073110d5009e",
+        "model": "claude-fable-5-2",
+        "canonical_model": "claude-fable-5-2",
+        "provider": "firstParty",
+        "is_error": false,
+        "fallback": false,
+        "delegation": false,
+        "status": "PASS; R1/R2/R3 satisfied, no blocking evidence/method issue remains",
+        "scope": "4Read/Grep calls over corrected Markdown, pressure/band extraction and targeted JSON; no source/native re-review or execution"
+      }
+    ],
+    "corrections": "Disclosed during CPU PSI spike and sustained baseline I/O PSI; added capability/restart medians and observed stage bands; no data/gate/runtime change or remeasurement.",
+    "limits": "Reviewer read operator copies, not independent hashes, fresh native execution or proof crypto. Source identities/job statuses remain attestations supported by retained records. Final exact-head CI/merge/release gates not waived.",
+    "retained_setup_failure": "A relative-path copy-preparation failure launched one stale-input read-only verification; it was retained but not used as approval. Corrected distinct-input verification above passed."
+  },
+  "limits": [
+    "Captured fixture witnesses through the production client and real outbound-network-denied signer; no fresh Composer witness capture, watermark coalescing or live L1 posting.",
+    "Small V0 historical corpus under validation9/profile2/operations-tag1, signing domain7; not V1 capacity or a production traffic distribution.",
+    "Normal prevalidation EOF after15ACKs, not midflight loss/lost ACK. Lost-session is owned signer restart behind a stable proxy, not client-channel reconnect or capability re-agreement.",
+    "Client transmission counts and header replay charges are checked, not independent signer accepted-quota accounting.",
+    "Expected identity uses local configuration and the shared identity library, not server advertisement or an independent frozen identity algorithm. Expected digest is capture response data; Finalize equivalence is by digest, not bitwise capture equality.",
+    "Proof crypto/execution/signature/root assertions are process evidence from the verified source-bound binary. Record checks and coordinator audit do not separately decode proof crypto or rerun native execution.",
+    "Fresh signer per repetition; OS caches unflushed; fixed fixture/scenario order;100ms readiness polling; loopback proxy/serialization/clock overhead. One sequential caller, no saturation test.",
+    "Complete-attempt starts at capability negotiation after initial startup. It includes the unconditional pre-proof preparation-only signer-log read in all four cases; individual stages omit that read. Later assertions, trace extraction, final log read and teardown are outside complete-attempt.",
+    "One complete campaign on one shared hosted VM, not an isolated physical host. Underlying CPU model was not recorded. Normal background services were not stopped. Different local/hosted binaries and environments are not an A/B improvement comparison.",
+    "CPU and IO PSI are retained observations, not admission thresholds; memory PSI is gated. Sustained baseline IO PSI and a during-run CPU PSI spike are disclosed; this was not a pressure-free observation. All declared interval criteria and sustained pre/post checks passed without relaxing any gate.",
+    "Twenty measured repetitions per case: nearest-rank p95 is the19th ordered sample; operation intervals within each repetition are correlated. No SLA, general tail guarantee, deadline policy, production capacity or durable recovery guarantee.",
+    "Utility safety caps (3min per attempt,15min per group) differ from the existing600000ms request/120000ms idle limits. Utility outcomes cannot establish L1 slot/cutoff enforcement; separate controlled tests cover deadline/ownership semantics.",
+    "Original frozen N14 review-input provenance remains unverified; this did not restart that audit. #43/#45 already fixed the old preparation-ingestion defect; no new runtime deadline defect was reproduced.",
+    "Optional SIGTERM/SIGHUP cleanup limitation and operator-asserted static profile label remain. Seal/hash checks bind actual bytes. Three-day hosted artifact retention; downloaded archive/raw evidence retained locally. No bulk logs/attempts or new scanner exceptions committed."
+  ],
+  "observed_bands": {
+    "capability": {
+      "per_case_minimum_range_ms": [
+        0.7437779999999999,
+        0.833048
+      ],
+      "per_case_median_range_ms": [
+        40.652390499999996,
+        41.143679000000006
+      ],
+      "location": "Bimodal capability_ms in all12cases, inside complete_attempt_ms; Complete bands track capability per repetition in reviewed groups. Root cause not isolated."
+    },
+    "lookup_disconnected_prove": {
+      "one_lower_value_ms": 94.65599399999999,
+      "higher_count": 19,
+      "higher_range_ms": [
+        134.695995,
+        137.612259
+      ],
+      "description": "About40ms separation inside prove_verify_eof_ms, not merely capability."
+    },
+    "bidirectional_lost_restart": {
+      "lower_count": 3,
+      "lower_range_ms": [
+        1837.3853869999998,
+        1839.1768530000002
+      ],
+      "higher_count": 17,
+      "higher_range_ms": [
+        1936.719318,
+        1940.293934
+      ],
+      "description": "About100ms band in restart_readiness_ms coincides with lower Complete values. Includes old signer blocking drop,new spawn/readiness,set_upstream."
+    },
+    "iqr_limit": "Small IQR does not imply unimodality; rank5/rank15 may land in different modes depending on the number of fast repetitions.",
+    "causal_scope": "Observed stage locations only; no cause, optimization or new runtime policy inferred."
+  }
+}

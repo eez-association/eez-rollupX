@@ -70,3 +70,38 @@ approved**. It used eleven Read calls, no fallback/delegation and no commands or
 independent hashing. Six wording comments were corrected in the follow-up without
 functional changes. Its final completed-timing review gate remains pending.
 The initial sandbox DNS failure and approved retry are retained separately.
+
+
+## Completed bounded measurement record
+
+What this change does: It records the actual twelve-case campaign from immutable
+same-run hosted release artifacts, with twenty measured repetitions per case,
+separate startup/restart/capability intervals, observed replay charges and full
+resource history. It preserves every failed/partial local window and the original
+N14 provenance limitation. No runtime optimization, deadline/configuration change,
+SLA, live-L1 or cross-host improvement is claimed.
+
+Reviewed the complete final evidence mapping against the actual raw counts,
+source/config/input and pre/post binary hashes, native assertions, timing bounds,
+all aggregate distributions and all 97 resource snapshots. The existing CI
+producer/verifier/consumer is reused; the single optional job preserves every
+normal validation lane and promotion guard. No additional framework or dependency
+was introduced for later uses.
+
+Confirmed record findings were fixed: CPU PSI spiked during sampling despite
+passing declared gates; I/O PSI was sustained through most of the baseline;
+capability and restart medians needed explicit columns and stage-band descriptions.
+The corrected record discloses these observations without a new threshold or
+cause. Bounded Claude Fable 5.2 review and correction verification passed, with
+verified model/no fallback/no delegation; its read-only and attestation limits are
+retained in [the completed record](timing-results.json).
+
+Verdict: The bounded characterization and evidence are ready for final normal CI.
+Main merge remains conditional on all thirteen required fresh exact-head checks,
+expected-head/main compatibility, and no review blocker. Final-main CI and tested
+image promotion/public verification remain required afterwards.
+
+Not checked: An independent crypto/native rerun by the record reviewers, larger
+or production/V1 workloads, live posting, saturation/durable recovery guarantees,
+or the original review-input provenance. Optional signal-cleanup/static-profile
+caveats and the declared-gate/shared-host pressure limits remain explicit.

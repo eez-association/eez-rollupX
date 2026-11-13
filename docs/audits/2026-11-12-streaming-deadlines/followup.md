@@ -144,11 +144,12 @@ constrain comparisons and tail estimates.
 
 ## Validation status
 
-Release/archive preparation and native correctness are complete. Actual timing
-remains blocked: the corrected observer's 30-minute admission attempt launched
-no workload. The final sections below and [validation record](followup-validation.json)
-supersede the earlier interim counts while preserving their first failures.
-PR #165 remains draft and #148 remains open.
+Release/archive preparation and native correctness passed. The later
+[completed hosted campaign](timing-results.md) supplies actual eligible workload
+timings. The initial blocked admission and earlier validation below remain
+historical evidence, with first failures preserved in the
+[local validation record](followup-validation.json). Final evidence review and
+exact-final-head CI still gate the authorized merge; #148 remains open.
 
 ## Retained setup failure and controller correction
 
@@ -432,7 +433,7 @@ can omit the summary after child cleanup. These optional limitations do not
 authorize eligible evidence. No host isolation, SLA, general tail guarantee,
 saturation capacity, production deployment or durable queue recovery is claimed.
 
-### Actual timing status
+### Initial timing status (retained historical observation)
 
 The corrected observer completed its configured admission wait on 2026-11-12,
 22:03:12–22:33:14 UTC (1,802.19 observed seconds). It retained 178 full
@@ -457,15 +458,15 @@ phases or latency distributions exist. There was no contaminated workload to
 count or discard. The empty driver log, manifest, provenance supplement,
 resource snapshots and summary remain locally retained with committed hashes.
 
-**Actual preparation/streaming/recovery measurements remain pending.** Rerun the
-same frozen, verified release inputs with the corrected observer into a new
-owned output directory when a sustained eligible window is available. Do not
-substitute correctness durations or transcript passes, relax the criteria,
-interrupt other tasks or stop normal services. No optimization or runtime fix
-was supported, so no baseline/candidate speedup is claimed. PR #165 stays draft
-and #148 stays open. Final bounded evidence review, all thirteen fresh exact-head
-CI checks, prerequisite #164's merge and final-main compatibility are still
-required before any authorized merge; no merge was attempted.
+At this initial phase, actual preparation/streaming/recovery measurements were
+pending. Later retries and the unchanged-criteria hosted path produced the
+[completed result](timing-results.md). Correctness durations and transcript
+passes were never substituted, criteria were not relaxed, and normal services
+were not stopped. No optimization/runtime fix or baseline/candidate speedup is
+claimed. The final result retains the earlier admission failures and limits;
+#148 remains open. The authorized merge still requires final evidence review,
+all thirteen fresh exact-head normal CI checks and final-main compatibility.
+Prerequisite #164 subsequently merged as c30a7fff.
 
 ### Bounded evidence review
 
@@ -480,6 +481,8 @@ scanner values. The initial sandbox DNS failure reached no model turn; the
 approved-mechanism retry completed. Both first failure and review are retained
 locally with hashes in the validation record.
 
-This is approval to publish partial results only. The final Fable review of
-completed timing evidence remains pending because no actual timings exist.
-The merge gates remain unsatisfied; no ready/merge action was taken.
+That review approved only the partial record at its recorded phase; no
+ready/merge action was taken then. The later completed timing record and its
+final bounded Fable review supersede the timing gap without converting the old
+review into approval of data it never read. Final exact-head CI/merge gates
+remain independently required.
