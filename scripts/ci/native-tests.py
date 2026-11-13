@@ -322,19 +322,14 @@ def seal(directory, runtime_archive):
     path.write_text(json.dumps(manifest, indent=2) + "\n")
 
 
-def run(directory, suite, partition=None):
-    if partition is not None and suite == "producer":
-        raise ValueError("producer validation must run in full before exporting E2E inputs")
-    if suite == "producer":
-        (directory / PRODUCER_PASSED).unlink(missing_ok=True)
+def verified_manifest(directory):
+    """Apply the normal native consumer's identity, byte and ABI checks."""
     check_nextest()
     manifest = json.loads((directory / "manifest.json").read_text())
     for key, expected in identity().items():
         if manifest.get(key) != expected:
             raise ValueError(f"native artifact mismatch: {key}")
     if manifest.get("e2e_only") is True:
-        if suite == "producer":
-            raise ValueError("producer-suite executables are not in the E2E payload")
         verify_e2e(directory, manifest)
     else:
         verify_archives(directory, manifest)
@@ -344,6 +339,110 @@ def run(directory, suite, partition=None):
     version = lambda value: tuple(int(n) for n in value.removeprefix("glibc ").split("."))
     if version(output("getconf", "GNU_LIBC_VERSION")) < version(manifest["glibc"]):
         raise ValueError("consumer glibc is older than the native test producer's")
+    return manifest
+
+
+def measure(directory, destination):
+    """Characterize the one frozen streaming utility without building or relaxing its gate."""
+    manifest = verified_manifest(directory)
+    if manifest.get("e2e_only") is not True:
+        raise ValueError("streaming measurement requires the verified E2E-only producer export")
+    actual_files = {str(path.relative_to(directory)) for path in (directory / "target").rglob("*") if path.is_file()}
+    if actual_files != set(manifest["files_sha256"]):
+        raise ValueError("measurement payload has files outside its verified inventory")
+    if destination.exists():
+        raise ValueError("measurement output must be a new owned directory")
+    producer_run = os.environ.get("EEZ_NATIVE_PRODUCER_RUN_ID", "")
+    producer_attempt = os.environ.get("EEZ_NATIVE_PRODUCER_RUN_ATTEMPT", "")
+    consumer_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "")
+    if (producer_run != os.environ.get("GITHUB_RUN_ID") or
+            not all(value.isdecimal() and int(value) > 0 for value in (producer_run, producer_attempt, consumer_attempt)) or
+            int(producer_attempt) > int(consumer_attempt)):
+        raise ValueError("measurement requires same-run producer identity and actual producing attempt")
+    target = Path(os.environ["CARGO_TARGET_DIR"]).resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    if any(target.iterdir()):
+        raise ValueError("measurement preparation requires an empty job-local target")
+    extracted = directory / "target"
+    metadata = json.loads((extracted / "nextest/binaries-metadata.json").read_text())
+    original_target = Path(metadata["rust-build-meta"]["target-directory"])
+    binary = metadata["rust-binaries"][f"eez-node-e2e::{E2E_TARGET}"]
+    test = extracted / Path(binary["binary-path"]).relative_to(original_target)
+
+    # The observer's existing release-path check predates the frozen eez-runtime
+    # layout. Stage identical, already-verified shipping bytes, never a rebuild.
+    original_signer = extracted / "release/eez-runtime/eez-proof-signer"
+    signer = target / "release/eez-proof-signer"
+    signer.parent.mkdir()
+    shutil.copy2(original_signer, signer)
+    if digest(signer) != manifest["runtime_sha256"]["eez-proof-signer"]:
+        raise ValueError("staged signer differs from the sealed shipping candidate")
+
+    # Direct test execution needs the same exported library directories that
+    # nextest normally supplies. Only paths inside the verified payload qualify.
+    relative_libraries = ["release/deps", *metadata["rust-build-meta"].get("linked-paths", [])]
+    relative_libraries.extend(name for name in ("nextest/libdirs/host", "nextest/libdirs/target")
+                              if (extracted / name).is_dir())
+    libraries = []
+    for name in relative_libraries:
+        path = Path(name)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError("invalid exported native library path")
+        path = extracted / path
+        if path.resolve().is_relative_to(extracted.resolve()) and path.is_dir():
+            libraries.append(str(path))
+        else:
+            raise ValueError("exported native library directory is missing or escapes payload")
+    env = dict(os.environ, EEZ_TEST_PREBUILT="1", EEZ_TEST_RUNTIME_BIN_DIR=str(extracted / "release/eez-runtime"))
+    env["LD_LIBRARY_PATH"] = os.pathsep.join(libraries)
+    env.pop("LD_PRELOAD", None)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    provenance = dict(artifact_source=manifest["root_commit"], workflow_source=os.environ["GITHUB_SHA"],
+        protocol=manifest["protocol_commit"], manifest_sha256=digest(directory / "manifest.json"),
+        payload_reference=os.environ.get("EEZ_NATIVE_PAYLOAD_REF"), profile=manifest["profile"],
+        cargo_lock_sha256=manifest["cargo_lock_sha256"], platform=manifest["platform"],
+        runtime_sha256=manifest["runtime_sha256"], nextest=manifest["nextest"],
+        rust=manifest["rust"], rustflags=manifest["rustflags"], producer_glibc=manifest["glibc"],
+        consumer_glibc=output("getconf", "GNU_LIBC_VERSION"), python=platform.python_version(),
+        kernel=platform.release(), affinity_cpus=len(os.sched_getaffinity(0)), host_cpus=os.cpu_count(),
+        host_isolated=False, workflow_run_id=os.environ.get("GITHUB_RUN_ID"),
+        workflow_run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
+        producer_run_id=producer_run, producer_run_attempt=producer_attempt,
+        runner_image={key: os.environ.get(key) for key in ("ImageOS", "ImageVersion", "RUNNER_OS", "RUNNER_ARCH")},
+        original_test=str(test), test_sha256=digest(test), original_signer=str(original_signer),
+        staged_signer=str(signer), signer_sha256=digest(signer), library_paths=libraries,
+        interpretation="New hosted artifact identities; never relabel the separate local ca76bb87 binaries or compare different hosts as an improvement")
+    with destination.with_suffix(".artifact-provenance.json").open("x") as record:
+        record.write(json.dumps(provenance, indent=2) + "\n")
+    command = [sys.executable, str(REPO / "scripts/measure-streaming-deadlines.py"), str(test), str(signer), str(destination)]
+    try:
+        subprocess.run(command, cwd=REPO, env=env, check=True)
+    finally:
+        error = sys.exc_info()[1]
+        post = {"observer_exit_code": getattr(error, "returncode", None) if error else 0,
+                "observer_error": str(error) if error else None}
+        try:
+            verify_e2e(directory, manifest)
+            post.update(test_sha256=digest(test), signer_sha256=digest(signer),
+                        manifest_sha256=digest(directory / "manifest.json"))
+            post["input_bytes_unchanged"] = all(post[key] == provenance[key] for key in
+                                                ("test_sha256", "signer_sha256", "manifest_sha256"))
+        except (ValueError, OSError) as verification_error:
+            post.update(input_bytes_unchanged=False, verification_error=str(verification_error))
+        with destination.with_suffix(".artifact-post.json").open("x") as record:
+            record.write(json.dumps(post, indent=2) + "\n")
+        if not post["input_bytes_unchanged"]:
+            raise ValueError("measurement input bytes changed; reject timing evidence") from error
+
+
+def run(directory, suite, partition=None):
+    if partition is not None and suite == "producer":
+        raise ValueError("producer validation must run in full before exporting E2E inputs")
+    if suite == "producer":
+        (directory / PRODUCER_PASSED).unlink(missing_ok=True)
+    manifest = verified_manifest(directory)
+    if manifest.get("e2e_only") is True and suite == "producer":
+        raise ValueError("producer-suite executables are not in the E2E payload")
     target = Path(os.environ["CARGO_TARGET_DIR"]).resolve()
     target.mkdir(parents=True, exist_ok=True)
     if any(target.iterdir()):
@@ -393,7 +492,7 @@ def run(directory, suite, partition=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["build", "seal", "run", "export-e2e"])
+    parser.add_argument("operation", choices=["build", "seal", "run", "export-e2e", "measure"])
     parser.add_argument("directory", type=Path)
     parser.add_argument("--suite", choices=SUITES, default="producer")
     parser.add_argument("--partition", help="nextest partition for an E2E run, e.g. slice:1/4")
@@ -416,6 +515,10 @@ def main():
             if args.output_dir is None:
                 parser.error("export-e2e requires --output-dir")
             export_e2e(args.directory.resolve(), args.output_dir.resolve())
+        elif args.operation == "measure":
+            if args.output_dir is None:
+                parser.error("measure requires --output-dir (new owned evidence directory)")
+            measure(args.directory.resolve(), args.output_dir.resolve())
         else:
             run(args.directory.resolve(), args.suite, args.partition)
     except (ValueError, KeyError, OSError, tarfile.TarError, subprocess.CalledProcessError) as error:

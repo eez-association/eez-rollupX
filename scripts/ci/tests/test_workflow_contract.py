@@ -22,15 +22,17 @@ class WorkflowContractTest(unittest.TestCase):
         self.jobs = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text())["jobs"]
         self.gate = self.jobs["ci-result"]["steps"][0]["run"]
 
-    def result(self, published):
+    def result(self, published, requested=False):
         return {name: {"result": "skipped" if published == "false" and name in
-                       ("embedded-e2e", "cross-chain-e2e", "kurtosis-e2e") else "success",
+                       ("embedded-e2e", "cross-chain-e2e", "kurtosis-e2e") or
+                       name == "streaming-deadline-measurement" and not requested else "success",
                        "outputs": {"published": published} if name == "build-runtime" else {}}
                 for name in self.jobs["ci-result"]["needs"]}
 
-    def run_gate(self, results):
+    def run_gate(self, results, requested="false"):
         return subprocess.run(["bash", "-e", "-c", self.gate], text=True, capture_output=True,
-                              env=dict(os.environ, RESULTS=json.dumps(results), PYTHONOPTIMIZE="1"))
+                              env=dict(os.environ, RESULTS=json.dumps(results), PYTHONOPTIMIZE="1",
+                                       MEASUREMENT_REQUESTED=requested))
 
     def test_both_execution_modes_pass_and_every_required_lane_fails_closed(self):
         for mode in ("true", "false"):
@@ -257,12 +259,22 @@ elif args[0] != "logout":
 
     def test_success_never_uploads_diagnostics_and_quota_never_hides_test_failure(self):
         for path in (REPO / ".github/workflows").glob("*.yml"):
-            for job in yaml.safe_load(path.read_text())["jobs"].values():
+            for name, job in yaml.safe_load(path.read_text())["jobs"].items():
                 for step in job.get("steps", []):
                     if step.get("uses", "").startswith("actions/upload-artifact@"):
                         with self.subTest(path=path, step=step["name"]):
-                            self.assertIn("failure()", step["if"])
-                            self.assertTrue(step["continue-on-error"])
+                            if path.name == "ci.yml" and name == "streaming-deadline-measurement":
+                                # This job's successful measurements are requested
+                                # results, not default-run diagnostic uploads.
+                                self.assertEqual(job["if"], "${{ github.event_name == 'workflow_dispatch' && inputs.measure_streaming_deadlines && needs.build-runtime.outputs.published == 'true' }}")
+                                self.assertEqual(step["if"], "always()")
+                                self.assertFalse(step.get("continue-on-error", False))
+                                self.assertEqual(step["with"]["path"].split(), [
+                                    "artifacts/streaming-deadlines", "artifacts/streaming-deadlines.artifact-provenance.json",
+                                    "artifacts/streaming-deadlines.artifact-post.json", "artifacts/streaming-deadlines.log"])
+                            else:
+                                self.assertIn("failure()", step["if"])
+                                self.assertTrue(step["continue-on-error"])
                             self.assertLessEqual(step["with"]["retention-days"], 3)
 
     def test_no_publication_kurtosis_requires_verified_candidate(self):

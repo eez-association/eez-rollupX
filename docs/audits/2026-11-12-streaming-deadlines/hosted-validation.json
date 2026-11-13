@@ -1,0 +1,154 @@
+{
+  "record_scope": "Historical reviewed source validation at cd612739 before the hosted execution. source_sha256 binds that committed revision, including its then-current documentation, rather than later prose updates.",
+  "completed_hosted_evidence": "timing-results.json",
+  "base": "942b9d1fc667f1e0cdb53625094a86c34d16f411",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "scope": "Optional same-run hosted measurement only; no native runtime, Cargo, protocol, observer, resource criteria, runner selection or production changes",
+  "source_sha256": {
+    ".github/workflows/build-runtime.yml": "3cfc1593b1c71881c9fedf164be682891e8cb252ac6e310cd0b13e792ef18fe8",
+    ".github/workflows/ci.yml": "d47a0c541a17a185ab03291d7cecf8e96421366118111ed8410b9bb51a5f456b",
+    "scripts/ci/native-tests.py": "d8f98198fe00ac83ed335d71b6b8078602f4673e575184b6349b72fea3707d9c",
+    "scripts/ci/tests/test_native_artifacts.py": "247a3cec5c7db612bf5ac3ad621ad1fcb2e3db1d2684e2221f221881e783b55d",
+    "scripts/ci/tests/test_workflow_contract.py": "2fb6c1a3ffb92923ab4917de0cf8ebc33f2e339defbccad76c07c03994babb2b",
+    "docs/audits/2026-11-12-streaming-deadlines/hosted-measurement.md": "6b230a25c1003ebe6247e13568ab9acb02827b2f3242f1712557b4babdd75a90",
+    "scripts/ci/tests/test_streaming_deadline_ci.py": "d9cb2ed448e1414fb5601b1515d05f7a97bd118ef6fb4daec531d7a85c73f2dc"
+  },
+  "validation": {
+    "first_full_suite": {
+      "selected": 601,
+      "failures": 2,
+      "skips": 7,
+      "result": "fail; retained",
+      "cause": "Initial proposal violated job inventory and failure-only diagnostic policy"
+    },
+    "intermediate_full_suite": {
+      "selected": 606,
+      "failures": 0,
+      "skips": 9,
+      "cause": "Two scanner tests skipped due operator PATH; not credited as scanner coverage"
+    },
+    "final_full_suite": {
+      "selected": 607,
+      "passed": 600,
+      "failures": 0,
+      "skips": 7,
+      "seconds": 405.38618380000116,
+      "exit_code": 0,
+      "started_utc": "2026-11-13T01:47:42Z",
+      "ended_utc": "2026-11-13T01:54:27Z"
+    },
+    "skipped_opt_ins": [
+      "real data-only Docker payload (1)",
+      "isolated real Kurtosis probe (2)",
+      "tiny Rust workspace relocation (1)",
+      "real Docker runtime fixture builds (3)"
+    ],
+    "focused_final_workflow_tests": {
+      "selected": 5,
+      "passed": 5,
+      "skips": 0,
+      "reason": "Subsequent test-only isolation/invalid-mode/publication-guard strengthening and timeout documentation; functional workflow/helper unchanged since full suite"
+    },
+    "controls": [
+      "Deleting aggregate always() fails regression",
+      "Real old target-init plus staging fails actual dirty-Git observer preflight; real RUNNER_TEMP staging reaches controlled resource rejection with ignored artifact log present",
+      "Deleting invalid-mode guard passes old vacuous test, fails strengthened test; final guard bytes restored",
+      "Deleting publication guard fails strengthened focused regression with otherwise-passing unpublished remote-skip/measurement-success rows; reachable measurement-skip rows also reject"
+    ],
+    "syntax": {
+      "bash_workflow_run_blocks": 53,
+      "python_sources": 4,
+      "diff_check": "pass",
+      "local_links": "pass"
+    },
+    "test_types": "Static/mocked CI tooling plus real Git/staging observer preflight with stub executables; not native timing",
+    "preparation_coordination": "Own eez_ci_check process blocked local admission throughout heavy validation. These affected windows are not purely environmental failures.",
+    "unpublished_positive_control": "Existing test_workflow_contract.py::test_both_execution_modes_pass_and_every_required_lane_fails_closed covers the normal no-publication success shape; full suite passed"
+  },
+  "reviews": [
+    {
+      "evidence": "fable-proposal-review.json",
+      "sha256": "c28d99015751bba0242f8a4581d595f5e754da8ef43f94c5e7c0e7583895b042",
+      "model": "claude-fable-5-2",
+      "canonical_model": "claude-fable-5-2",
+      "is_error": false,
+      "fallback": false,
+      "subagents": 0,
+      "verdict": "blocking B1/B2; rejected without execution",
+      "scope": "read-only static source; no independent tests or hashes"
+    },
+    {
+      "evidence": "fable-corrected-review.json",
+      "sha256": "590f574c94b8f34751f5df28d2d7cd04e2a15ca13a7831d171819d8261e9c79a",
+      "model": "claude-fable-5-2",
+      "canonical_model": "claude-fable-5-2",
+      "is_error": false,
+      "fallback": false,
+      "subagents": 0,
+      "verdict": "no blocking findings; B1/B2 fixed",
+      "scope": "read-only static source; no independent tests or hashes"
+    },
+    {
+      "evidence": "fable-final-source-review.json",
+      "sha256": "7ee85740094969d8b12aa92d589fbda1053bac88cb3fa92c2ad272405bf8df50",
+      "model": "claude-fable-5-2",
+      "canonical_model": "claude-fable-5-2",
+      "is_error": false,
+      "fallback": false,
+      "subagents": 0,
+      "verdict": "pass; no confirmed blocker; subsequent test/documentation corrections recorded separately",
+      "scope": "read-only static source; no independent tests or hashes",
+      "read_limit_qualification": "Used nine Reads against requested eight; no commands or delegation"
+    },
+    {
+      "evidence": "fable-followup-review.json",
+      "sha256": "43750db5a3d2a6c034957cea929c4f242eca6d5dfeab8d9ec662d20dfcea33d9",
+      "model": "claude-fable-5-2",
+      "canonical_model": "claude-fable-5-2",
+      "is_error": false,
+      "fallback": false,
+      "subagents": 0,
+      "verdict": "pass; no blocker in test/doc follow-up; publication-guard test gap subsequently corrected",
+      "scope": "read-only static review; three Reads and one Grep; no tests or hashes"
+    },
+    {
+      "evidence": "fable-publication-guard-review.json",
+      "sha256": "33dff5683584690f59890615abcfa24647a1d6297275b5cf82426481906d44e1",
+      "model": "claude-fable-5-2",
+      "canonical_model": "claude-fable-5-2",
+      "is_error": false,
+      "fallback": false,
+      "subagents": 0,
+      "verdict": "pass; publication-guard correction repaired with no hidden vacuity",
+      "scope": "Three Read/Grep calls: test lines 1-177 and workflow 410-451; broader source reads than requested; validation JSON not read; no tests or hashes"
+    }
+  ],
+  "real_export_inspection": {
+    "source": "ca76bb8744667f3045f5d839a920c011825999f9",
+    "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "linked_paths_present": 20,
+    "host_libdir_present": true,
+    "unused_target_libdir_present": false,
+    "test_sha256": "85eff313c0006db93923b4dc01c4445e0302babf9c03e5c705bffa3bb2b36753",
+    "signer_sha256": "ebaf852b59ee626fff8b580941ddca7efd53e053e04c50c658acb472907bca1f",
+    "glibc": "2.43; local export only, not Ubuntu compatibility proof",
+    "operation": "Normal verified export-e2e; no build or binary modification"
+  },
+  "remaining": [
+    "Hosted dispatch, same-run artifact consumption and actual eligible timing pending",
+    "Final bounded Fable evidence review and exact-head CI still required before merge",
+    "Three-day diagnostics retention; early setup failure may have only workflow log; hard step timeout may omit post-byte check",
+    "Static profile string is supported by sealed manifest/hashes; LD search applies to observer tree, signer retains env_clear",
+    "Signal-cleanup, fixture-fed input, ordinary transport disconnect, owned-signer restart, no signer-side quota proof and N14 provenance limitations remain in followup.md",
+    "A standard hosted VM may fail unchanged quiet criteria; never interpret rejected output as latency evidence"
+  ],
+  "ponytail_review": {
+    "scope": "Hosted path source only; one sequential experiment, no general benchmark framework",
+    "instructions": [
+      "https://github.com/DietrichGebert/ponytail/blob/main/skills/ponytail/SKILL.md",
+      "https://github.com/DietrichGebert/ponytail/blob/main/skills/ponytail-review/SKILL.md"
+    ],
+    "checked": "Normal/new operation callers, shared identity/seal checks, producer outputs, direct fixture lookup and signer environment, normal/matrix/aggregate/promotion gates and focused test failure cases",
+    "result": "No remaining confirmed source defect; retain no-blocker Fable qualifications and require actual artifact-path execution plus eligible measurements before merging"
+  }
+}

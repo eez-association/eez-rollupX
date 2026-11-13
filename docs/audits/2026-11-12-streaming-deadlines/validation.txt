@@ -1,0 +1,10 @@
+First documentation-check failure: link checker reached validation.txt before that output file had been created. Created the output, then repeated the same link check. This is not a runtime test failure.
+PASS static workload consistency: 3 capture hashes, 12 configuration/response hashes, frame sums and L1 charges
+PASS resource-summary consistency: 13 snapshots / 12 intervals, root ineligible throughout; no timing samples
+PASS local Markdown links: 12; bash syntax blocks: 1 (commands not executed)
+PASS static corpus integrity: Verified 29 vectors, fixture inputs and schemas
+Previously executed: cargo +1.95.0 fmt --all --check, exit 0 (no Rust source changes)
+PASS git diff --cached --check, exit 0 for all five audit files
+PENDING: Rust package tests, workspace/signer Clippy and Rustdoc, native process suites, fresh semantic assertions and independent follower replay
+PENDING: actual runtime/configuration handshake and binary identities, preparation/streaming/recovery measurements in an eligible quiet window
+No functional defect established, no fix or baseline/candidate performance claim. No runtime tests counted as passing.

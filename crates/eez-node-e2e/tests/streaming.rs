@@ -1,5 +1,7 @@
 //! Shared stateless sessions under a real native L1 reorg (#206 adaptation).
 //! This fork's posting fixture keeps simulation and submission on one L1.
+mod deadlines;
+
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_rpc_types_eth::BlockNumberOrTag;
 use eez_testkit::*;

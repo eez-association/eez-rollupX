@@ -3498,6 +3498,8 @@ dependencies = [
  "eez-payload-codec",
  "eez-primitives",
  "eez-protocol",
+ "eez-prover",
+ "eez-prover-client",
  "eez-testkit",
  "http-body-util",
  "hyper",
