@@ -595,6 +595,19 @@ are retryable observation failures, never absent outcomes or index zero. An
 incomplete scan cannot publish completion, release ownership or charge a source
 retry. This requirement does not extend the supported posting-wrapper profile.
 
+Native blob observation follows the same rule before and after L1 finality.
+Missing execution bodies, missing selected blob hashes, and unavailable blob
+endpoints are `L1Error::SourceIncomplete`; malformed beacon responses or bodies
+that cannot authenticate are `L1Error::Provider`. These are observations to
+retry, not conclusive batch rejection. Only after matching a body's recomputed
+KZG versioned hash to the containing transaction can invalid native encoding
+become `L1Error::Decode`. Historical chunk ranges commit only after hydration
+succeeds. Finality supplies no missing bytes and permits no calldata fallback,
+canonical completion, ownership release or source retry charge. These local
+L1 error categories do not extend the gRPC retry-status list in section 6.
+Beacon HTTP requests, including body reads, use the canonical L1 reader's
+30-second total request bound and return `Provider` on timeout.
+
 `L2ExecutionPerformed` is filtered by rollup before these checks. `L2TxSkipped` has no rollup topic:
 all skipped outcomes from the queried EEZ contract need their block/transaction
 hashes before they can be attributed, including outcomes that may belong to
