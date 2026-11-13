@@ -5,6 +5,12 @@ This extends [#162's component assessment](../2026-11-12-l1-identity/README.md)
 with production entrypoint tests. Historical component results remain historical;
 they are not process evidence for this change.
 
+The process/review record below describes the original PR head
+`4ffe60879b609725fbcf97327ef42b180cb606d3`. The later owner-authorized
+[Quinn audit remediation](quinn-audit-remediation.md) updates two optional
+dependency versions in both lockfiles, with separately recorded before/after
+audit and runtime-impact evidence. It does not relabel the original test runs.
+
 ## Baselines and contract
 
 The clean dedicated worktree started at association main

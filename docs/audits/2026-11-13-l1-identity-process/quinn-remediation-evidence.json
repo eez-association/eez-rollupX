@@ -1,0 +1,433 @@
+{
+  "base_commit": "4ffe60879b609725fbcf97327ef42b180cb606d3",
+  "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "advisory_database": {
+    "repository": "https://github.com/RustSec/advisory-db",
+    "revision": "4ef2df8e806a65e2f1ecc14f56f51249062b23d6"
+  },
+  "lock_delta": {
+    "Cargo.lock": {
+      "before_sha256": "df647e58f1853a844d37f86617941634b42c7342a79b8ff6b9ba06312247f054",
+      "after_sha256": "4a2e0203fb711b9cc9f39c7e00bd0e68a65ad00e71d32a6ba4e121b472d543f0",
+      "changes": [
+        {
+          "name": "quinn-proto",
+          "before": "0.11.18",
+          "after": "0.11.19"
+        },
+        {
+          "name": "quinn-udp",
+          "before": "0.5.14",
+          "after": "0.5.16"
+        }
+      ],
+      "all_other_package_records_and_dependency_edges_identical": true
+    },
+    "crates/vendor/reth/Cargo.lock": {
+      "before_sha256": "3f7f090b8cac809ecbfe6b08201c9974e1f88e2be5e4d9a5cff110b1062be994",
+      "after_sha256": "694cc1ca29f4bc10e225dacc9912a7ee06811f532a181bd944abe24fa492572c",
+      "changes": [
+        {
+          "name": "quinn-proto",
+          "before": "0.11.18",
+          "after": "0.11.19"
+        },
+        {
+          "name": "quinn-udp",
+          "before": "0.5.14",
+          "after": "0.5.16"
+        }
+      ],
+      "all_other_package_records_and_dependency_edges_identical": true
+    }
+  },
+  "feature_graphs": {
+    "runtime-features": {
+      "sha256": "ce8ca13f4e121f87790b424b27f1a2ff65bb3a70887ae02ad70840c759b10af0",
+      "before_after_identical": true,
+      "contains_quinn": false
+    },
+    "runtime-and-dev-features": {
+      "sha256": "ffa54d8e60971e2e00bca75c9dacb2c937f8e182066694ab0d50d45b35c1acf8",
+      "before_after_identical": true,
+      "contains_quinn": false
+    },
+    "vendor-features": {
+      "sha256": "bfab854315083f7803fdf9d6bc314eb42c9d3d451fb0b91ce741da505cd7ad58",
+      "before_after_identical": true,
+      "contains_quinn": false
+    }
+  },
+  "runtime_before": [
+    {
+      "path": "target/issue145/debug/eez-composer",
+      "sha256": "f41d474b8cbbfda10447373e98068b08ea0ec9de3e28981361b6f0506d0aea7f"
+    },
+    {
+      "path": "target/issue145/debug/eez-follower",
+      "sha256": "e633d83c1ee0fc0e9c384faeeb67449390ae0a35e865b2f0d67f2084444e36fe"
+    },
+    {
+      "path": "target/issue145/debug/eez-proof-signer",
+      "sha256": "39493c5b30a5e9aa585d2be14ff35ff1d83a6a16b2fb92145c43aa12e7150a53"
+    }
+  ],
+  "runtime_after": [
+    {
+      "path": "target/issue145/debug/eez-composer",
+      "sha256": "f41d474b8cbbfda10447373e98068b08ea0ec9de3e28981361b6f0506d0aea7f",
+      "same_as_before": true
+    },
+    {
+      "path": "target/issue145/debug/eez-follower",
+      "sha256": "e633d83c1ee0fc0e9c384faeeb67449390ae0a35e865b2f0d67f2084444e36fe",
+      "same_as_before": true
+    },
+    {
+      "path": "target/issue145/debug/eez-proof-signer",
+      "sha256": "39493c5b30a5e9aa585d2be14ff35ff1d83a6a16b2fb92145c43aa12e7150a53",
+      "same_as_before": true
+    }
+  ],
+  "checks": {
+    "audit-before": {
+      "exit_code": 1,
+      "vulnerabilities": 3,
+      "findings": [
+        {
+          "package": "quinn-proto",
+          "version": "0.11.18",
+          "advisory": "RUSTSEC-2026-0524"
+        },
+        {
+          "package": "quinn-proto",
+          "version": "0.11.18",
+          "advisory": "RUSTSEC-2026-0523"
+        },
+        {
+          "package": "quinn-udp",
+          "version": "0.5.14",
+          "advisory": "RUSTSEC-2026-0538"
+        }
+      ],
+      "command": "cargo audit --no-fetch --db <owned-advisory-db> --json"
+    },
+    "audit-after": {
+      "exit_code": 0,
+      "vulnerabilities": 0,
+      "findings": [],
+      "command": "cargo audit --no-fetch --db <same-owned-advisory-db> --json"
+    },
+    "audit-vendor-before": {
+      "exit_code": 1,
+      "vulnerabilities": 4,
+      "findings": [
+        {
+          "package": "libz-sys",
+          "version": "1.1.28",
+          "advisory": "RUSTSEC-2026-0418"
+        },
+        {
+          "package": "quinn-proto",
+          "version": "0.11.18",
+          "advisory": "RUSTSEC-2026-0524"
+        },
+        {
+          "package": "quinn-proto",
+          "version": "0.11.18",
+          "advisory": "RUSTSEC-2026-0523"
+        },
+        {
+          "package": "quinn-udp",
+          "version": "0.5.14",
+          "advisory": "RUSTSEC-2026-0538"
+        }
+      ],
+      "command": "cargo audit --no-fetch --db <same-owned-advisory-db> --file <saved-vendor-baseline.lock> --json"
+    },
+    "audit-vendor-after": {
+      "exit_code": 1,
+      "vulnerabilities": 1,
+      "findings": [
+        {
+          "package": "libz-sys",
+          "version": "1.1.28",
+          "advisory": "RUSTSEC-2026-0418"
+        }
+      ],
+      "command": "cargo audit --no-fetch --db <same-owned-advisory-db> --file crates/vendor/reth/Cargo.lock --json"
+    },
+    "deny-after": {
+      "exit_code": 0,
+      "summary": "advisories ok, bans ok, sources ok; repository policy unchanged except task-owned db-path override"
+    },
+    "shipping_target_build": {
+      "command": "cargo +1.95.0 build --locked -p eez-node -p eez-follower -p eez-proof-signer -p eez-protocol -p eez-l1 --bin eez-composer --bin eez-follower --bin eez-proof-signer --example genesis_state_root --example genesis_block_hash --example e2e-causal-verify --example verify_blob_evidence",
+      "exit_code": 0,
+      "profile": "Normal optimized local dev profile; production target/feature selection, not a release image build."
+    },
+    "control_rpc_tests": {
+      "command": "cargo +1.95.0 test --locked -p eez-control-rpc --lib",
+      "exit_code": 0,
+      "summary": "6 passed, 0 failed/ignored/filtered, including both identity regressions"
+    },
+    "clippy": {
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+      "exit_code": 0
+    },
+    "format": {
+      "command": "cargo +1.95.0 fmt --all --check",
+      "exit_code": 0
+    },
+    "frozen_vectors": {
+      "command": "python3 crates/eez-control-rpc/conformance/check_vectors.py",
+      "summary": "Verified 29 vectors, fixture inputs and schemas",
+      "exit_code": 0
+    },
+    "locked_metadata": {
+      "root": true,
+      "vendored": true,
+      "command": "cargo +1.95.0 metadata --locked --offline --format-version 1 [--manifest-path crates/vendor/reth/Cargo.toml]"
+    }
+  },
+  "limits": {
+    "scope": "Authorized follow-up to fix PR171 CI audit with only minimum fixed optional Quinn package versions/checksums in root/vendor lockfiles. No production/test source, manifest, policy exception, pin or semantic-version changes.",
+    "runtime_profile": "Normal optimized local dev profile, production package/bin/example feature selection from Dockerfile.runtime. No local release Docker image rebuild or new process-matrix execution.",
+    "prior_e2e": "Earlier 7 new +5 existing source process tests remain original evidence. They are not relabeled as reruns after this lock update; the same runtime ELF digests were independently verified after rebuilding.",
+    "vendor_audit": "Vendored test workspace retains pre-existing libz-sys1.1.28 RUSTSEC-2026-0418. Baseline4 findings becomes1; root CI audit3 becomes0. No unrelated remediation or ignore added.",
+    "optional_http3": "Quinn is absent from captured Linux shipping runtime, runtime+dev and selected vendored package feature trees. This is not all-features/all-platforms exposure assessment; enabling HTTP/3 later would execute different upstream behavior.",
+    "identity": "Validation version9, signing domain7, Core contracts/pin/profile/wire/storage unchanged. VALIDATION_IDENTITY.md explicitly says the historical lockfile review guard was removed; no fictional guard/version update.",
+    "artifact_provenance": "CI source/lock identity changes; new exact-revision runtime/test artifacts must still be produced and validated. Byte-identical local runtime files do not substitute prior CI artifacts."
+  },
+  "feature_comparison_method": "After the shipping build completed, temporarily restored byte-exact saved baseline lockfiles, captured cargo tree with --locked --offline for each feature selection, restored candidate lockfiles in finally, captured candidate trees and compared bytes. No build/test ran during the temporary restoration.",
+  "tree_command": "cargo +1.95.0 tree --locked --offline --target x86_64-unknown-linux-gnu --prefix none -p eez-node -p eez-follower -p eez-proof-signer -p eez-protocol -p eez-l1 --edges normal,build[,dev],features; vendor selection: --manifest-path crates/vendor/reth/Cargo.toml -p reth-engine-tree -p reth-node-builder -p reth-rpc-builder --edges normal,build,dev,features",
+  "resolver_churn": "Cargo update --offline --precise produced minimum fixed package records but reselected unrelated syn/Windows edges. Final lockfiles retain only the Cargo-resolved version/checksum fields in original package records. Full locked metadata accepted both results; structured package/edge equality verified.",
+  "toolchain": {
+    "rust": "1.95.0",
+    "cargo_audit": "0.22.2",
+    "cargo_deny": "0.20.2",
+    "build_jobs": 2,
+    "target": "target/issue145",
+    "llvm_prefix": "/usr/lib/llvm-22"
+  },
+  "review": {
+    "ponytail_revision": "96608e078b2d5ea607c5c3b8b5a54d1c1fba6846",
+    "self_review": "No production source, compiled package/feature, profile/wire identity, Core pin, dependency-policy exception or vendored cleanup/quota patch changed. Optional HTTP3 upstream fixes are meaningful if enabled later; supported shipping graphs exclude Quinn. Final exact-model adversarial review pending."
+  },
+  "logs": {
+    "artifacts/issue145/quinn-update/audit-after.exit": {
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "artifacts/issue145/quinn-update/audit-after.json": {
+      "sha256": "1f3ebe6c5f74096272065e787b82f3968ced34b7c53d2b7843ab0ed9956915ce",
+      "bytes": 30223
+    },
+    "artifacts/issue145/quinn-update/audit-after.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "artifacts/issue145/quinn-update/audit-before.exit": {
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2
+    },
+    "artifacts/issue145/quinn-update/audit-before.json": {
+      "sha256": "be4c6a4b00f5e55547980bd50faaca14a2c64cf980f7c4365036f963c4d07371",
+      "bytes": 40263
+    },
+    "artifacts/issue145/quinn-update/audit-before.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "artifacts/issue145/quinn-update/audit-vendor-after.exit": {
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2
+    },
+    "artifacts/issue145/quinn-update/audit-vendor-after.json": {
+      "sha256": "6a0b5ea14ac106120d9bb428153427e39f0af7da17735fe075b6ec78c0a20320",
+      "bytes": 33866
+    },
+    "artifacts/issue145/quinn-update/audit-vendor-after.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "artifacts/issue145/quinn-update/audit-vendor-before.exit": {
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2
+    },
+    "artifacts/issue145/quinn-update/audit-vendor-before.json": {
+      "sha256": "f23eba40b656b00bc3304f2b232af21890af1b28213e57ea7ba14fdab8578651",
+      "bytes": 43908
+    },
+    "artifacts/issue145/quinn-update/audit-vendor-before.stderr": {
+      "sha256": "fa663ef27d4724d89443b9b8a29330cdb5b58813f14cab51f396912ff29ff1bc",
+      "bytes": 185
+    },
+    "artifacts/issue145/quinn-update/clippy.exit": {
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "artifacts/issue145/quinn-update/clippy.log": {
+      "sha256": "67b142ffd3404fbd1cda67e1416a72e9b496ce002287cffc858bf9f9e18622dd",
+      "bytes": 70
+    },
+    "artifacts/issue145/quinn-update/control-rpc-tests.exit": {
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "artifacts/issue145/quinn-update/control-rpc-tests.log": {
+      "sha256": "7f64f5ea5687dffbbb2b0e152015f06cd37b6a1b7cf875d77c3e6a5f8437247d",
+      "bytes": 3780
+    },
+    "artifacts/issue145/quinn-update/deny-after.exit": {
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "artifacts/issue145/quinn-update/deny-after.log": {
+      "sha256": "e317a333e2312282afa1779f5945dd2b09ffb3b4c783233e0343eb2ced46b943",
+      "bytes": 156252
+    },
+    "artifacts/issue145/quinn-update/feature-comparison.json": {
+      "sha256": "121f05a337a732ec318911e5682727160b3098cc7b9fb8700e189a37880c2d98",
+      "bytes": 535
+    },
+    "artifacts/issue145/quinn-update/fmt.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "artifacts/issue145/quinn-update/frozen-vectors.log": {
+      "sha256": "73a2cb93772fd532e22005ecd61c22035395d290df17042d4a2376539412a426",
+      "bytes": 48
+    },
+    "artifacts/issue145/quinn-update/lock-delta.json": {
+      "sha256": "d888e182b05bf487d1cc9573db0502bcd45f8b607f2ed1fa1b1c76cef3ac5db4",
+      "bytes": 1014
+    },
+    "artifacts/issue145/quinn-update/pr-checks-before-push.json": {
+      "sha256": "3215c6b53f682074758e067a874c1d6b881b2317fcb999e4d2b31de7895acc9b",
+      "bytes": 1094
+    },
+    "artifacts/issue145/quinn-update/quinn-proto.patch": {
+      "sha256": "7fc0a50411a6f857d51916a191db16cda9143149f961fe8593a4cb2f4b58e986",
+      "bytes": 69006
+    },
+    "artifacts/issue145/quinn-update/quinn-proto.stat": {
+      "sha256": "cb071f075cb88bf1df70118bb3dd66904fd6f2324056a9922ea0657c1b2d2b90",
+      "bytes": 822
+    },
+    "artifacts/issue145/quinn-update/quinn-udp.patch": {
+      "sha256": "d20ec6fdc71ff7de450c9888b2afd4d3769a55bc97eb26d9065e9bdfe88f59a2",
+      "bytes": 28188
+    },
+    "artifacts/issue145/quinn-update/quinn-udp.stat": {
+      "sha256": "1ec46b2da95d344d2688d098be2ac186ace3f2d537a4dcb30beadbe1207746e5",
+      "bytes": 381
+    },
+    "artifacts/issue145/quinn-update/root-after.metadata.json": {
+      "sha256": "54c09cf5eb991af728f3616aad52bcbd0cf5f23e670f19495037ab939473723a",
+      "bytes": 6079293
+    },
+    "artifacts/issue145/quinn-update/root-before.lock": {
+      "sha256": "df647e58f1853a844d37f86617941634b42c7342a79b8ff6b9ba06312247f054",
+      "bytes": 320657
+    },
+    "artifacts/issue145/quinn-update/root-cargo-resolved.lock": {
+      "sha256": "a7b430daaf1398eecd32226ba155104070058b66c8fa39b842c98e0ac44133ba",
+      "bytes": 320657
+    },
+    "artifacts/issue145/quinn-update/runtime-after.json": {
+      "sha256": "cea9fe0ce3101b6c415b40036b01d7313c8decd44cea3b4995948f80e66e7b58",
+      "bytes": 511
+    },
+    "artifacts/issue145/quinn-update/runtime-and-dev-features-after.tree": {
+      "sha256": "ffa54d8e60971e2e00bca75c9dacb2c937f8e182066694ab0d50d45b35c1acf8",
+      "bytes": 368033
+    },
+    "artifacts/issue145/quinn-update/runtime-and-dev-features-before.tree": {
+      "sha256": "ffa54d8e60971e2e00bca75c9dacb2c937f8e182066694ab0d50d45b35c1acf8",
+      "bytes": 368033
+    },
+    "artifacts/issue145/quinn-update/runtime-before.json": {
+      "sha256": "29f5c48c11284133e71ee6d1145241895a25b1ea50a61c71b99c9e5f6a920d19",
+      "bytes": 427
+    },
+    "artifacts/issue145/quinn-update/runtime-features-after.tree": {
+      "sha256": "ce8ca13f4e121f87790b424b27f1a2ff65bb3a70887ae02ad70840c759b10af0",
+      "bytes": 367193
+    },
+    "artifacts/issue145/quinn-update/runtime-features-before.tree": {
+      "sha256": "ce8ca13f4e121f87790b424b27f1a2ff65bb3a70887ae02ad70840c759b10af0",
+      "bytes": 367193
+    },
+    "artifacts/issue145/quinn-update/shipping-after.tree": {
+      "sha256": "9f93eb8defc6634e0f00ea5705dcc4b3bc3073ae31260dfbed07d347d8f39972",
+      "bytes": 175204
+    },
+    "artifacts/issue145/quinn-update/shipping-and-tests-after.tree": {
+      "sha256": "ed2243674e9714290a6a765e8393a226acf8d2871375485a39935ccd823b77d9",
+      "bytes": 176399
+    },
+    "artifacts/issue145/quinn-update/shipping-and-tests-before.tree": {
+      "sha256": "ed2243674e9714290a6a765e8393a226acf8d2871375485a39935ccd823b77d9",
+      "bytes": 176399
+    },
+    "artifacts/issue145/quinn-update/shipping-before.tree": {
+      "sha256": "9f93eb8defc6634e0f00ea5705dcc4b3bc3073ae31260dfbed07d347d8f39972",
+      "bytes": 175204
+    },
+    "artifacts/issue145/quinn-update/shipping-target-build.exit": {
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "artifacts/issue145/quinn-update/shipping-target-build.log": {
+      "sha256": "519bbe4e5bcca90a76a904fce46411d350f7338b480d8c3247bab2f235e918df",
+      "bytes": 6551
+    },
+    "artifacts/issue145/quinn-update/update-root-proto.log": {
+      "sha256": "6d98d2c94280fc398e4b8f60102d9cf6cdb8aa7acc7df500e859eb5aac1d7376",
+      "bytes": 117
+    },
+    "artifacts/issue145/quinn-update/update-root-udp.log": {
+      "sha256": "4540c1d20dc27d4d1e4ecf53b3df29ff294d773ff54afaec0f640c2a4033326f",
+      "bytes": 113
+    },
+    "artifacts/issue145/quinn-update/update-vendor-proto.log": {
+      "sha256": "56fa618b8ed71de48fc8bfe781b1d06e4795c9699cccc1c65935d5b5e93ff2cb",
+      "bytes": 117
+    },
+    "artifacts/issue145/quinn-update/update-vendor-udp.log": {
+      "sha256": "ed1d0afa1e95ea3f4c0742424ac8426f63fdf724708da798665750158faefe3d",
+      "bytes": 113
+    },
+    "artifacts/issue145/quinn-update/vendor-after.metadata.json": {
+      "sha256": "4454d005f92ae3b7d1959ffcacbf5cd96cff5bf89d2b2fc65d6ab472952d3d06",
+      "bytes": 5272011
+    },
+    "artifacts/issue145/quinn-update/vendor-before.lock": {
+      "sha256": "3f7f090b8cac809ecbfe6b08201c9974e1f88e2be5e4d9a5cff110b1062be994",
+      "bytes": 290227
+    },
+    "artifacts/issue145/quinn-update/vendor-cargo-resolved.lock": {
+      "sha256": "d9d6a39f91204ea32ac31d7044db694e25c055c52afe56b2c2930e6cba0a63ed",
+      "bytes": 290227
+    },
+    "artifacts/issue145/quinn-update/vendor-features-after.tree": {
+      "sha256": "bfab854315083f7803fdf9d6bc314eb42c9d3d451fb0b91ce741da505cd7ad58",
+      "bytes": 312913
+    },
+    "artifacts/issue145/quinn-update/vendor-features-before.tree": {
+      "sha256": "bfab854315083f7803fdf9d6bc314eb42c9d3d451fb0b91ce741da505cd7ad58",
+      "bytes": 312913
+    }
+  },
+  "unchanged_source_sha256": {
+    "crates/vendor/reth/shutdown.patch": "fa67e056bed61406415ffdbdf6f456429fb8d14942708876914a7da6fc08b636",
+    "crates/vendor/reth/rpc-shared-guard.patch": "e71bf25fbc308a826abbc0bedbdf3004178bfb38ffdc7a1dd4dcf952328cb300",
+    "crates/eez-control-rpc/src/identity.rs": "9274a2ff5f940f8d4305bd8cd020916be75e26306bbbe6303fbc9f40040357be",
+    "crates/eez-control-rpc/VALIDATION_IDENTITY.md": "8fd1a995f233c0bccbb5c0879c0151a3838dd0fbeaa3337e577459d5ec4a9326",
+    "Cargo.toml": "abca81700e4252ca474b54dddeb197b38cd26c38d6385fc0944e185c0be7e54c",
+    ".cargo/audit.toml": "81eb812227ac9a4423b19695cd51468df2ee9b31255eb0a31d2d9570bec24bb6",
+    "deny.toml": "4c4bd268aa61a34e27ee27574da66f575954c443a11ce4482bd465865b3491f5",
+    "Dockerfile.runtime": "1b81da8cb2d58e0559d33a95dcbbed077274820d46429156708c7d5c5dda6b52"
+  }
+}
