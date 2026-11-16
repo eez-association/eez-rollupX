@@ -746,7 +746,7 @@ domain unchanged. It does not convert an older network to this profile.
 Use matched, tested Composer, follower and signer artifacts from the same
 revision. A matching v2 capability identity alone does not prove that two builds
 contain the same dependency fixes. Bounded cross-version witness replay and
-disposable database tests do not qualify a live mixed-version rollout. Pause
+bounded, disposable-database tests do not qualify a live mixed-version rollout. Pause
 ingress and coordinate the runtime replacement through the procedure below;
 readers/signers must be ready before the new Composer resumes production.
 
@@ -761,7 +761,7 @@ independent proving/follower replay, reorg handling and shutdown/reopen before
 admitting traffic. Retain diagnostics and the untouched recovery source.
 
 Do not downgrade the old binary onto a database after the candidate has written
-it based only on those disposable tests. Use the retained, consistent
+it based only on those bounded tests. Use the retained, consistent
 pre-upgrade state and previous artifact digests, then reconcile later canonical
 L1 settlements. Resync is an alternative only when the complete same-profile
 header/transaction/blob history is available. Neither a database restore nor a
