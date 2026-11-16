@@ -25,7 +25,7 @@ pub const SYSTEM_TX_TYPE: u8 = 0x45;
 /// per-transaction cap. Each native transaction encodes exactly
 /// [`system_tx_gas_limit`] of the block's remaining gas,
 /// so this cap is not reserved in the block; only metered use is charged.
-pub const SYSTEM_TX_GAS_CAP: u64 = revm::primitives::eip7825::TX_GAS_LIMIT_CAP;
+pub const SYSTEM_TX_GAS_CAP: u64 = alloy_eips::eip7825::MAX_TX_GAS_LIMIT_OSAKA;
 /// Metered budget cap of the scheduled native L1 history transaction.
 pub const HISTORY_TX_GAS_CAP: u64 = 2_000_000;
 
@@ -436,51 +436,6 @@ impl reth_codecs::Compact for EezTxType {
             Self::try_from(buf[0]).expect("invalid stored EEZ type"),
             &buf[1..],
         )
-    }
-}
-
-impl alloy_evm::FromRecoveredTx<EezTxEnvelope> for revm::context::TxEnv {
-    /// Preserve the exact native budget and protocol sender. Custom transaction
-    /// validation bypasses Ethereum fee rules; the EEZ executor additionally
-    /// authenticates the envelope and suppresses native account nonce mutation.
-    fn from_recovered_tx(tx: &EezTxEnvelope, sender: Address) -> Self {
-        match tx {
-            EezTxEnvelope::Ethereum(tx) => Self::from_recovered_tx(tx, sender),
-            EezTxEnvelope::History(tx) => Self {
-                caller: sender,
-                gas_limit: HISTORY_TX_GAS_CAP,
-                gas_price: 0,
-                kind: TxKind::Call(HISTORY_ADDRESS),
-                value: U256::ZERO,
-                // Derived and installed only after schedule/ancestry validation.
-                data: Bytes::new(),
-                nonce: 0,
-                chain_id: Some(tx.chain_id),
-                tx_type: HISTORY_TX_TYPE,
-                ..Default::default()
-            },
-            EezTxEnvelope::System(tx) => Self {
-                // Recovery normally supplies SYSTEM_ADDRESS. Preserve the supplied
-                // sender so the EVM rejects inconsistent recovered input instead
-                // of silently granting it native authority.
-                caller: sender,
-                gas_limit: tx.gas_limit(),
-                gas_price: 0,
-                kind: TxKind::Call(tx.to),
-                value: tx.value,
-                data: tx.input.clone(),
-                nonce: 0,
-                chain_id: Some(tx.chain_id),
-                tx_type: SYSTEM_TX_TYPE,
-                ..Default::default()
-            },
-        }
-    }
-}
-
-impl alloy_evm::FromTxWithEncoded<EezTxEnvelope> for revm::context::TxEnv {
-    fn from_encoded_tx(tx: &EezTxEnvelope, sender: Address, _: Bytes) -> Self {
-        <Self as alloy_evm::FromRecoveredTx<EezTxEnvelope>>::from_recovered_tx(tx, sender)
     }
 }
 

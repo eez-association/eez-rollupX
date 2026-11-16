@@ -1,8 +1,8 @@
 //! EVM-inspector composer glue.
 //!
 //! Composition building, configuration, and errors live in [`eez_protocol`].
-//! This crate contributes the revm-coupled piece — [`SessionInspector`], a
-//! `revm::Inspector` implementation.
+//! This crate contributes the EVM-coupled piece — [`SessionInspector`], a
+//! `evm2::evm::inspector::Inspector` implementation.
 //!
 //! ```text
 //! eez-protocol
@@ -13,7 +13,7 @@
 //! eez-composer               (reth integration, wiring)
 //! ```
 //!
-//! Revm is confined to this crate so downstream readers of EVM protocol
+//! Engine coupling is confined to this crate so downstream readers of EVM protocol
 //! types (verifiers, external tools) can depend on `eez-protocol`
 //! without pulling in the full EVM execution stack.
 //!
@@ -22,9 +22,12 @@
 
 pub mod inspector;
 pub mod overlay;
+pub mod overlay_state;
 
 pub use inspector::{SessionInspector, SessionInspectorFactory};
 pub use overlay::{
     DispatchFrame, OverlayChannel, OverlayChannelHandle, OverlayError, apply_overlay_diff,
     new_overlay_channel,
 };
+
+pub use overlay_state::OverlaySnapshot;

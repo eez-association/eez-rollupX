@@ -9,33 +9,32 @@
 //! extended state: the Sync block under construction is itself the composition
 //! session, so a claim read off it is the value the committed block produces.
 
-use alloy_consensus::{Header, Transaction};
+use super::state::SimState;
+use alloy_consensus::{Header, Transaction, TxLegacy, Typed2718};
 use alloy_eips::{Decodable2718, Encodable2718};
 use alloy_primitives::{Address, B256, Bytes};
 use alloy_rpc_types_engine::ExecutionData;
 use eez_driver::{BUILDER_EXTRA_DATA, BUILDER_GAS_LIMIT};
-use eez_evm::EezEvmConfig;
+use eez_evm::{EezEvmConfig, EezEvmTx, EezEvmTypes};
+use eez_evm_inspector::OverlaySnapshot;
 use eez_primitives::engine::EezEngineTypes;
 use eez_primitives::{Block, EezTxEnvelope as TransactionSigned, SYSTEM_TX_GAS_CAP};
 use eez_protocol::system_tx::{ExecutionGroupState, PlannedTransaction};
+use evm2::{
+    EvmFeatures, Inspector, TxResult, TxResultWithState,
+    evm::{Db, inspector::NoopInspector},
+    registry::HandlerError,
+};
 use reth_chainspec::EthereumHardforks;
+use reth_evm::database::StateProviderDatabase;
 use reth_evm::{
-    ConfigureEvm, Evm as _, EvmEnvFor, FromRecoveredTx as _, InspectorFor, NextBlockEnvAttributes,
-    execute::BlockBuilder,
+    BlockTransactionResult, ConfigureEvm, EvmEnvFor, NextBlockEnvAttributes, execute::BlockBuilder,
 };
 use reth_payload_primitives::PayloadTypes;
 use reth_primitives_traits::{
     Recovered, RecoveredBlock, SealedHeader, SignedTransaction, SignerRecoverable,
 };
-use reth_revm::database::StateProviderDatabase;
-use reth_storage_api::{EvmStateProviderAdapter, StateProviderBox, StateProviderFactory};
-use revm::database::{CacheState, State};
-use revm::inspector::NoOpInspector;
-use revm::{
-    DatabaseCommit,
-    context::result::{EVMError, ExecutionResult, ResultAndState},
-    context::{Cfg as _, TxEnv},
-};
+use reth_storage_api::{EvmStateProviderAdapter, StateProviderFactory};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -44,7 +43,7 @@ pub(crate) use prefix::SyncPrefixHashes;
 
 /// The revm state a Sync block is built over: the parent state provider plus
 /// every change committed by the block's txs so far.
-pub type DraftDb = State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>;
+pub(crate) type DraftDb = SimState;
 
 /// Errors raised by [`build_sync_block`].
 #[derive(Debug, Error)]
@@ -162,20 +161,12 @@ fn recover_tx(raw: &Bytes, idx: usize) -> Result<Recovered<TransactionSigned>, B
 fn open_draft_db(
     provider: &dyn super::provider::StateSnapshotProvider,
     parent_hash: B256,
-    cache: Option<CacheState>,
+    cache: Option<OverlaySnapshot>,
 ) -> Result<DraftDb, BuildError> {
     let state_provider = provider
         .state_by_block_hash(parent_hash)
         .map_err(|e| BuildError::Provider(format!("state_by_block_hash({parent_hash}): {e}")))?;
-    let mut builder = State::builder()
-        .with_database(StateProviderDatabase::new(EvmStateProviderAdapter(
-            state_provider,
-        )))
-        .with_bundle_update();
-    if let Some(cache) = cache {
-        builder = builder.with_cached_prestate(cache);
-    }
-    Ok(builder.build())
+    Ok(SimState::new(state_provider, cache))
 }
 
 fn freeze_history(config: &EezEvmConfig, timestamp: u64) -> Result<EezEvmConfig, BuildError> {
@@ -209,7 +200,7 @@ pub(crate) fn prepare_block_history<P: StateProviderFactory>(
         .map_err(|e| BuildError::Provider(e.to_string()))?;
     let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state.as_ref()));
     let (history, transaction) = config
-        .prepare_history(&mut db, parent, timestamp)
+        .prepare_history(&mut Db::new(&mut db), parent, timestamp)
         .map_err(|e| BuildError::Builder(e.to_string()))?;
     let prefix = transaction
         .into_iter()
@@ -286,14 +277,16 @@ pub(crate) fn replay_sync_block<P: StateProviderFactory>(
         .transpose()
         .map_err(|e| BuildError::Builder(e.to_string()))?;
     let history = evm_config
-        .validate_history_input(&mut state_db, parent, timestamp, first.as_ref())
+        .validate_history_input(
+            &mut Db::new(&mut state_db),
+            parent,
+            timestamp,
+            first.as_ref(),
+        )
         .map_err(|e| BuildError::Builder(e.to_string()))?;
     let l1_origin_hash = history.origin_hash;
     let prev_randao = history.prev_randao;
-    let mut db = State::builder()
-        .with_database(state_db)
-        .with_bundle_update()
-        .build();
+    let mut db = state_db;
 
     let attributes =
         next_block_attributes(&evm_config, timestamp, prev_randao, suggested_fee_recipient);
@@ -347,7 +340,7 @@ pub(crate) fn replay_sync_block<P: StateProviderFactory>(
 /// Outcome of one transaction executed on a live prefix state.
 ///
 /// A reverted tx is a successful *execution* with `success == false` — only a
-/// tx revm refuses outright (nonce, balance, decode) is a [`BuildError`].
+/// tx the engine refuses outright (nonce, balance, decode) is a [`BuildError`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TxOutcome {
     /// Receipt-level status: false for a revert or a halt.
@@ -364,13 +357,13 @@ pub struct TxOutcome {
     pub logs: Vec<alloy_primitives::Log>,
 }
 
-fn exec_outcome<H>(result: &ExecutionResult<H>) -> TxOutcome {
+fn exec_outcome(result: &TxResult<EezEvmTypes>) -> TxOutcome {
     TxOutcome {
         success: result.is_success(),
         gas_used: result.tx_gas_used(),
-        gas_required: result.gas().total_gas_spent().max(result.gas().floor_gas()),
-        output: result.output().cloned().unwrap_or_default(),
-        logs: result.logs().to_vec(),
+        gas_required: result.total_gas_spent.max(result.floor_gas),
+        output: result.output.clone(),
+        logs: result.logs.clone(),
     }
 }
 
@@ -419,7 +412,7 @@ pub fn planned_group_gas(txs: &[PlannedTransaction]) -> u64 {
 /// The caller tracks cumulative block gas off [`TxOutcome::gas_used`] — the
 /// same per-tx figure the block executor adds to its own total.
 ///
-/// The uninspected path passes [`NoOpInspector`], the same inspector reth uses
+/// The uninspected path passes [`NoopInspector`], the same inspector reth uses
 /// when a caller supplies none.
 fn execute_and_commit_inspected<I>(
     evm_config: &EezEvmConfig,
@@ -432,7 +425,7 @@ fn execute_and_commit_inspected<I>(
     inspector: I,
 ) -> Result<TxOutcome, BuildError>
 where
-    I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
+    I: Inspector<EezEvmTypes>,
 {
     let recovered = recover_tx(raw, idx)?;
     let (next_group, completes_group) =
@@ -442,9 +435,9 @@ where
                 idx,
                 msg: msg.into(),
             })?;
-    let block_gas_limit = evm_env.block_env.gas_limit;
+    let block_gas_limit = evm_env.block.gas_limit.saturating_to::<u64>();
     let available = block_gas_limit.saturating_sub(gas_used);
-    let tx_env = TxEnv::from_recovered_tx(recovered.inner(), recovered.signer());
+    let tx_env = recovered.clone().map(EezEvmTx::from);
     let mut reference = None;
     match recovered.inner() {
         TransactionSigned::History(_) => {
@@ -465,23 +458,29 @@ where
             if budget < cap {
                 // An error here is the tx's own (shape, value), exactly as in an
                 // emptier block; the clamped run below is then not attempted.
-                let mut evm = evm_config.evm_with_env(&mut *state, evm_env.clone());
                 let mut reference_env = tx_env.clone();
-                reference_env.gas_limit = cap;
-                reference = Some(evm.transact(reference_env).map_err(|error| match error {
-                    EVMError::Database(err) => {
-                        BuildError::Provider(format!("execute tx #{idx}: {err}"))
-                    }
-                    other => BuildError::ExecuteTx {
-                        idx,
-                        msg: other.to_string(),
-                    },
-                })?);
+                let EezEvmTx::Native { call, .. } = reference_env.inner_mut() else {
+                    unreachable!("decoded native transaction")
+                };
+                call.gas_limit = cap;
+                reference = Some(
+                    state
+                        .transact(evm_config, evm_env, &reference_env, None)
+                        .map_err(|error| match error {
+                            HandlerError::Database(err) => {
+                                BuildError::Provider(format!("execute tx #{idx}: {err}"))
+                            }
+                            other => BuildError::ExecuteTx {
+                                idx,
+                                msg: other.to_string(),
+                            },
+                        })?,
+                );
             }
         }
         TransactionSigned::Ethereum(tx) => {
             // The executor's Ethereum rule, including Osaka's per-tx cap.
-            let charged = tx.gas_limit().min(evm_env.cfg_env.tx_gas_limit_cap());
+            let charged = tx.gas_limit().min(evm_env.version.tx_gas_limit_cap);
             if charged > available {
                 return Err(BuildError::BlockCapacity {
                     idx,
@@ -491,17 +490,19 @@ where
             }
         }
     }
-    let inspector = crate::composer::quote_trace::inspect(
+    let mut inspector = crate::composer::quote_trace::inspect(
         inspector,
-        evm_env.cfg_env.chain_id,
+        evm_env.version.chain_id,
         "native_system",
         &tx_env,
     );
-    let mut evm = evm_config.evm_with_env_and_inspector(state, evm_env.clone(), inspector);
     // A database read failure is the store being unavailable, not the tx being
     // invalid: the two classes drive opposite recoveries in the drain.
-    let mut result = match (evm.transact(tx_env), reference) {
-        (Err(EVMError::Database(err)), _) => {
+    let mut result = match (
+        state.transact(evm_config, evm_env, &tx_env, Some(&mut inspector)),
+        reference,
+    ) {
+        (Err(HandlerError::Database(err)), _) => {
             return Err(BuildError::Provider(format!("execute tx #{idx}: {err}")));
         }
         // The same tx validated under the cap, so the budget is the only cause.
@@ -529,17 +530,20 @@ where
     };
     let outcome = exec_outcome(&result.result);
     if completes_group {
-        eez_evm::balances::clear_protocol_balances(evm.db_mut(), &mut result.state)
+        eez_evm::balances::clear_protocol_balances(&mut state.db, &mut result.pending_state)
             .map_err(|error| BuildError::Provider(format!("cleanup tx #{idx}: {error}")))?;
     }
-    evm.db_mut().commit(result.state);
+    state.commit(&result.pending_state);
     *group_state = next_group;
     Ok(outcome)
 }
 
 /// Equal status, gas, output, logs and state changes.
-fn same_execution<H: PartialEq>(left: &ResultAndState<H>, right: &ResultAndState<H>) -> bool {
-    left.result == right.result && left.state == right.state
+fn same_execution(
+    left: &TxResultWithState<EezEvmTypes>,
+    right: &TxResultWithState<EezEvmTypes>,
+) -> bool {
+    left.result == right.result && left.pending_state == right.pending_state
 }
 
 /// Live, incrementally extended execution state of the Sync block under
@@ -593,7 +597,7 @@ impl SyncBlockState {
         let parent_hash = parent.hash();
         let mut state = open_draft_db(provider.as_ref(), parent_hash, None)?;
         let (mut history, transaction) = evm_config
-            .prepare_history(&mut state, parent, timestamp)
+            .prepare_history(&mut state.db, parent, timestamp)
             .map_err(|e| BuildError::Builder(e.to_string()))?;
         let includes_history = prefix_txs.first().is_some_and(|raw| {
             TransactionSigned::decode_2718_exact(raw).is_ok_and(|tx| tx.is_history())
@@ -602,7 +606,7 @@ impl SyncBlockState {
             let first = TransactionSigned::decode_2718_exact(&prefix_txs[0])
                 .map_err(|e| BuildError::Builder(e.to_string()))?;
             history = evm_config
-                .validate_history_input(&mut state, parent, timestamp, Some(&first))
+                .validate_history_input(&mut state.db, parent, timestamp, Some(&first))
                 .map_err(|e| BuildError::Builder(e.to_string()))?;
         }
         let prev_randao = history.prev_randao;
@@ -627,18 +631,33 @@ impl SyncBlockState {
         // leaves `state` at the mid-block point appended txs continue from.
         let mut gas_used: u64 = 0;
         let group_state;
+        let mut accepted = OverlaySnapshot::default();
         {
             let mut builder = evm_config
-                .builder_for_next_block(&mut state, parent, attributes)
+                .builder_for_next_block(&mut state.db, parent, attributes)
                 .map_err(|e| BuildError::Builder(format!("builder_for_next_block: {e}")))?;
             builder
                 .apply_pre_execution_changes()
                 .map_err(|e| BuildError::Builder(format!("apply_pre_execution_changes: {e}")))?;
+            accepted.cache = builder.evm_mut().overlay_db_mut().cache.clone();
+            // Before user execution only the fixed pre-execution history call has committed.
+            accepted.statuses = builder
+                .executor()
+                .block_state()
+                .clone()
+                .into_bundle()
+                .state
+                .into_iter()
+                .map(|(address, account)| (address, account.status))
+                .collect();
             for (idx, raw) in transactions.iter().enumerate() {
                 // The builder's own per-tx figure, so a reopened prefix reports
                 // the gas the block it rebuilds actually holds.
                 let gas = builder
-                    .execute_transaction(recover_tx(raw, idx)?)
+                    .execute_transaction_with_result_closure(recover_tx(raw, idx)?, |result| {
+                        let cache = std::mem::take(&mut accepted.cache);
+                        accepted.commit_pending(cache, &result.result().pending_state);
+                    })
                     .map_err(|e| BuildError::ExecuteTx {
                         idx,
                         msg: e.to_string(),
@@ -646,7 +665,15 @@ impl SyncBlockState {
                 gas_used = gas_used.saturating_add(gas.tx_gas_used());
             }
             group_state = builder.executor().group_state();
+            // Keep cold reads as well as accepted writes when the executor is dropped.
+            accepted.cache.merge(std::mem::take(
+                &mut builder.evm_mut().overlay_db_mut().cache,
+            ));
         }
+        let mut cache = std::mem::take(&mut state.db.cache);
+        cache.merge(accepted.cache);
+        accepted.cache = cache;
+        state.restore(accepted);
 
         Ok(Self {
             provider,
@@ -669,8 +696,8 @@ impl SyncBlockState {
 
     /// Base fee used by canonical transactions in this draft's execution environment.
     #[must_use]
-    pub const fn base_fee(&self) -> u64 {
-        self.evm_env.block_env.basefee
+    pub fn base_fee(&self) -> u64 {
+        self.evm_env.block.basefee.saturating_to()
     }
 
     /// Native environment shared by independent forks of this block prefix.
@@ -681,45 +708,52 @@ impl SyncBlockState {
     /// Execute an unsigned legacy or type-2 intent on this disposable quote draft.
     /// Signature recovery is inapplicable; nonce, balance, fees, gas and native
     /// execution checks remain enabled. No payload or submission is produced.
-    pub(crate) fn preview_unsigned(&mut self, tx: TxEnv) -> Result<TxOutcome, BuildError> {
-        if !matches!(tx.tx_type, 0 | 2)
-            || tx.gas_limit
+    pub(crate) fn preview_unsigned(
+        &mut self,
+        tx: Recovered<EezEvmTx>,
+    ) -> Result<TxOutcome, BuildError> {
+        if !matches!(tx.ty(), 0 | 2)
+            || tx.gas_limit()
                 > self
                     .evm_env
-                    .block_env
+                    .block
                     .gas_limit
+                    .saturating_to::<u64>()
                     .saturating_sub(self.gas_used)
         {
             return Err(BuildError::Builder(
                 "invalid unsigned quote gas/type".into(),
             ));
         }
-        let inspector = crate::composer::quote_trace::inspect(
-            NoOpInspector,
-            self.evm_env.cfg_env.chain_id,
+        let mut inspector = crate::composer::quote_trace::inspect(
+            NoopInspector::default(),
+            self.evm_env.version.chain_id,
             "native_source",
             &tx,
         );
         let tracing = inspector.is_capturing();
-        let mut evm = self.evm_config.evm_with_env_and_inspector(
-            &mut self.state,
-            self.evm_env.clone(),
-            inspector,
-        );
-        // This path normally has no inspector; retain its ordinary execution
-        // mode unless the request explicitly asks for call capture.
-        evm.set_inspector_enabled(tracing);
-        let mut result = evm.transact(tx).map_err(|error| BuildError::ExecuteTx {
-            idx: self.applied,
-            msg: error.to_string(),
-        })?;
+        let mut result = self
+            .state
+            .transact(
+                &self.evm_config,
+                &self.evm_env,
+                &tx,
+                tracing.then_some(&mut inspector as &mut dyn Inspector<EezEvmTypes>),
+            )
+            .map_err(|error| BuildError::ExecuteTx {
+                idx: self.applied,
+                msg: error.to_string(),
+            })?;
         let outcome = exec_outcome(&result.result);
         let (next_group, completes_group) = self.group_state.after_ordinary();
         if completes_group {
-            eez_evm::balances::clear_protocol_balances(evm.db_mut(), &mut result.state)
-                .map_err(|error| BuildError::Provider(error.to_string()))?;
+            eez_evm::balances::clear_protocol_balances(
+                &mut self.state.db,
+                &mut result.pending_state,
+            )
+            .map_err(|error| BuildError::Provider(error.to_string()))?;
         }
-        evm.db_mut().commit(result.state);
+        self.state.commit(&result.pending_state);
         self.group_state = next_group;
         self.applied += 1;
         self.gas_used = self.gas_used.saturating_add(outcome.gas_used);
@@ -741,7 +775,7 @@ impl SyncBlockState {
             &mut self.group_state,
             raw,
             self.applied,
-            NoOpInspector,
+            NoopInspector::default(),
         )?;
         self.applied += 1;
         self.gas_used = self.gas_used.saturating_add(outcome.gas_used);
@@ -803,7 +837,7 @@ impl SyncBlockState {
         Ok(transactions)
     }
 
-    /// Open a throwaway fork of this state: a fresh revm state over the same
+    /// Open a throwaway fork of this state: a fresh session over the same
     /// parent state provider, preloaded with a clone of this state's cache and
     /// running the same env. Nothing executed on the fork touches the block.
     ///
@@ -814,7 +848,7 @@ impl SyncBlockState {
         let state = open_draft_db(
             self.provider.as_ref(),
             self.parent_hash,
-            Some(self.state.cache.clone()),
+            Some(self.state.snapshot()),
         )?;
         Ok(SyncBlockFork {
             evm_config: self.evm_config.clone(),
@@ -831,7 +865,7 @@ impl SyncBlockState {
 /// rollback undoes; `applied` and `gas_used` ride along so both rewind too.
 #[derive(Clone, Debug)]
 pub struct ForkSnapshot {
-    cache: CacheState,
+    cache: OverlaySnapshot,
     applied: usize,
     gas_used: u64,
     group_state: ExecutionGroupState,
@@ -866,20 +900,25 @@ impl SyncBlockFork {
         plan: &PlannedTransaction,
         source_hash: B256,
     ) -> Result<Bytes, BuildError> {
-        plan.at_position(self.evm_env.block_env.gas_limit, self.gas_used, source_hash)
-            .map_err(BuildError::Builder)
+        plan.at_position(
+            self.evm_env.block.gas_limit.saturating_to::<u64>(),
+            self.gas_used,
+            source_hash,
+        )
+        .map_err(BuildError::Builder)
     }
     pub(crate) fn remaining_gas(&self) -> u64 {
         self.evm_env
-            .block_env
+            .block
             .gas_limit
+            .saturating_to::<u64>()
             .saturating_sub(self.gas_used)
     }
 
     /// Chain id carried by the block environment backing this fork.
     #[must_use]
     pub fn chain_id(&self) -> u64 {
-        self.evm_env.cfg_env.chain_id
+        self.evm_env.version.chain_id
     }
 
     /// Environment for synthetic composition frames. These frames are not
@@ -903,7 +942,7 @@ impl SyncBlockFork {
     }
 
     pub(crate) fn execute_committed(&mut self, raw: &Bytes) -> Result<TxOutcome, BuildError> {
-        self.execute_committed_inspected(raw, NoOpInspector)
+        self.execute_committed_inspected(raw, NoopInspector::default())
     }
 
     pub(crate) fn execute_committed_inspected<I>(
@@ -912,7 +951,7 @@ impl SyncBlockFork {
         inspector: I,
     ) -> Result<TxOutcome, BuildError>
     where
-        I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
+        I: Inspector<EezEvmTypes>,
     {
         let outcome = execute_and_commit_inspected(
             &self.evm_config,
@@ -932,27 +971,18 @@ impl SyncBlockFork {
     /// Execute an unsigned ordinary transaction on disposable native state.
     /// Unlike a synthetic target call this advances nonce, fees, transaction
     /// position and cumulative gas exactly as a signed user transaction does.
-    pub(crate) fn execute_unsigned<I>(
+    pub(crate) fn execute_unsigned<I: Inspector<EezEvmTypes>>(
         &mut self,
-        tx_env: TxEnv,
+        tx: Recovered<EezEvmTx>,
         inspector: I,
-    ) -> Result<TxOutcome, BuildError>
-    where
-        I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
-    {
-        if eez_primitives::is_native_type(tx_env.tx_type) {
+    ) -> Result<TxOutcome, BuildError> {
+        if eez_primitives::is_native_type(tx.ty()) {
             return Err(BuildError::Builder(
                 "unsigned source must be ordinary".into(),
             ));
         }
-        let available = self
-            .evm_env
-            .block_env
-            .gas_limit
-            .saturating_sub(self.gas_used);
-        if tx_env.gas_limit > available
-            || tx_env.gas_limit > self.evm_env.cfg_env.tx_gas_limit_cap()
-        {
+        let available = self.remaining_gas();
+        if tx.gas_limit() > available || tx.gas_limit() > self.evm_env.version.tx_gas_limit_cap {
             return Err(BuildError::BlockCapacity {
                 idx: self.applied,
                 available,
@@ -960,32 +990,34 @@ impl SyncBlockFork {
             });
         }
         let mut env = self.evm_env.clone();
-        // eth_estimateGas permits omitted fee fields (gas price zero). Keep
-        // nonce, value, sender and balance checks, and normal fee accounting.
-        env.cfg_env.disable_base_fee = true;
-        let inspector = crate::composer::quote_trace::inspect(
+        // Omitted estimate fee fields mean zero gas price, not disabled fee accounting.
+        env.version.features.remove(EvmFeatures::BASE_FEE_CHECK);
+        let mut inspector = crate::composer::quote_trace::inspect(
             inspector,
-            env.cfg_env.chain_id,
+            env.version.chain_id,
             "native_source",
-            &tx_env,
+            &tx,
         );
-        let mut evm = self
-            .evm_config
-            .evm_with_env_and_inspector(&mut self.state, env, inspector);
-        let mut result = evm.transact(tx_env).map_err(|error| match error {
-            EVMError::Database(error) => BuildError::Provider(error.to_string()),
-            other => BuildError::ExecuteTx {
-                idx: self.applied,
-                msg: other.to_string(),
-            },
-        })?;
+        let mut result = self
+            .state
+            .transact(&self.evm_config, &env, &tx, Some(&mut inspector))
+            .map_err(|error| match error {
+                HandlerError::Database(error) => BuildError::Provider(error.to_string()),
+                other => BuildError::ExecuteTx {
+                    idx: self.applied,
+                    msg: other.to_string(),
+                },
+            })?;
         let outcome = exec_outcome(&result.result);
         let (next_group, completes_group) = self.group_state.after_ordinary();
         if completes_group {
-            eez_evm::balances::clear_protocol_balances(evm.db_mut(), &mut result.state)
-                .map_err(|error| BuildError::Provider(error.to_string()))?;
+            eez_evm::balances::clear_protocol_balances(
+                &mut self.state.db,
+                &mut result.pending_state,
+            )
+            .map_err(|error| BuildError::Provider(error.to_string()))?;
         }
-        evm.db_mut().commit(result.state);
+        self.state.commit(&result.pending_state);
         self.group_state = next_group;
         self.applied += 1;
         self.gas_used = self.gas_used.saturating_add(outcome.gas_used);
@@ -998,29 +1030,33 @@ impl SyncBlockFork {
     /// target effects to the fork but does not advance the block transaction
     /// index. The eventual canonical system transaction replays the same effect
     /// on the real draft after materialization.
+    /// The caller must discard this candidate fork if its inspector reports an error after return.
     pub fn execute_call_inspected<I>(
         &mut self,
-        tx_env: revm::context::TxEnv,
+        tx_env: Recovered<TxLegacy>,
         inspector: I,
     ) -> Result<TxOutcome, BuildError>
     where
-        I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
+        I: Inspector<EezEvmTypes>,
     {
-        let caller = tx_env.caller;
+        let caller = tx_env.signer();
         let env = self.simulation_env();
-        let inspector = crate::composer::quote_trace::inspect(
+        let mut inspector = crate::composer::quote_trace::inspect(
             inspector,
-            env.cfg_env.chain_id,
+            env.version.chain_id,
             "composition",
             &tx_env,
         );
-        let mut evm = self
-            .evm_config
-            .evm_with_env_and_inspector(&mut self.state, env, inspector);
-        let mut result = evm
-            .transact_funded_call(tx_env)
+        let result = self
+            .state
+            .transact(
+                &self.evm_config,
+                &env,
+                &tx_env.map(EezEvmTx::Funded),
+                Some(&mut inspector),
+            )
             .map_err(|error| match error {
-                EVMError::Database(error) => {
+                HandlerError::Database(error) => {
                     BuildError::Provider(format!("execute synthetic target call: {error}"))
                 }
                 other => BuildError::ExecuteTx {
@@ -1029,8 +1065,7 @@ impl SyncBlockFork {
                 },
             })?;
         let outcome = exec_outcome(&result.result);
-        super::reset_frame_caller_nonce(&mut result.state, caller);
-        evm.db_mut().commit(result.state);
+        self.state.commit_frame(result.pending_state, caller);
         Ok(outcome)
     }
 
@@ -1039,60 +1074,76 @@ impl SyncBlockFork {
     /// state-changing opcodes fail exactly as they do under STATICCALL.
     pub fn execute_static_call_inspected<I>(
         &mut self,
-        tx_env: revm::context::TxEnv,
+        tx_env: Recovered<TxLegacy>,
         inspector: I,
     ) -> Result<TxOutcome, BuildError>
     where
-        I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
+        I: Inspector<EezEvmTypes>,
     {
         let env = self.simulation_env();
-        let inspector = crate::composer::quote_trace::inspect(
+        let mut inspector = crate::composer::quote_trace::inspect(
             inspector,
-            env.cfg_env.chain_id,
+            env.version.chain_id,
             "composition",
             &tx_env,
         );
-        let mut evm = self
-            .evm_config
-            .evm_with_env_and_inspector(&mut self.state, env, inspector);
-        let result = evm.transact(tx_env).map_err(|error| match error {
-            EVMError::Database(error) => {
-                BuildError::Provider(format!("execute synthetic static target call: {error}"))
-            }
-            other => BuildError::ExecuteTx {
-                idx: self.applied,
-                msg: format!("synthetic static target call: {other}"),
-            },
-        })?;
+        let result = self
+            .state
+            .transact(
+                &self.evm_config,
+                &env,
+                &tx_env.map(|tx| EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Legacy(tx))),
+                Some(&mut inspector),
+            )
+            .map_err(|error| match error {
+                HandlerError::Database(error) => {
+                    BuildError::Provider(format!("execute synthetic static target call: {error}"))
+                }
+                other => BuildError::ExecuteTx {
+                    idx: self.applied,
+                    msg: format!("synthetic static target call: {other}"),
+                },
+            })?;
         Ok(exec_outcome(&result.result))
     }
 
     /// Execute a read-only synthetic manager frame and return its output.
-    pub fn view_call(&mut self, tx_env: revm::context::TxEnv) -> Result<Bytes, BuildError> {
+    pub fn view_call(&mut self, tx_env: Recovered<TxLegacy>) -> Result<Bytes, BuildError> {
         let env = self.simulation_env();
-        let mut evm = self.evm_config.evm_with_env(&mut self.state, env);
-        let result = evm.transact(tx_env).map_err(|error| match error {
-            EVMError::Database(error) => {
-                BuildError::Provider(format!("execute synthetic view call: {error}"))
-            }
-            other => BuildError::ExecuteTx {
-                idx: self.applied,
-                msg: format!("synthetic view call: {other}"),
-            },
-        })?;
+        let result = self
+            .state
+            .transact(
+                &self.evm_config,
+                &env,
+                &tx_env.map(|tx| EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Legacy(tx))),
+                None,
+            )
+            .map_err(|error| match error {
+                HandlerError::Database(error) => {
+                    BuildError::Provider(format!("execute synthetic view call: {error}"))
+                }
+                other => BuildError::ExecuteTx {
+                    idx: self.applied,
+                    msg: format!("synthetic view call: {other}"),
+                },
+            })?;
         if !result.result.is_success() {
             return Err(BuildError::ExecuteTx {
                 idx: self.applied,
-                msg: format!("synthetic view call reverted: {:?}", result.result.output()),
+                msg: format!("synthetic view call reverted: {:?}", result.result.output),
             });
         }
-        Ok(result.result.output().cloned().unwrap_or_default())
+        Ok(result.result.output.clone())
+    }
+
+    pub(crate) fn overlay_snapshot(&self) -> OverlaySnapshot {
+        self.state.snapshot()
     }
 
     /// Restore point for composition rollback.
     pub fn snapshot(&self) -> ForkSnapshot {
         ForkSnapshot {
-            cache: self.state.cache.clone(),
+            cache: self.state.snapshot(),
             applied: self.applied,
             gas_used: self.gas_used,
             group_state: self.group_state,
@@ -1101,7 +1152,7 @@ impl SyncBlockFork {
 
     /// Roll back to a [`Self::snapshot`].
     pub fn restore(&mut self, snapshot: ForkSnapshot) {
-        self.state.cache = snapshot.cache;
+        self.state.restore(snapshot.cache);
         self.applied = snapshot.applied;
         self.gas_used = snapshot.gas_used;
         self.group_state = snapshot.group_state;
@@ -1109,7 +1160,7 @@ impl SyncBlockFork {
 
     /// Raw state + env, for callers that drive their own EVM (a source
     /// simulation threading its inspector through this fork).
-    pub fn state_and_env(&mut self) -> (&mut DraftDb, &EvmEnvFor<EezEvmConfig>) {
+    pub(crate) fn state_and_env(&mut self) -> (&mut DraftDb, &EvmEnvFor<EezEvmConfig>) {
         (&mut self.state, &self.evm_env)
     }
 }
@@ -1217,7 +1268,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy_consensus::{BlockHeader as _, TxLegacy};
+    use alloy_consensus::BlockHeader as _;
     use alloy_network::TxSignerSync;
     use alloy_primitives::{TxKind, U256, address, bytes};
     use alloy_signer_local::PrivateKeySigner;
@@ -1538,12 +1589,14 @@ mod tests {
         f.parent = parent_with_base_fee(1_000);
         let mut block = f.open(&[]);
         let mut fork = block.fork().expect("fork block prefix");
-        let tx_env = revm::context::TxEnv {
-            caller: Address::ZERO,
-            gas_limit: 100_000,
-            kind: TxKind::Call(STORE),
-            ..Default::default()
-        };
+        let tx_env = Recovered::new_unchecked(
+            TxLegacy {
+                gas_limit: 100_000,
+                to: TxKind::Call(STORE),
+                ..Default::default()
+            },
+            Address::ZERO,
+        );
 
         let output = fork
             .view_call(tx_env.clone())
@@ -1551,7 +1604,7 @@ mod tests {
         assert_eq!(U256::from_be_slice(&output), U256::from(42));
 
         let outcome = fork
-            .execute_call_inspected(tx_env, NoOpInspector)
+            .execute_call_inspected(tx_env, NoopInspector::default())
             .expect("synthetic target call is not a fee-paying transaction");
         assert!(outcome.success);
         assert_eq!(U256::from_be_slice(&outcome.output), U256::from(42));
@@ -1559,7 +1612,7 @@ mod tests {
 
     #[test]
     fn synthetic_fork_deliveries_preserve_proxy_balance_nonce_and_source_rollback() {
-        use revm::Database;
+        use evm2::evm::Database;
         let mut f = fixture();
         f.parent = parent_with_base_fee(1_000);
         f.provider.add_account(
@@ -1569,69 +1622,80 @@ mod tests {
         let mut block = f.open(&[]);
         let mut fork = block.fork().unwrap();
         let before = fork.snapshot();
-        let tx = TxEnv {
-            caller: BOB,
-            gas_limit: 100_000,
-            kind: TxKind::Call(STORE),
-            value: U256::from(7),
-            ..Default::default()
-        };
+        let tx = Recovered::new_unchecked(
+            TxLegacy {
+                gas_limit: 100_000,
+                to: TxKind::Call(STORE),
+                value: U256::from(7),
+                ..Default::default()
+            },
+            BOB,
+        );
         for expected_balance in [7, 14] {
             assert!(
-                fork.execute_call_inspected(tx.clone(), NoOpInspector)
+                fork.execute_call_inspected(tx.clone(), NoopInspector::default())
                     .unwrap()
                     .success
             );
-            let proxy = fork.state.basic(BOB).unwrap().unwrap();
+            let proxy = fork.state.db.get_account(&BOB).unwrap().unwrap();
             assert_eq!(proxy.balance, U256::from(13));
             assert_eq!(proxy.nonce, 1);
             assert_eq!(
-                fork.state.basic(STORE).unwrap().unwrap().balance,
+                fork.state.db.get_account(&STORE).unwrap().unwrap().balance,
                 U256::from(expected_balance)
             );
         }
         assert!(
             !fork
                 .execute_call_inspected(
-                    TxEnv {
-                        kind: TxKind::Call(REVERTER),
-                        ..tx.clone()
-                    },
-                    NoOpInspector
+                    Recovered::new_unchecked(
+                        TxLegacy {
+                            to: TxKind::Call(REVERTER),
+                            ..tx.inner().clone()
+                        },
+                        tx.signer()
+                    ),
+                    NoopInspector::default()
                 )
                 .unwrap()
                 .success
         );
         assert_eq!(
-            fork.state.basic(BOB).unwrap().unwrap().balance,
+            fork.state.db.get_account(&BOB).unwrap().unwrap().balance,
             U256::from(13)
         );
         assert_eq!(
-            fork.state.basic(REVERTER).unwrap().unwrap().balance,
+            fork.state
+                .db
+                .get_account(&REVERTER)
+                .unwrap()
+                .unwrap()
+                .balance,
             U256::ZERO
         );
         // A source-frame revert also rewinds earlier successful deliveries.
         fork.restore(before);
         assert_eq!(
-            fork.state.basic(STORE).unwrap().unwrap().balance,
+            fork.state.db.get_account(&STORE).unwrap().unwrap().balance,
             U256::ZERO
         );
         assert_eq!(
-            fork.state.basic(BOB).unwrap().unwrap().balance,
+            fork.state.db.get_account(&BOB).unwrap().unwrap().balance,
             U256::from(13)
         );
         assert!(
-            fork.execute_call_inspected(tx, NoOpInspector)
+            fork.execute_call_inspected(tx, NoopInspector::default())
                 .unwrap()
                 .success
         );
         assert_eq!(
-            fork.state.basic(STORE).unwrap().unwrap().balance,
+            fork.state.db.get_account(&STORE).unwrap().unwrap().balance,
             U256::from(7)
         );
         assert_eq!(
             fork.state
-                .basic(FEE_RECIPIENT)
+                .db
+                .get_account(&FEE_RECIPIENT)
                 .unwrap()
                 .map(|account| account.balance)
                 .unwrap_or_default(),
@@ -1721,7 +1785,7 @@ mod tests {
     #[test]
     fn unsigned_quote_replay_matches_signed_receipts_and_enforces_source_checks() {
         use alloy_consensus::{TxEip1559, TypedTransaction};
-        use revm::Database;
+        use evm2::evm::Database;
         let f = fixture();
         // GASPRICE is state-visible: a proposed fee must actually be executed.
         f.provider.add_account(
@@ -1756,16 +1820,15 @@ mod tests {
                     let sig = test_signer().sign_transaction_sync(&mut tx).unwrap();
                     let raw = Bytes::from(tx.into_envelope(sig).encoded_2718());
                     let envelope = TransactionSigned::decode_2718_exact(&raw).unwrap();
-                    let env = f
-                        .evm_config
-                        .tx_env(Recovered::new_unchecked(envelope, test_signer().address()));
+                    let env = Recovered::new_unchecked(envelope, test_signer().address())
+                        .map(EezEvmTx::from);
                     let mut preview = f.open(&[]);
                     let actual = preview.preview_unsigned(env.clone()).unwrap();
                     let signed = f.build(&[raw]);
                     assert_eq!(actual.gas_used + f.history_gas(), signed.header.gas_used);
                     assert_eq!(actual.success, signed.tx_successes[1]);
                     assert_eq!(
-                        preview.state.storage(STORE, U256::ZERO).unwrap(),
+                        preview.state.db.get_storage(&STORE, &U256::ZERO).unwrap(),
                         if to == STORE {
                             U256::from(tip)
                         } else {
@@ -1776,14 +1839,17 @@ mod tests {
                         preview.preview_unsigned(env.clone()).is_err(),
                         "nonce cannot be spent twice"
                     );
-                    let mut unfunded = env.clone();
-                    unfunded.caller = BOB;
+                    let unfunded = Recovered::new_unchecked(env.inner().clone(), BOB);
                     assert!(
                         f.open(&[]).preview_unsigned(unfunded).is_err(),
                         "normal balance checks remain active"
                     );
                     let mut gapped = env;
-                    gapped.nonce = 1;
+                    match gapped.inner_mut() {
+                        EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Legacy(tx)) => tx.nonce = 1,
+                        EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Eip1559(tx)) => tx.nonce = 1,
+                        _ => unreachable!("fixture admits only legacy and type-2"),
+                    }
                     assert!(
                         f.open(&[]).preview_unsigned(gapped).is_err(),
                         "normal nonce checks remain active"
@@ -1791,7 +1857,8 @@ mod tests {
                     assert_eq!(
                         f.open(&[])
                             .state
-                            .basic(test_signer().address())
+                            .db
+                            .get_account(&test_signer().address())
                             .unwrap()
                             .unwrap()
                             .nonce,
@@ -1843,7 +1910,7 @@ mod tests {
 
     #[test]
     fn unsigned_user_matches_signed_execution_and_spends_nonce() {
-        use revm::Database as _;
+        use evm2::evm::Database as _;
         let f = fixture();
         for (index, raw) in f.txs.iter().enumerate() {
             let mut signed_draft = f.open(&f.txs[..index]);
@@ -1853,20 +1920,22 @@ mod tests {
             let decoded = TransactionSigned::decode_2718_exact(raw).unwrap();
             let sender = decoded.recover_signer().unwrap();
             let recovered = Recovered::new_unchecked(decoded, sender);
-            let tx = f.evm_config.tx_env(&recovered);
+            let tx = recovered.map(EezEvmTx::from);
             let expected = signed.execute_committed(raw).unwrap();
             let actual = unsigned
-                .execute_unsigned(tx.clone(), NoOpInspector)
+                .execute_unsigned(tx.clone(), NoopInspector::default())
                 .unwrap();
             assert_eq!(actual, expected, "source transaction {index}");
             assert_eq!(unsigned.applied, signed.applied);
             assert_eq!(unsigned.gas_used, signed.gas_used);
             assert_eq!(
-                unsigned.state.basic(sender).unwrap(),
-                signed.state.basic(sender).unwrap()
+                unsigned.state.db.get_account(&sender).unwrap(),
+                signed.state.db.get_account(&sender).unwrap()
             );
             assert!(
-                unsigned.execute_unsigned(tx, NoOpInspector).is_err(),
+                unsigned
+                    .execute_unsigned(tx, NoopInspector::default())
+                    .is_err(),
                 "spent nonce must remain spent, including after a revert"
             );
         }
@@ -1882,9 +1951,7 @@ mod tests {
             let raw = &f.txs[prefix_len + 1];
             let decoded = TransactionSigned::decode_2718_exact(raw).unwrap();
             let sender = decoded.recover_signer().unwrap();
-            let tx = f
-                .evm_config
-                .tx_env(Recovered::new_unchecked(decoded, sender));
+            let tx = Recovered::new_unchecked(decoded, sender).map(EezEvmTx::from);
             let mut expected = f.open(&f.txs[..=prefix_len]);
             let outcome = expected.execute_tx(raw).unwrap();
             for _ in 0..2 {
@@ -1892,12 +1959,18 @@ mod tests {
                 let setup = probe.execute_committed(&f.txs[prefix_len]).unwrap();
                 assert_eq!(setup.gas_used, setup_gas);
                 assert_eq!(
-                    probe.execute_unsigned(tx.clone(), NoOpInspector).unwrap(),
+                    probe
+                        .execute_unsigned(tx.clone(), NoopInspector::default())
+                        .unwrap(),
                     outcome
                 );
                 assert_eq!(probe.gas_used, expected.gas_used());
                 assert_eq!(probe.applied, prefix_len + 3);
-                assert!(probe.execute_unsigned(tx.clone(), NoOpInspector).is_err());
+                assert!(
+                    probe
+                        .execute_unsigned(tx.clone(), NoopInspector::default())
+                        .is_err()
+                );
             }
             // A fresh probe must inherit only the original prefix, including
             // when a previous setup/user reverted or consumed its nonce.
@@ -2006,7 +2079,7 @@ mod tests {
 
     #[test]
     fn prefix_hashing_does_not_burn_donations_in_the_continuing_draft() {
-        use revm::Database as _;
+        use evm2::evm::Database as _;
         let f = fixture();
         // Record SYSTEM.balance so premature finalization changes storage.
         let mut code = vec![0x73];
@@ -2043,14 +2116,15 @@ mod tests {
         assert_eq!(
             draft
                 .state
-                .basic(eez_primitives::SYSTEM_ADDRESS)
+                .db
+                .get_account(&eez_primitives::SYSTEM_ADDRESS)
                 .unwrap()
                 .unwrap()
                 .balance,
             U256::from(17)
         );
         assert_eq!(
-            draft.state.storage(STORE, U256::ZERO).unwrap(),
+            draft.state.db.get_storage(&STORE, &U256::ZERO).unwrap(),
             U256::from(17)
         );
         assert_eq!(hashes.executed_transactions, transactions.len());
@@ -2276,7 +2350,7 @@ mod tests {
 
     #[test]
     fn group_cleanup_is_identical_in_forks_unsigned_execution_and_prefix_rebuilds() {
-        use revm::Database as _;
+        use evm2::evm::Database as _;
         let f = native_fixture(bytes!("00"));
         let entry = eez_protocol::abi::L2ExecutionEntrySol {
             incomingCalls: vec![eez_protocol::abi::CrossChainCallSol {
@@ -2310,7 +2384,8 @@ mod tests {
         assert_eq!(
             draft
                 .state
-                .basic(eez_primitives::EEZL2_ADDRESS)
+                .db
+                .get_account(&eez_primitives::EEZL2_ADDRESS)
                 .unwrap()
                 .unwrap()
                 .balance,
@@ -2321,17 +2396,19 @@ mod tests {
         fork.execute_committed(&user).unwrap();
         assert_eq!(
             fork.state
-                .basic(eez_primitives::EEZL2_ADDRESS)
+                .db
+                .get_account(&eez_primitives::EEZL2_ADDRESS)
                 .unwrap()
                 .unwrap()
                 .balance,
             U256::ZERO
         );
-        let signed_state = fork.state.cache.clone();
+        let signed_state = fork.state.snapshot();
         fork.restore(snapshot);
         assert_eq!(
             fork.state
-                .basic(eez_primitives::EEZL2_ADDRESS)
+                .db
+                .get_account(&eez_primitives::EEZL2_ADDRESS)
                 .unwrap()
                 .unwrap()
                 .balance,
@@ -2339,17 +2416,15 @@ mod tests {
         );
         let decoded = TransactionSigned::decode_2718_exact(&user).unwrap();
         let sender = decoded.recover_signer().unwrap();
-        let tx = f
-            .evm_config
-            .tx_env(Recovered::new_unchecked(decoded, sender));
-        fork.execute_unsigned(tx, NoOpInspector).unwrap();
-        assert_eq!(fork.state.cache, signed_state);
+        let tx = Recovered::new_unchecked(decoded, sender).map(EezEvmTx::from);
+        fork.execute_unsigned(tx, NoopInspector::default()).unwrap();
+        assert_eq!(fork.state.snapshot(), signed_state);
         assert!(
             draft.group_state.ensure_complete().is_err(),
             "fork must not consume the real draft's load"
         );
         draft.execute_tx(&user).unwrap();
-        assert_eq!(draft.state.cache, signed_state);
+        assert_eq!(draft.state.snapshot(), signed_state);
         let transactions: Vec<_> = f.history_prefix().into_iter().chain([raw, user]).collect();
         let mut hashes = SyncPrefixHashes::new(
             &f.provider,

@@ -1,14 +1,20 @@
 //! Conditional L1 setup belongs only to wallet estimation. No state or proof
 //! produced here can enter the signed posting pipeline.
-use super::*;
-use alloy_sol_types::{SolCall, SolEvent};
-use reth_evm::execute::BlockExecutor as _;
-use revm::context_interface::ContextTr;
-use revm::interpreter::{
-    CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
-    InterpreterResult,
+use super::{
+    Address, B256, Bytes, ConfigureEvm, Database, EstimateError, EvmFeatures, GasEstimator, Probe,
+    Recovered, RecoveredTxEnvelope, Snapshot, Transaction, TxEnvelope, TxLegacy, U256,
+    execute_user, set_source_gas_limit, unavailable, unsupported,
 };
-use revm::{Inspector, Journal};
+use alloy_consensus::TxEip4844;
+use alloy_sol_types::{SolCall, SolEvent};
+use evm2::{
+    EvmTypes, Inspector,
+    evm::inspector::InspectorConfig,
+    interpreter::{GasTracker, InstrStop, Interpreter, Message, MessageKind, MessageResult},
+};
+use reth_evm::BlockExecutorFactory;
+use reth_evm::execute::BlockExecutor as _;
+use reth_evm_ethereum::EthEvmEnv;
 
 alloy_sol_types::sol! {
     function verify(bytes proof, bytes32 publicInputsHash) external view returns (bool);
@@ -21,14 +27,21 @@ struct AssumedProof {
     matches: usize,
 }
 
-impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> for AssumedProof {
-    fn call(&mut self, context: &mut C, inputs: &mut CallInputs) -> Option<CallOutcome> {
-        if inputs.scheme != CallScheme::StaticCall
+impl<T: EvmTypes> Inspector<T> for AssumedProof {
+    fn inspector_config(&self) -> InspectorConfig {
+        InspectorConfig::without_steps()
+    }
+    fn call(
+        &mut self,
+        context: &mut Interpreter<'_, '_, T>,
+        inputs: &mut Message<T>,
+    ) -> Option<MessageResult<T>> {
+        if inputs.kind != MessageKind::StaticCall
             || inputs.caller != self.registry
-            || inputs.target_address != self.verifier
-            || inputs.bytecode_address != self.verifier
-            || !inputs.is_static
-            || &*inputs.input.as_bytes(context) != self.calldata.as_ref()
+            || inputs.destination != self.verifier
+            || inputs.code_address != self.verifier
+            || !inputs.is_static()
+            || *inputs.input.to_bytes(context.memory()) != self.calldata.as_ref()
         {
             return None;
         }
@@ -36,14 +49,15 @@ impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> fo
         if self.matches != 1 {
             return None;
         }
-        Some(CallOutcome::new(
-            InterpreterResult::new(
-                InstructionResult::Return,
-                U256::from(1).to_be_bytes::<32>().to_vec().into(),
-                Gas::new(inputs.gas_limit),
+        Some(MessageResult::<T> {
+            stop: InstrStop::Return,
+            output: U256::from(1).to_be_bytes::<32>().to_vec().into(),
+            gas: GasTracker::new_with_execution_gas_and_reservoir(
+                inputs.gas_limit,
+                inputs.reservoir,
             ),
-            inputs.return_memory_offset.clone(),
-        ))
+            ..Default::default()
+        })
     }
 }
 
@@ -59,25 +73,46 @@ impl SetupProof {
         }
     }
 }
-impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> for SetupProof {
-    fn create(&mut self, context: &mut C, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+impl<T: EvmTypes> Inspector<T> for SetupProof {
+    fn inspector_config(&self) -> InspectorConfig {
+        InspectorConfig::without_steps()
+    }
+    fn create(
+        &mut self,
+        context: &mut Interpreter<'_, '_, T>,
+        inputs: &mut Message<T>,
+    ) -> Option<MessageResult<T>> {
         match self {
             Self::GasOnly(_) => None,
             Self::Priced(p) => p.create(context, inputs),
         }
     }
-    fn create_end(&mut self, context: &mut C, inputs: &CreateInputs, outcome: &mut CreateOutcome) {
+    fn create_end(
+        &mut self,
+        context: &mut Interpreter<'_, '_, T>,
+        inputs: &Message<T>,
+        outcome: &mut MessageResult<T>,
+    ) {
         if let Self::Priced(p) = self {
             p.create_end(context, inputs, outcome);
         }
     }
-    fn call(&mut self, context: &mut C, inputs: &mut CallInputs) -> Option<CallOutcome> {
+    fn call(
+        &mut self,
+        context: &mut Interpreter<'_, '_, T>,
+        inputs: &mut Message<T>,
+    ) -> Option<MessageResult<T>> {
         match self {
             Self::GasOnly(p) => p.call(context, inputs),
             Self::Priced(p) => p.call(context, inputs),
         }
     }
-    fn call_end(&mut self, context: &mut C, inputs: &CallInputs, outcome: &mut CallOutcome) {
+    fn call_end(
+        &mut self,
+        context: &mut Interpreter<'_, '_, T>,
+        inputs: &Message<T>,
+        outcome: &mut MessageResult<T>,
+    ) {
         if let Self::Priced(p) = self {
             p.call_end(context, inputs, outcome);
         }
@@ -89,7 +124,7 @@ impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> fo
 pub(super) struct Replay<'a> {
     pub batch: &'a eez_protocol::EvmBatch,
     pub composition: &'a eez_protocol::Composition,
-    pub tx: TxEnv,
+    pub tx: RecoveredTxEnvelope,
     pub digest: B256,
     pub posting: Option<&'a super::super::posting::PostingQuote>,
     pub blob_hashes: &'a [B256],
@@ -136,39 +171,51 @@ pub(super) fn replay(
             matches: 0,
         })
     };
-    let mut setup = revm::context::TxEnv {
-        caller: estimator.poster,
-        kind: alloy_primitives::TxKind::Call(estimator.post_batch_target),
-        data: eez_protocol::abi::postAndVerifyBatchCall {
-            batch: batch.clone(),
-        }
-        .abi_encode()
-        .into(),
-        gas_limit: snapshot.l1_env.block_env.gas_limit,
-        chain_id: Some(snapshot.l1_env.cfg_env.chain_id),
-        ..Default::default()
-    };
+    let calldata = eez_protocol::abi::postAndVerifyBatchCall {
+        batch: batch.clone(),
+    }
+    .abi_encode()
+    .into();
     let mut funding = None;
-    if let Some(posting) = posting {
-        setup.tx_type = 3;
+    let setup = if let Some(posting) = posting {
         let account = state
-            .basic(estimator.poster)
+            .db
+            .get_account(&estimator.poster)
             .map_err(unavailable)?
             .unwrap_or_default();
-        setup.nonce = account.nonce;
         let funds = posting
             .probe_funding(estimator.poster, account.balance, blob_hashes.len() as u64)
             .map_err(unavailable)?;
-        setup.gas_limit = gas_limit.unwrap_or(funds.affordable_gas);
-        if setup.gas_limit < 21_000 || setup.gas_limit > funds.affordable_gas {
+        let limit = gas_limit.unwrap_or(funds.affordable_gas);
+        if limit < 21_000 || limit > funds.affordable_gas {
             return Err(EstimateError::PosterFunds(Box::new(funds)));
         }
         funding = Some(funds);
-        setup.gas_price = posting.quote.max_fee_per_gas;
-        setup.gas_priority_fee = Some(posting.quote.max_priority_fee_per_gas);
-        setup.max_fee_per_blob_gas = posting.quote.max_fee_per_blob_gas;
-        setup.blob_hashes = blob_hashes.to_vec();
-    }
+        TxEnvelope::Eip4844(
+            TxEip4844 {
+                nonce: account.nonce,
+                gas_limit: limit,
+                to: estimator.post_batch_target,
+                input: calldata,
+                max_fee_per_gas: posting.quote.max_fee_per_gas,
+                max_priority_fee_per_gas: posting.quote.max_priority_fee_per_gas,
+                max_fee_per_blob_gas: posting.quote.max_fee_per_blob_gas,
+                blob_versioned_hashes: blob_hashes.to_vec(),
+                chain_id: snapshot.l1_env.version.chain_id,
+                ..Default::default()
+            }
+            .into(),
+        )
+    } else {
+        TxEnvelope::Legacy(TxLegacy {
+            to: alloy_primitives::TxKind::Call(estimator.post_batch_target),
+            input: calldata,
+            gas_limit: snapshot.l1_env.block.gas_limit.saturating_to(),
+            chain_id: Some(snapshot.l1_env.version.chain_id),
+            ..Default::default()
+        })
+    };
+    let setup = Recovered::new_unchecked(setup, estimator.poster);
     let mut effects = super::super::posting::EffectInspector::for_actions(
         estimator.l1.manager_address(),
         0,
@@ -183,15 +230,16 @@ pub(super) fn replay(
     let limit;
     let post_used;
     let post_required;
-    let post_limit = setup.gas_limit;
+    let post_limit = setup.gas_limit();
     let mut setup_env = snapshot.l1_env.clone();
     if posting.is_none() {
-        setup_env.cfg_env.disable_nonce_check = true;
-        setup_env.cfg_env.disable_balance_check = true;
-        setup_env.cfg_env.disable_base_fee = true;
-        setup_env.cfg_env.disable_eip3607 = true;
-        setup_env.cfg_env.disable_fee_charge = true;
-        setup_env.cfg_env.tx_gas_limit_cap = Some(setup.gas_limit);
+        setup_env
+            .version
+            .features
+            .remove(EvmFeatures::NONCE_CHECK | EvmFeatures::BASE_FEE_CHECK | EvmFeatures::EIP3607);
+        eez_evm::disable_fee_charging(&mut setup_env.version);
+        setup_env.version.tx_gas_limit_cap = setup.gas_limit();
+        setup_env.version.tx_total_gas_cap = setup.gas_limit();
     }
 
     macro_rules! execute {
@@ -201,21 +249,47 @@ pub(super) fn replay(
                 .context_for_next_block(&$parent, snapshot.l1_attributes.clone())
                 .map_err(unavailable)?;
             if snapshot.l1_prefix_gas == 0 {
-                let evm = config.evm_with_env(&mut state, snapshot.l1_env.clone());
-                config
-                    .create_executor(evm, context)
+                let env = EthEvmEnv::new_with_version(
+                    snapshot.l1_env.spec,
+                    snapshot.l1_env.block,
+                    snapshot.l1_env.version,
+                );
+                let evm = config.evm_with_env(&mut state.db, env);
+                let mut executor = config
+                    .block_executor_factory()
+                    .create_executor(evm, context);
+                executor
                     .apply_pre_execution_changes()
                     .map_err(unavailable)?;
+                let cache = std::mem::take(&mut executor.evm_mut().overlay_db_mut().cache);
+                let statuses = executor
+                    .block_state()
+                    .clone()
+                    .into_bundle()
+                    .state
+                    .into_iter()
+                    .map(|(address, account)| (address, account.status))
+                    .collect::<Vec<_>>();
+                drop(executor);
+                // The next EVM must inherit accepted pre-execution changes, without its journal.
+                let mut accepted = state.take_snapshot();
+                accepted.cache.merge(cache);
+                accepted.statuses.extend(statuses);
+                state.restore(accepted);
             }
             {
                 let inspector = crate::composer::quote_trace::inspect(
                     &mut proof,
-                    setup_env.cfg_env.chain_id,
+                    setup_env.version.chain_id,
                     "conditional_setup",
                     &setup,
                 );
-                let evm = config.evm_with_env_and_inspector(&mut state, setup_env, inspector);
-                let output = execute_user(evm, setup, funding.as_ref())?;
+                let env =
+                    EthEvmEnv::new_with_version(setup_env.spec, setup_env.block, setup_env.version);
+                let mut evm = config.evm_with_env(&mut state.db, env);
+                evm.set_inspector(inspector);
+                let (output, pending) = execute_user(evm, &setup, funding.as_ref())?;
+                state.commit(&pending);
                 if !output.success {
                     return Err(EstimateError::Unsupported(
                         "conditional L1 setup reverted".into(),
@@ -223,18 +297,19 @@ pub(super) fn replay(
                 }
                 post_used = output.gas_used;
                 post_required = output.gas_required;
-                if output.gas_required > snapshot.l1_env.cfg_env.tx_gas_limit_cap() {
+                if output.gas_required > snapshot.l1_env.version.tx_gas_limit_cap {
                     return Err(unsupported("prepared L1 group exceeds native gas capacity"));
                 }
-                tx.gas_limit = tx.gas_limit.min(
+                limit = tx.gas_limit().min(
                     snapshot
                         .l1_env
-                        .block_env
+                        .block
                         .gas_limit
+                        .saturating_to::<u64>()
                         .saturating_sub(output.gas_used)
                         .saturating_sub(snapshot.l1_prefix_gas),
                 );
-                limit = tx.gas_limit;
+                set_source_gas_limit(&mut tx, limit)?;
                 observe_roots(&output.logs, estimator, &mut last_root)?;
                 if !proof.valid() {
                     return Err(EstimateError::Unsupported(
@@ -243,15 +318,22 @@ pub(super) fn replay(
                 }
             }
             let mut user_env = snapshot.l1_env.clone();
-            user_env.cfg_env.disable_base_fee = posting.is_none();
+            user_env
+                .version
+                .features
+                .set(EvmFeatures::BASE_FEE_CHECK, posting.is_some());
             let inspector = crate::composer::quote_trace::inspect(
                 &mut effects,
-                user_env.cfg_env.chain_id,
+                user_env.version.chain_id,
                 "native_source",
                 &tx,
             );
-            let evm = config.evm_with_env_and_inspector(&mut state, user_env, inspector);
-            execute_user(evm, tx, None)?
+            let env = EthEvmEnv::new_with_version(user_env.spec, user_env.block, user_env.version);
+            let mut evm = config.evm_with_env(&mut state.db, env);
+            evm.set_inspector(inspector);
+            let (output, pending) = execute_user(evm, &tx, None)?;
+            state.commit(&pending);
+            output
         }};
     }
     let result = if let Some(config) = &chain.gnosis_evm_config {
@@ -295,7 +377,7 @@ pub(super) fn replay(
         post_limit,
         post_funding: funding,
         post_required,
-        retained_l1: Some(state.cache),
+        retained_l1: Some(state.take_snapshot()),
         retained_l2: Vec::new(),
         retained_root: None,
     })
@@ -328,12 +410,23 @@ fn observe_roots(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use revm::interpreter::{CallInput, CallValue};
-    use revm::{Context, MainContext, database::InMemoryDB};
+    use evm2::{
+        BaseEvmTypes, SpecId, ethereum::ethereum_tx_registry, evm::InMemoryDB,
+        precompiles::Precompiles,
+    };
 
     #[test]
     fn assumption_matches_only_one_exact_registry_verification() {
-        let mut context = Context::mainnet().with_db(InMemoryDB::default());
+        let mut host = evm2::Evm::<BaseEvmTypes>::new(
+            SpecId::OSAKA,
+            Default::default(),
+            ethereum_tx_registry(SpecId::OSAKA),
+            InMemoryDB::default(),
+            Precompiles::base(SpecId::OSAKA),
+        );
+        let frame = Message::<BaseEvmTypes>::default();
+        let mut context = Interpreter::<BaseEvmTypes>::new(&frame);
+        context.prepare_run(&mut host);
         let registry = Address::repeat_byte(1);
         let verifier = Address::repeat_byte(2);
         let calldata: Bytes = verifyCall {
@@ -348,45 +441,41 @@ mod tests {
             calldata: calldata.clone(),
             matches: 0,
         };
-        let input = CallInputs {
-            input: CallInput::Bytes(calldata),
-            return_memory_offset: 0..32,
+        let input = Message::<BaseEvmTypes> {
+            input: calldata.into(),
             gas_limit: 100_000,
             reservoir: 0,
-            bytecode_address: verifier,
-            known_bytecode: Default::default(),
-            target_address: verifier,
+            code_address: verifier,
+            destination: verifier,
+            call_target: verifier,
             caller: registry,
-            value: CallValue::Transfer(U256::ZERO),
-            scheme: CallScheme::StaticCall,
-            is_static: true,
-            charged_new_account_state_gas: false,
+            value: U256::ZERO,
+            kind: MessageKind::StaticCall,
+            caller_is_static: true,
+            ..Default::default()
         };
         let mut wrong_caller = input.clone();
         wrong_caller.caller = Address::ZERO;
         assert!(inspector.call(&mut context, &mut wrong_caller).is_none());
         let mut wrong_target = input.clone();
-        wrong_target.target_address = Address::ZERO;
+        wrong_target.destination = Address::ZERO;
         assert!(inspector.call(&mut context, &mut wrong_target).is_none());
         let mut wrong_digest = input.clone();
-        wrong_digest.input = CallInput::Bytes(
+        wrong_digest.input = Bytes::from(
             verifyCall {
                 proof: Bytes::new(),
                 publicInputsHash: B256::ZERO,
             }
-            .abi_encode()
-            .into(),
-        );
+            .abi_encode(),
+        )
+        .into();
         assert!(inspector.call(&mut context, &mut wrong_digest).is_none());
         let mut wrong_scheme = input.clone();
-        wrong_scheme.scheme = CallScheme::Call;
+        wrong_scheme.kind = MessageKind::Call;
         assert!(inspector.call(&mut context, &mut wrong_scheme).is_none());
         assert_eq!(inspector.matches, 0);
         let output = inspector.call(&mut context, &mut input.clone()).unwrap();
-        assert_eq!(
-            output.result.output.as_ref(),
-            U256::from(1).to_be_bytes::<32>()
-        );
+        assert_eq!(output.output.as_ref(), U256::from(1).to_be_bytes::<32>());
         assert_eq!(inspector.matches, 1);
         assert!(inspector.call(&mut context, &mut input.clone()).is_none());
         assert_eq!(

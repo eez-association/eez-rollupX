@@ -341,6 +341,22 @@ Obsolete signer RPC settings reject, including explicitly empty environment
 values. Composer, followers and transaction senders retain their own chain
 connections.
 
+RollupX's local witness producer sorts state nodes, nonempty bytecodes and key
+preimages lexicographically after all observation/removal-closure augmentation.
+It omits zero-length bytecode, preserves all other item multiplicities and keeps
+both header chains in ancestry order. This is a producer representation policy,
+not a new acceptance rule or a switch from Legacy to Canonical witness mode.
+Readers still validate old sufficient witnesses with their original ordering and
+empty-code items, and charge every received item and encoded byte.
+
+Stored witnesses and retained retry frames are not rewritten. Upgrading or rolling
+back the writer changes no storage schema, validation identity or signing domain.
+A store miss, replacement capture or rebuilt uncommitted terminal block can have
+different witness bytes from an already acknowledged frame for the same block.
+Reuse the retained original frame for an exact retry; otherwise rewind before
+that block or start a new session. Never normalize a received duplicate to make it
+match. Restart and session eviction still require backfill from the pinned anchor.
+
 Capabilities must advertise offline profile 2, operations tag 1 and an exact
 matching validation identity. Validation identity binds the fixed offline profile,
 L1/L2 rules, runtime, registry/manager, rollup and the validation-contract
@@ -370,6 +386,14 @@ PERMISSION_DENIED without disclosing a cursor.
 | Response channel / client pipeline | 8 frames / at most 8 outstanding operations, draining both directions |
 | Expensive work | One shared validation worker; finalizations acquire the shared final-proof permit |
 | Deadlines | Configured absolute timeout for each ordered Block/Finalize, including worker admission; idle timeout bounds input silence and output backpressure |
+
+The Reth 2.11 legacy witness producer includes cached empty code as a code item.
+It counts against the unchanged witness-item quota even though its code bytes
+are empty. One such entry per block costs 65,536 items at the default block
+limit (about 6.6% of the default item budget); other code-list differences can
+change the net cost. Plan catch-up session boundaries from actual packet sizes
+and item counts. Preserve original retained packets for retries: regeneration
+can change order or redundant entries and is not an exact duplicate.
 
 Blocking workers retain permits until they actually exit, even after an RPC
 expires. Cancellation and attachment epochs fence publication. Half-close drains

@@ -22,12 +22,9 @@ use std::{
 use alloy_consensus::{Transaction as _, TxEnvelope, transaction::SignerRecoverable as _};
 use alloy_eips::eip2718::Decodable2718 as _;
 use alloy_primitives::{Address, B256};
-use either::Either;
-use revm::{
-    Inspector,
-    context_interface::{ContextTr, JournalTr},
-    inspector::inspectors::GasInspector,
-    interpreter::{CallInputs, CallOutcome, Interpreter, interpreter_types::Jumps},
+use evm2::{
+    EvmTypesHost, Inspector,
+    interpreter::{Interpreter, Message, MessageResult},
 };
 use serde_json::{Value, json};
 
@@ -423,80 +420,107 @@ pub(super) fn note_address(address: Address, reason: &'static str) {
 }
 
 /// Selects the original inspector without a step hook on normal executions.
-pub(crate) fn maybe_trace<I>(
-    inspector: &mut I,
-    chain_id: u64,
-) -> Either<&mut I, (&mut I, StepTracer)> {
-    if active() {
-        Either::Right((inspector, StepTracer::new(chain_id)))
-    } else {
-        Either::Left(inspector)
-    }
+pub(crate) fn maybe_trace<I>(inspector: &mut I, chain_id: u64) -> (&mut I, Option<StepTracer>) {
+    (inspector, active().then(|| StepTracer::new(chain_id)))
 }
 
 pub(crate) struct StepTracer {
     chain_id: u64,
-    gas: GasInspector,
+    // Native step_end follows nested execution; child steps must not overwrite CALL's row.
+    pending: Vec<PendingStep>,
+}
+struct PendingStep {
     pc: usize,
     opcode: u8,
     gas_before: u64,
     refund_before: i64,
     storage_key: Option<String>,
+    emitted: bool,
 }
-
 impl StepTracer {
     fn new(chain_id: u64) -> Self {
         Self {
             chain_id,
-            gas: GasInspector::new(),
-            pc: 0,
-            opcode: 0,
-            gas_before: 0,
-            refund_before: 0,
-            storage_key: None,
+            pending: Vec::new(),
         }
     }
 }
 
-impl<CTX: ContextTr> Inspector<CTX> for StepTracer {
-    fn call(&mut self, _context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+impl<T: EvmTypesHost> Inspector<T> for StepTracer {
+    fn call(
+        &mut self,
+        interp: &mut Interpreter<'_, '_, T>,
+        inputs: &mut Message<T>,
+    ) -> Option<MessageResult<T>> {
         // CALL into an empty account or precompile has no opcode rows. For
         // DELEGATECALL the code and storage addresses also differ.
-        note_address(inputs.bytecode_address, "call_code_address");
-        note_address(inputs.target_address, "call_target_address");
+        note_address(inputs.code_address, "call_code_address");
+        note_address(inputs.destination, "call_target_address");
+        self.emit_suspended_step(interp);
         None
     }
 
-    fn initialize_interp(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
-        self.gas.initialize_interp(&interp.gas);
+    fn create(
+        &mut self,
+        interp: &mut Interpreter<'_, '_, T>,
+        _input: &mut Message<T>,
+    ) -> Option<MessageResult<T>> {
+        self.emit_suspended_step(interp);
+        None
     }
 
-    fn step(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
-        self.gas.step(&interp.gas);
-        self.pc = interp.bytecode.pc();
-        self.opcode = interp.bytecode.opcode();
-        self.gas_before = interp.gas.remaining();
-        self.refund_before = interp.gas.refunded();
-        self.storage_key = if matches!(self.opcode, 0x54 | 0x55) {
-            interp.stack.peek(0).ok().map(|key| format!("{key:#x}"))
-        } else {
-            None
+    fn step(&mut self, interp: &mut Interpreter<'_, '_, T>) {
+        let opcode = interp.opcode();
+        self.pending.push(PendingStep {
+            pc: interp.pc(),
+            opcode,
+            gas_before: interp.gas().remaining(),
+            refund_before: interp.gas().refunded(),
+            emitted: false,
+            storage_key: matches!(opcode, 0x54 | 0x55)
+                .then(|| interp.stack().peek(0).map(|key| format!("{key:#x}")))
+                .flatten(),
+        });
+    }
+
+    fn step_end(&mut self, interp: &mut Interpreter<'_, '_, T>) {
+        let Some(step) = self.pending.pop() else {
+            return;
         };
+        if !step.emitted {
+            Self::emit_step(self.chain_id, interp, &step);
+        }
     }
+}
 
-    fn step_end(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        self.gas.step_end(&interp.gas);
+impl StepTracer {
+    fn emit_suspended_step<T: EvmTypesHost>(&mut self, interp: &Interpreter<'_, '_, T>) {
+        let Some(step) = self.pending.last_mut() else {
+            return;
+        };
+        if !step.emitted && matches!(step.opcode, 0xf0 | 0xf1 | 0xf2 | 0xf4 | 0xf5 | 0xfa) {
+            // Preserve REVM's row before child entry, including forwarded gas;
+            // evm2's ordinary step_end runs only after that child returns.
+            step.emitted = true;
+            Self::emit_step(self.chain_id, interp, step);
+        }
+    }
+    fn emit_step<T: EvmTypesHost>(
+        chain_id: u64,
+        interp: &Interpreter<'_, '_, T>,
+        step: &PendingStep,
+    ) {
         let value = json!({
-            "kind": "step", "chain_id": self.chain_id,
-            "address": interp.input.target_address, "depth": context.journal_ref().depth(),
-            "pc": self.pc, "op": self.opcode, "gas_before": self.gas_before,
-            "gas_cost": self.gas.last_gas_cost(), "gas_after": interp.gas.remaining(),
-            "refund_before": self.refund_before, "refund_after": interp.gas.refunded(),
-            "storage_key": self.storage_key,
+            "kind": "step", "chain_id": chain_id,
+            "address": interp.message().destination, "depth": interp.message().depth.saturating_add(1),
+            "pc": step.pc, "op": step.opcode, "gas_before": step.gas_before,
+            "gas_cost": step.gas_before.saturating_sub(interp.gas().remaining()), "gas_after": interp.gas().remaining(),
+            "refund_before": step.refund_before, "refund_after": interp.gas().refunded(),
+            "storage_key": step.storage_key,
         });
         ACTIVE.with(|active| {
             if let Some(sink) = active.borrow_mut().as_mut() {
-                sink.note_address(interp.input.target_address, "executed_frame");
+                sink.note_address(interp.message().destination, "executed_frame");
                 let mut value = value;
                 value["tx_index"] = json!(sink.tx_index);
                 sink.write_step(&value);
@@ -767,5 +791,136 @@ mod tests {
                 .is_some()
         );
         std::fs::remove_dir_all(directory).unwrap();
+    }
+    #[test]
+    fn native_nested_trace_keeps_parent_rows_and_does_not_change_execution() {
+        use alloy_consensus::{TxLegacy, transaction::Recovered};
+        use alloy_primitives::{Bytes, TxKind, U256};
+        use evm2::{
+            BaseEvmTypes, Evm, SpecId,
+            bytecode::Bytecode,
+            evm::{AccountInfo, InMemoryDB, inspector::NoopInspector},
+        };
+        for opcode in [0xf1, 0xf0, 0xf5] {
+            let source = Address::repeat_byte(0x11);
+            let init = alloy_primitives::hex::decode("600160005560006000f3").unwrap();
+            let child = match opcode {
+                0xf0 => source.create(1),
+                0xf5 => source.create2_from_code(B256::ZERO, &init),
+                _ => Address::repeat_byte(0x22),
+            };
+            let caller = Address::repeat_byte(0x33);
+            let mut db = InMemoryDB::default();
+            let mut code = alloy_primitives::hex::decode("5f5f5f5f5f73").unwrap();
+            code.extend_from_slice(child.as_slice());
+            code.extend_from_slice(&alloy_primitives::hex::decode("5af15000").unwrap());
+            if opcode != 0xf1 {
+                code = vec![0x69];
+                code.extend_from_slice(&init);
+                code.extend_from_slice(&[0x5f, 0x52]);
+                if opcode == 0xf5 {
+                    code.push(0x5f);
+                }
+                code.extend_from_slice(&[0x60, 10, 0x60, 22, 0x5f, opcode, 0x50, 0]);
+            }
+            db.insert_account_info(
+                &source,
+                AccountInfo::empty()
+                    .with_nonce(1)
+                    .with_code(Bytecode::new_raw(code.into())),
+            );
+            if opcode == 0xf1 {
+                db.insert_account_info(
+                    &child,
+                    AccountInfo::empty()
+                        .with_nonce(1)
+                        .with_code(Bytecode::new_raw(Bytes::from_static(&[
+                            0x60, 1, 0x60, 0, 0x55, 0,
+                        ]))),
+                );
+            }
+            db.insert_account_info(
+                &caller,
+                AccountInfo::empty().with_balance(U256::from(1_000_000)),
+            );
+            let create = |db| {
+                Evm::<BaseEvmTypes>::new(
+                    SpecId::OSAKA,
+                    Default::default(),
+                    evm2::ethereum::ethereum_tx_registry(SpecId::OSAKA),
+                    db,
+                    evm2::precompiles::Precompiles::base(SpecId::OSAKA),
+                )
+            };
+            let tx = Recovered::new_unchecked(
+                evm2::ethereum::TxEnvelope::Legacy(TxLegacy {
+                    to: TxKind::Call(source),
+                    gas_limit: 500_000,
+                    ..Default::default()
+                }),
+                caller,
+            );
+            let expected = create(db.clone()).transact(&tx).unwrap().detach();
+            let directory = std::env::temp_dir().join(format!(
+                "eez-native-trace-{}-{}",
+                std::process::id(),
+                FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            let config = Config::parse(
+                Some(B256::ZERO.to_string()),
+                Some(directory.to_string_lossy().into_owned()),
+            )
+            .unwrap()
+            .unwrap();
+            let scope = config.begin("test", B256::ZERO, B256::ZERO).unwrap();
+            let quote = super::super::quote_trace::Scope::begin(json!({}), json!({}));
+            let mut noop = NoopInspector::default();
+            let traced = maybe_trace(&mut noop, 1);
+            let mut traced = super::super::quote_trace::inspect(traced, 1, "composition", &tx);
+            let actual = create(db)
+                .transact_with_inspector(&tx, &mut traced)
+                .unwrap()
+                .detach();
+            drop(traced);
+            let quote = quote.finish();
+            drop(scope);
+            assert_eq!(actual.result, expected.result);
+            assert_eq!(actual.pending_state, expected.pending_state);
+            assert_eq!(quote["runs"][0]["complete"], true);
+            assert_eq!(quote["runs"][0]["frames"].as_array().unwrap().len(), 2);
+            let paths = std::fs::read_dir(&directory)
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert_eq!(paths.len(), 1);
+            let rows = std::fs::read_to_string(paths[0].path())
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .filter(|row| row["kind"] == "step")
+                .collect::<Vec<_>>();
+            let calls = rows
+                .iter()
+                .filter(|row| row["op"] == opcode)
+                .collect::<Vec<_>>();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0]["address"], json!(source));
+            assert_eq!(calls[0]["depth"], 1);
+            if opcode == 0xf1 {
+                assert_eq!(calls[0]["pc"], 27);
+                assert_eq!(calls[0]["gas_cost"], 471_542);
+                assert_eq!(rows[7], *calls[0]);
+            }
+            let stores = rows
+                .iter()
+                .filter(|row| row["op"] == 0x55)
+                .collect::<Vec<_>>();
+            assert_eq!(stores.len(), 1);
+            assert_eq!(stores[0]["address"], json!(child));
+            assert_eq!(stores[0]["gas_cost"], 22_100);
+            assert_eq!(stores[0]["depth"], 2);
+            println!("nested-trace {}", serde_json::to_string(&rows).unwrap());
+            std::fs::remove_dir_all(directory).unwrap();
+        }
     }
 }

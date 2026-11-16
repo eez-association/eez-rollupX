@@ -736,6 +736,51 @@ using the fork's native blob layout. Alternative wrapper ABIs or internal batch
 rewrites require separate support. A poster changing dispatch must re-estimate gas
 for that path; the original queue-only estimate need not cover its callback.
 
+### Reth 2.11 dependency upgrade
+
+[Issue #158](https://github.com/eez-association/eez-rollupX/issues/158) changes the
+execution dependencies, not the accepted network profile. Keep the Core pin,
+contracts, genesis, native `0x45`/`0x46` encoding, validation identity and signing
+domain unchanged. It does not convert an older network to this profile.
+
+Use matched, tested Composer, follower and signer artifacts from the same
+revision. A matching v2 capability identity alone does not prove that two builds
+contain the same dependency fixes. Bounded cross-version witness replay and
+disposable database tests do not qualify a live mixed-version rollout. Pause
+ingress and coordinate the runtime replacement through the procedure below;
+readers/signers must be ready before the new Composer resumes production.
+
+Preserve existing storage and pruning settings. The unchanged Reth database
+version number is not a downgrade guarantee. Do not run `db migrate-v2`, change
+storage layout, or enable snap sync as an incidental part of this upgrade. No
+migration command or resync was required by the disposable compatibility tests;
+existing deployment continuity still needs a rehearsal on a consistent copy
+with the same settings and history availability. Cover node MDBX/RocksDB/static
+files and the separate witness store together. Test canonical catch-up,
+independent proving/follower replay, reorg handling and shutdown/reopen before
+admitting traffic. Retain diagnostics and the untouched recovery source.
+
+Do not downgrade the old binary onto a database after the candidate has written
+it based only on those disposable tests. Use the retained, consistent
+pre-upgrade state and previous artifact digests, then reconcile later canonical
+L1 settlements. Resync is an alternative only when the complete same-profile
+header/transaction/blob history is available. Neither a database restore nor a
+binary downgrade reverses settlement or recovers in-memory pending requests.
+
+Keep the existing Engine flags. In particular, shared sparse-trie payload
+building is opt-in and disabled by default in both versions; the default-mode
+restart checks do not qualify blocked-work shutdown with that option enabled.
+Any deployment using it needs its own cancellation/shutdown rehearsal before
+upgrade. No operator state was inspected by the migration tests.
+
+A future execution-fork extension needs separate validation. Revisit both
+synthetic transaction gas caps (`tx_gas_limit_cap` and `tx_total_gas_cap`) in
+observation replay as well as Composer simulation, and account for the gas
+reservoir when constructing synthetic callback results. The current Osaka-only
+profile does not qualify those paths for later forks.
+
+### Coordinated recovery procedure
+
 For ordered restore/replay setup, use the
 [existing-rollup Composer procedure](chiado-existing-rollup.md).
 

@@ -75,7 +75,7 @@ report the superproject's HEAD; it does not prove the protocol revision.
 Preserve Reth, Stateless, reth_gnosis, REVM, and Alloy compatibility in
 [Cargo.toml](Cargo.toml) and `Cargo.lock`. Use `--locked`; do not upgrade dependencies
 incidentally to bypass a build failure.
-The [vendored Reth packages](crates/vendor/reth/README.md) retain v2.7.0 with
+The [vendored Reth packages](crates/vendor/reth/README.md) retain v2.11.0 with
 recorded shutdown and shared-RPC-quota patches. Review those diffs when changing
 dependencies; preserve cleanup ordering and the aggregate RPC quota, and do not
 edit Cargo's cache.
@@ -114,7 +114,7 @@ its Solidity implementation/tests and the applicable fork contract:
   finalize a copy; continuing execution and FIFO observations use the unfinalized
   prefix. Never let checkpoint projection conceal an invalid terminal state root. Never clean between a load and its signed user
   or inside callbacks. Keep speculative group cursors with rollback state and
-  RPC validation-contract-8 semantics consistent across all execution paths;
+  RPC validation-contract-9 semantics consistent across all execution paths;
   the deployed signing domain remains 7.
   Preserve history, execution and ownership invariants and keep owning runtime
   specifications, identities and fixtures consistent.
@@ -192,7 +192,7 @@ its Solidity implementation/tests and the applicable fork contract:
   Keep the [validation identity](crates/eez-control-rpc/VALIDATION_IDENTITY.md)
   language-neutral. One `VALIDATION_VERSION` covers identity encoding, canonical
   JSON and validation semantics; there are no separately selectable runtime versions.
-  RPC validation version 8 is distinct from the unchanged on-chain signing domain 7;
+  RPC validation version 9 is distinct from the unchanged on-chain signing domain 7;
   follow the validation identity specification for coordinated upgrades.
   Use the pinned Core `Rollup` unchanged. Its registered vkey binds the single
   `NetworkProfile` under `EEZ_ROLLUPX_NETWORK_PROFILE_V1`; see the identity
@@ -240,7 +240,7 @@ its Solidity implementation/tests and the applicable fork contract:
 - Edit the single v2 schema in [prove.proto](crates/eez-control-rpc/proto/prove.proto).
   Cargo's `eez-control-rpc` build generates `$OUT_DIR/prove.v2.rs` using `protoc`; the
   [include module](crates/eez-control-rpc/src/generated.rs) loads it. Regenerate
-  with `cargo +1.95.0 check --locked -p eez-control-rpc`; do not hand-edit the output.
+  with `cargo +1.96.0 check --locked -p eez-control-rpc`; do not hand-edit the output.
 - The core pin tracks published `feature/e2e_edge_cases`. Deploy the unchanged
   [Core Rollup manager](eez-core-protocol/src/rollupContract/Rollup.sol) with its
   original four-argument initializer. The registered key binds the network profile;
@@ -265,15 +265,15 @@ its Solidity implementation/tests and the applicable fork contract:
 
 ## Build and validate
 
-For source builds, use Rust **1.95.0** (CI; manifest minimum 1.95) and Foundry
+For source builds, use Rust **1.96.0** (CI; manifest minimum 1.96) and Foundry
 **1.7.1**. Native dependencies are listed in [CI](.github/workflows/ci.yml), including
 `libclang-dev`, `pkg-config`, `libssl-dev`, `cmake`, and `protobuf-compiler`.
-Unmodified Reth v2.7/Gnosis defaults also require LLVM 22, Polly, Clang 22 and
+Reth v2.11/Gnosis defaults also require LLVM 23, Polly, Clang 23 and
 `m4`. On Debian/Ubuntu, use `sudo bash scripts/ci/install-llvm.sh`, then export
-`LLVM_SYS_221_PREFIX=/usr/lib/llvm-22` and prepend its `bin` directory to `PATH`.
+`LLVM_SYS_231_PREFIX=/usr/lib/llvm-23` and prepend its `bin` directory to `PATH`.
 Docker producers install these dependencies through the same helper. This does
 not change the custom L2 interpreter's execution mode.
-Build workspace binaries with `cargo +1.95.0 build --locked --workspace`.
+Build workspace binaries with `cargo +1.96.0 build --locked --workspace`.
 
 During iteration, run focused packages/targets. Before completing a change, run
 the applicable checks below and regressions for changed behavior; do not repeat
@@ -287,9 +287,9 @@ task authorization.
 
 | Changed area | Expected checks |
 | --- | --- |
-| Rust code | `cargo +1.95.0 fmt --all --check`; `cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings`; affected package tests, e.g. `cargo +1.95.0 test --locked -p eez-composer --lib` |
-| ABI, commitments, blob codecs | `cargo +1.95.0 test --locked -p eez-protocol -p eez-blob-codec -p eez-payload-codec`; affected Solidity/process tests. Preserve independent `public_inputs_hash_vectors`, `rolling_hash_vectors`, and `ethereum_kzg_compatibility` oracles. |
-| Signer or prover RPC | `cargo +1.95.0 test --locked -p eez-proof-signer -p eez-control-rpc -p eez-prover-client`; the signer contributor guide's checks; `cross_chain` process tests for rejection/status/signing changes |
+| Rust code | `cargo +1.96.0 fmt --all --check`; `cargo +1.96.0 clippy --locked --workspace --all-targets -- -D warnings`; affected package tests, e.g. `cargo +1.96.0 test --locked -p eez-composer --lib` |
+| ABI, commitments, blob codecs | `cargo +1.96.0 test --locked -p eez-protocol -p eez-blob-codec -p eez-payload-codec`; affected Solidity/process tests. Preserve independent `public_inputs_hash_vectors`, `rolling_hash_vectors`, and `ethereum_kzg_compatibility` oracles. |
+| Signer or prover RPC | `cargo +1.96.0 test --locked -p eez-proof-signer -p eez-control-rpc -p eez-prover-client`; the signer contributor guide's checks; `cross_chain` process tests for rejection/status/signing changes |
 | Settlement/admission | Composer unit tests; relevant `eez-node-e2e` modules: `settlement_policy`, `settlement_policy_gas`, `settlement_policy_cost`, `dynamic_admission` |
 | Application fee quotes / SDK | Composer, L1 and node unit tests; `node sdk/l2-fees.test.mjs`; `eez-node-e2e` module `fee_quotes`. Validate advisory snapshots during pending settlement, bounded concurrent quotes, standalone admission floors, mixed FIFO packing and final native receipts. Mixed posts must bind the outbound-only cost reference to the exact final sources and L1 quote; outbound-only posts retain the whole-post cost/risk floor. L1 refunds cannot fund L2 admission. L1 batching selects the largest recoverable tip without a batch funding floor; missing/insufficient refunds are observation-only. Cover multi-source selection, continued service after missing payouts and idempotent/reorg-corrected refund metrics. For L1 collection require the [real builder refund exercise](testing/kurtosis/README.md#exercise-l1-builder-refunds); the development mempool adapter cannot validate ordered refunds. See also the [L2 fee exercise](testing/kurtosis/README.md#exercise-l2-settlement-fees). |
 | Queue, partial consumption, reorg/restart | Relevant `eez-node-e2e` modules: `partial_consumption`, `queue_liveness`, `queue_reorg`; `cross_chain` / `chained_interstate` when group semantics change |
@@ -333,7 +333,7 @@ stale prebuilt executables, build integration contracts, and retain diagnostics:
   forge build --root contracts
   EEZ_TEST_LOG_DIR="$PWD/artifacts/native-e2e/logs" \
   EEZ_TEST_DATADIR_DIR="$PWD/artifacts/native-e2e/datadirs" \
-  cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- cross_chain:: --test-threads=1
+  cargo +1.96.0 test --locked -p eez-node-e2e --test node_e2e -- cross_chain:: --test-threads=1
 )
 ```
 

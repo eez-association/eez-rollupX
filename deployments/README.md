@@ -15,7 +15,7 @@ Verify a recorded genesis:
 
 ```bash
 # State root of the file; must equal block 0's stateRoot on the network.
-cargo +1.95.0 run --quiet --locked --package eez-node --example genesis_state_root -- \
+cargo +1.96.0 run --quiet --locked --package eez-node --example genesis_state_root -- \
   deployments/<network>/genesis.json
 # Block 0 as served by the network.
 cast block 0 --rpc-url <l2-rpc> --json | jq '{hash, stateRoot}'

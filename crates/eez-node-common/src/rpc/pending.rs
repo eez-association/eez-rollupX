@@ -18,15 +18,17 @@ use alloy_rpc_types_eth::{
 use alloy_rpc_types_trace::geth::{GethDebugTracingCallOptions, GethTrace};
 use eez_evm::EezEvmConfig;
 use eez_protocol::l1_history::WitnessHistory;
+use evm2::evm::{CacheDB, Db, DynDatabase};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use reth_errors::{ProviderError, RethError};
+use reth_evm::database::StateProviderDatabase;
 use reth_evm::{
-    ConfigureEvm, EvmEnvFor, HaltReasonFor, NextBlockEnvAttributes, execute::BlockBuilder,
+    BlockExecutor, ConfigureEvm, EvmEnvFor, NextBlockEnvAttributes, TxResultWithStateFor,
+    execute::BlockBuilder,
 };
 use reth_node_api::FullNodeComponents;
-use reth_node_builder::rpc::RpcContext;
+use reth_node_builder::rpc::{RpcContext, RpcNodeCoreFor};
 use reth_primitives_traits::{Account, Bytecode, SealedHeader, SignedTransaction};
-use reth_revm::{database::StateProviderDatabase, db::State};
 use reth_rpc::{DebugApi, EthApi};
 use reth_rpc_convert::RpcTxReq;
 use reth_rpc_eth_api::{
@@ -45,12 +47,11 @@ use reth_tasks::{
     Runtime,
     pool::{BlockingTaskGuard, BlockingTaskPool},
 };
-use revm::{DatabaseRef, context_interface::result::ResultAndState};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 pub(super) fn install<N>(
-    ctx: RpcContext<'_, N, EthApi<N, Converter>>,
+    ctx: RpcContext<'_, N, EthApi<RpcNodeCoreFor<N>, Converter>>,
     settings: EezEthApiBuilder,
 ) -> eyre::Result<()>
 where
@@ -113,8 +114,8 @@ struct SimulationRpc<N: RpcNodeCore> {
 }
 
 #[jsonrpsee::core::async_trait]
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> SimulationServer
-    for SimulationRpc<N>
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>>
+    SimulationServer for SimulationRpc<N>
 {
     async fn call(
         &self,
@@ -221,7 +222,7 @@ struct TraceCallRpc<N: RpcNodeCore> {
 }
 
 #[jsonrpsee::core::async_trait]
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> TraceCallServer
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>> TraceCallServer
     for TraceCallRpc<N>
 {
     async fn trace_call(
@@ -316,7 +317,9 @@ impl<N: RpcNodeCore> Clone for SimulationApi<N> {
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> SimulationApi<N> {
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>>
+    SimulationApi<N>
+{
     async fn prepare(
         inner: EthApi<N, Converter>,
         settings: EezEthApiBuilder,
@@ -348,9 +351,9 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> SimulationApi<N
                     .latest_header()?
                     .ok_or(EthApiError::HeaderNotFound(BlockId::latest()))?;
                 let state = inner.provider().state_by_block_hash(parent.hash())?;
-                let db = State::builder()
-                    .with_database(StateProviderDatabase::new(state.into_evm_state_provider()))
-                    .build();
+                let db = CacheDB::new(Db::new(StateProviderDatabase::new(
+                    state.into_evm_state_provider(),
+                )));
                 let (evm_config, env, db) = execute_prefix(inner.evm_config(), &parent, db)?;
                 Ok(Some(Self {
                     inner,
@@ -423,13 +426,18 @@ pub(super) fn execute_prefix(
                 )
                 .map_err(execution_error)?;
         }
-        // As in Composer's open draft, drop without finish: the application
-        // continues from this mid-block state, never from a synthetic persisted block.
+        // Keep the executor's accepted prefix overlay without block finalization.
+        // Dropping the new executor alone would discard its internally owned writes.
+        let prefix = std::mem::take(&mut builder.executor_mut().evm_mut().overlay_db_mut().cache);
+        drop(builder);
+        db.cache.merge(prefix);
     }
     Ok((evm_config, env, db))
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EthApiTypes for SimulationApi<N> {
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>> EthApiTypes
+    for SimulationApi<N>
+{
     type Error = EthApiError;
     type NetworkTypes = super::EezRpcTypes;
     type RpcConvert = Converter;
@@ -441,7 +449,9 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EthApiTypes for
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> RpcNodeCore for SimulationApi<N> {
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>> RpcNodeCore
+    for SimulationApi<N>
+{
     type Primitives = <N as RpcNodeCore>::Primitives;
     type Provider = <N as RpcNodeCore>::Provider;
     type Pool = <N as RpcNodeCore>::Pool;
@@ -463,7 +473,7 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> RpcNodeCore for
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> RpcNodeCoreExt
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>> RpcNodeCoreExt
     for SimulationApi<N>
 {
     fn cache(&self) -> &EthStateCache<Self::Primitives> {
@@ -471,7 +481,7 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> RpcNodeCoreExt
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> SpawnBlocking
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>> SpawnBlocking
     for SimulationApi<N>
 {
     fn io_task_spawner(&self) -> &Runtime {
@@ -488,8 +498,8 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> SpawnBlocking
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> LoadPendingBlock
-    for SimulationApi<N>
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>>
+    LoadPendingBlock for SimulationApi<N>
 {
     fn pending_block(&self) -> &tokio::sync::Mutex<Option<PendingBlock<Self::Primitives>>> {
         self.inner.pending_block()
@@ -499,7 +509,9 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> LoadPendingBloc
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> LoadState for SimulationApi<N> {
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>> LoadState
+    for SimulationApi<N>
+{
     async fn evm_env_at(
         &self,
         at: BlockId,
@@ -514,7 +526,9 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> LoadState for S
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> Call for SimulationApi<N> {
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>> Call
+    for SimulationApi<N>
+{
     fn spawn_with_state_at_block<F, R>(
         &self,
         at: impl Into<BlockId>,
@@ -556,7 +570,7 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> Call for Simula
         request: RpcTxReq<Self::NetworkTypes>,
         at: BlockId,
         overrides: EvmOverrides,
-    ) -> Result<ResultAndState<HaltReasonFor<Self::Evm>>, Self::Error> {
+    ) -> Result<TxResultWithStateFor<Self::Evm>, Self::Error> {
         // Preparation already owns the request permit. Reacquiring here could
         // deadlock a server configured with one permit. spawn_blocking_io checks
         // cancellation before starting; its clone retains the permit until exit.
@@ -568,7 +582,9 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> Call for Simula
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EstimateCall for SimulationApi<N> {
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>> EstimateCall
+    for SimulationApi<N>
+{
     async fn estimate_gas_at(
         &self,
         request: RpcTxReq<Self::NetworkTypes>,
@@ -577,49 +593,74 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EstimateCall fo
     ) -> Result<U256, Self::Error> {
         let (env, at) = self.evm_env_at(at).await?;
         self.spawn_with_state_at_block(at, move |this, db| {
-            this.estimate_gas_with(env, request, ExecutedPrefix(db), overrides)
+            this.estimate_gas_with(env, request, ExecutedPrefix(Mutex::new(db)), overrides)
         })
         .await
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> LoadBlock for SimulationApi<N> {}
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EthCall for SimulationApi<N> {}
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> Trace for SimulationApi<N> {}
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> LoadTransaction
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>> LoadBlock
     for SimulationApi<N>
 {
 }
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> GetBlockAccessList
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>> EthCall
     for SimulationApi<N>
+{
+}
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>> Trace
+    for SimulationApi<N>
+{
+}
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>> LoadTransaction
+    for SimulationApi<N>
+{
+}
+impl<N: RpcNodeCore<Primitives = eez_primitives::EezPrimitives, Evm = EezEvmConfig>>
+    GetBlockAccessList for SimulationApi<N>
 {
 }
 
 /// Reth's estimator opens a fresh mutable cache on an EvmStateProvider. Adapt
 /// the already executed prefix's read-only view, retaining zero/deleted slots.
-struct ExecutedPrefix(StateCacheDb);
+struct ExecutedPrefix(Mutex<StateCacheDb>);
 impl EvmStateProvider for ExecutedPrefix {
     fn basic_account(&self, address: &Address) -> Result<Option<Account>, ProviderError> {
         self.0
-            .basic_ref(*address)
+            .lock()
+            .map_err(|_| {
+                ProviderError::other(std::io::Error::other("pending prefix state lock poisoned"))
+            })?
+            .get_account(address)
             .map(|info| info.map(Into::into))
             .map_err(ProviderError::other)
     }
     fn block_hash(&self, number: u64) -> Result<Option<B256>, ProviderError> {
         self.0
-            .block_hash_ref(number)
+            .lock()
+            .map_err(|_| {
+                ProviderError::other(std::io::Error::other("pending prefix state lock poisoned"))
+            })?
+            .get_block_hash(&U256::from(number))
             .map(Some)
             .map_err(ProviderError::other)
     }
     fn bytecode_by_hash(&self, hash: &B256) -> Result<Option<Bytecode>, ProviderError> {
         self.0
-            .code_by_hash_ref(*hash)
+            .lock()
+            .map_err(|_| {
+                ProviderError::other(std::io::Error::other("pending prefix state lock poisoned"))
+            })?
+            .get_code_by_hash(hash)
             .map(|code| Some(Bytecode(code)))
             .map_err(ProviderError::other)
     }
     fn storage(&self, address: Address, key: B256) -> Result<Option<U256>, ProviderError> {
         self.0
-            .storage_ref(address, key.into())
+            .lock()
+            .map_err(|_| {
+                ProviderError::other(std::io::Error::other("pending prefix state lock poisoned"))
+            })?
+            .get_storage(&address, &key.into())
             .map(Some)
             .map_err(ProviderError::other)
     }

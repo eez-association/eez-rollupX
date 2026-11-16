@@ -14,21 +14,19 @@
 
 use std::sync::Arc;
 
-use alloy_consensus::Header;
+use super::state::SimState;
+use alloy_consensus::{Header, TxLegacy, transaction::Recovered};
 use alloy_primitives::{Address, Bytes, TxKind, U256};
 use alloy_sol_types::SolCall;
 use eez_evm::EezEvmConfig;
-use reth_evm::{ConfigureEvm, Evm as _};
+use eez_evm_inspector::OverlaySnapshot;
+use evm2::{
+    EvmFeatures, EvmTypes, Inspector,
+    evm::Database,
+    interpreter::{Interpreter, Message, MessageResult},
+};
+use reth_evm::ConfigureEvm;
 use reth_primitives_traits::SealedHeader;
-use reth_revm::{database::StateProviderDatabase, db::State, db::bal::EvmDatabaseError};
-use reth_storage_api::EvmStateProviderAdapter;
-use reth_storage_api::StateProviderBox;
-use reth_storage_api::errors::provider::ProviderError;
-use revm::context::result::EVMError;
-use revm::context_interface::{ContextSetters, ContextTr, JournalTr};
-use revm::database::CacheState;
-use revm::interpreter::{CallInputs, CallOutcome, Interpreter};
-use revm::{Database, DatabaseCommit, Inspector};
 
 use eez_protocol::abi::{
     authorizedProxiesCall, computeCrossChainProxyAddressCall, createCrossChainProxyCall,
@@ -41,7 +39,6 @@ use eez_protocol::{
 
 use super::build::{BuildError, ForkSnapshot, SyncBlockFork};
 use super::client::LocalChainClient;
-use super::reset_frame_caller_nonce;
 use super::session::{DIRECT_CALL_GAS_LIMIT, evm_err, provider_err};
 use crate::composer::gas_trace;
 
@@ -80,9 +77,9 @@ fn encoding_err(msg: impl Into<String>) -> ExecutorError {
 /// of the transaction (`Evm` ⇒ poison); a database read failure is the backing
 /// store being unreachable, which `Provider` marks transient so the slot aborts
 /// and retries instead of evicting a sound tx.
-pub(super) fn transact_err(e: EVMError<EvmDatabaseError<ProviderError>>) -> ExecutorError {
+pub(super) fn transact_err(e: evm2::registry::HandlerError) -> ExecutorError {
     match e {
-        EVMError::Database(db) => provider_err(db),
+        evm2::registry::HandlerError::Database(db) => provider_err(db),
         other => evm_err(other),
     }
 }
@@ -111,7 +108,7 @@ pub struct L1SlotState {
     /// L1 head at drain start; every fork opens its state here.
     pub anchor: SealedHeader<Header>,
     /// Effects committed by surviving transactions, seeded into each fork.
-    pub cache: CacheState,
+    pub cache: OverlaySnapshot,
     /// Enabled-policy target environment and actual poster frame context.
     /// Synthetic calls observe these values without charging transaction fees.
     pub posting: Option<(reth_evm::EvmEnvFor<EezEvmConfig>, Address, u128)>,
@@ -140,7 +137,7 @@ impl L1SlotState {
         );
         Ok(Self {
             anchor,
-            cache: CacheState::default(),
+            cache: OverlaySnapshot::default(),
             posting: None,
         })
     }
@@ -150,11 +147,8 @@ impl L1SlotState {
     fn open_state(
         &self,
         client: &LocalChainClient,
-        seed: CacheState,
-    ) -> ExecutorResult<(
-        State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>,
-        reth_evm::EvmEnvFor<EezEvmConfig>,
-    )> {
+        seed: OverlaySnapshot,
+    ) -> ExecutorResult<(SimState, reth_evm::EvmEnvFor<EezEvmConfig>)> {
         let provider = client.chain_provider();
         let state_prov = provider
             .provider
@@ -168,13 +162,7 @@ impl L1SlotState {
                 .evm_env(self.anchor.header())
                 .map_err(evm_err)?
         };
-        let state = State::builder()
-            .with_database(StateProviderDatabase::new(EvmStateProviderAdapter(
-                state_prov,
-            )))
-            .with_cached_prestate(seed)
-            .with_bundle_update()
-            .build();
+        let state = SimState::new(state_prov, Some(seed));
         Ok((state, evm_env))
     }
 
@@ -190,10 +178,7 @@ impl L1SlotState {
     pub fn fork_state(
         &self,
         client: &LocalChainClient,
-    ) -> ExecutorResult<(
-        State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>,
-        reth_evm::EvmEnvFor<EezEvmConfig>,
-    )> {
+    ) -> ExecutorResult<(SimState, reth_evm::EvmEnvFor<EezEvmConfig>)> {
         self.open_state(client, self.cache.clone())
     }
 }
@@ -206,14 +191,14 @@ impl L1SlotState {
 /// ## Checkpoint payload contract
 ///
 /// [`checkpoint`](TargetExecutionSession::checkpoint) returns a boxed
-/// [`CacheState`] and nothing else. The drain relies on that: it reclaims the
+/// [`OverlaySnapshot`] and nothing else. The drain relies on that: it reclaims the
 /// session through `CompositionBuilder::take_sessions`, calls `checkpoint()`,
-/// downcasts to `CacheState`, and commits it into `L1SlotState::cache` on
+/// downcasts to `OverlaySnapshot`, and commits it into `L1SlotState::cache` on
 /// survivor-accept. Changing the payload type breaks that hand-off.
 pub struct L1TargetSession {
     client: Arc<LocalChainClient>,
     evm_config: EezEvmConfig,
-    state: State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>,
+    state: SimState,
     evm_env: reth_evm::EvmEnvFor<EezEvmConfig>,
     manager: Address,
     chain_id: u64,
@@ -248,16 +233,22 @@ impl L1TargetSession {
         let posting_origin = state.posting.as_ref().map(|(_, origin, _)| *origin);
         let posting_gas_price = state.posting.as_ref().map_or(0, |(_, _, price)| *price);
         let (state, mut evm_env) = state.open_state(&client, state.cache.clone())?;
-        let chain_id = evm_env.cfg_env.chain_id;
+        let chain_id = evm_env.version.chain_id;
         // Synthetic frames carry no fee market and no EOA sender. In
         // particular, the manager's `msg.value` is contract execution funded
         // from rollup escrow, not a transaction fee paid by `caller`.
-        evm_env.cfg_env.disable_base_fee = true;
-        evm_env.cfg_env.disable_balance_check = true;
-        evm_env.cfg_env.disable_eip3607 = true;
-        evm_env.cfg_env.disable_nonce_check = true;
-        evm_env.cfg_env.tx_gas_limit_cap = Some(u64::MAX);
-        evm_env.cfg_env.disable_fee_charge = posting_origin.is_some();
+        evm_env.version.features.remove(
+            EvmFeatures::BASE_FEE_CHECK
+                | EvmFeatures::BALANCE_CHECK
+                | EvmFeatures::EIP3607
+                | EvmFeatures::NONCE_CHECK,
+        );
+        evm_env.version.features.insert(EvmFeatures::BALANCE_TOP_UP);
+        evm_env.version.tx_gas_limit_cap = u64::MAX;
+        evm_env.version.tx_total_gas_cap = u64::MAX;
+        if posting_origin.is_some() {
+            eez_evm::disable_fee_charging(&mut evm_env.version);
+        }
 
         let evm_config = client.chain_provider().evm_config.clone();
         let manager = client.manager_address();
@@ -277,7 +268,7 @@ impl L1TargetSession {
     /// caller gas limit above it, and real L1 execution has no more either
     /// (chiado's block limit is well below `DIRECT_CALL_GAS_LIMIT`).
     fn frame_gas(&self, requested: u64) -> u64 {
-        requested.min(self.evm_env.block_env.gas_limit)
+        requested.min(self.evm_env.block.gas_limit.saturating_to())
     }
 
     /// Run one synthetic frame against the manager. `commit` keeps its writes
@@ -288,32 +279,29 @@ impl L1TargetSession {
         gas_limit: u64,
         commit: bool,
     ) -> ExecutorResult<Bytes> {
-        let tx_env = revm::context::TxEnv {
-            caller: Address::ZERO,
-            gas_limit: self.frame_gas(gas_limit),
-            kind: TxKind::Call(self.manager),
-            data: data.into(),
-            chain_id: Some(self.chain_id),
-            ..Default::default()
-        };
-        let result = {
-            let mut evm = self
-                .evm_config
-                .evm_with_env(&mut self.state, self.evm_env.clone());
-            evm.transact(tx_env).map_err(transact_err)?
-        };
+        let tx = Recovered::new_unchecked(
+            eez_evm::EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Legacy(TxLegacy {
+                gas_limit: self.frame_gas(gas_limit),
+                to: TxKind::Call(self.manager),
+                input: data.into(),
+                chain_id: Some(self.chain_id),
+                ..Default::default()
+            })),
+            Address::ZERO,
+        );
+        let result = self
+            .state
+            .transact(&self.evm_config, &self.evm_env, &tx, None)
+            .map_err(transact_err)?;
         if !result.result.is_success() {
             return Err(encoding_err(format!(
                 "manager frame reverted on {}: {:?}",
-                self.manager,
-                result.result.output()
+                self.manager, result.result.output
             )));
         }
-        let output = result.result.output().cloned().unwrap_or_default();
+        let output = result.result.output.clone();
         if commit {
-            let mut changes = result.state;
-            reset_frame_caller_nonce(&mut changes, Address::ZERO);
-            self.state.commit(changes);
+            self.state.commit_frame(result.pending_state, Address::ZERO);
         }
         Ok(output)
     }
@@ -394,7 +382,8 @@ impl TargetExecutionSession for L1TargetSession {
         if !req.value.is_zero() {
             let available = self
                 .state
-                .basic(self.manager)
+                .db
+                .get_account(&self.manager)
                 .map_err(provider_err)?
                 .map_or(U256::ZERO, |account| account.balance);
             if req.value > available {
@@ -424,50 +413,56 @@ impl TargetExecutionSession for L1TargetSession {
             data: req.data.clone(),
         }
         .abi_encode();
-        let tx_env = revm::context::TxEnv {
-            caller: self.posting_origin.unwrap_or(self.manager),
-            gas_limit: self.frame_gas(DIRECT_CALL_GAS_LIMIT),
-            kind: TxKind::Call(proxy),
-            data: calldata.into(),
-            value: req.value,
-            chain_id: Some(self.chain_id),
-            ..Default::default()
-        };
+        let tx = Recovered::new_unchecked(
+            eez_evm::EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Legacy(TxLegacy {
+                gas_limit: self.frame_gas(DIRECT_CALL_GAS_LIMIT),
+                to: TxKind::Call(proxy),
+                input: calldata.into(),
+                value: req.value,
+                chain_id: Some(self.chain_id),
+                ..Default::default()
+            })),
+            self.posting_origin.unwrap_or(self.manager),
+        );
 
         // Inspected so nested proxy calls inside the target are recorded in
         // the same composition tree. The outermost frame is skipped: it
         // targets an authorized proxy itself, and intercepting it would
         // re-dispatch the very frame that IS the dispatch.
         let mut inspector = SkipTopFrame::new(if req.call_mode == CallMode::Static {
-            self.client.inspector_factory().build_static(dispatcher)
+            self.client
+                .inspector_factory()
+                .build_static(dispatcher, &self.state.snapshot())
         } else {
-            self.client.inspector_factory().build(dispatcher)
+            self.client
+                .inspector_factory()
+                .build(dispatcher, &self.state.snapshot())
         });
         inspector.top_caller = self.posting_origin.map(|_| self.manager);
         inspector.top_gas_price = self.posting_origin.map(|_| self.posting_gas_price);
-        let (return_data, gas_used, success, mut changes, inspector_error) = {
+        let (return_data, gas_used, success, changes, inspector_error) = {
             let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
-            let traced = crate::composer::quote_trace::inspect(
-                traced,
-                self.chain_id,
-                "composition",
-                &tx_env,
-            );
-            let mut evm = self.evm_config.evm_with_env_and_inspector(
-                &mut self.state,
-                self.evm_env.clone(),
-                traced,
-            );
-            let result = evm.transact(tx_env).map_err(transact_err)?;
-            let output = result.result.output().cloned().unwrap_or_default();
+            let mut traced =
+                crate::composer::quote_trace::inspect(traced, self.chain_id, "composition", &tx);
+            let result = self
+                .state
+                .transact(&self.evm_config, &self.evm_env, &tx, Some(&mut traced))
+                .map_err(transact_err)?;
+            let output = result.result.output.clone();
             let gas_used = result.result.tx_gas_used();
             let success = result.result.is_success();
-            drop(evm);
+            drop(traced);
             let inspector_error = inspector
                 .error
                 .take()
                 .or_else(|| inspector.inner.take_error());
-            (output, gas_used, success, result.state, inspector_error)
+            (
+                output,
+                gas_used,
+                success,
+                result.pending_state,
+                inspector_error,
+            )
         };
         if let Some(err) = inspector_error {
             return Err(err);
@@ -475,10 +470,10 @@ impl TargetExecutionSession for L1TargetSession {
 
         // A reverted frame's only state today is the caller's nonce bump, but
         // committing it would tie the slot-shared state to whatever a future
-        // revm decides to return in `result.state` for a revert.
+        // revm decides to return in `result.pending_state` for a revert.
         if success && req.call_mode == CallMode::Mutable {
-            reset_frame_caller_nonce(&mut changes, self.posting_origin.unwrap_or(self.manager));
-            self.state.commit(changes);
+            self.state
+                .commit_frame(changes, self.posting_origin.unwrap_or(self.manager));
         }
 
         tracing::debug!(
@@ -502,14 +497,14 @@ impl TargetExecutionSession for L1TargetSession {
     fn checkpoint(&mut self) -> ExecutorResult<SessionSnapshot> {
         // Cache-only is sound here: simulation reads state exclusively through
         // the cache, and the bundle/transition state is never consulted.
-        Ok(Box::new(self.state.cache.clone()))
+        Ok(Box::new(self.state.snapshot()))
     }
 
     fn rollback(&mut self, snapshot: &SessionSnapshot) -> ExecutorResult<()> {
         let cache = snapshot
-            .downcast_ref::<CacheState>()
+            .downcast_ref::<OverlaySnapshot>()
             .ok_or_else(|| encoding_err("L1TargetSession::rollback: snapshot type mismatch"))?;
-        self.state.cache = cache.clone();
+        self.state.restore(cache.clone());
         Ok(())
     }
 }
@@ -529,7 +524,7 @@ struct SkipTopFrame<I> {
     top_caller: Option<Address>,
     error: Option<ExecutorError>,
     top_gas_price: Option<u128>,
-    original_gas_price: Option<u128>,
+    original_gas_price: Option<U256>,
 }
 
 impl<I> SkipTopFrame<I> {
@@ -545,53 +540,59 @@ impl<I> SkipTopFrame<I> {
     }
 }
 
-impl<CTX: ContextTr<Tx = revm::context::TxEnv> + ContextSetters, I: Inspector<CTX>> Inspector<CTX>
-    for SkipTopFrame<I>
-{
-    fn initialize_interp(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        self.inner.initialize_interp(interp, context);
+impl<T: EvmTypes, I: Inspector<T>> Inspector<T> for SkipTopFrame<I> {
+    fn inspector_config(&self) -> evm2::evm::inspector::InspectorConfig {
+        self.inner.inspector_config()
     }
 
-    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+    fn initialize_interp(&mut self, interp: &mut Interpreter<'_, '_, T>) {
+        self.inner.initialize_interp(interp);
+    }
+
+    fn call(
+        &mut self,
+        interp: &mut Interpreter<'_, '_, T>,
+        message: &mut Message<T>,
+    ) -> Option<MessageResult<T>> {
         let top = self.depth == 0;
         self.depth += 1;
         if top {
-            // In pinned REVM 38, disable_fee_charge skips upfront deduction
-            // but reimburse_caller/reward_beneficiary still use GASPRICE.
-            // Expose the actual price only inside execution and restore the
-            // synthetic zero price before transaction-level fee accounting.
             if let Some(price) = self.top_gas_price {
-                self.original_gas_price = Some(context.tx().gas_price);
-                let mut tx = context.tx().clone();
-                tx.gas_price = price;
-                context.set_tx(tx);
+                self.original_gas_price = Some(interp.host().tx_env().gas_price);
+                interp.host().tx_env_mut().gas_price = U256::from(price);
             }
             if let Some(caller) = self.top_caller {
-                // A synthetic top-level transaction initially loads its EOA.
-                // The actual value-paying caller is the manager, already warm
-                // in a real postBatch frame. Load it before REVM transfers value.
-                if let Err(error) = context.journal_mut().load_account(caller) {
-                    self.error = Some(provider_err(error));
-                    return None;
+                // The manager is the warm, value-paying caller inside postBatch.
+                match interp.host().state_mut().account(&caller) {
+                    Ok(mut account) => {
+                        account.warm();
+                    }
+                    Err(error) => {
+                        self.error = Some(provider_err(error));
+                        return None;
+                    }
                 }
-                inputs.caller = caller;
+                message.caller = caller;
             }
             return None;
         }
-        self.inner.call(context, inputs)
+        self.inner.call(interp, message)
     }
 
-    fn call_end(&mut self, context: &mut CTX, inputs: &CallInputs, outcome: &mut CallOutcome) {
+    fn call_end(
+        &mut self,
+        interp: &mut Interpreter<'_, '_, T>,
+        message: &Message<T>,
+        result: &mut MessageResult<T>,
+    ) {
         self.depth = self.depth.saturating_sub(1);
         if self.depth == 0
             && let Some(price) = self.original_gas_price.take()
         {
-            let mut tx = context.tx().clone();
-            tx.gas_price = price;
-            context.set_tx(tx);
+            interp.host().tx_env_mut().gas_price = price;
         }
         if self.depth > 0 {
-            self.inner.call_end(context, inputs, outcome);
+            self.inner.call_end(interp, message, result);
         }
     }
 }
@@ -626,14 +627,16 @@ impl InboundL2TargetSession {
             originalRollupId: req.source_rollup_id.0,
         }
         .abi_encode();
-        let tx_env = revm::context::TxEnv {
-            caller: Address::ZERO,
-            gas_limit: VIEW_CALL_GAS_LIMIT,
-            kind: TxKind::Call(self.client.manager_address()),
-            data: calldata.into(),
-            chain_id: Some(self.fork.chain_id()),
-            ..Default::default()
-        };
+        let tx_env = Recovered::new_unchecked(
+            TxLegacy {
+                gas_limit: VIEW_CALL_GAS_LIMIT,
+                to: TxKind::Call(self.client.manager_address()),
+                input: calldata.into(),
+                chain_id: Some(self.fork.chain_id()),
+                ..Default::default()
+            },
+            Address::ZERO,
+        );
         let output = self.fork.view_call(tx_env).map_err(fork_err)?;
         computeCrossChainProxyAddressCall::abi_decode_returns(&output)
             .map_err(|error| encoding_err(format!("decode computeCrossChainProxyAddress: {error}")))
@@ -652,20 +655,22 @@ impl TargetExecutionSession for InboundL2TargetSession {
             self.fork.chain_id(),
         )?;
         let proxy = self.proxy_address(&req)?;
-        let tx_env = revm::context::TxEnv {
-            caller: proxy,
-            gas_limit: DIRECT_CALL_GAS_LIMIT,
-            kind: TxKind::Call(req.target_address),
-            data: req.data.clone(),
-            value: req.value,
-            chain_id: Some(self.fork.chain_id()),
-            ..Default::default()
-        };
+        let tx_env = Recovered::new_unchecked(
+            TxLegacy {
+                gas_limit: DIRECT_CALL_GAS_LIMIT,
+                to: TxKind::Call(req.target_address),
+                input: req.data.clone(),
+                value: req.value,
+                chain_id: Some(self.fork.chain_id()),
+                ..Default::default()
+            },
+            proxy,
+        );
         let factory = self.client.inspector_factory();
         let mut inspector = if req.call_mode == CallMode::Static {
-            factory.build_static(dispatcher)
+            factory.build_static(dispatcher, &self.fork.overlay_snapshot())
         } else {
-            factory.build(dispatcher)
+            factory.build(dispatcher, &self.fork.overlay_snapshot())
         };
         let mut traced = gas_trace::maybe_trace(&mut inspector, self.fork.chain_id());
         let outcome = if req.call_mode == CallMode::Static {
@@ -710,13 +715,13 @@ impl TargetExecutionSession for InboundL2TargetSession {
 #[cfg(test)]
 mod posting_frame_tests {
     use super::*;
-    use revm::{
-        context::{BlockEnv, CfgEnv, TxEnv},
-        database::InMemoryDB,
-        inspector::NoOpInspector,
-        primitives::hardfork::SpecId,
-        state::{AccountInfo, Bytecode},
+    use evm2::{
+        SpecId,
+        bytecode::Bytecode,
+        env::BlockEnv,
+        evm::{AccountInfo, InMemoryDB, inspector::NoopInspector},
     };
+    use reth_evm_ethereum::EthEvmEnv;
 
     #[test]
     fn priced_synthetic_frame_has_real_origin_and_caller_without_charging_fees() {
@@ -729,51 +734,48 @@ mod posting_frame_tests {
             0x47, 0x60, 128, 0x52, 0x60, 160, 0x5f, 0xf3,
         ]);
         let mut database = InMemoryDB::default();
-        database.insert_account_info(poster, AccountInfo::default());
+        database.insert_account_info(&poster, AccountInfo::default());
         database.insert_account_info(
-            manager,
+            &manager,
             AccountInfo {
                 balance: U256::from(20),
                 ..Default::default()
             },
         );
         database.insert_account_info(
-            proxy,
-            AccountInfo {
-                code: Some(Bytecode::new_raw(code)),
-                ..Default::default()
-            },
+            &proxy,
+            AccountInfo::default().with_code(Bytecode::from_stored(code)),
         );
-        let mut cfg = CfgEnv::new().with_spec_and_mainnet_gas_params(SpecId::OSAKA);
-        cfg.disable_fee_charge = true;
-        cfg.disable_balance_check = true;
-        cfg.disable_base_fee = true;
-        let env = reth_evm::EvmEnv {
-            cfg_env: cfg,
-            block_env: BlockEnv {
-                basefee: 10,
-                gas_limit: 1_000_000,
+        let mut env = EthEvmEnv::new(
+            SpecId::OSAKA,
+            BlockEnv::<eez_evm::EezEvmTypes> {
+                basefee: U256::from(10),
+                gas_limit: U256::from(1_000_000),
                 ..Default::default()
             },
-        };
-        let mut inspector = SkipTopFrame::new(NoOpInspector {});
+            1,
+        );
+        eez_evm::disable_fee_charging(&mut env.version);
+        env.version.features.remove(EvmFeatures::BASE_FEE_CHECK);
+        let mut inspector = SkipTopFrame::new(NoopInspector::default());
         inspector.top_caller = Some(manager);
         inspector.top_gas_price = Some(37);
-        let mut result = EezEvmConfig::for_l1_simulation(reth_chainspec::MAINNET.clone())
-            .evm_with_env_and_inspector(database, env, inspector)
-            .transact(TxEnv {
-                caller: poster,
-                kind: TxKind::Call(proxy),
+        let mut evm = EezEvmConfig::for_l1_simulation(reth_chainspec::MAINNET.clone())
+            .evm_with_env(database, env);
+        let tx = Recovered::new_unchecked(
+            eez_evm::EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Legacy(TxLegacy {
+                to: TxKind::Call(proxy),
                 gas_limit: 100_000,
                 value: U256::from(7),
                 ..Default::default()
-            })
-            .unwrap();
+            })),
+            poster,
+        );
+        let result = evm.transact_with_inspector(&tx, &mut inspector).unwrap();
         assert!(result.result.is_success());
         let values = result
             .result
-            .output()
-            .unwrap()
+            .output
             .chunks_exact(32)
             .map(U256::from_be_slice)
             .collect::<Vec<_>>();
@@ -787,14 +789,23 @@ mod posting_frame_tests {
                 U256::from(7)
             ]
         );
-        reset_frame_caller_nonce(&mut result.state, poster);
-        assert_eq!(
-            result.state[&poster].info.balance,
-            U256::ZERO,
-            "a synthetic frame must not pay or mint fees"
+        let mut committed = eez_evm_inspector::OverlaySnapshot::default();
+        committed.commit_pending_resetting_nonce(
+            evm.overlay_db_mut().cache.clone(),
+            &result.pending_state,
+            poster,
         );
-        assert_eq!(result.state[&poster].info.nonce, 0);
-        assert_eq!(result.state[&manager].info.balance, U256::from(13));
-        assert_eq!(result.state[&proxy].info.balance, U256::from(7));
+        assert_eq!(
+            committed.cache.accounts[&poster], None,
+            "a synthetic frame must neither pay fees nor retain an empty sender nonce"
+        );
+        assert_eq!(
+            committed.cache.accounts[&manager].as_ref().unwrap().balance,
+            U256::from(13)
+        );
+        assert_eq!(
+            committed.cache.accounts[&proxy].as_ref().unwrap().balance,
+            U256::from(7)
+        );
     }
 }

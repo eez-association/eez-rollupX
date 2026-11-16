@@ -9,6 +9,7 @@ description            = "Composer umbrella — owns per-rollup Sequencer/Schedu
 [dependencies]
 eez-primitives.workspace = true
 eez-evm.workspace = true
+evm2.workspace = true
 # Internal — protocol, EVM port + inspector, and the existing umbrella siblings
 eez-driver = { workspace = true, features = ["witness", "derivation"] }
 eez-blob-codec.workspace = true
@@ -43,8 +44,9 @@ reth-evm.workspace                        = true
 reth-evm-ethereum.workspace               = true
 reth-payload-primitives.workspace         = true
 reth-primitives-traits.workspace          = true
-reth-revm.workspace                       = true
 reth-storage-api.workspace                = true
+reth-rpc-convert.workspace = true
+reth-rpc-eth-types.workspace = true
 
 # revm direct (overlay-channel paths in local/session.rs)
 revm.workspace = true
@@ -56,7 +58,6 @@ tokio.workspace       = true
 tracing.workspace     = true
 metrics.workspace     = true
 serde_json.workspace  = true
-either.workspace      = true
 
 [dev-dependencies]
 # Trie types required by the fault-injecting StateProvider test fixture.

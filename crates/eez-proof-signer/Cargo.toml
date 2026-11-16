@@ -30,7 +30,7 @@ reth-chainspec.workspace = true
 reth-ethereum-primitives.workspace = true
 reth-evm-ethereum.workspace = true
 reth-primitives-traits.workspace = true
-revm.workspace = true
+evm2.workspace = true
 # The EEZ fork exposes the roots and transaction checkpoints consumed by the
 # validator while sharing the workspace's Reth revision.
 stateless-reth.workspace = true
@@ -49,6 +49,25 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
+reth-db.workspace = true
+reth-prune = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-engine-tree.workspace = true
+reth-storage-overlay.workspace = true
+reth-node-types.workspace = true
+reth-db-common.workspace = true
+reth-ethereum-consensus.workspace = true
+reth-engine-primitives.workspace = true
+reth-payload-primitives.workspace = true
+reth-payload-builder.workspace = true
+reth-ethereum-payload-builder.workspace = true
+alloy-rpc-types-engine.workspace = true
+reth-provider = { workspace = true, features = ["test-utils"] }
+reth-tasks = { workspace = true, features = ["test-utils"] }
+# Exercise production witness capture against real Reth trie proofs.
+eez-driver = { workspace = true, features = ["witness"] }
+reth-storage-api.workspace = true
+reth-trie.workspace = true
+reth-chain-state.workspace = true
 alloy-signer-local.workspace = true
 # Construct real execution witnesses for observation-boundary regressions.
 reth-evm.workspace = true
@@ -58,6 +77,10 @@ reth-trie-common.workspace = true
 hex.workspace = true
 # Client-side of the in-process Prove round-trip tests.
 tokio-stream = { workspace = true, features = ["net"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+# Measure rollback allocations with the allocator already selected by Reth.
+tikv-jemalloc-ctl = "=0.6.1"
 
 [lints]
 workspace = true

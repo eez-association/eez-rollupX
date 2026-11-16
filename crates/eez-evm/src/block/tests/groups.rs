@@ -3,29 +3,27 @@ use alloy_consensus::{SignableTransaction, TxLegacy};
 use alloy_primitives::{Bytes, Signature, TxKind};
 use eez_protocol::system_tx::LOAD_EXECUTION_TABLE_SELECTOR;
 use reth_primitives_traits::Recovered;
-use revm::inspector::NoOpInspector;
 
 const USER: Address = Address::with_last_byte(77);
 const TARGET: Address = Address::with_last_byte(88);
-type Executor<'a> = EezBlockExecutor<
-    'a,
-    crate::evm::EezEvm<&'a mut State<InMemoryDB>, NoOpInspector>,
-    &'a Arc<reth_chainspec::ChainSpec>,
->;
+type Executor<'a> = EezBlockExecutor<'a>;
 
 struct Fixture {
     factory: EezBlockExecutorFactory<reth_chainspec::ChainSpec>,
-    state: State<InMemoryDB>,
+    state: InMemoryDB,
 }
 
 impl Fixture {
     fn new(manager: Bytes, target: Bytes) -> Self {
         let (history, mut db) = crate::history::tests::fixture();
-        db.insert_account_info(USER, AccountInfo::from_balance(U256::from(1_000_000)));
+        db.insert_account_info(
+            &USER,
+            AccountInfo::empty().with_balance(U256::from(1_000_000)),
+        );
         for (address, raw) in [(EEZL2_ADDRESS, manager), (TARGET, target)] {
-            let code = Bytecode::new_raw(raw);
+            let code = Bytecode::from_stored(raw);
             db.insert_account_info(
-                address,
+                &address,
                 AccountInfo {
                     code_hash: code.hash_slow(),
                     code: Some(code),
@@ -37,14 +35,12 @@ impl Fixture {
         let spec = Arc::new(ChainSpecBuilder::mainnet().osaka_activated().build());
         let mut factory = EezBlockExecutorFactory::new(spec, ExecutionLayer::Rollup);
         factory.history = Some(history);
-        factory.evm = crate::tests::factory();
-        Self {
-            factory,
-            state: State::builder()
-                .with_database(db)
-                .with_bundle_update()
-                .build(),
-        }
+        factory.ethereum = EthBlockExecutorFactory::new_with_receipt_builder(
+            crate::EezReceiptBuilder,
+            factory.ethereum.chain_spec().clone(),
+            crate::tests::factory(),
+        );
+        Self { factory, state: db }
     }
 
     fn executor(&mut self) -> Executor<'_> {
@@ -52,20 +48,20 @@ impl Fixture {
     }
 
     fn executor_with_fees(&mut self, basefee: u64, beneficiary: Address) -> Executor<'_> {
-        let evm = self.factory.evm_factory().create_evm(
-            &mut self.state,
-            EvmEnv {
-                cfg_env: CfgEnv::new_with_spec(SpecId::OSAKA).with_chain_id(1337),
-                block_env: BlockEnv {
-                    basefee,
+        let evm = self.factory.evm_with_env(
+            self.state.clone(),
+            EthEvmEnv::<EezEvmTypes>::new(
+                SpecId::OSAKA,
+                BlockEnv::<EezEvmTypes> {
+                    basefee: U256::from(basefee),
                     beneficiary,
                     number: U256::ONE,
                     timestamp: U256::from(5),
-                    gas_limit: 30_000_000,
-                    prevrandao: Some(B256::ZERO),
+                    gas_limit: U256::from(30_000_000),
                     ..Default::default()
                 },
-            },
+                1337,
+            ),
         );
         let mut executor = self.factory.create_executor(
             evm,
@@ -116,7 +112,7 @@ fn native(executor: &Executor<'_>, load: bool, value: u64) -> Recovered<EezTxEnv
     let tx = eez_primitives::SystemTransaction {
         chain_id: 1337,
         source_hash: B256::repeat_byte(99),
-        gas_limit: system_tx_gas_limit(30_000_000, executor.cumulative_tx_gas_used),
+        gas_limit: system_tx_gas_limit(30_000_000, executor.inner.inner.cumulative_gas_used),
         to: EEZL2_ADDRESS,
         value: U256::from(value),
         input: Bytes::copy_from_slice(&selector),
@@ -127,8 +123,8 @@ fn native(executor: &Executor<'_>, load: bool, value: u64) -> Recovered<EezTxEnv
 fn balance(executor: &mut Executor<'_>, account: Address) -> U256 {
     executor
         .evm_mut()
-        .db_mut()
-        .basic(account)
+        .overlay_db_mut()
+        .get_account(&account)
         .unwrap()
         .map_or(U256::ZERO, |a| a.balance)
 }
@@ -150,19 +146,20 @@ fn paid_groups_reconcile_value_fees_and_both_cleanup_boundaries() {
         manager.extend_from_slice(PAYEE.as_slice());
         manager.extend_from_slice(&bytes!("5af15000"));
         let mut f = Fixture::new(manager.into(), target);
-        f.state
-            .database
-            .insert_account_info(USER, AccountInfo::from_balance(U256::from(OPENING)));
+        f.state.insert_account_info(
+            &USER,
+            AccountInfo::empty().with_balance(U256::from(OPENING)),
+        );
         let mut executor = f.executor_with_fees(10, BENEFICIARY);
         executor
             .execute_transaction(ordinary_at_price(0, SYSTEM_ADDRESS, 9, 13))
             .unwrap();
-        let gas_before_load = executor.cumulative_tx_gas_used;
+        let gas_before_load = executor.inner.inner.cumulative_gas_used;
         let fee_before_load = balance(&mut executor, collector);
         executor
             .execute_transaction(native(&executor, true, 37))
             .unwrap();
-        assert!(executor.cumulative_tx_gas_used > gas_before_load);
+        assert!(executor.inner.inner.cumulative_gas_used > gas_before_load);
         assert_eq!(balance(&mut executor, collector), fee_before_load);
         assert_eq!(balance(&mut executor, PAYEE), U256::from(7));
         assert_eq!(balance(&mut executor, EEZL2_ADDRESS), U256::from(30));
@@ -194,16 +191,18 @@ fn paid_groups_reconcile_value_fees_and_both_cleanup_boundaries() {
             balance(&mut executor, USER),
             U256::from(OPENING - 14 - if success { 11 } else { 0 } - 13 * paid_gas)
         );
-        let (mut evm, output) = executor.finish().unwrap();
+        let output = executor.finish().unwrap();
+        let mut db = f.state.clone();
+        db.commit_source(&BundleSource(&output.state));
+        let output = output.result;
         assert_eq!(output.receipts.len(), 4);
         let mut closing = U256::ZERO;
         for account in [USER, TARGET, PAYEE, collector, BENEFICIARY]
             .into_iter()
             .chain(PROTOCOL_BALANCE_ACCOUNTS)
         {
-            let amount = evm
-                .db_mut()
-                .basic(account)
+            let amount = db
+                .get_account(&account)
                 .unwrap()
                 .unwrap_or_default()
                 .balance;
@@ -235,23 +234,25 @@ fn completed_blocks_clear_protocol_residue_from_standalone_transactions() {
     executor
         .execute_transaction(ordinary(2, EEZL2_ADDRESS, 0))
         .unwrap();
-    let gas = executor.cumulative_tx_gas_used;
-    let (mut evm, output) = executor.finish().unwrap();
+    let gas = executor.inner.inner.cumulative_gas_used;
+    let output = executor.finish().unwrap();
+    let mut db = f.state.clone();
+    db.commit_source(&BundleSource(&output.state));
+    let output = output.result;
     for address in PROTOCOL_BALANCE_ACCOUNTS {
         assert_eq!(
-            evm.db_mut()
-                .basic(address)
+            db.get_account(&address)
                 .unwrap()
                 .map_or(U256::ZERO, |a| a.balance),
             U256::ZERO
         );
     }
     assert_eq!(
-        evm.db_mut().storage(EEZL2_ADDRESS, U256::ZERO).unwrap(),
+        db.get_storage(&EEZL2_ADDRESS, &U256::ZERO).unwrap(),
         U256::from(29)
     );
     assert_eq!(
-        evm.db_mut().basic(USER).unwrap().unwrap().balance,
+        db.get_account(&USER).unwrap().unwrap().balance,
         U256::from(1_000_000 - 46)
     );
     assert_eq!(output.receipts.len(), 3);
@@ -288,8 +289,8 @@ fn complete_groups_clear_only_protocol_balances_after_user_and_inbound_execution
     assert_eq!(
         executor
             .evm_mut()
-            .db_mut()
-            .storage(EEZL2_ADDRESS, U256::ZERO)
+            .overlay_db_mut()
+            .get_storage(&EEZL2_ADDRESS, &U256::ZERO)
             .unwrap(),
         U256::from(48)
     );
@@ -300,16 +301,16 @@ fn complete_groups_clear_only_protocol_balances_after_user_and_inbound_execution
     assert_eq!(
         executor
             .evm_mut()
-            .db_mut()
-            .storage(EEZL2_ADDRESS, U256::ZERO)
+            .overlay_db_mut()
+            .get_storage(&EEZL2_ADDRESS, &U256::ZERO)
             .unwrap(),
         U256::from(19)
     );
     assert_eq!(
         executor
             .evm_mut()
-            .db_mut()
-            .basic(EEZL2_ADDRESS)
+            .overlay_db_mut()
+            .get_account(&EEZL2_ADDRESS)
             .unwrap()
             .unwrap()
             .nonce,
@@ -322,12 +323,14 @@ fn complete_groups_clear_only_protocol_balances_after_user_and_inbound_execution
         .unwrap();
     assert_eq!(balance(&mut executor, SYSTEM_ADDRESS), U256::from(7));
     assert_eq!(balance(&mut executor, USER), U256::from(1_000_000 - 27));
-    let gas = executor.cumulative_tx_gas_used;
-    let (mut evm, output) = executor.finish().unwrap();
+    let gas = executor.inner.inner.cumulative_gas_used;
+    let output = executor.finish().unwrap();
+    let mut db = f.state.clone();
+    db.commit_source(&BundleSource(&output.state));
+    let output = output.result;
     for address in PROTOCOL_BALANCE_ACCOUNTS {
         assert_eq!(
-            evm.db_mut()
-                .basic(address)
+            db.get_account(&address)
                 .unwrap()
                 .map_or(U256::ZERO, |a| a.balance),
             U256::ZERO
@@ -357,7 +360,12 @@ fn reverted_and_halted_users_clean_on_commit_but_discarded_previews_do_not() {
             .unwrap();
         assert!(!preview.result().result.is_success());
         assert_eq!(
-            preview.result().state[&EEZL2_ADDRESS].info.balance,
+            preview
+                .result()
+                .pending_state
+                .account_info(&EEZL2_ADDRESS)
+                .unwrap()
+                .balance,
             U256::ZERO
         );
         assert_eq!(balance(&mut executor, EEZL2_ADDRESS), U256::from(37));
@@ -367,7 +375,7 @@ fn reverted_and_halted_users_clean_on_commit_but_discarded_previews_do_not() {
             .execute_transaction_without_commit(ordinary(0, TARGET, 0))
             .unwrap();
         let gas = result.result().result.tx_gas_used();
-        executor.commit_transaction(result);
+        executor.commit_transaction(result).unwrap();
         assert_eq!(balance(&mut executor, EEZL2_ADDRESS), U256::ZERO);
         assert!(executor.group_state().ensure_complete().is_ok());
         assert_eq!(

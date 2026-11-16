@@ -8,6 +8,7 @@
 
 use alloy_primitives::{Address, B256, address, b256};
 
+pub(crate) mod capture_provider;
 pub(crate) mod history;
 pub(crate) mod history_observations;
 
@@ -365,3 +366,9 @@ pub(crate) fn encode_da_payload(blocks: &[Vec<Vec<u8>>]) -> Vec<u8> {
     )
     .unwrap()
 }
+
+mod engine_state_root;
+
+mod engine_create_vectors;
+
+mod engine_child_sload;

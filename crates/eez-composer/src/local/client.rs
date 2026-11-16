@@ -7,17 +7,13 @@
 
 use std::sync::Arc;
 
+use super::state::SimState;
 use alloy_primitives::{Address, Bytes};
 use eez_evm::EezEvmConfig;
 use eez_primitives::EezTxEnvelope as TransactionSigned;
-use reth_evm::{ConfigureEvm, Evm as _};
+use evm2::registry::HandlerError;
 use reth_primitives_traits::SignerRecoverable;
-use reth_revm::{database::StateProviderDatabase, db::State};
-use reth_storage_api::{
-    BlockNumReader, EvmStateProviderAdapter, HeaderProvider, StateProviderBox, StateProviderFactory,
-};
-use revm::DatabaseCommit;
-use revm::context::result::EVMError;
+use reth_storage_api::{BlockNumReader, HeaderProvider, StateProviderFactory};
 
 use crate::composer::gas_trace;
 use eez_evm_inspector::{OverlayChannelHandle, SessionInspectorFactory, new_overlay_channel};
@@ -82,7 +78,7 @@ pub struct LocalChainClient {
     /// Bidirectional cache channel used to propagate in-flight state through
     /// nested dispatches that re-enter this rollup.
     overlay_channel: OverlayChannelHandle,
-    session_context: Option<(alloy_primitives::B256, reth_evm::EvmEnv)>,
+    session_context: Option<(alloy_primitives::B256, reth_evm::EvmEnvFor<EezEvmConfig>)>,
 }
 
 impl std::fmt::Debug for LocalChainClient {
@@ -299,7 +295,7 @@ impl LocalChainClient {
         &self,
         raw_tx: Vec<u8>,
         dispatcher: &mut CompositionBuilder,
-        state: &mut State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>,
+        state: &mut SimState,
         evm_env: reth_evm::EvmEnvFor<EezEvmConfig>,
     ) -> ExecutorResult<bool> {
         self.simulate_source_tx_on_with_retries(raw_tx, dispatcher, state, evm_env, false)
@@ -311,7 +307,7 @@ impl LocalChainClient {
     pub(crate) fn isolated(
         &self,
         hash: alloy_primitives::B256,
-        env: reth_evm::EvmEnv,
+        env: reth_evm::EvmEnvFor<EezEvmConfig>,
     ) -> Arc<Self> {
         Arc::new(Self {
             provider: self.provider.clone(),
@@ -336,7 +332,7 @@ impl LocalChainClient {
         &self,
         raw_tx: Vec<u8>,
         dispatcher: &mut CompositionBuilder,
-        state: &mut State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>,
+        state: &mut SimState,
         evm_env: reth_evm::EvmEnvFor<EezEvmConfig>,
         retry_unavailable_conditions: bool,
     ) -> ExecutorResult<SourceSimulation> {
@@ -365,7 +361,7 @@ impl LocalChainClient {
         );
 
         let recovered = reth_primitives_traits::Recovered::new_unchecked(tx, signer);
-        let tx_env = self.provider.evm_config.tx_env(&recovered);
+        let tx_env = recovered.map(eez_evm::EezEvmTx::from);
 
         self.simulate_source_env_on(
             tx_env,
@@ -380,9 +376,9 @@ impl LocalChainClient {
     /// as signed admission. The caller owns a disposable, pinned state.
     pub(crate) fn simulate_source_env_on(
         &self,
-        tx_env: revm::context::TxEnv,
+        tx_env: alloy_consensus::transaction::Recovered<eez_evm::EezEvmTx>,
         dispatcher: &mut CompositionBuilder,
-        state: &mut State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>,
+        state: &mut SimState,
         evm_env: reth_evm::EvmEnvFor<EezEvmConfig>,
         retry_unavailable_conditions: bool,
     ) -> ExecutorResult<SourceSimulation> {
@@ -395,71 +391,60 @@ impl LocalChainClient {
         // The source-simulation inspector dispatches every detected proxy CALL
         // through the composition builder, which records calls in preorder.
         // Attach the cache channel around each downstream dispatch.
-        let mut inspector = self.inspector_factory().build(dispatcher);
-        let traced = gas_trace::maybe_trace(&mut inspector, evm_env.cfg_env.chain_id);
-        let traced = crate::composer::quote_trace::inspect(
+        let mut inspector = self
+            .inspector_factory()
+            .build(dispatcher, &state.snapshot());
+        let traced = gas_trace::maybe_trace(&mut inspector, evm_env.version.chain_id);
+        let mut traced = crate::composer::quote_trace::inspect(
             traced,
-            evm_env.cfg_env.chain_id,
+            evm_env.version.chain_id,
             "composition",
             &tx_env,
         );
-        let mut evm =
-            self.provider
-                .evm_config
-                .evm_with_env_and_inspector(&mut *state, evm_env, traced);
-        let (gas_used, success, output, changes) = match evm.transact(tx_env) {
+        let result = state.transact(
+            &self.provider.evm_config,
+            &evm_env,
+            &tx_env,
+            Some(&mut traced),
+        );
+        drop(traced);
+        let (gas_used, success, output, changes) = match result {
             Ok(r) => (
                 r.result.tx_gas_used(),
                 r.result.is_success(),
-                r.result.output().cloned().unwrap_or_default(),
-                Some(r.state),
+                r.result.output.clone(),
+                Some(r.pending_state),
             ),
             // The backing store is unreachable — that is the slot's problem, not
             // the tx's, so it must not degrade into an empty composition (which
             // the drain reads as poison and evicts on).
-            Err(EVMError::Database(e)) => return Err(ExecutorError::provider(e)),
-            Err(EVMError::Transaction(e))
-                if retry_unavailable_conditions
-                    && matches!(
-                        e,
-                        revm::context::result::InvalidTransaction::GasPriceLessThanBasefee
-                            | revm::context::result::InvalidTransaction::LackOfFundForMaxFee { .. }
-                            | revm::context::result::InvalidTransaction::NonceTooHigh { .. }
-                    ) =>
-            {
-                // Fees, funding, or an unexecuted/orphaned predecessor can
-                // repair this exact signed source. Keep ownership and nonce
-                // ordering until the source becomes executable in this slot.
+            Err(HandlerError::Database(e)) => return Err(ExecutorError::provider(e)),
+            Err(e) => {
                 use eez_protocol::SourceCondition;
-                use revm::context::result::InvalidTransaction;
-                let condition = match e {
-                    InvalidTransaction::NonceTooHigh { tx, state } => SourceCondition::Nonce {
-                        transaction_nonce: tx,
-                        required_nonce: state,
-                    },
-                    InvalidTransaction::LackOfFundForMaxFee { fee, balance } => {
-                        SourceCondition::Balance {
+                // Only a future nonce is repairable; a consumed nonce remains a rejection.
+                let condition = match &e {
+                    HandlerError::InvalidNonce { expected, got } if got > expected => {
+                        Some(SourceCondition::Nonce {
+                            transaction_nonce: *got,
+                            required_nonce: *expected,
+                        })
+                    }
+                    HandlerError::InsufficientFunds { fee, balance } => {
+                        Some(SourceCondition::Balance {
                             required: *fee,
                             available: *balance,
-                        }
+                        })
                     }
-                    InvalidTransaction::GasPriceLessThanBasefee => SourceCondition::Fee,
-                    _ => unreachable!("matched source condition"),
+                    HandlerError::FeeCapLessThanBaseFee { .. } => Some(SourceCondition::Fee),
+                    _ => None,
                 };
-                return Err(ExecutorErrorKind::SourceBlocked(condition).into());
-            }
-            // Rejected before execution. Same outcome as a
-            // revert — no calls, so the drain evicts — but named for what it is.
-            Err(EVMError::Transaction(e)) => {
-                tracing::warn!(%e, "source tx rejected at validation; it records no cross-chain call");
-                (0, false, Bytes::new(), None)
-            }
-            Err(e) => {
-                tracing::warn!(%e, "source sim reverted");
+                if retry_unavailable_conditions && let Some(condition) = condition {
+                    return Err(ExecutorErrorKind::SourceBlocked(condition).into());
+                }
+                tracing::warn!(%e, "source tx rejected at execution; it records no cross-chain call");
                 (0, false, Bytes::new(), None)
             }
         };
-        drop(evm);
         let inspector_error = inspector.take_error();
 
         if let Some(err) = inspector_error {
@@ -468,7 +453,7 @@ impl LocalChainClient {
         // The trait-method caller's `State` is function-local, so committing
         // into it is unobservable there; the fork caller needs the writes.
         if let Some(changes) = changes {
-            state.commit(changes);
+            state.commit(&changes);
         }
 
         tracing::info!(gas_used, success, "source simulation complete");
@@ -617,8 +602,11 @@ mod tests {
                 let (mut state, mut env) = slot.fork_state(&client).unwrap();
                 // The generic fixture is pre-Byzantium; enable REVERT so this
                 // comparison exercises revert bytes rather than InvalidFE.
-                env.cfg_env
-                    .set_spec_and_mainnet_gas_params(revm::primitives::hardfork::SpecId::BYZANTIUM);
+                env = reth_evm_ethereum::EthEvmEnv::new(
+                    evm2::SpecId::BYZANTIUM,
+                    env.block,
+                    env.version.chain_id,
+                );
                 let mut builder = CompositionBuilder::new(RollupId::MAINNET, Default::default());
                 let scope = traced.then(|| quote_trace::Scope::begin(json!({}), json!({})));
                 quote_trace::phase(0, "gas_estimation");
@@ -632,7 +620,8 @@ mod tests {
                     )
                     .unwrap();
                 let trace = scope.map(quote_trace::Scope::finish);
-                let account = revm::Database::basic(&mut state, signer().address()).unwrap();
+                let account =
+                    evm2::evm::Database::get_account(&mut state.db, &signer().address()).unwrap();
                 (
                     (result.success, result.gas_used, result.output, account),
                     trace,
@@ -959,9 +948,12 @@ mod tests {
             let client = fixture_with_balance(balance);
             let slot = L1SlotState::open(&client).unwrap();
             let (mut state, mut env) = slot.fork_state(&client).unwrap();
-            env.cfg_env = revm::context::CfgEnv::new()
-                .with_spec_and_mainnet_gas_params(revm::primitives::hardfork::SpecId::LONDON);
-            env.block_env.basefee = basefee;
+            env = reth_evm_ethereum::EthEvmEnv::new(
+                evm2::SpecId::LONDON,
+                env.block,
+                env.version.chain_id,
+            );
+            env.block.basefee = U256::from(basefee);
             let mut dispatcher = CompositionBuilder::new(RollupId::MAINNET, Default::default());
             client.simulate_source_tx_on_with_retries(
                 signed_tx(to),

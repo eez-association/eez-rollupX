@@ -1,7 +1,7 @@
-# Reth v2.7 patches
+# Reth v2.11 patches
 
-These three crates are copied from Reth **v2.7.0**, commit
-`3d592ece6de8c4559987416a544fc215fd6d6921`. They retain their upstream
+These three crates are copied from Reth **v2.11.0**, commit
+`b9abbcc1b982755baa9021e6874e2e58936ca65f`. They retain their upstream
 `MIT OR Apache-2.0` license; both license texts are included here.
 
 | Local crate | Upstream directory | Patch |
@@ -10,23 +10,65 @@ These three crates are copied from Reth **v2.7.0**, commit
 | `reth-node-builder` | `crates/node/builder` | `shutdown.patch` |
 | `reth-rpc-builder` | `crates/rpc/rpc-builder` | `rpc-shared-guard.patch` |
 
-The engine and launcher changes come from
+The shutdown fix was originally backported from
 [upstream PR #27609](https://github.com/paradigmxyz/reth/pull/27609), head
-`00a894ab7925d9af094689478abcb8aaaa410459`. That proposal was **open and
-unmerged** when inspected on 2026-10-12. This is a locally reviewed backport,
-not an upstream release or an upgrade to upstream main.
+`00a894ab7925d9af094689478abcb8aaaa410459`. That proposal was open when
+inspected on 2026-10-12; this directory records a local adaptation to the exact
+v2.11.0 release, not an adoption of upstream main.
 
-The engine previously acknowledged termination before dropping its persistence
-and prewarming workers. Their RocksDB cleanup could then race native process
-destructors and abort a successful restart. The backport releases these workers
-before acknowledging termination. The launcher also waits for explicit shutdown
-completion before treating a closed engine event channel as an error.
+Reth v2.11.0 already drops the engine before acknowledging termination in
+`EngineApiTreeHandler::run`, and its persistence service joins on drop. Those
+upstream implementations are unchanged. The local patch retains the missing
+prewarming-worker join, waits for every payload-prewarm context to release its provider,
+and makes explicit launcher shutdown await completion before event-channel closure can
+be treated as fatal. These joins are cooperative and unbounded: an in-flight transaction
+or blocked provider read can delay shutdown indefinitely. The original cleanup regression
+uses an idle worker and covers successful and failed persistence; on unpatched v2.11.0
+it fails because termination is acknowledged before that worker's cleanup.
 
-`shutdown.patch` records the complete upstream diff, including its unit and
-Ethereum process regressions. The latter live outside these two crates and are
-retained in the patch as reference coverage, not as tests run by this workspace.
-See the [investigation](../../../docs/audits/2026-10-11-public-release-readiness/README.md)
-for executed validation and limitations.
+A disposable payload/Engine regression also exposed RocksDB provider destruction on the
+named prewarm worker after process exit began. Each prewarm context now carries a
+completion sender as its last field, including clones used by parallel transaction and
+BAL prewarming. Processor destruction releases its own sender and waits for disconnection.
+This adds no wait to normal block execution. Payload handles must be released first so
+their termination/validation signals unblock those contexts.
+
+Validation-path sparse-trie, proof-worker and serial-root fallback tasks retain the
+same engine-owned signal. A local task owner drops its captures before its sender,
+including on unwind or when never run. Proof workers retain a small read-only factory
+wrapper until their worker-local providers exit. This adds no per-block cleanup wait
+and no worker-name barrier. It applies to the default strategy; custom strategies must
+own their own background lifecycle.
+
+The payload regression covers empty, donation and history blocks, including six ordinary
+transactions to engage parallel prewarming. Successful process exit is checked separately;
+an immediate MDBX reference count is not a complete ownership oracle. Deterministic probes
+check prewarm whole/partial-move drop, dispatcher capture and panic paths, and task-owner
+return/unwind/unrun drop. Call-site tests drive `DefaultStateRootStrategy::prepare`
+through success, cancellation, blocked proof-worker initialization/failure, and a zero-timeout
+serial fallback that outlives the winning sparse result. A separate real proof-worker test
+injects a job panic and holds provider replacement; it composes with the `prepare` propagation
+test rather than injecting a panic through the full Engine path. A real processor-drop test
+holds its own `shutdown_owner()` clone, observes no completion for 100 ms, then releases it
+and requires completion. Validator sender identity and full Engine acknowledgement for
+prepare-launched work remain source-inspected. A separate deliberately
+reordered context makes the prewarm probe fail at the intended lifetime assertion.
+
+Payload-builder sparse tasks still use the unchanged public spawn path without an engine
+signal. With builder sharing enabled, their position ahead of validation work on a named
+worker FIFO can nevertheless delay the engine's completion signal. Their launcher/job
+cancellation ordering remains an explicit gate before extending
+this wait. BAL pool provider closures are covered indirectly by blocking `end_block`;
+BAL execution, a blocked provider or prewarming-pool thread, and full-node restart still
+need validation. The signal does not establish that every RocksDB owner is released before
+Engine acknowledgement, and cannot provide bounded shutdown for non-returning work.
+
+`shutdown.patch` is the complete local difference from v2.11.0 for these two
+crates, including the unit regression. The original Ethereum process regression
+is outside these crates and is not coverage provided by this workspace. Full
+node shutdown/restart still needs process validation. The historical
+[investigation](../../../docs/audits/2026-10-11-public-release-readiness/README.md)
+records the original v2.7 backport, not validation of this upgrade.
 
 `rpc-shared-guard.patch` is a local accessor and regression, not an upstream
 backport. `RpcRegistryInner::blocking_pool_guard()` clones the existing guard
@@ -43,14 +85,20 @@ This checks shared admission without sockets, state lookups or timing assumption
 Callers remain responsible for retaining their permit until expensive work ends,
 including when the client cancels its request.
 
-The crate manifests are unchanged from v2.7.0. This directory's workspace
+The crate manifests are unchanged from v2.11.0. This directory's workspace
 manifest expands their inherited package metadata, lints and dependency entries
 from the same revision; upstream path dependencies point to the existing
-`v2.7.0` Git source. Its Tokio minimum is 1.53.3, matching the root workspace's
+`v2.11.0` Git source. Its Tokio minimum is 1.53.3, matching the root workspace's
 reviewed security update. The root and this workspace patch only these three
 Reth packages; the RPC accessor introduces no dependency or feature change.
 Keeping the patches under `crates/` makes them part of every existing Docker
-producer and source-content cache key.
+producer and source-content cache key. The root and this workspace select official evm2 at
+`e681662b6d9ec59edafd112f7c8d64f49f1e6dd1`, using the official repository's
+`DaniPopes/evm2` redirect to override Reth's older `alloy-rs/evm2` revision.
+No local engine fork or path dependency is required. RollupX's fee and native
+system-call adaptation lives in `eez-evm`; these vendored crates retain only
+the recorded shutdown and shared-quota changes. All producer inputs and exact
+Git dependencies must be available before frozen Docker/CI qualification.
 
 The debug unit CI lane selects the cleanup and shared-quota regressions in
 separate steps in this workspace, both with `--locked` and `--no-tests=fail`.
@@ -60,26 +108,39 @@ and source identities remain aligned. Its local patches select the same three
 packages. Reproduce the cleanup check from the repository root:
 
 ```bash
-cargo +1.95.0 nextest run --locked \
-  --manifest-path crates/vendor/reth/Cargo.toml \
-  -p reth-engine-tree --lib \
-  -E 'test(test_engine_termination_waits_for_cleanup)' \
-  --no-tests=fail --retries 0 --flaky-result fail
+set -euo pipefail
+for test in \
+  tree::tests::forkchoice_updated_tests::test_engine_termination_waits_for_cleanup \
+  tree::payload_processor::prewarm::tests::prewarm_shutdown_signal_follows_factory_drop_on_every_exit \
+  tree::payload_processor::tests::processor_drop_waits_for_background_owner \
+  tree::state_root_strategy::tests::shutdown_owned_resources_precede_completion_on_return_unwind_and_unrun_drop \
+  tree::state_root_strategy::shutdown_tests::prepare_owns_sparse_root_until_success_or_cancellation \
+  tree::state_root_strategy::shutdown_tests::prepare_owns_proof_workers_after_cancellation_or_open_failure \
+  tree::state_root_strategy::shutdown_tests::prepare_owns_serial_fallback_after_sparse_root_wins \
+  tree::state_root_strategy::shutdown_tests::proof_job_panic_retains_owner_until_provider_replacement_exits \
+; do
+  cargo +1.96.0 nextest run --locked \
+    --manifest-path crates/vendor/reth/Cargo.toml \
+    -p reth-engine-tree --lib -E "test(=$test)" \
+    --no-tests=fail --retries 0 --flaky-result fail
+done
 ```
 
 The shared-quota regression uses the same existing test infrastructure:
 
 ```bash
-cargo +1.95.0 nextest run --locked \
+cargo +1.96.0 nextest run --locked \
   --manifest-path crates/vendor/reth/Cargo.toml \
   -p reth-rpc-builder --lib \
   -E 'test(test_exported_guard_shares_debug_quota)' \
   --no-tests=fail --retries 0 --flaky-result fail
 ```
 
-The commands above are reproduction recipes; configuring the new CI selection
-does not establish that the shared-quota test has run. Executed validation is recorded in the
-[extended branch audit](../../../docs/audits/2026-10-24-extended-validation/README.md).
+These commands require the v2.11 Rust 1.96 / LLVM 23 toolchain. They select
+focused package regressions, not full runtime or storage compatibility. The
+[extended branch audit](../../../docs/audits/2026-10-24-extended-validation/README.md)
+records earlier v2.7 validation only; migration evidence must identify the new
+source and executable artifacts.
 
 To review or regenerate, check out the exact base revision above, apply
 the two patches, and compare/copy the directories in the table. The RPC patch is

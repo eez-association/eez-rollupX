@@ -1,11 +1,14 @@
 //! Real target sessions over an in-memory provider; no network or node process.
 mod provider;
+pub(crate) mod proxy_lookup;
 use super::*;
 use alloy_consensus::Header;
 use alloy_primitives::{U256, bytes};
 use eez_protocol::{CallMode, ExecutionOutcome, ExecutionRequest};
 use reth_chainspec::ChainSpecBuilder;
+use reth_evm::ConfigureEvm;
 use reth_provider::test_utils::{ExtendedAccount, MockEthProvider};
+use reth_storage_api::StateProviderBox;
 
 const MANAGER: Address = Address::repeat_byte(0x11);
 const PROXY: Address = Address::repeat_byte(0x22);
@@ -48,9 +51,9 @@ fn fixture(manager_code: Bytes, target_code: Bytes) -> (Arc<LocalChainClient>, M
         .evm_config
         .evm_env(&Header::default())
         .unwrap();
-    env.cfg_env
-        .set_spec_and_mainnet_gas_params(revm::primitives::hardfork::SpecId::BYZANTIUM);
-    env.block_env.gas_limit = 30_000_000;
+    env =
+        reth_evm_ethereum::EthEvmEnv::new(evm2::SpecId::BYZANTIUM, env.block, env.version.chain_id);
+    env.block.gas_limit = U256::from(30_000_000);
     Arc::get_mut(&mut client).unwrap().session_context = Some((alloy_primitives::B256::ZERO, env));
     (client, provider)
 }
@@ -151,6 +154,11 @@ fn with_faults(
     let faults = provider::FaultProvider {
         inner: provider,
         fail_storage_at: at,
+        fail_account_at: None,
+        fail_storage_key: None,
+        once: false,
+        injected: Arc::new(AtomicUsize::new(0)),
+        matched: Arc::new(AtomicUsize::new(0)),
         failing: Arc::new(AtomicBool::new(true)),
         target_reads: Arc::new(AtomicUsize::new(0)),
     };
@@ -197,14 +205,14 @@ pub(crate) fn manager_lookup_errors() -> Vec<ExecutorError> {
 }
 
 fn assert_provider_error(error: ExecutorError) {
-    use reth_revm::db::bal::EvmDatabaseError;
+    use evm2::DatabaseError;
     use reth_storage_api::errors::provider::ProviderError;
     let ExecutorErrorKind::Provider(source) = error.kind() else {
         panic!("{error:?}")
     };
     assert!(
-        matches!(source.downcast_ref::<EvmDatabaseError<ProviderError>>(),
-        Some(EvmDatabaseError::Database(ProviderError::StateForHashNotFound(hash))) if *hash == alloy_primitives::B256::repeat_byte(0xfa))
+        matches!(source.downcast_ref::<DatabaseError>().and_then(|e| e.downcast_ref::<ProviderError>()),
+        Some(ProviderError::StateForHashNotFound(hash)) if *hash == alloy_primitives::B256::repeat_byte(0xfa))
     );
 }
 

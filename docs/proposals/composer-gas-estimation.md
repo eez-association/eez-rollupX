@@ -364,7 +364,8 @@ concurrency; report actual preparation/probe costs and timeout rates, and confir
 wallet estimation performs no KZG/witness/proof work. No
 throughput or gas-tightness improvement is claimed before measurement.
 
-Build with Rust 1.95.0 and Foundry 1.7.1. Run formatting, locked workspace Clippy,
+Build with the current [repository toolchain](../../AGENTS.md#build-and-validate).
+Run formatting, locked workspace Clippy,
 affected Composer/node unit tests and serial `node_e2e` modules `cross_chain::`,
 `chained_interstate::`, `dynamic_admission::` and relevant queue/settlement cases.
 Build integration contracts and clear prebuilt overrides according to AGENTS.md.
@@ -501,8 +502,9 @@ Final local development executable SHA-256 values (not release provenance):
 | `eez-follower` | `4f4ce64442da2f8e7337219bc9b6c0274e495f1b3a69bc53cce925b24eff83bc` |
 | `eez-proof-signer` | `1b7b3d252224752a79d522363c438bcc5020885fbc9595b29687fe6d4f8f5fb8` |
 
-Reproduce the focused checks from the repository root after the AGENTS.md
-prerequisites (including LLVM 22, initialized protocol and integration contracts):
+The following commands reproduce the recorded baseline with Rust 1.95/LLVM 22,
+initialized protocol and integration contracts. For the current checkout, use
+the [repository toolchain](../../AGENTS.md#build-and-validate):
 
 ```bash
 cargo +1.95.0 fmt --all --check

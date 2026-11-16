@@ -15,7 +15,7 @@ derivation = [
     "dep:eez-evm",
     "dep:reth-evm",
     "dep:reth-evm-ethereum",
-    "dep:revm",
+    "dep:evm2",
     "dep:alloy-rlp",
     "dep:reth-trie",
 ]
@@ -24,7 +24,7 @@ observation = [
     "dep:eez-evm",
     "dep:reth-evm",
     "dep:reth-evm-ethereum",
-    "dep:revm",
+    "dep:evm2",
     "dep:alloy-sol-types",
 ]
 witness = [
@@ -33,7 +33,7 @@ witness = [
     "dep:eyre",
     "dep:eez-evm",
     "dep:reth-evm",
-    "dep:reth-revm",
+    "reth-evm/witness",
     "dep:reth-trie",
     "dep:alloy-rlp",
     "dep:alloy-rpc-types-debug",
@@ -54,11 +54,10 @@ eez-primitives.workspace = true
 eez-evm = { workspace = true, optional = true }
 reth-evm = { workspace = true, optional = true }
 reth-evm-ethereum = { workspace = true, optional = true }
-revm = { workspace = true, optional = true }
+evm2 = { workspace = true, optional = true }
 reth-payload-builder.workspace            = true
 reth-payload-primitives.workspace         = true
 reth-primitives-traits.workspace          = true
-reth-revm = { workspace = true, features = ["witness"], optional = true }
 reth-storage-api.workspace                = true
 reth-trie = { workspace = true, optional = true }
 

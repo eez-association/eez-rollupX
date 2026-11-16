@@ -4,30 +4,25 @@
 //! represent native types `0x45` and `0x46`. This wrapper selects `EezPrimitives`, preserves
 //! the native receipt type, and decodes native transactions in Engine payloads.
 //! Transaction gas accounting and block assembly reuse the pinned Ethereum code.
-//! The rollup lifecycle retains EIP-2935 but excludes beacon and request calls. `eez-primitives` defines the zero-fee native TxEnv;
-//! `evm` adds deposit minting and rollback around the upstream Ethereum EVM.
+//! The rollup lifecycle retains EIP-2935 but excludes beacon and request calls.
+//! `evm` derives native execution fields and owns value-credit rollback; `runtime`
+//! credits ordinary base fees after deletion finalization. `block` owns group boundaries
+//! and the explicit recorded history update.
 //!
-//! Configuration adapted from reth's `EthEvmConfig` at the pinned revision:
-//! <https://github.com/paradigmxyz/reth/blob/444e867155c2a7a4c028e479ca7201b0b6871579/crates/ethereum/evm/src/lib.rs>.
-//! Receipt construction follows Alloy 0.39.0's Ethereum receipt builder:
-//! <https://docs.rs/alloy-evm/0.39.0/src/alloy_evm/eth/receipt_builder.rs.html>.
+//! Configuration and receipt construction use Reth v2.11's execution interfaces:
+//! <https://github.com/paradigmxyz/reth/tree/b9abbcc1b982755baa9021e6874e2e58936ca65f/crates/ethereum/evm>.
 
 use alloy_consensus::{Header, Typed2718};
 use alloy_eips::Decodable2718;
-use alloy_evm::eth::{
-    EthBlockExecutionCtx,
-    receipt_builder::{ReceiptBuilder, ReceiptBuilderCtx},
-    spec::EthExecutorSpec,
-};
 use alloy_primitives::Bytes;
 use alloy_rpc_types_engine::ExecutionData;
 use eez_primitives::{Block, EezPrimitives, EezTxEnvelope, EezTxType, Receipt};
-use reth_chainspec::{ChainSpec, EthChainSpec, Hardforks};
+use reth_chainspec::{ChainSpec, EthChainSpec, EthereumHardforks, Hardforks};
 use reth_evm::{
-    ConfigureEngineEvm, ConfigureEvm, Evm, EvmEnv, EvmEnvFor, ExecutableTxIterator,
-    ExecutionCtxFor, NextBlockEnvAttributes,
+    ConfigureEngineEvm, ConfigureEvm, EvmEnvFor, ExecutableTxIterator, ExecutionCtxFor,
+    NextBlockEnvAttributes, ReceiptBuilder, ReceiptBuilderCtx,
 };
-use reth_evm_ethereum::{EthBlockAssembler, EthEvmConfig};
+use reth_evm_ethereum::{EthBlockAssembler, EthBlockExecutionCtx, EthEvmConfig, EthEvmEnv};
 use reth_primitives_traits::{
     SealedBlock, SealedHeader, SignedTransaction, transaction::error::InvalidTransactionError,
 };
@@ -39,7 +34,10 @@ use std::{
 };
 
 mod evm;
-pub use evm::EezEvmFactory;
+mod reconstruction;
+mod runtime;
+pub use evm::{EezEvmExt, EezEvmFactory, EezEvmTx, EezEvmTypes, disable_fee_charging};
+pub use runtime::EezEvm;
 
 pub mod balances;
 pub mod block;
@@ -112,14 +110,22 @@ impl ReceiptBuilder for EezReceiptBuilder {
 
     /// Preserve native types `0x45` and `0x46` in the receipt root; Ethereum's receipt builder
     /// only accepts its own type enum. Status, gas, and logs are unchanged.
-    fn build_receipt<E: Evm>(&self, ctx: ReceiptBuilderCtx<'_, EezTxType, E>) -> Receipt {
+    fn build_receipt<T: evm2::EvmTypes>(
+        &self,
+        ctx: ReceiptBuilderCtx<EezTxType, evm2::TxResult<T>>,
+    ) -> Receipt {
         Receipt {
             tx_type: ctx.tx_type,
             success: ctx.result.is_success(),
             cumulative_gas_used: ctx.cumulative_gas_used,
-            logs: ctx.result.into_logs(),
+            logs: ctx.result.logs,
         }
     }
+}
+
+/// Preserve the Ethereum-derived fork, version and block fields while selecting native handlers.
+fn eez_env(env: EthEvmEnv) -> EthEvmEnv<EezEvmTypes> {
+    EthEvmEnv::new_with_version(env.spec, env.block, env.version)
 }
 
 #[derive(Debug, Clone)]
@@ -194,7 +200,7 @@ impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
 
     /// Construct an exact history transaction from local parent state and ready
     /// evidence. Call from a blocking builder/worker, never perform remote reads.
-    pub fn prepare_history<DB: revm::Database>(
+    pub fn prepare_history<DB: evm2::evm::DynDatabase + ?Sized>(
         &self,
         db: &mut DB,
         parent: &Header,
@@ -204,17 +210,17 @@ impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
             eez_protocol::l1_history::HistoryExecution,
             Option<EezTxEnvelope>,
         ),
-        alloy_evm::block::BlockExecutionError,
+        reth_evm::BlockExecutionError,
     > {
         let history = self.executor.history.as_ref().ok_or_else(|| {
-            alloy_evm::block::BlockExecutionError::msg("L1 history source is not configured")
+            reth_evm::BlockExecutionError::msg("L1 history source is not configured")
         })?;
         let (_, expected_timestamp) = self
             .schedule()
             .and_then(|schedule| schedule.next(parent))
-            .map_err(alloy_evm::block::BlockExecutionError::other)?;
+            .map_err(reth_evm::BlockExecutionError::other)?;
         if timestamp != expected_timestamp {
-            return Err(alloy_evm::block::BlockExecutionError::msg(
+            return Err(reth_evm::BlockExecutionError::msg(
                 "invalid history block position",
             ));
         }
@@ -222,35 +228,34 @@ impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
     }
 
     /// Read and validate the fixed predeploy and inherited history state.
-    pub fn history_state<DB: revm::Database>(
+    pub fn history_state<DB: evm2::evm::DynDatabase + ?Sized>(
         &self,
         db: &mut DB,
-    ) -> Result<eez_protocol::l1_history::HistoryState, alloy_evm::block::BlockExecutionError> {
+    ) -> Result<eez_protocol::l1_history::HistoryState, reth_evm::BlockExecutionError> {
         let history = self.executor.history.as_ref().ok_or_else(|| {
-            alloy_evm::block::BlockExecutionError::msg("L1 history source is not configured")
+            reth_evm::BlockExecutionError::msg("L1 history source is not configured")
         })?;
         crate::history::state(db, history)
     }
 
     /// Independently check recorded history inputs against local authenticated
     /// parent state. Does not execute or commit the transaction.
-    pub fn validate_history_input<DB: revm::Database>(
+    pub fn validate_history_input<DB: evm2::evm::DynDatabase + ?Sized>(
         &self,
         db: &mut DB,
         parent: &Header,
         timestamp: u64,
         tx: Option<&EezTxEnvelope>,
-    ) -> Result<eez_protocol::l1_history::HistoryExecution, alloy_evm::block::BlockExecutionError>
-    {
+    ) -> Result<eez_protocol::l1_history::HistoryExecution, reth_evm::BlockExecutionError> {
         let history = self.executor.history.as_ref().ok_or_else(|| {
-            alloy_evm::block::BlockExecutionError::msg("L1 history source is not configured")
+            reth_evm::BlockExecutionError::msg("L1 history source is not configured")
         })?;
         let (_, expected_timestamp) = self
             .schedule()
             .and_then(|schedule| schedule.next(parent))
-            .map_err(alloy_evm::block::BlockExecutionError::other)?;
+            .map_err(reth_evm::BlockExecutionError::other)?;
         if timestamp != expected_timestamp {
-            return Err(alloy_evm::block::BlockExecutionError::msg(
+            return Err(reth_evm::BlockExecutionError::msg(
                 "invalid history block position",
             ));
         }
@@ -291,7 +296,7 @@ impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
     }
 }
 
-impl<C: EthExecutorSpec + EthChainSpec<Header = Header> + Hardforks + 'static> ConfigureEvm
+impl<C: EthereumHardforks + EthChainSpec<Header = Header> + Hardforks + 'static> ConfigureEvm
     for EezEvmConfig<C>
 {
     type Primitives = EezPrimitives;
@@ -308,21 +313,24 @@ impl<C: EthExecutorSpec + EthChainSpec<Header = Header> + Hardforks + 'static> C
         &self.ethereum.block_assembler
     }
 
-    fn evm_env(&self, header: &Header) -> Result<EvmEnv, Self::Error> {
+    fn evm_env(&self, header: &Header) -> Result<EvmEnvFor<Self>, Self::Error> {
         if self.layer == ExecutionLayer::Rollup {
             eez_protocol::l2::validate_header(header).map_err(AnyError::new)?;
             self.schedule()
                 .and_then(|schedule| schedule.validate_position(header))
                 .map_err(AnyError::new)?;
         }
-        self.ethereum.evm_env(header).map_err(AnyError::new)
+        self.ethereum
+            .evm_env(header)
+            .map(eez_env)
+            .map_err(AnyError::new)
     }
 
     fn next_evm_env(
         &self,
         parent: &Header,
         attributes: &NextBlockEnvAttributes,
-    ) -> Result<EvmEnv, Self::Error> {
+    ) -> Result<EvmEnvFor<Self>, Self::Error> {
         if self.layer == ExecutionLayer::Rollup {
             profile::validate_next(parent, attributes).map_err(AnyError::new)?;
             let (_, timestamp) = self
@@ -337,6 +345,7 @@ impl<C: EthExecutorSpec + EthChainSpec<Header = Header> + Hardforks + 'static> C
         }
         self.ethereum
             .next_evm_env(parent, attributes)
+            .map(eez_env)
             .map_err(AnyError::new)
     }
 
@@ -345,7 +354,10 @@ impl<C: EthExecutorSpec + EthChainSpec<Header = Header> + Hardforks + 'static> C
     fn context_for_block<'a>(
         &self,
         block: &'a SealedBlock<Block>,
-    ) -> Result<EthBlockExecutionCtx<'a>, Self::Error> {
+    ) -> Result<EthBlockExecutionCtx<'a>, Self::Error>
+    where
+        Self: 'a,
+    {
         if self.layer == ExecutionLayer::Rollup {
             eez_protocol::l2::validate_header(block.header()).map_err(AnyError::new)?;
             self.schedule()
@@ -403,7 +415,7 @@ impl<C: EthExecutorSpec + EthChainSpec<Header = Header> + Hardforks + 'static> C
     }
 }
 
-impl<C: EthExecutorSpec + EthChainSpec<Header = Header> + Hardforks + 'static>
+impl<C: EthereumHardforks + EthChainSpec<Header = Header> + Hardforks + 'static>
     ConfigureEngineEvm<ExecutionData> for EezEvmConfig<C>
 {
     fn evm_env_for_payload(&self, payload: &ExecutionData) -> Result<EvmEnvFor<Self>, Self::Error> {
@@ -420,6 +432,7 @@ impl<C: EthExecutorSpec + EthChainSpec<Header = Header> + Hardforks + 'static>
         }
         self.ethereum
             .evm_env_for_payload(payload)
+            .map(eez_env)
             .map_err(AnyError::new)
     }
 
@@ -457,3 +470,6 @@ impl<C: EthExecutorSpec + EthChainSpec<Header = Header> + Hardforks + 'static>
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod reth211_tests;

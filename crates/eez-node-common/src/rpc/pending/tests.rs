@@ -18,7 +18,6 @@ use reth_provider::test_utils::NoopProvider;
 use reth_rpc::EthApiBuilder;
 use reth_rpc_eth_types::receipt::EthReceiptConverter;
 use reth_transaction_pool::noop::NoopTransactionPool;
-use revm::Database;
 use std::{sync::mpsc, time::Duration};
 use tokio::{sync::oneshot, time::timeout};
 
@@ -34,7 +33,7 @@ type TestComponents = Components<
 >;
 type TestNode = NodeAdapter<TestTypes, TestComponents>;
 
-fn eth_api(spec: Arc<ChainSpec>) -> EthApi<TestNode, Converter> {
+fn eth_api(spec: Arc<ChainSpec>) -> EthApi<RpcNodeCoreFor<TestNode>, Converter> {
     let receipts =
         EthReceiptConverter::new(spec.clone()).with_builder(build_receipt as ReceiptBuilder);
     let node = NodeAdapter {
@@ -48,19 +47,29 @@ fn eth_api(spec: Arc<ChainSpec>) -> EthApi<TestNode, Converter> {
             payload_builder_handle: PayloadBuilderHandle::<EezEngineTypes>::noop(),
         },
     };
-    EthApiBuilder::new_with_components(node)
-        .map_converter(|_| Converter::new(receipts))
-        .with_pending_env_builder(EezEthApiBuilder::default())
-        .blocking_task_pool(BlockingTaskPool::new(
-            BlockingTaskPool::builder().num_threads(1).build().unwrap(),
-        ))
-        .build()
+    EthApiBuilder::new_with_components(reth_rpc_eth_api::node::RpcNodeCoreAdapter::new(
+        node.provider,
+        node.components.transaction_pool,
+        node.components.network,
+        node.components.evm_config,
+    ))
+    .map_converter(|_| {
+        reth_rpc_convert::RpcConverter::new(receipts)
+            .with_tx_env_converter(super::super::EezTxEnvConverter)
+    })
+    .with_pending_env_builder(EezEthApiBuilder::default())
+    .blocking_task_pool(BlockingTaskPool::new(
+        BlockingTaskPool::builder().num_threads(1).build().unwrap(),
+    ))
+    .build()
 }
 
 async fn assert_callback_retains_trace_quota(cached: bool) {
     let spec = tests::profile(&tests::l1_blocks(false)[0]);
     let parent = SealedHeader::seal_slow(spec.genesis_header().clone());
     let inner = eth_api(spec.clone());
+    let io_guard = Arc::clone(inner.blocking_io_task_guard());
+    let initial_io_permits = io_guard.available_permits();
     let context = if cached {
         let attributes = NextBlockEnvAttributes {
             timestamp: parent.timestamp + 1,
@@ -108,8 +117,11 @@ async fn assert_callback_retains_trace_quota(cached: bool) {
     let request = tokio::spawn(async move {
         api.spawn_with_state_at_block(parent.hash(), move |worker, mut db| {
             assert_eq!(
-                db.storage(HISTORY_ADDRESS, U256::from_be_bytes(IMPLEMENTATION_SLOT.0))
-                    .unwrap(),
+                db.get_storage(
+                    &HISTORY_ADDRESS,
+                    &U256::from_be_bytes(IMPLEMENTATION_SLOT.0)
+                )
+                .unwrap(),
                 expected_implementation,
             );
             entered_tx.send(()).unwrap();
@@ -120,8 +132,11 @@ async fn assert_callback_retains_trace_quota(cached: bool) {
             }
             assert_eq!(worker.context.is_some(), cached);
             assert_eq!(
-                db.storage(HISTORY_ADDRESS, U256::from_be_bytes(IMPLEMENTATION_SLOT.0))
-                    .unwrap(),
+                db.get_storage(
+                    &HISTORY_ADDRESS,
+                    &U256::from_be_bytes(IMPLEMENTATION_SLOT.0)
+                )
+                .unwrap(),
                 expected_implementation,
             );
             finished_tx.send(()).unwrap();
@@ -144,6 +159,11 @@ async fn assert_callback_retains_trace_quota(cached: bool) {
 
     // The cancelled request has been dropped, while the real callback is still
     // blocked on release_rx. No time interval is used to infer that ordering.
+    assert_eq!(
+        io_guard.available_permits(),
+        initial_io_permits - usize::from(cached),
+        "cancellation must retain the prepared prefix's IO permit until its worker exits",
+    );
     let next = trace_guard.acquire_owned();
     tokio::pin!(next);
     assert!(futures_util::poll!(next.as_mut()).is_pending());
@@ -157,6 +177,14 @@ async fn assert_callback_retains_trace_quota(cached: bool) {
         .expect("callback did not finish")
         .expect("callback failed after cancellation");
     drop(permit);
+    let all_io = timeout(
+        WATCHDOG,
+        io_guard.acquire_many_owned(u32::try_from(initial_io_permits).unwrap()),
+    )
+    .await
+    .expect("finished callback did not release its IO permit")
+    .unwrap();
+    drop(all_io);
 }
 
 #[tokio::test]
@@ -167,4 +195,66 @@ async fn cancelled_cached_callback_retains_trace_quota() {
 #[tokio::test]
 async fn cancelled_stored_callback_retains_trace_quota() {
     assert_callback_retains_trace_quota(false).await;
+}
+
+#[test]
+fn estimate_provider_preserves_cached_writes_clears_deletion_and_code() {
+    use reth_provider::test_utils::{ExtendedAccount, MockEthProvider};
+    use reth_storage_api::StateProviderBox;
+
+    let address = Address::with_last_byte(1);
+    let deleted = Address::with_last_byte(2);
+    let backing = MockEthProvider::default();
+    for account in [address, deleted] {
+        backing.add_account(
+            account,
+            ExtendedAccount::new(1, U256::from(3)).extend_storage([
+                (B256::ZERO, U256::from(9)),
+                (B256::with_last_byte(1), U256::from(7)),
+            ]),
+        );
+    }
+    let provider: StateProviderBox = Box::new(backing);
+    let mut db = CacheDB::new(Db::new(StateProviderDatabase::new(
+        provider.into_evm_state_provider(),
+    )));
+    let code = evm2::bytecode::Bytecode::new_raw(Bytes::from_static(&[0x60, 0x01, 0x00]));
+    let hash = code.hash_slow();
+    db.insert_account_info(
+        &address,
+        evm2::evm::AccountInfo {
+            nonce: 2,
+            balance: U256::from(4),
+            code_hash: hash,
+            code: Some(code.clone()),
+            ..Default::default()
+        },
+    );
+    db.insert_account_storage(&address, &U256::ZERO, &U256::from(42));
+    db.insert_account_storage(&address, &U256::from(1), &U256::ZERO);
+    db.cache.accounts.insert(deleted, None);
+    db.cache.storage.entry(deleted).or_default().wipe();
+    let block_hash = B256::repeat_byte(0x17);
+    db.cache.block_hashes.insert(U256::from(1), block_hash);
+    let prefix = ExecutedPrefix(Mutex::new(db));
+    assert_eq!(
+        prefix.storage(address, B256::ZERO).unwrap(),
+        Some(U256::from(42))
+    );
+    assert_eq!(
+        prefix.storage(address, B256::with_last_byte(1)).unwrap(),
+        Some(U256::ZERO)
+    );
+    assert_eq!(
+        prefix.storage(deleted, B256::ZERO).unwrap(),
+        Some(U256::ZERO)
+    );
+    assert!(prefix.basic_account(&deleted).unwrap().is_none());
+    let account = prefix.basic_account(&address).unwrap().unwrap();
+    assert_eq!((account.nonce, account.balance), (2, U256::from(4)));
+    assert_eq!(
+        prefix.bytecode_by_hash(&hash).unwrap(),
+        Some(Bytecode(code))
+    );
+    assert_eq!(prefix.block_hash(1).unwrap(), Some(block_hash));
 }

@@ -10,11 +10,11 @@
 # scripts/deploy.sh + README).
 
 # ── chef base: toolchain + system deps reth/mdbx/secp256k1 need ───────
-FROM rust:1.95-bookworm AS chef
+FROM rust:1.96.0-bookworm AS chef
 COPY scripts/ci/install-llvm.sh /usr/local/lib/eez/install-llvm.sh
 RUN bash /usr/local/lib/eez/install-llvm.sh
-ENV LLVM_SYS_221_PREFIX=/usr/lib/llvm-22
-ENV PATH="/usr/lib/llvm-22/bin:${PATH}"
+ENV LLVM_SYS_231_PREFIX=/usr/lib/llvm-23
+ENV PATH="/usr/lib/llvm-23/bin:${PATH}"
 RUN apt-get update && apt-get install -y --no-install-recommends \
         clang libclang-dev pkg-config cmake libssl-dev git ca-certificates protobuf-compiler mold \
     && rm -rf /var/lib/apt/lists/* \

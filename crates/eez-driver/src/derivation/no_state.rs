@@ -4,6 +4,7 @@
 //! swallowed error prevents returning a block.
 
 use alloy_primitives::{Address, B256, Bytes, U256};
+use reth_evm::BundleState;
 use reth_primitives_traits::{Account, Bytecode};
 use reth_storage_api::{
     AccountReader, BlockHashReader, BytecodeReader, HashedPostStateProvider, StateProofProvider,
@@ -15,7 +16,6 @@ use reth_trie::{
     MultiProof, MultiProofTargets, MultiProofTargetsV2, StorageMultiProof, StorageProof, TrieInput,
     updates::TrieUpdates,
 };
-use revm::database::BundleState;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Default)]
@@ -106,8 +106,8 @@ impl StateProofProvider for NoStateReads {
     }
     fn multiproof_v2(
         &self,
-        _: TrieInput,
         _: MultiProofTargetsV2,
+        _: bool,
     ) -> ProviderResult<DecodedMultiProofV2> {
         self.reject()
     }

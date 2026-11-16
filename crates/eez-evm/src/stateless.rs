@@ -23,6 +23,12 @@ use stateless_tries::{
 
 use crate::{EezEvmConfig, balances::PROTOCOL_BALANCE_ACCOUNTS};
 
+impl stateless_reth::CheckpointExecutor for crate::block::EezBlockExecutor<'_> {
+    fn checkpoint_state(&self) -> &reth_execution_types::BlockState {
+        self.block_state()
+    }
+}
+
 /// Validate a RollupX block and derive closed-prefix roots in one EVM replay.
 ///
 /// Checkpoints include finalization cleanup on copies; subsequent transactions
@@ -140,10 +146,9 @@ impl StatelessTrie for ClosedPrefixTrie {
 mod tests {
     use super::*;
     use alloy_consensus::constants::EMPTY_ROOT_HASH;
-    use revm::{
-        DatabaseCommit,
-        database::{InMemoryDB, State, states::bundle_state::BundleRetention},
-        state::{Account as EvmAccount, AccountInfo, EvmState},
+    use evm2::{
+        block::BlockState,
+        evm::{AccountInfo, InMemoryDB, PendingState},
     };
 
     fn empty_witness() -> ExecutionWitness {
@@ -153,12 +158,10 @@ mod tests {
         }
     }
 
-    fn draft() -> State<InMemoryDB> {
-        let mut state = State::builder()
-            .with_database(InMemoryDB::default())
-            .with_bundle_update()
-            .build();
-        let mut accounts = EvmState::default();
+    fn draft() -> (InMemoryDB, BlockState) {
+        let mut db = InMemoryDB::default();
+        let mut state = BlockState::default();
+        let mut pending = PendingState::default();
         for (address, nonce, code_hash) in [
             (
                 eez_primitives::SYSTEM_ADDRESS,
@@ -172,42 +175,44 @@ mod tests {
                 alloy_consensus::constants::KECCAK_EMPTY,
             ),
         ] {
-            let mut account = EvmAccount::from(AccountInfo {
+            let info = AccountInfo {
                 balance: U256::from(19),
                 nonce,
                 code_hash,
                 ..Default::default()
-            });
-            account.mark_touch();
-            // State::commit requires the original account to be cached first.
-            state.load_cache_account(address).unwrap();
-            accounts.insert(address, account);
+            };
+            pending.insert_account(address, None, Some(info));
         }
-        state.commit(accounts);
-        state
+        for change in pending.account_changes() {
+            state.commit_account_changes(change, None);
+        }
+        db.commit_pending(&pending);
+        (db, state)
     }
 
     #[test]
     fn closed_prefix_root_matches_executor_cleanup_without_mutating_the_draft() {
-        let mut state = draft();
-        state.merge_transitions(BundleRetention::PlainState);
-        let raw = HashedPostState::from_bundle_state::<KeccakKeyHasher>(state.bundle_state.state());
+        let (mut db, mut state) = draft();
+        let raw = HashedPostState::from_bundle_state::<KeccakKeyHasher>(
+            state.clone().into_bundle().state(),
+        );
         let (mut projected, _) = ClosedPrefixTrie::new(empty_witness(), EMPTY_ROOT_HASH).unwrap();
         let projected_root = projected.calculate_state_root(raw.clone()).unwrap();
         assert_eq!(
-            state.bundle_state.state[&eez_primitives::SYSTEM_ADDRESS]
+            state.clone().into_bundle().state[&eez_primitives::SYSTEM_ADDRESS]
                 .info
                 .as_ref()
                 .unwrap()
                 .balance,
             U256::from(19)
         );
-        let mut cleanup = EvmState::default();
-        crate::balances::clear_protocol_balances(&mut state, &mut cleanup).unwrap();
-        state.commit(cleanup);
-        state.merge_transitions(BundleRetention::PlainState);
+        let mut cleanup = PendingState::default();
+        crate::balances::clear_protocol_balances(&mut db, &mut cleanup).unwrap();
+        for change in cleanup.account_changes() {
+            state.commit_account_changes(change, None);
+        }
         let closed =
-            HashedPostState::from_bundle_state::<KeccakKeyHasher>(state.bundle_state.state());
+            HashedPostState::from_bundle_state::<KeccakKeyHasher>(state.into_bundle().state());
         let (mut trie, _) = StatelessSparseTrie::new(empty_witness(), EMPTY_ROOT_HASH).unwrap();
         assert_eq!(projected_root, trie.calculate_state_root(closed).unwrap());
         let (mut raw_trie, _) = StatelessSparseTrie::new(empty_witness(), EMPTY_ROOT_HASH).unwrap();
@@ -259,9 +264,10 @@ mod tests {
 
     #[test]
     fn checkpoint_projection_cannot_hide_missing_terminal_cleanup() {
-        let mut state = draft();
-        state.merge_transitions(BundleRetention::PlainState);
-        let raw = HashedPostState::from_bundle_state::<KeccakKeyHasher>(state.bundle_state.state());
+        let (_, state) = draft();
+        let raw = HashedPostState::from_bundle_state::<KeccakKeyHasher>(
+            state.clone().into_bundle().state(),
+        );
         let (mut projected, _) = ClosedPrefixTrie::new(empty_witness(), EMPTY_ROOT_HASH).unwrap();
         let closed_root = projected.calculate_state_root(raw).unwrap();
         let output = stateless_reth::StatelessValidationOutput {
@@ -269,7 +275,7 @@ mod tests {
             pre_state_root: EMPTY_ROOT_HASH,
             post_state_root: closed_root,
             execution_output: reth_evm::execute::BlockExecutionOutput {
-                state: state.take_bundle(),
+                state: state.into_bundle(),
                 result: Default::default(),
             },
             block_access_list: None,

@@ -24,12 +24,11 @@ reth-evm.workspace                        = true
 reth-payload-primitives.workspace         = true
 reth-primitives-traits.workspace          = true
 reth-provider.workspace                   = true
-reth-revm.workspace                       = true
 reth-storage-api.workspace                = true
 reth-libmdbx.workspace                    = true
 
-# revm — required by reth-evm's State builder
-revm.workspace = true
+# Database adapter for Reth 2.11 execution.
+evm2.workspace = true
 
 # alloy
 alloy-consensus.workspace        = true

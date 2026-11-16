@@ -21,6 +21,9 @@ class SecretScanTest(unittest.TestCase):
             ("scripts/ci/tests/test_chiado_config.py", "key = " + json.dumps("EEZ_L1_FEE_REFUND_POLICY") + "\n"),
             (audit_path, json.dumps({"public-api-check.log": digest}) + "\n"),
         ]
+        websocket_fixture = "crates/vendor/reth/reth-rpc-builder/tests/it/startup.rs"
+        cases.append((websocket_fixture,
+                      '.header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==");\n'))
         builder_keys = [
             ("BUILDERNET_KEY",
              "0x850b00e055388c1b56f137e0852bc02d8b05534e9f96dd1d11cff8cf0481b800ecc2e708cdc158cd95b7cfdaa6840ee7"),
@@ -123,6 +126,17 @@ class SecretScanTest(unittest.TestCase):
                         # A 100% rename has no added bytes for the next scan.
                         result = scan_commit()
                         self.assertEqual(result.returncode, 0, result.stderr)
+
+                if relative == websocket_fixture:
+                    neighbor = source / (relative + ".extra")
+                    neighbor.write_text(allowed)
+                    result = scan_commit()
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    findings = json.loads(report.read_text())
+                    self.assertEqual(len(findings), 1)
+                    self.assertEqual(findings[0]["File"], relative + ".extra")
+                    neighbor.unlink()
+                    self.assertEqual(scan_commit().returncode, 0)
 
                 # The exception cannot hide a different credential in the same file.
                 synthetic = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff81"

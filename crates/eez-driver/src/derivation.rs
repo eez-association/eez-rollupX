@@ -14,16 +14,16 @@ use alloy_consensus::Header;
 use alloy_primitives::{Address, B256, Bytes};
 use eez_evm::EezEvmConfig;
 use eez_primitives::{Block, EezTxEnvelope as TransactionSigned, Receipt};
+use evm2::SpecId;
 use eyre::ensure;
 use reth_chainspec::EthereumHardforks as _;
 use reth_evm::{
     ConfigureEvm, NextBlockEnvAttributes,
     execute::{BlockAssemblerInput, BlockExecutionOutput},
 };
-use reth_evm_ethereum::revm_spec_by_timestamp_and_block_number;
+use reth_evm_ethereum::spec_id_by_timestamp_and_block_number;
 use reth_primitives_traits::SealedHeader;
 use reth_storage_api::StateProvider;
-use revm::primitives::hardfork::SpecId;
 
 mod encoding;
 mod no_state;
@@ -54,7 +54,7 @@ pub fn next_attributes(
     );
     let chain_spec = config.chain_spec();
     let (number, timestamp) = eez_evm::profile::schedule(chain_spec.as_ref())?.next(parent)?;
-    let spec = revm_spec_by_timestamp_and_block_number(chain_spec.as_ref(), timestamp, number);
+    let spec = spec_id_by_timestamp_and_block_number(chain_spec.as_ref(), timestamp, number);
     ensure!(
         spec == SpecId::OSAKA,
         "unsupported L2 execution fork {spec:?}"

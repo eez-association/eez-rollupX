@@ -1,20 +1,19 @@
 use super::*;
+use crate::{EezEvmTx, EezEvmTypes};
 use alloy_consensus::{Header, Transaction as _};
-use alloy_evm::{
-    EvmEnv, EvmFactory,
-    block::{BlockExecutor, BlockExecutorFactory},
-    eth::EthBlockExecutionCtx,
-};
+use alloy_consensus::{TxLegacy, transaction::Recovered};
 use alloy_primitives::{Address, Bytes, TxKind};
 use eez_primitives::SYSTEM_ADDRESS;
 use eez_protocol::l1_history::{HeaderChain, HeaderRules, genesis_storage};
-use revm::{
-    DatabaseCommit,
-    context::{BlockEnv, CfgEnv, TxEnv},
-    database::{InMemoryDB, State},
-    primitives::hardfork::SpecId,
-    state::{AccountInfo, Bytecode},
+use evm2::{
+    SpecId,
+    block::BundleSource,
+    bytecode::Bytecode,
+    env::BlockEnv,
+    evm::{AccountInfo, InMemoryDB, SystemTx},
 };
+use reth_evm::{BlockExecutor, BlockExecutorFactory};
+use reth_evm_ethereum::{EthBlockExecutionCtx, EthEvmEnv};
 
 pub(crate) fn fixture() -> (HistoryConfig, InMemoryDB) {
     let schedule = HistorySchedule::new(4, 1, 4, 2).unwrap();
@@ -62,9 +61,9 @@ pub(crate) fn fixture() -> (HistoryConfig, InMemoryDB) {
         source: Arc::new(WitnessHistory(Arc::new(chain))),
     };
     let mut db = InMemoryDB::default();
-    let code = Bytecode::new_raw(Bytes::copy_from_slice(HISTORY_RUNTIME));
+    let code = Bytecode::from_stored(Bytes::copy_from_slice(HISTORY_RUNTIME));
     db.insert_account_info(
-        HISTORY_ADDRESS,
+        &HISTORY_ADDRESS,
         AccountInfo {
             nonce: 2,
             code_hash: code.hash_slow(),
@@ -72,11 +71,11 @@ pub(crate) fn fixture() -> (HistoryConfig, InMemoryDB) {
             ..Default::default()
         },
     );
-    let implementation = Bytecode::new_raw(Bytes::copy_from_slice(
+    let implementation = Bytecode::from_stored(Bytes::copy_from_slice(
         eez_protocol::l1_history::HISTORY_IMPLEMENTATION_RUNTIME,
     ));
     db.insert_account_info(
-        eez_protocol::l1_history::HISTORY_IMPLEMENTATION_ADDRESS,
+        &eez_protocol::l1_history::HISTORY_IMPLEMENTATION_ADDRESS,
         AccountInfo {
             nonce: 1,
             code_hash: implementation.hash_slow(),
@@ -85,13 +84,12 @@ pub(crate) fn fixture() -> (HistoryConfig, InMemoryDB) {
         },
     );
     for (key, value) in genesis_storage() {
-        db.insert_account_storage(HISTORY_ADDRESS, key.into(), value.into())
-            .unwrap();
+        db.insert_account_storage(&HISTORY_ADDRESS, &key.into(), &value.into());
     }
     (config, db)
 }
 
-fn prepare_at<DB: Database>(
+fn prepare_at<DB: DynDatabase>(
     db: &mut DB,
     config: &HistoryConfig,
     timestamp: u64,
@@ -99,26 +97,28 @@ fn prepare_at<DB: Database>(
     prepare(db, config, timestamp)
 }
 
-fn environment(timestamp: u64, randao: B256) -> EvmEnv {
-    EvmEnv {
-        cfg_env: CfgEnv::new_with_spec(SpecId::OSAKA).with_chain_id(1337),
-        block_env: BlockEnv {
+fn environment(timestamp: u64, randao: B256) -> EthEvmEnv<EezEvmTypes> {
+    EthEvmEnv::new(
+        SpecId::OSAKA,
+        BlockEnv::<EezEvmTypes> {
             number: U256::from(timestamp - 4),
             timestamp: U256::from(timestamp),
-            prevrandao: Some(randao),
-            gas_limit: 30_000_000,
+            prevrandao: U256::from_be_bytes(randao.0),
+            gas_limit: U256::from(30_000_000),
             ..Default::default()
         },
-    }
+        1337,
+    )
 }
 
 fn execute(
     config: &HistoryConfig,
-    state: &mut State<InMemoryDB>,
+    state: &mut InMemoryDB,
     timestamp: u64,
     randao: B256,
     transactions: &[EezTxEnvelope],
-) -> Result<alloy_evm::block::BlockExecutionResult<eez_primitives::Receipt>, BlockExecutionError> {
+) -> Result<reth_execution_types::BlockExecutionResult<eez_primitives::Receipt>, BlockExecutionError>
+{
     let spec = Arc::new(
         reth_chainspec::ChainSpecBuilder::mainnet()
             .osaka_activated()
@@ -127,7 +127,11 @@ fn execute(
     let mut factory =
         crate::block::EezBlockExecutorFactory::new(spec, crate::block::ExecutionLayer::Rollup);
     factory.history = Some(config.clone());
-    let evm = crate::tests::factory().create_evm(state, environment(timestamp, randao));
+    let evm = crate::evm::tests::create_evm(
+        crate::tests::factory(),
+        state.clone(),
+        environment(timestamp, randao),
+    );
     let mut executor = factory.create_executor(
         evm,
         EthBlockExecutionCtx {
@@ -140,23 +144,36 @@ fn execute(
             slot_number: None,
         },
     );
-    executor.apply_pre_execution_changes()?;
-    for tx in transactions {
-        executor.execute_transaction(reth_primitives_traits::Recovered::new_unchecked(
-            tx.clone(),
-            SYSTEM_ADDRESS,
-        ))?;
+    let executed = (|| {
+        executor.apply_pre_execution_changes()?;
+        for tx in transactions {
+            executor.execute_transaction(reth_primitives_traits::Recovered::new_unchecked(
+                tx.clone(),
+                SYSTEM_ADDRESS,
+            ))?;
+        }
+        Ok::<_, BlockExecutionError>(())
+    })();
+    if let Err(error) = executed {
+        // Rejection assertions must observe the executor's actual overlay,
+        // including any incorrectly committed prefix, not the untouched input clone.
+        state.cache.merge(std::mem::take(
+            &mut executor.evm_mut().overlay_db_mut().cache,
+        ));
+        return Err(error);
     }
-    executor.finish().map(|(_, output)| output)
+    let output = executor.finish()?;
+    state.commit_source(&BundleSource(&output.state));
+    Ok(output.result)
 }
 
 #[test]
 fn recorded_import_precedes_applications_and_meters_gas_receipts_without_a_nonce() {
     let (config, mut db) = fixture();
     let observer = Address::with_last_byte(42);
-    let code = Bytecode::new_raw(alloy_primitives::bytes!("4460005500"));
+    let code = Bytecode::from_stored(alloy_primitives::bytes!("4460005500"));
     db.insert_account_info(
-        observer,
+        &observer,
         AccountInfo {
             code_hash: code.hash_slow(),
             code: Some(code),
@@ -164,17 +181,14 @@ fn recorded_import_precedes_applications_and_meters_gas_receipts_without_a_nonce
         },
     );
     db.insert_account_info(
-        SYSTEM_ADDRESS,
+        &SYSTEM_ADDRESS,
         AccountInfo {
             nonce: 17,
             balance: U256::from(9),
             ..Default::default()
         },
     );
-    let mut state = State::builder()
-        .with_database(db)
-        .with_bundle_update()
-        .build();
+    let mut state = db;
     for timestamp in 5..=14 {
         let (plan, tx) = prepare_at(&mut state, &config, timestamp).unwrap();
         let count = usize::from(tx.is_some());
@@ -203,49 +217,65 @@ fn recorded_import_precedes_applications_and_meters_gas_receipts_without_a_nonce
             _ => 4,
         };
         assert_eq!(plan.origin_number, number);
-        let mut evm = crate::tests::factory()
-            .create_evm(&mut state, environment(timestamp, plan.prev_randao));
+        let mut evm = crate::evm::tests::create_evm(
+            crate::tests::factory(),
+            state.clone(),
+            environment(timestamp, plan.prev_randao),
+        );
         let result = evm
-            .transact_raw(TxEnv {
-                caller: Address::with_last_byte(100),
-                kind: TxKind::Call(observer),
-                gas_limit: 100_000,
-                nonce: timestamp - 5,
-                chain_id: Some(1337),
-                ..Default::default()
-            })
+            .transact(&Recovered::new_unchecked(
+                EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Legacy(TxLegacy {
+                    to: TxKind::Call(observer),
+                    gas_limit: 100_000,
+                    nonce: timestamp - 5,
+                    chain_id: Some(1337),
+                    ..Default::default()
+                })),
+                Address::with_last_byte(100),
+            ))
             .unwrap();
         assert!(result.result.is_success());
-        evm.db_mut().commit(result.state);
+        evm.overlay_db_mut().commit_pending(&result.pending_state);
+        state.commit_pending(&result.pending_state);
         assert_eq!(
-            evm.db_mut().storage(observer, U256::ZERO).unwrap(),
+            evm.overlay_db_mut()
+                .get_storage(&observer, &U256::ZERO)
+                .unwrap(),
             U256::from_be_bytes(plan.prev_randao.0)
         );
         assert_eq!(
-            evm.db_mut()
-                .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT))
+            evm.overlay_db_mut()
+                .get_storage(&HISTORY_ADDRESS, &U256::from(ENDPOINT_SLOT))
                 .unwrap(),
             U256::from(number)
         );
-        let system = evm.db_mut().basic(SYSTEM_ADDRESS).unwrap().unwrap();
+        let system = evm
+            .overlay_db_mut()
+            .get_account(&SYSTEM_ADDRESS)
+            .unwrap()
+            .unwrap();
         assert_eq!(system.nonce, 17);
         assert_eq!(system.balance, U256::ZERO);
     }
     let chain = config.source.headers(8).unwrap();
     assert_eq!(
-        state.storage(HISTORY_ADDRESS, hash_storage_key(0)).unwrap(),
+        state
+            .get_storage(&HISTORY_ADDRESS, &hash_storage_key(0))
+            .unwrap(),
         U256::ZERO
     );
     for number in 1..=4 {
         assert_eq!(
             state
-                .storage(HISTORY_ADDRESS, hash_storage_key(number))
+                .get_storage(&HISTORY_ADDRESS, &hash_storage_key(number))
                 .unwrap(),
             U256::from_be_bytes(chain.at(number).unwrap().hash().0)
         );
     }
     assert_eq!(
-        state.storage(HISTORY_ADDRESS, hash_storage_key(5)).unwrap(),
+        state
+            .get_storage(&HISTORY_ADDRESS, &hash_storage_key(5))
+            .unwrap(),
         U256::ZERO
     );
 }
@@ -255,10 +285,7 @@ fn repeat_is_valid_after_late_headers_arrive_and_advancement_resumes_at_next_upd
     let (mut config, db) = fixture();
     let full = config.source.headers(4).unwrap();
     config.source = Arc::new(WitnessHistory(Arc::new(full.range(0, 0).unwrap())));
-    let mut state = State::builder()
-        .with_database(db)
-        .with_bundle_update()
-        .build();
+    let mut state = db;
     let (repeat, tx) = prepare_at(&mut state, &config, 7).unwrap();
     assert_eq!(repeat.origin_number, 0);
     assert!(tx.is_none());
@@ -267,7 +294,7 @@ fn repeat_is_valid_after_late_headers_arrive_and_advancement_resumes_at_next_upd
     execute(&config, &mut state, 7, B256::ZERO, &[]).unwrap();
     assert_eq!(
         state
-            .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT))
+            .get_storage(&HISTORY_ADDRESS, &U256::from(ENDPOINT_SLOT))
             .unwrap(),
         U256::ZERO
     );
@@ -295,16 +322,22 @@ fn omitted_updates_inherit_but_duplicate_misplaced_malformed_and_wrong_randao_re
         ),
         (5, B256::ZERO, vec![tx.clone()], "off-schedule"),
     ] {
-        let mut state = State::builder()
-            .with_database(db.clone())
-            .with_bundle_update()
-            .build();
+        let mut state = db.clone();
         assert!(
             execute(&config, &mut state, timestamp, randao, &transactions)
                 .unwrap_err()
                 .to_string()
                 .contains(reason)
         );
+        if reason == "misplaced" {
+            // The first import committed before the duplicate failed: observe that real overlay.
+            assert_eq!(
+                state
+                    .get_storage(&HISTORY_ADDRESS, &U256::from(ENDPOINT_SLOT))
+                    .unwrap(),
+                U256::from(2)
+            );
+        }
     }
     for mutation in 0..6 {
         let EezTxEnvelope::History(native) = tx.clone() else {
@@ -327,10 +360,7 @@ fn omitted_updates_inherit_but_duplicate_misplaced_malformed_and_wrong_randao_re
             }
             _ => native.blocks[0].block_hash = B256::ZERO,
         }
-        let mut state = State::builder()
-            .with_database(db.clone())
-            .with_bundle_update()
-            .build();
+        let mut state = db.clone();
         assert!(
             execute(&config, &mut state, 7, plan.prev_randao, &[native.into()]).is_err(),
             "mutation {mutation}"
@@ -339,15 +369,9 @@ fn omitted_updates_inherit_but_duplicate_misplaced_malformed_and_wrong_randao_re
     // Omission is valid even with newer evidence available, at every eligible
     // and ineligible position. Empty blocks still authenticate inherited RANDAO.
     for timestamp in 5..=30 {
-        let mut state = State::builder()
-            .with_database(db.clone())
-            .with_bundle_update()
-            .build();
+        let mut state = db.clone();
         execute(&config, &mut state, timestamp, B256::ZERO, &[]).unwrap();
-        let mut bad = State::builder()
-            .with_database(db.clone())
-            .with_bundle_update()
-            .build();
+        let mut bad = db.clone();
         assert!(
             execute(&config, &mut bad, timestamp, B256::repeat_byte(99), &[])
                 .unwrap_err()
@@ -371,12 +395,8 @@ fn wrong_runtime_state_and_missing_evidence_reject_before_import() {
         (hash_storage_key(0), U256::from(1)),       // block zero must stay absent
     ] {
         let mut bad = db.clone();
-        bad.insert_account_storage(HISTORY_ADDRESS, slot, value)
-            .unwrap();
-        let mut state = State::builder()
-            .with_database(bad)
-            .with_bundle_update()
-            .build();
+        bad.insert_account_storage(&HISTORY_ADDRESS, &slot, &value);
+        let mut state = bad;
         assert!(
             execute(
                 &config,
@@ -389,11 +409,8 @@ fn wrong_runtime_state_and_missing_evidence_reject_before_import() {
         );
     }
     let mut no_code = db.clone();
-    no_code.insert_account_info(HISTORY_ADDRESS, AccountInfo::default());
-    let mut state = State::builder()
-        .with_database(no_code)
-        .with_bundle_update()
-        .build();
+    no_code.insert_account_info(&HISTORY_ADDRESS, AccountInfo::default());
+    let mut state = no_code;
     assert!(
         execute(
             &config,
@@ -408,10 +425,7 @@ fn wrong_runtime_state_and_missing_evidence_reject_before_import() {
     );
     let mut missing = config.clone();
     missing.source = Arc::new(WitnessHistory(Arc::new(HeaderChain::default())));
-    let mut state = State::builder()
-        .with_database(db)
-        .with_bundle_update()
-        .build();
+    let mut state = db;
     assert!(execute(&missing, &mut state, 7, plan.prev_randao, &[tx.unwrap()]).is_err());
 }
 
@@ -419,19 +433,14 @@ fn wrong_runtime_state_and_missing_evidence_reject_before_import() {
 fn regressing_import_is_rejected_without_committing_any_history_prefix() {
     let (config, mut db) = fixture();
     let (plan, tx) = prepare_at(&mut db, &config, 7).unwrap();
-    db.insert_account_storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT), U256::from(2))
-        .unwrap();
+    db.insert_account_storage(&HISTORY_ADDRESS, &U256::from(ENDPOINT_SLOT), &U256::from(2));
     let recorded = config.source.headers(4).unwrap().at(2).unwrap().hash();
     db.insert_account_storage(
-        HISTORY_ADDRESS,
-        hash_storage_key(2),
-        U256::from_be_bytes(recorded.0),
-    )
-    .unwrap();
-    let mut state = State::builder()
-        .with_database(db)
-        .with_bundle_update()
-        .build();
+        &HISTORY_ADDRESS,
+        &hash_storage_key(2),
+        &U256::from_be_bytes(recorded.0),
+    );
+    let mut state = db;
     assert!(
         execute(&config, &mut state, 7, plan.prev_randao, &[tx.unwrap()])
             .unwrap_err()
@@ -439,12 +448,14 @@ fn regressing_import_is_rejected_without_committing_any_history_prefix() {
             .contains("numbers do not increase")
     );
     assert_eq!(
-        state.storage(HISTORY_ADDRESS, hash_storage_key(1)).unwrap(),
+        state
+            .get_storage(&HISTORY_ADDRESS, &hash_storage_key(1))
+            .unwrap(),
         U256::ZERO
     );
     assert_eq!(
         state
-            .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT))
+            .get_storage(&HISTORY_ADDRESS, &U256::from(ENDPOINT_SLOT))
             .unwrap(),
         U256::from(2)
     );
@@ -455,7 +466,7 @@ fn maximum_import_fits_native_budget_and_invisible_imports_are_rejected() {
     use alloy_sol_types::SolCall as _;
     let (_, mut db) = fixture();
     db.insert_account_info(
-        SYSTEM_ADDRESS,
+        &SYSTEM_ADDRESS,
         AccountInfo {
             nonce: 91,
             ..Default::default()
@@ -473,47 +484,69 @@ fn maximum_import_fits_native_budget_and_invisible_imports_are_rejected() {
     }
     .abi_encode()
     .into();
-    let mut evm = crate::tests::factory().create_evm(db, environment(7, B256::ZERO));
-    let native = TxEnv {
-        tx_type: eez_primitives::HISTORY_TX_TYPE,
-        caller: SYSTEM_ADDRESS,
-        kind: TxKind::Call(HISTORY_ADDRESS),
+    let mut evm =
+        crate::evm::tests::create_evm(crate::tests::factory(), db, environment(7, B256::ZERO));
+    let native = TxLegacy {
+        to: TxKind::Call(HISTORY_ADDRESS),
         gas_limit: eez_protocol::l1_history::IMPORT_GAS_LIMIT,
         nonce: 0,
         chain_id: Some(1337),
-        data,
+        input: data,
         ..Default::default()
     };
-    let result = evm.transact_raw(native.clone()).unwrap();
+    let native_tx = |call| {
+        Recovered::new_unchecked(
+            EezEvmTx::Native {
+                ty: eez_primitives::HISTORY_TX_TYPE,
+                call,
+                access_list: Default::default(),
+            },
+            SYSTEM_ADDRESS,
+        )
+    };
+    let result = evm.transact(&native_tx(native.clone())).unwrap();
     assert!(result.result.is_success(), "{:?}", result.result);
     assert!(result.result.tx_gas_used() <= eez_protocol::l1_history::IMPORT_GAS_LIMIT);
-    assert_eq!(result.state[&SYSTEM_ADDRESS].info.nonce, 91);
     assert_eq!(
-        result.state[&HISTORY_ADDRESS].storage[&U256::from(ENDPOINT_SLOT)].present_value(),
+        result
+            .pending_state
+            .account_info(&SYSTEM_ADDRESS)
+            .unwrap()
+            .nonce,
+        91
+    );
+    assert_eq!(
+        result
+            .pending_state
+            .account_changes_for(&HISTORY_ADDRESS)
+            .unwrap()
+            .storage
+            .slots
+            .get(&U256::from(ENDPOINT_SLOT))
+            .unwrap()
+            .value
+            .current,
         U256::from(64)
     );
     let result = evm
-        .transact_raw(TxEnv {
+        .transact(&native_tx(TxLegacy {
             gas_limit: 100_000,
             ..native
-        })
+        }))
         .unwrap();
     // The implementation exhausts its delegated gas; the transparent proxy
     // bubbles that failure as an empty revert. No partial writes may survive.
-    assert!(matches!(
-        result.result,
-        revm::context::result::ExecutionResult::Revert { .. }
-    ));
-    assert!(result.result.output().unwrap().is_empty());
+    assert!(result.result.is_revert());
+    assert!(result.result.output.is_empty());
     assert_eq!(
-        evm.db_mut()
-            .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT))
+        evm.overlay_db_mut()
+            .get_storage(&HISTORY_ADDRESS, &U256::from(ENDPOINT_SLOT))
             .unwrap(),
         U256::ZERO
     );
     for caller in [SYSTEM_ADDRESS, Address::ZERO] {
         assert!(
-            evm.transact_system_call(caller, HISTORY_ADDRESS, Bytes::new())
+            evm.system_call(SystemTx::new(HISTORY_ADDRESS, Bytes::new()).with_caller(caller))
                 .unwrap_err()
                 .to_string()
                 .contains("recorded native transaction")
@@ -532,21 +565,20 @@ fn positive_bootstrap_stays_publicly_empty_then_can_be_published_once() {
     config.bootstrap.prev_randao = reference.header().mix_hash;
     config.schedule = HistorySchedule::new(8, 1, 4, 2).unwrap();
     config.source = Arc::new(WitnessHistory(Arc::new(chain.range(2, 2).unwrap())));
-    let mut state = State::builder()
-        .with_database(db)
-        .with_bundle_update()
-        .build();
+    let mut state = db;
     // No record is installed by genesis or an omitted opportunity, even though
     // execution authenticates and inherits the positive bootstrap origin.
     execute(&config, &mut state, 9, config.bootstrap.prev_randao, &[]).unwrap();
     assert_eq!(
         state
-            .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT))
+            .get_storage(&HISTORY_ADDRESS, &U256::from(ENDPOINT_SLOT))
             .unwrap(),
         U256::ZERO
     );
     assert_eq!(
-        state.storage(HISTORY_ADDRESS, hash_storage_key(2)).unwrap(),
+        state
+            .get_storage(&HISTORY_ADDRESS, &hash_storage_key(2))
+            .unwrap(),
         U256::ZERO
     );
     let (plan, tx) = prepare_at(&mut state, &config, 11).unwrap();
@@ -561,12 +593,14 @@ fn positive_bootstrap_stays_publicly_empty_then_can_be_published_once() {
     .unwrap();
     assert_eq!(
         state
-            .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT))
+            .get_storage(&HISTORY_ADDRESS, &U256::from(ENDPOINT_SLOT))
             .unwrap(),
         U256::from(2)
     );
     assert_eq!(
-        state.storage(HISTORY_ADDRESS, hash_storage_key(2)).unwrap(),
+        state
+            .get_storage(&HISTORY_ADDRESS, &hash_storage_key(2))
+            .unwrap(),
         U256::from_be_bytes(config.bootstrap.hash.0)
     );
     assert!(prepare_at(&mut state, &config, 15).unwrap().1.is_none());
@@ -593,22 +627,19 @@ fn sparse_recorded_import_authenticates_bridge_but_never_stores_or_backfills_gap
             .to_vec(),
     }
     .into();
-    let mut state = State::builder()
-        .with_database(db.clone())
-        .with_bundle_update()
-        .build();
+    let mut state = db.clone();
     let randao = chain.at(4).unwrap().header().mix_hash;
     execute(&config, &mut state, 11, randao, std::slice::from_ref(&tx)).unwrap();
     assert_eq!(
         state
-            .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT))
+            .get_storage(&HISTORY_ADDRESS, &U256::from(ENDPOINT_SLOT))
             .unwrap(),
         U256::from(4)
     );
     for number in [0, 2, 3, 5] {
         assert_eq!(
             state
-                .storage(HISTORY_ADDRESS, hash_storage_key(number))
+                .get_storage(&HISTORY_ADDRESS, &hash_storage_key(number))
                 .unwrap(),
             U256::ZERO
         );
@@ -616,7 +647,7 @@ fn sparse_recorded_import_authenticates_bridge_but_never_stores_or_backfills_gap
     for number in [1, 4] {
         assert_eq!(
             state
-                .storage(HISTORY_ADDRESS, hash_storage_key(number))
+                .get_storage(&HISTORY_ADDRESS, &hash_storage_key(number))
                 .unwrap(),
             U256::from_be_bytes(chain.at(number).unwrap().hash().0)
         );
@@ -638,10 +669,7 @@ fn sparse_recorded_import_authenticates_bridge_but_never_stores_or_backfills_gap
     );
     let mut incomplete = config.clone();
     incomplete.source = Arc::new(WitnessHistory(Arc::new(chain.range(0, 1).unwrap())));
-    let mut missing = State::builder()
-        .with_database(db)
-        .with_bundle_update()
-        .build();
+    let mut missing = db;
     assert!(
         execute(&incomplete, &mut missing, 11, randao, &[tx])
             .unwrap_err()

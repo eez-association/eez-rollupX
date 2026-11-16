@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build shipping binaries and release test executables in one target.
 # Local development keeps the existing Dockerfile / Dockerfile.signer entrypoints.
-ARG RUST_IMAGE=rust:1.95.0-bookworm
+ARG RUST_IMAGE=rust:1.96.0-bookworm
 ARG RUNTIME_IMAGE=debian:bookworm-slim
 ARG BUILD_STAGE=build-online
 FROM scratch AS previous-state
@@ -19,15 +19,15 @@ COPY scripts/ci/native-tests.py scripts/ci/with-compiler-cache.sh /checkout/scri
 FROM ${RUST_IMAGE} AS tools
 COPY scripts/ci/install-llvm.sh /usr/local/lib/eez/install-llvm.sh
 RUN bash /usr/local/lib/eez/install-llvm.sh
-ENV LLVM_SYS_221_PREFIX=/usr/lib/llvm-22
-ENV PATH="/usr/lib/llvm-22/bin:${PATH}"
+ENV LLVM_SYS_231_PREFIX=/usr/lib/llvm-23
+ENV PATH="/usr/lib/llvm-23/bin:${PATH}"
 # llvm-sys reruns its build script (rebuilding revmc, Reth and every eez crate)
 # when anything reachable from its prefix, following symlinks, is newer than the
 # retained Cargo state. Each fresh install stamps directories with the install
 # time, so reset the prefix and its symlink targets; `find -L` would fail on the
 # prefix's build/ symlink loops. LLVM upgrades still invalidate retained state:
 # toolchain.txt records every package version in the compatibility key.
-RUN { echo "$LLVM_SYS_221_PREFIX"; find "$LLVM_SYS_221_PREFIX" -type l -exec readlink -e {} +; } \
+RUN { echo "$LLVM_SYS_231_PREFIX"; find "$LLVM_SYS_231_PREFIX" -type l -exec readlink -e {} +; } \
     | sort -u | xargs -r -d '\n' sh -c 'find "$@" -exec touch -h -d @0 {} +' sh
 RUN --network=default apt-get update && apt-get install -y --no-install-recommends \
         clang libclang-dev pkg-config cmake libssl-dev git ca-certificates protobuf-compiler mold curl python3 time rsync \

@@ -24,11 +24,11 @@ pub struct ExExLauncher<Node: FullNodeComponents> {
     config_container: WithConfigs<<Node::Types as NodeTypes>::ChainSpec>,
     /// The threshold for the number of blocks in the WAL before emitting a warning.
     wal_blocks_warning: usize,
-    /// The max notification buffer capacity for the ExEx manager.
+    /// The max notification buffer capacity for the `ExEx` manager.
     capacity: usize,
 }
 
-impl<Node: FullNodeComponents + Clone> ExExLauncher<Node> {
+impl<Node: FullNodeComponents> ExExLauncher<Node> {
     /// Create a new `ExExLauncher` with the given extensions.
     pub const fn new(
         head: Head,

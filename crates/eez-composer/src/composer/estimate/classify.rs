@@ -1,13 +1,16 @@
 //! Read-only native call observation, including frames an application catches.
-use super::*;
-use alloy_rpc_types_eth::state::StateOverride;
-use reth_revm::{database::StateProviderDatabase, db::State};
-use reth_storage_api::EvmStateProviderAdapter;
-use revm::{
-    Inspector, Journal,
-    context_interface::ContextTr,
-    interpreter::{CallInputs, CallOutcome},
+use super::{
+    Address, ConfigureEvm, Db, Direction, EstimateError, EvmFeatures, GasEstimator,
+    RecoveredTxEnvelope, SealedHeader, TransactionRequest, TryIntoTxEnv, unavailable,
 };
+use alloy_rpc_types_eth::state::StateOverride;
+use evm2::{
+    EvmTypes, Inspector,
+    evm::{CacheDB, inspector::InspectorConfig},
+    interpreter::{Interpreter, Message, MessageResult},
+};
+use reth_evm::database::StateProviderDatabase;
+use reth_storage_api::EvmStateProviderAdapter;
 
 /// Dispatch recognition shared with signed-transaction ingress tracing.
 pub fn is_dispatch(target: Address, input: &[u8], manager: Address) -> bool {
@@ -23,11 +26,18 @@ struct Observer {
     found: bool,
 }
 
-impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> for Observer {
-    fn call(&mut self, context: &mut C, inputs: &mut CallInputs) -> Option<CallOutcome> {
+impl<T: EvmTypes> Inspector<T> for Observer {
+    fn inspector_config(&self) -> InspectorConfig {
+        InspectorConfig::without_steps()
+    }
+    fn call(
+        &mut self,
+        interp: &mut Interpreter<'_, '_, T>,
+        inputs: &mut Message<T>,
+    ) -> Option<MessageResult<T>> {
         self.found |= is_dispatch(
-            inputs.target_address,
-            &inputs.input.as_bytes(context),
+            inputs.destination,
+            &inputs.input.to_bytes(interp.memory()),
             self.manager,
         );
         None
@@ -65,13 +75,11 @@ impl GasEstimator {
             .provider
             .state_by_block_hash(parent.hash())
             .map_err(unavailable)?;
-        let mut state = State::builder()
-            .with_database(StateProviderDatabase::new(EvmStateProviderAdapter(
-                provider,
-            )))
-            .build();
+        let mut state = CacheDB::new(Db::new(StateProviderDatabase::new(
+            EvmStateProviderAdapter(provider),
+        )));
         if let Some(overrides) = overrides {
-            reth_evm::overrides::apply_state_overrides(overrides, &mut state)
+            reth_rpc_eth_types::cache::db::apply_state_overrides(overrides, &mut state)
                 .map_err(unavailable)?;
         }
         let mut observer = Observer {
@@ -79,32 +87,48 @@ impl GasEstimator {
             found: false,
         };
         macro_rules! run {
-            ($config:expr, $header:expr) => {{
+            ($config:expr, $header:expr, $map:expr) => {{
                 let config = $config;
                 let mut env = config.evm_env(&$header).map_err(unavailable)?;
                 // Match eth_call validation: no signature, account-code or fee
                 // affordability requirement. Estimate execution checks fees later.
-                env.cfg_env.disable_nonce_check = true;
-                env.cfg_env.disable_eip3607 = true;
-                env.cfg_env.disable_base_fee = true;
-                env.cfg_env.disable_balance_check = true;
-                let mut tx: TxEnv = request
+                env.version.features.remove(
+                    EvmFeatures::NONCE_CHECK
+                        | EvmFeatures::EIP3607
+                        | EvmFeatures::BASE_FEE_CHECK
+                        | EvmFeatures::BALANCE_CHECK,
+                );
+                let mut request = request;
+                request.gas = Some(
+                    request
+                        .gas
+                        .unwrap_or_else(|| env.block.gas_limit.saturating_to())
+                        .min(env.version.tx_gas_limit_cap),
+                );
+                let tx: RecoveredTxEnvelope = request
                     .try_into_tx_env(&env)
                     .map_err(|e| EstimateError::Invalid(e.to_string()))?;
-                tx.gas_limit = tx.gas_limit.min(env.cfg_env.tx_gas_limit_cap());
-                let mut evm = config.evm_with_env_and_inspector(&mut state, env, &mut observer);
-                evm.transact(tx).map_err(unavailable)?;
+                let tx = tx.map($map);
+                let mut evm = config.evm_with_env(&mut state, env);
+                // Classification includes calls in reverted frames; validation errors still propagate.
+                let _ = evm.transact_with_inspector(&tx, &mut observer)
+                    .map_err(unavailable)?;
             }};
         }
         if let Some(config) = &chain.gnosis_evm_config {
-            run!(config, parent.header().clone().into());
+            run!(
+                config,
+                parent.header().clone().into(),
+                std::convert::identity
+            );
         } else if direction == Direction::Inbound {
             run!(
                 &reth_evm_ethereum::EthEvmConfig::new(chain.evm_config.chain_spec().clone()),
-                parent
+                parent,
+                std::convert::identity
             );
         } else {
-            run!(&chain.evm_config, parent);
+            run!(&chain.evm_config, parent, eez_evm::EezEvmTx::Ethereum);
         }
         Ok(observer.found)
     }
@@ -113,12 +137,17 @@ impl GasEstimator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy_consensus::Header;
+    use alloy_consensus::TxLegacy;
+    use alloy_consensus::transaction::Recovered;
+    use alloy_primitives::Bytes;
     use eez_evm::EezEvmConfig;
-    use reth_chainspec::ChainSpecBuilder;
-    use revm::{
-        database::InMemoryDB,
-        state::{AccountInfo, Bytecode},
+    use evm2::{
+        bytecode::Bytecode,
+        evm::{AccountInfo, InMemoryDB},
     };
+    use reth_chainspec::ChainSpecBuilder;
+    use std::sync::Arc;
 
     #[test]
     fn native_observer_finds_dispatch_even_when_the_application_catches_revert() {
@@ -149,14 +178,14 @@ mod tests {
             code.extend([0x5a, 0xfa, 0x50, 0x00]);
             let mut db = InMemoryDB::default();
             db.insert_account_info(
-                wrapper,
+                &wrapper,
                 AccountInfo {
                     code: Some(Bytecode::new_raw(code.into())),
                     ..Default::default()
                 },
             );
             db.insert_account_info(
-                manager,
+                &manager,
                 AccountInfo {
                     code: Some(Bytecode::new_raw(Bytes::from_static(&[0x5f, 0x5f, 0xfd]))),
                     ..Default::default()
@@ -167,16 +196,21 @@ mod tests {
                 manager,
                 found: false,
             };
-            let result = config
-                .evm_with_env_and_inspector(&mut db, env, &mut observer)
-                .transact(TxEnv {
-                    kind: alloy_primitives::TxKind::Call(wrapper),
+            let tx = Recovered::new_unchecked(
+                eez_evm::EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Legacy(TxLegacy {
+                    to: alloy_primitives::TxKind::Call(wrapper),
                     gas_limit: 100_000,
                     ..Default::default()
-                })
-                .unwrap();
+                })),
+                Address::ZERO,
+            );
+            let mut evm = config.evm_with_env(&mut db, env);
+            let result = evm
+                .transact_with_inspector(&tx, &mut observer)
+                .unwrap()
+                .result;
             assert!(
-                result.result.is_success(),
+                result.is_success(),
                 "application catches the protocol revert"
             );
             assert_eq!(observer.found, selector != [0, 0, 0, 0]);

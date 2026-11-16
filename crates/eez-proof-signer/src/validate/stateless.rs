@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use alloy_consensus::{
-    BlockHeader as _, Transaction as _,
+    Transaction as _,
     proofs::{calculate_receipt_root, calculate_transaction_root},
 };
 #[cfg(test)]
@@ -24,12 +24,11 @@ use eez_primitives::Block;
 use eez_protocol::abi::eez_l2_events::CrossChainCallExecuted;
 use eez_protocol::settlement::FifoObservationClaim;
 use eez_protocol::settlement::{is_system_tx, pair_end_positions};
+use evm2::bytecode::Bytecode;
+use evm2::evm::AccountInfo;
+use evm2::evm::{CacheDB, Database, Db};
 use reth_chainspec::{ChainSpec, EthereumHardforks as _};
 use reth_primitives_traits::RecoveredBlock;
-use revm::Database;
-use revm::bytecode::Bytecode;
-use revm::database::State;
-use revm::state::AccountInfo;
 use stateless_reth::validation::StatelessValidationError;
 use stateless_reth::{StatelessValidationOutput, stateless_validation_recovered};
 use stateless_tries::{WitnessDbError, default::StatelessSparseTrie};
@@ -629,18 +628,14 @@ impl Backend {
         // representation is ever refactored or made mutable.
         let ancestor_hashes = authenticated_ancestor_hashes(&block, &replay.witness.headers)?;
         let db = ObservationWitnessDatabase::new(&trie, bytecode, ancestor_hashes);
-        let has_bal = block.sealed_header().block_access_list_hash().is_some();
-        let mut state = State::builder()
-            .with_database(db)
-            .with_bundle_update()
-            .with_bal_builder_if(has_bal)
-            .build();
+        let mut state = CacheDB::new(Db::new(db));
         let evm_config = self
             .evm_config
             .clone()
             .with_l1_history(Arc::new(eez_protocol::l1_history::WitnessHistory(history)))
             .map_err(|error| ObservationValidationError::Replay(error.to_string()))?;
         replay_block_with_observations(&mut state, &evm_config, &block, &observations)
+            .map(|(_, outcomes)| outcomes)
             .map_err(|error| ObservationValidationError::Replay(error.to_string()))
     }
 }
@@ -700,7 +695,7 @@ fn authenticated_ancestor_hashes(
     Ok(hashes)
 }
 
-/// Minimal witness-backed revm database used only for observation replay.
+/// Minimal witness-backed evm2 database used only for observation replay.
 /// This mirrors Stateless's private validation adapter while deliberately
 /// keeping account/storage reads fail-closed through `StatelessSparseTrie`.
 #[derive(Debug)]
@@ -727,33 +722,36 @@ impl<'a> ObservationWitnessDatabase<'a> {
 impl Database for ObservationWitnessDatabase<'_> {
     type Error = WitnessDbError;
 
-    fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        self.trie.account(address).map(|account| {
+    fn get_account(&mut self, address: &Address) -> Result<Option<AccountInfo>, Self::Error> {
+        self.trie.account(*address).map(|account| {
             account.map(|account| AccountInfo {
                 balance: account.balance,
                 nonce: account.nonce,
                 code_hash: account.code_hash,
                 code: None,
-                account_id: None,
+                ..Default::default()
             })
         })
     }
 
-    fn storage(&mut self, address: Address, slot: U256) -> Result<U256, Self::Error> {
-        self.trie.storage(address, slot)
+    fn get_storage(&mut self, address: &Address, slot: &U256) -> Result<U256, Self::Error> {
+        self.trie.storage(*address, *slot)
     }
 
-    fn code_by_hash(&mut self, code_hash: B256) -> Result<Bytecode, Self::Error> {
+    fn get_code_by_hash(&mut self, code_hash: &B256) -> Result<Bytecode, Self::Error> {
         self.bytecode
-            .get(&code_hash)
+            .get(code_hash)
             .cloned()
-            .map(Bytecode::new_raw)
+            .map(Bytecode::from_stored)
             .ok_or_else(|| {
                 WitnessDbError::TrieWitness(format!("bytecode for {code_hash} not found"))
             })
     }
 
-    fn block_hash(&mut self, block_number: u64) -> Result<B256, Self::Error> {
+    fn get_block_hash(&mut self, block_number: &U256) -> Result<B256, Self::Error> {
+        let block_number = u64::try_from(*block_number).map_err(|_| {
+            WitnessDbError::TrieWitness(format!("block number {block_number} exceeds u64"))
+        })?;
         self.block_hashes
             .get(&block_number)
             .copied()

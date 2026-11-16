@@ -3,7 +3,7 @@
 //!
 //! When the inspector sees a CALL opcode:
 //! 1. `lookup_authorized_proxy_live` reads `authorizedProxies[addr]`
-//!    from the **live EVM state** (revm journal + DB) — so proxies
+//!    from the **live EVM state** (EVM journal + DB) — so proxies
 //!    registered by earlier calls in the same transaction, or by
 //!    earlier transactions in the same in-progress block, are visible.
 //! 2. If the address is a registered proxy,
@@ -13,22 +13,22 @@
 //!    the source transaction's control flow can continue.
 //!
 //! Errors surfaced by dispatch are stashed locally so the caller can
-//! consult them after the EVM pass without unwinding the revm machine.
+//! consult them after the EVM pass without unwinding the EVM machine.
 //!
 //! # Why live EVM state
 //!
 //! The lookup must see writes made earlier in the same transaction
 //! (e.g. `Bridge.bridgeEther` deploys a CREATE2 proxy and calls it
 //! inside one tx) and earlier in the same in-progress block
-//! (multi-tx composition). Reading through revm's journal captures
+//! (multi-tx composition). Reading through the EVM journal captures
 //! both; a pre-tx storage snapshot would not.
 //!
+use crate::overlay_state::OverlaySnapshot;
 use alloy_primitives::{Address, Bytes};
-use revm::Inspector;
-use revm::context_interface::{ContextTr, Host, JournalTr};
-use revm::database::{CacheState, State};
-use revm::interpreter::{
-    CallInputs, CallOutcome, CallScheme, Gas, InstructionResult, Interpreter, InterpreterResult,
+use evm2::{
+    EvmTypes, ExecutionError, HostError,
+    evm::{Evm, inspector::Inspector},
+    interpreter::{GasTracker, Host, InstrStop, Interpreter, Message, MessageKind, MessageResult},
 };
 
 use crate::overlay::OverlayChannelHandle;
@@ -41,56 +41,29 @@ const LOGGED_RETURN_BYTES: usize = 256;
 /// Look up `authorizedProxies[addr]` from the live EVM state at the
 /// hook site.
 ///
-/// Goes through revm's journal (so writes by earlier calls or earlier
+/// Goes through the EVM journal (so writes by earlier calls or earlier
 /// txs in the same in-progress block are visible) and falls back to the
 /// underlying DB for cold slots. Returns `None` for unregistered proxies
-/// and for DB errors — the caller treats both as "not a proxy."
+/// and propagates read errors so the caller can reject the simulation before
+/// accepting effects. An unavailable mapping cannot authorize ordinary execution.
 ///
 /// # Account warming
 ///
-/// revm's `sload` requires the target account to already be present in
+/// The host's `sload` requires the target account to already be present in
 /// the journal; it's the normal precondition when the EVM does an SLOAD
 /// while executing a contract. The inspector fires on every CALL —
 /// including calls to destinations that have never had their state
 /// touched before — so we can't assume the rollups contract is warm.
 /// We explicitly load it; a no-op if it was already warm.
-fn lookup_authorized_proxy_live<CTX: ContextTr + Host>(
-    ctx: &mut CTX,
+fn lookup_authorized_proxy_live<T: EvmTypes>(
+    context: &mut Evm<'_, T>,
     lookup: &ProxyLookupConfig,
     addr: Address,
-) -> Option<ProxyInfo> {
-    // Warm the rollups account before the SLOAD (see fn-level doc).
-    ctx.journal_mut()
-        .load_account(lookup.contract_address)
-        .ok()?;
+) -> Result<Option<ProxyInfo>, HostError> {
+    context.load_account(&lookup.contract_address, false, false)?;
     let key = proxy_mapping_key(addr, lookup.authorized_proxies_slot);
-    let load = ctx.sload(lookup.contract_address, key.into())?;
-    decode_proxy_value(load.data)
-}
-
-/// Clone this rollup's in-flight cache with journal-live values.
-///
-/// The DB cache still contains pre-transaction values. In particular, a new
-/// contract's constructor storage may exist only in the journal: CREATE does
-/// not load those slots from the DB. Apply the full live account changes to a
-/// cloned cache using REVM's own conversion, including code and creation state.
-/// Neither the source DB nor its rollback journal is committed here.
-fn live_cache_snapshot<'db, DB, CTX>(context: &mut CTX) -> CacheState
-where
-    CTX: ContextTr<Db = &'db mut State<DB>> + Host,
-    CTX::Journal: JournalTr<State = revm::state::EvmState>,
-    DB: 'db,
-{
-    let mut cache = context.db_mut().cache.clone();
-    let _ = cache.apply_evm_state(
-        context
-            .journal_ref()
-            .evm_state()
-            .iter()
-            .map(|(address, account)| (*address, account.clone())),
-        |_, _| {},
-    );
-    cache
+    let load = context.sload(&lookup.contract_address, &key.into(), false)?;
+    Ok(decode_proxy_value(load.value))
 }
 
 /// EVM inspector that detects proxy calls and dispatches them through
@@ -133,6 +106,8 @@ pub struct SessionInspector<'a> {
     /// represented by the entry/call outcome. Only an enclosing source frame
     /// that subsequently reverts creates a rollback window.
     frame_boundaries: Vec<FrameBoundary>,
+    /// Prior committed effects remain visible even when this EVM has not loaded them.
+    snapshot_seed: OverlaySnapshot,
     /// Force the first synthetic target frame into EVM static context.
     force_first_frame_static: bool,
     first_frame_initialized: bool,
@@ -147,13 +122,13 @@ struct FrameBoundary {
 fn reverted_dispatch_span(
     boundary: FrameBoundary,
     end: usize,
-    result: InstructionResult,
+    result: InstrStop,
     has_error: bool,
 ) -> Option<(usize, u32)> {
     if has_error
         || boundary.intercepted_cross_chain
         || boundary.start >= end
-        || result != InstructionResult::Revert
+        || result != InstrStop::Revert
     {
         return None;
     }
@@ -210,7 +185,11 @@ impl SessionInspectorFactory {
     ///
     /// Calls are opened before target execution, so nested dispatches are
     /// recorded as preorder children of their outer call.
-    pub fn build<'a>(&self, dispatcher: &'a mut CompositionBuilder) -> SessionInspector<'a> {
+    pub fn build<'a>(
+        &self,
+        dispatcher: &'a mut CompositionBuilder,
+        snapshot: &OverlaySnapshot,
+    ) -> SessionInspector<'a> {
         SessionInspector {
             proxy_lookup: self.proxy_lookup.clone(),
             dispatcher,
@@ -218,6 +197,7 @@ impl SessionInspectorFactory {
             error: None,
             overlay_channel: self.overlay_channel.clone(),
             frame_boundaries: Vec::new(),
+            snapshot_seed: snapshot.clone(),
             force_first_frame_static: false,
             first_frame_initialized: false,
         }
@@ -225,8 +205,12 @@ impl SessionInspectorFactory {
 
     /// Build an inspector whose first synthetic target frame executes with
     /// the EVM static flag set. Descendant calls inherit that flag normally.
-    pub fn build_static<'a>(&self, dispatcher: &'a mut CompositionBuilder) -> SessionInspector<'a> {
-        let mut inspector = self.build(dispatcher);
+    pub fn build_static<'a>(
+        &self,
+        dispatcher: &'a mut CompositionBuilder,
+        snapshot: &OverlaySnapshot,
+    ) -> SessionInspector<'a> {
+        let mut inspector = self.build(dispatcher, snapshot);
         inspector.force_first_frame_static = true;
         inspector
     }
@@ -249,22 +233,21 @@ impl SessionInspector<'_> {
     }
 }
 
-impl<'db, DB, CTX> Inspector<CTX> for SessionInspector<'_>
-where
-    CTX: ContextTr<Db = &'db mut State<DB>> + Host,
-    CTX::Journal: JournalTr<State = revm::state::EvmState>,
-    DB: 'db,
-{
-    fn initialize_interp(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
+impl<T: EvmTypes> Inspector<T> for SessionInspector<'_> {
+    fn initialize_interp(&mut self, interp: &mut Interpreter<'_, '_, T>) {
         if !self.first_frame_initialized {
             if self.force_first_frame_static {
-                interp.runtime_flag.is_static = true;
+                interp.set_static(true);
             }
             self.first_frame_initialized = true;
         }
     }
 
-    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+    fn call(
+        &mut self,
+        interp: &mut Interpreter<'_, '_, T>,
+        inputs: &mut Message<T>,
+    ) -> Option<MessageResult<T>> {
         // Bracket every CALL frame with a recorded-count snapshot so
         // `call_end` can detect "frame reverted AFTER dispatching one
         // or more cross-chain calls" (revert-continue patterns —
@@ -280,16 +263,17 @@ where
 
         // Only CALL / STATICCALL can represent cross-chain proxy calls. Leave
         // delegate/callcode shapes to the EVM.
-        if !matches!(inputs.scheme, CallScheme::Call | CallScheme::StaticCall) {
+        if !matches!(inputs.kind, MessageKind::Call | MessageKind::StaticCall) {
             return None;
         }
 
-        let calldata = inputs.input.bytes(context);
+        let calldata = inputs.input.to_bytes(interp.memory());
+        let context = interp.host();
         let calldata_len = calldata.len();
 
         tracing::trace!(
-            depth = context.journal_ref().depth(),
-            target_addr = %inputs.target_address,
+            depth = inputs.depth,
+            target_addr = %inputs.destination,
             caller = %inputs.caller,
             calldata_len,
             "inspector: CALL"
@@ -297,23 +281,38 @@ where
 
         // Look up `authorizedProxies[target_address]` on the configured
         // contract via the live EVM state. Sees in-tx / in-block writes.
-        let Some(info) =
-            lookup_authorized_proxy_live(context, &self.proxy_lookup, inputs.target_address)
-        else {
-            tracing::trace!(addr = %inputs.target_address, "inspector: not a proxy");
-            return None;
-        };
+        let info =
+            match lookup_authorized_proxy_live(context, &self.proxy_lookup, inputs.destination) {
+                Ok(Some(info)) => info,
+                Ok(None) => {
+                    tracing::trace!(addr = %inputs.destination, "inspector: not a proxy");
+                    return None;
+                }
+                Err(error) => {
+                    // Keep provider failures typed: the queue must abort/recover the slot,
+                    // not classify a missing observation as permanent transaction poison.
+                    self.record_error(match error {
+                        HostError::Execution(ExecutionError::Database(error)) => {
+                            ExecutorError::provider(error)
+                        }
+                        // These reads neither skip cold loads nor load code; current
+                        // Host implementations can only return database errors here.
+                        error => ExecutorError::evm(error),
+                    });
+                    return None;
+                }
+            };
         self.frame_boundaries
             .last_mut()
             .expect("the current CALL frame has a boundary")
             .intercepted_cross_chain = true;
 
-        let call_mode = if inputs.is_static || matches!(inputs.scheme, CallScheme::StaticCall) {
+        let call_mode = if inputs.is_static() {
             CallMode::Static
         } else {
             CallMode::Mutable
         };
-        let call_value = inputs.value.get();
+        let call_value = inputs.value;
         if call_mode == CallMode::Static && !call_value.is_zero() {
             self.record_error(ExecutorError::evm(
                 "static cross-chain proxy call carries non-zero value",
@@ -334,8 +333,20 @@ where
         // Open a frame with this rollup's in-flight cache. If the downstream
         // call re-enters this rollup, the new session preloads the snapshot
         // and publishes its updated cache into this frame.
-        self.overlay_channel
-            .open_frame(live_cache_snapshot(context));
+        let snapshot = match self.snapshot_seed.capture(context.state_mut()) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                self.record_error(ExecutorError::evm(format!(
+                    "live overlay snapshot failed: {error:?}"
+                )));
+                return Some(synthetic_result::<T>(
+                    inputs,
+                    InstrStop::Revert,
+                    Bytes::new(),
+                ));
+            }
+        };
+        self.overlay_channel.open_frame(snapshot);
         let sim = self.dispatcher.dispatch_call(info.original_rollup_id, req);
         // Apply only a result published during this dispatch, before this EVM
         // frame continues. A failed target call reverts every callback it
@@ -346,12 +357,18 @@ where
         let succeeded = sim
             .as_ref()
             .is_ok_and(eez_protocol::ExecutionOutcome::is_success);
+        let features = context.execution_config().version().features;
         if let Some(crate::overlay::DispatchFrame {
             pre_dispatch,
             result: Some(result),
         }) = frame
             && succeeded
-            && let Err(e) = crate::overlay::apply_overlay_diff(context, &pre_dispatch, &result)
+            && let Err(e) = crate::overlay::apply_overlay_diff(
+                context.state_mut(),
+                &pre_dispatch,
+                &result,
+                features,
+            )
         {
             self.record_error(ExecutorError::evm(format!(
                 "overlay diff-apply failed: {e}"
@@ -366,13 +383,10 @@ where
                     tracing::error!(error = %e, "target execution failed");
                 }
                 self.record_error(e);
-                return Some(CallOutcome::new(
-                    InterpreterResult::new(
-                        InstructionResult::Revert,
-                        Bytes::new(),
-                        Gas::new(inputs.gas_limit),
-                    ),
-                    inputs.return_memory_offset.clone(),
+                return Some(synthetic_result::<T>(
+                    inputs,
+                    InstrStop::Revert,
+                    Bytes::new(),
                 ));
             }
         };
@@ -390,8 +404,8 @@ where
             dest = %info.original_address,
             rollup_id = %info.original_rollup_id,
             caller = %inputs.caller,
-            proxy = %inputs.target_address,
-            depth = context.journal_ref().depth(),
+            proxy = %inputs.destination,
+            depth = inputs.depth,
             calldata_len,
             value = %call_value,
             target_result = if success { "ok" } else { "REVERT" },
@@ -405,18 +419,20 @@ where
         // EVM — the outer Solidity frame should see the call as reverted
         // so try/catch + reverted-frame accounting bracket the right range.
         let result = if success {
-            InstructionResult::Return
+            InstrStop::Return
         } else {
-            InstructionResult::Revert
+            InstrStop::Revert
         };
 
-        Some(CallOutcome::new(
-            InterpreterResult::new(result, return_data, Gas::new(inputs.gas_limit)),
-            inputs.return_memory_offset.clone(),
-        ))
+        Some(synthetic_result::<T>(inputs, result, return_data))
     }
 
-    fn call_end(&mut self, _context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
+    fn call_end(
+        &mut self,
+        _interp: &mut Interpreter<'_, '_, T>,
+        _inputs: &Message<T>,
+        outcome: &mut MessageResult<T>,
+    ) {
         // Pair with the count captured in `call`. A reverted frame with a
         // non-empty dispatch range records the span and queues the affected
         // session checkpoints for rollback before the next dispatch.
@@ -430,88 +446,103 @@ where
         });
         let end = self.dispatcher.recorded_count();
         if let Some((start, span)) =
-            reverted_dispatch_span(boundary, end, outcome.result.result, self.has_error())
+            reverted_dispatch_span(boundary, end, outcome.stop, self.has_error())
         {
             self.dispatcher.annotate_revert_span(start, span);
         }
     }
 }
 
+fn synthetic_result<T: EvmTypes>(
+    message: &Message<T>,
+    stop: InstrStop,
+    output: Bytes,
+) -> MessageResult<T> {
+    MessageResult::<T> {
+        stop,
+        output,
+        gas: GasTracker::new_with_execution_gas_and_reservoir(message.gas_limit, message.reservoir),
+        ..Default::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    //! Tests for [`lookup_authorized_proxy_live`] + the two per-variant
-    //! slot paths exercised via [`ProxyLookupConfig`].
-    //!
-    //! These target the core reason this helper exists: reading from
-    //! revm's live state (journal + DB) instead of a pre-tx `StateProvider`
-    //! snapshot.
-
     use super::*;
     use alloy_primitives::{U256, address};
     use eez_protocol::{EEZ_AUTHORIZED_PROXIES_SLOT, EEZL2_AUTHORIZED_PROXIES_SLOT};
-    use revm::MainContext;
-    use revm::context::Context;
-    use revm::database::{CacheDB, EmptyDB};
+    use evm2::{
+        BaseEvmTypes, EvmFeatures, SpecId,
+        bytecode::Bytecode,
+        ethereum::ethereum_tx_registry,
+        evm::{AccountInfo, InMemoryDB, State},
+        precompiles::Precompiles,
+    };
 
+    fn fresh_context(db: InMemoryDB) -> Evm<'static, BaseEvmTypes> {
+        Evm::new(
+            SpecId::OSAKA,
+            Default::default(),
+            ethereum_tx_registry(SpecId::OSAKA),
+            db,
+            Precompiles::base(SpecId::OSAKA),
+        )
+    }
     #[test]
     fn live_snapshot_includes_created_code_and_constructor_storage_without_committing() {
-        use revm::bytecode::Bytecode;
-        use revm::context_interface::journaled_state::account::JournaledAccountTr;
-        use revm::primitives::{bytes, hardfork::SpecId};
-
         let child = Address::with_last_byte(0x42);
-        let code = Bytecode::new_raw(bytes!("602a60005260206000f3"));
-        let mut db = State::builder().with_database(EmptyDB::default()).build();
-        let mut context = Context::mainnet().with_db(&mut db);
-        let outer = context.journal_mut().checkpoint();
-        context.journal_mut().load_account(child).unwrap();
-        context
-            .journal_mut()
-            .create_account_checkpoint(child, child, U256::ZERO, SpecId::PRAGUE)
+        let code = Bytecode::new_raw(alloy_primitives::bytes!("602a60005260206000f3"));
+        let mut state = State::new(InMemoryDB::default());
+        let outer = state.checkpoint();
+        state
+            .create_account(&child, &child, &U256::ZERO, EvmFeatures::EIP161)
+            .unwrap()
             .unwrap();
-        context.journal_mut().checkpoint_commit();
         {
-            let mut account = context.journal_mut().load_account_mut(child).unwrap();
-            account.data.set_code_and_hash_slow(code.clone());
-            account.data.set_balance(U256::from(17));
-            account.data.set_nonce(2);
+            let mut account = state.account(&child).unwrap();
+            account.set_code_slow(code.clone());
+            account.set_balance(U256::from(17));
+            account.set_nonce(2);
         }
-        context
-            .journal_mut()
-            .sstore(child, U256::ZERO, U256::from(41))
-            .unwrap();
-        let original_cache = context.db_mut().cache.clone();
-        let original_journal = context.journal_ref().evm_state().clone();
-        assert!(original_cache.accounts[&child].account.is_none());
-
-        let snapshot = live_cache_snapshot(&mut context);
-        let account = snapshot.accounts[&child].account.as_ref().unwrap();
-        assert_eq!(account.info.code_hash, code.hash_slow());
-        assert_eq!(account.info.code.as_ref(), Some(&code));
-        assert_eq!(account.info.nonce, 2);
-        assert_eq!(account.info.balance, U256::from(17));
-        assert_eq!(account.storage[&U256::ZERO], U256::from(41));
-        assert_eq!(snapshot.contracts[&code.hash_slow()], code);
-        assert_eq!(context.db_mut().cache, original_cache);
-        assert_eq!(context.journal_ref().evm_state(), &original_journal);
-
-        // Another dispatch must see the source's later write, and an enclosing
-        // revert must leave no created code in any subsequent snapshot.
-        context
-            .journal_mut()
-            .sstore(child, U256::ZERO, U256::from(42))
-            .unwrap();
-        let snapshot = live_cache_snapshot(&mut context);
+        state
+            .storage_slot(&child, U256::ZERO)
+            .unwrap()
+            .set(U256::from(41));
+        let original_cache = state.overlay_db().cache.clone();
+        assert_eq!(original_cache.accounts[&child], None);
+        let seed = OverlaySnapshot::default();
+        let snapshot = seed.capture(&mut state).unwrap();
+        let account = snapshot.cache.accounts[&child].as_ref().unwrap();
+        assert_eq!(account.code_hash, code.hash_slow());
         assert_eq!(
-            snapshot.accounts[&child].account.as_ref().unwrap().storage[&U256::ZERO],
+            account
+                .code
+                .as_ref()
+                .or_else(|| snapshot.cache.contracts.get(&account.code_hash)),
+            Some(&code)
+        );
+        assert_eq!(account.nonce, 2);
+        assert_eq!(account.balance, U256::from(17));
+        assert_eq!(
+            snapshot.cache.storage[&child].slots[&U256::ZERO],
+            U256::from(41)
+        );
+        assert_eq!(snapshot.cache.contracts[&code.hash_slow()], code);
+        assert_eq!(state.overlay_db().cache, original_cache);
+        assert!(state.account(&child).unwrap().is_created());
+        state
+            .storage_slot(&child, U256::ZERO)
+            .unwrap()
+            .set(U256::from(42));
+        assert_eq!(
+            seed.capture(&mut state).unwrap().cache.storage[&child].slots[&U256::ZERO],
             U256::from(42)
         );
-        context.journal_mut().checkpoint_revert(outer);
-        let snapshot = live_cache_snapshot(&mut context);
-        assert!(snapshot.accounts[&child].account.is_none());
-        assert!(!snapshot.contracts.contains_key(&code.hash_slow()));
+        state.rollback(outer, EvmFeatures::EIP161);
+        let snapshot = seed.capture(&mut state).unwrap();
+        assert_eq!(snapshot.cache.accounts[&child], None);
+        assert!(!snapshot.cache.contracts.contains_key(&code.hash_slow()));
     }
-
     const EEZ_ADDRESS: Address = address!("0x1111111111111111111111111111111111111111");
     const EEZL2_ADDRESS: Address = address!("0x4444444444444444444444444444444444444444");
     const PROXY_ADDR: Address = address!("0x2222222222222222222222222222222222222222");
@@ -533,220 +564,415 @@ mod tests {
         U256::from_be_bytes(word)
     }
 
-    fn fresh_context() -> Context<
-        revm::context::BlockEnv,
-        revm::context::TxEnv,
-        revm::context::CfgEnv,
-        CacheDB<EmptyDB>,
-        revm::context::Journal<CacheDB<EmptyDB>>,
-        (),
-    > {
-        Context::mainnet().with_db(CacheDB::<EmptyDB>::default())
-    }
-
     #[test]
     fn proxy_code_context_calls_are_left_to_the_evm_without_dispatch() {
-        use revm::interpreter::CallValue;
-        // Register both the code and execution-context addresses. Even an
-        // authorized context must not be mistaken for a normal proxy CALL by
-        // the composition hook; the actual manager call remains EVM execution.
-        for scheme in [CallScheme::DelegateCall, CallScheme::CallCode] {
-            let mut db = State::builder().with_database(EmptyDB::default()).build();
-            let mut context = Context::mainnet().with_db(&mut db);
-            context.journal_mut().load_account(EEZ_ADDRESS).unwrap();
+        for kind in [MessageKind::DelegateCall, MessageKind::CallCode] {
+            let mut db = InMemoryDB::default();
+            db.insert_account_info(&EEZ_ADDRESS, AccountInfo::empty());
+            db.insert_account_info(&EEZL2_ADDRESS, AccountInfo::empty());
             for address in [PROXY_ADDR, DESTINATION_ADDR] {
-                context
-                    .journal_mut()
-                    .sstore(
-                        EEZ_ADDRESS,
-                        proxy_mapping_key(address, EEZ_AUTHORIZED_PROXIES_SLOT).into(),
-                        packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP),
-                    )
-                    .unwrap();
+                db.insert_account_storage(
+                    &EEZ_ADDRESS,
+                    &proxy_mapping_key(address, EEZ_AUTHORIZED_PROXIES_SLOT).into(),
+                    &packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP),
+                );
             }
+            let mut context = fresh_context(db);
             let mut dispatcher = CompositionBuilder::new(RollupId::MAINNET, Default::default());
             let factory = SessionInspectorFactory::new(
                 lookup(EEZ_ADDRESS, EEZ_AUTHORIZED_PROXIES_SLOT),
                 RollupId::MAINNET,
                 crate::overlay::new_overlay_channel(),
             );
-            let mut inspector = factory.build(&mut dispatcher);
-            let mut inputs = CallInputs {
-                input: Default::default(),
-                return_memory_offset: 0..0,
+            let mut inspector = factory.build(&mut dispatcher, &OverlaySnapshot::default());
+            let mut inputs = Message::<BaseEvmTypes> {
+                kind,
                 gas_limit: 100_000,
-                reservoir: 0,
-                bytecode_address: PROXY_ADDR,
-                known_bytecode: Default::default(),
-                target_address: DESTINATION_ADDR,
+                code_address: PROXY_ADDR,
+                call_target: PROXY_ADDR,
+                destination: DESTINATION_ADDR,
                 caller: Address::with_last_byte(7),
-                value: CallValue::Apparent(U256::ZERO),
-                scheme,
-                is_static: false,
-                charged_new_account_state_gas: false,
+                ..Default::default()
             };
-            assert!(inspector.call(&mut context, &mut inputs).is_none());
+            let frame = inputs.clone();
+            let mut interp = Interpreter::<BaseEvmTypes>::new(&frame);
+            interp.prepare_run(&mut context);
+            assert!(inspector.call(&mut interp, &mut inputs).is_none());
             assert!(inspector.take_error().is_none());
             assert_eq!(inspector.dispatcher.recorded_count(), 0);
             assert_eq!(inspector.frame_boundaries.len(), 1);
             assert!(!inspector.frame_boundaries[0].intercepted_cross_chain);
         }
     }
+    #[test]
+    fn registered_calls_reach_dispatch_and_keep_failure_and_frame_ownership() {
+        for kind in [MessageKind::Call, MessageKind::StaticCall] {
+            let mut db = InMemoryDB::default();
+            db.insert_account_info(&EEZ_ADDRESS, AccountInfo::empty().with_nonce(1));
+            db.insert_account_storage(
+                &EEZ_ADDRESS,
+                &proxy_mapping_key(PROXY_ADDR, EEZ_AUTHORIZED_PROXIES_SLOT).into(),
+                &packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP),
+            );
+            let mut context = fresh_context(db);
+            let channel = crate::overlay::new_overlay_channel();
+            let factory = SessionInspectorFactory::new(
+                lookup(EEZ_ADDRESS, EEZ_AUTHORIZED_PROXIES_SLOT),
+                RollupId::MAINNET,
+                channel.clone(),
+            );
+            let mut dispatcher = CompositionBuilder::new(RollupId::MAINNET, Default::default());
+            let mut inspector = factory.build(&mut dispatcher, &OverlaySnapshot::default());
+            let mut message = Message::<BaseEvmTypes> {
+                kind,
+                destination: PROXY_ADDR,
+                call_target: PROXY_ADDR,
+                gas_limit: 100_000,
+                ..Default::default()
+            };
+            let frame = message.clone();
+            let mut interp = Interpreter::<BaseEvmTypes>::new(&frame);
+            interp.prepare_run(&mut context);
+            let mut outcome = inspector
+                .call(&mut interp, &mut message)
+                .expect("registered proxy must be intercepted");
+            assert_eq!(outcome.stop, InstrStop::Revert);
+            assert_eq!(outcome.gas.remaining(), 100_000);
+            let error = inspector
+                .take_error()
+                .expect("missing target is an execution error");
+            assert!(
+                matches!(
+                    error.kind(),
+                    eez_protocol::ExecutorErrorKind::Unavailable(_)
+                ),
+                "{error}"
+            );
+            assert!(
+                inspector
+                    .frame_boundaries
+                    .last()
+                    .unwrap()
+                    .intercepted_cross_chain
+            );
+            assert!(
+                channel.peek_pre_snapshot().is_none(),
+                "failed dispatch must close its own frame"
+            );
+            inspector.call_end(&mut interp, &message, &mut outcome);
+            assert!(inspector.frame_boundaries.is_empty());
+        }
+    }
+
+    /// A fixture target publishes a callback cache; the real source EVM then executes
+    /// the installed child's SLOAD and must undo that installation on an outer revert.
+    #[test]
+    fn resumed_evm_reads_callback_child_storage_and_owns_outer_rollback() {
+        use eez_protocol::{
+            ChainClient, ChainDialect, ExecutionOutcome, ExecutionRequest, ExecutorResult, Rollup,
+            SessionSnapshot, TargetConfig, TargetExecutionSession,
+        };
+        use std::sync::Arc;
+        const CHILD: Address = Address::repeat_byte(0x66);
+        const SOURCE: Address = Address::repeat_byte(0x55);
+        struct Callback {
+            channel: OverlayChannelHandle,
+            succeeds: bool,
+        }
+        impl TargetExecutionSession for Callback {
+            fn execute(
+                &mut self,
+                req: ExecutionRequest,
+                _: &mut CompositionBuilder,
+            ) -> ExecutorResult<ExecutionOutcome> {
+                assert_eq!(req.source_address, SOURCE);
+                assert_eq!(req.source_rollup_id, RollupId::MAINNET);
+                assert_eq!(req.target_address, DESTINATION_ADDR);
+                let mut snapshot = self.channel.peek_pre_snapshot().expect("live source frame");
+                let code = Bytecode::new_raw(alloy_primitives::bytes!("5f545f5260205ff3"));
+                let info = AccountInfo::empty().with_nonce(1).with_code(code.clone());
+                snapshot.cache.contracts.insert(info.code_hash, code);
+                snapshot.cache.accounts.insert(CHILD, Some(info));
+                snapshot.statuses.insert(
+                    CHILD,
+                    evm2::block::bundle_state::AccountStatus::InMemoryChange,
+                );
+                snapshot
+                    .cache
+                    .storage
+                    .entry(CHILD)
+                    .or_default()
+                    .slots
+                    .insert(U256::ZERO, U256::from(42));
+                assert!(self.channel.publish(snapshot));
+                Ok(ExecutionOutcome::Resolved {
+                    return_data: Vec::new(),
+                    gas_used: 0,
+                    success: self.succeeds,
+                })
+            }
+            fn checkpoint(&mut self) -> ExecutorResult<SessionSnapshot> {
+                Ok(Box::new(()))
+            }
+            fn rollback(&mut self, _: &SessionSnapshot) -> ExecutorResult<()> {
+                Ok(())
+            }
+        }
+        struct UnusedClient;
+        impl ChainClient for UnusedClient {
+            fn begin_execution_session(
+                &self,
+            ) -> ExecutorResult<Box<dyn TargetExecutionSession + Send>> {
+                panic!("fixture session is preseeded")
+            }
+        }
+        for (callback_success, outer_revert) in [(true, false), (true, true), (false, false)] {
+            let channel = crate::overlay::new_overlay_channel();
+            let lookup = lookup(EEZ_ADDRESS, EEZ_AUTHORIZED_PROXIES_SLOT);
+            let target = Rollup {
+                client: Arc::new(UnusedClient),
+                session: Some(Box::new(Callback {
+                    channel: channel.clone(),
+                    succeeds: callback_success,
+                })),
+                config: TargetConfig {
+                    proxy_lookup: lookup.clone(),
+                    dialect: ChainDialect::EvmL2Style,
+                },
+            };
+            let mut dispatcher = CompositionBuilder::new(
+                RollupId::MAINNET,
+                [(RollupId(TARGET_ROLLUP), target)].into(),
+            );
+            let factory = SessionInspectorFactory::new(lookup, RollupId::MAINNET, channel.clone());
+            let mut inspector = factory.build(&mut dispatcher, &OverlaySnapshot::default());
+            let mut db = InMemoryDB::default();
+            db.insert_account_info(&EEZ_ADDRESS, AccountInfo::empty().with_nonce(1));
+            db.insert_account_storage(
+                &EEZ_ADDRESS,
+                &proxy_mapping_key(PROXY_ADDR, EEZ_AUTHORIZED_PROXIES_SLOT).into(),
+                &packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP),
+            );
+            // CALL the proxy, then CALL the newly installed child into memory[0..32].
+            let mut code = alloy_primitives::hex::decode("5f5f5f5f5f73").unwrap();
+            code.extend_from_slice(PROXY_ADDR.as_slice());
+            code.extend_from_slice(&alloy_primitives::hex::decode("5af15060205f5f5f5f73").unwrap());
+            code.extend_from_slice(CHILD.as_slice());
+            code.extend_from_slice(&alloy_primitives::hex::decode("5af15060205f").unwrap());
+            code.push(if outer_revert { 0xfd } else { 0xf3 });
+            db.insert_account_info(
+                &SOURCE,
+                AccountInfo::empty()
+                    .with_nonce(1)
+                    .with_code(Bytecode::new_raw(code.into())),
+            );
+            let user = Address::repeat_byte(0x77);
+            db.insert_account_info(
+                &user,
+                AccountInfo::empty().with_balance(U256::from(1_000_000)),
+            );
+            let mut evm = fresh_context(db);
+            let tx = evm2::ethereum::RecoveredTxEnvelope::new_unchecked(
+                evm2::ethereum::TxEnvelope::Legacy(alloy_consensus::TxLegacy {
+                    to: alloy_primitives::TxKind::Call(SOURCE),
+                    gas_limit: 500_000,
+                    ..Default::default()
+                }),
+                user,
+            );
+            let result = evm
+                .transact_with_inspector(&tx, &mut inspector)
+                .unwrap()
+                .detach();
+            assert_eq!(result.result.is_success(), !outer_revert);
+            // Independent Reth2.7/REVM43 run of these exact source bytes; a cold
+            // callback account/slot adds 4,500 gas while still returning the right data.
+            assert_eq!(
+                result.result.tx_gas_used(),
+                if callback_success { 23_858 } else { 26_243 }
+            );
+            assert_eq!(
+                U256::from_be_slice(&result.result.output),
+                U256::from(if callback_success { 42 } else { 0 })
+            );
+            if callback_success && !outer_revert {
+                let child = result.pending_state.account_changes_for(&CHILD).unwrap();
+                assert!(child.created);
+                assert_eq!(child.current.unwrap().nonce, 1);
+            } else {
+                assert!(result.pending_state.account_info(&CHILD).is_none());
+            }
+            println!(
+                "callback-runtime callback_success={callback_success} outer_revert={outer_revert} gas={} output={}",
+                result.result.tx_gas_used(),
+                alloy_primitives::hex::encode(&result.result.output)
+            );
+            assert!(inspector.take_error().is_none());
+            assert!(inspector.frame_boundaries.is_empty());
+            assert_eq!(inspector.dispatcher.recorded_count(), 1);
+            assert!(channel.peek_pre_snapshot().is_none());
+        }
+    }
+
+    #[test]
+    fn proxy_lookup_propagates_account_and_slot_database_errors() {
+        struct FaultDb {
+            account_fault: bool,
+        }
+        impl evm2::evm::Database for FaultDb {
+            type Error = std::io::Error;
+            fn get_account(&mut self, _: &Address) -> Result<Option<AccountInfo>, Self::Error> {
+                if self.account_fault {
+                    Err(std::io::Error::other("lookup account"))
+                } else {
+                    Ok(Some(AccountInfo::empty()))
+                }
+            }
+            fn get_storage(&mut self, _: &Address, _: &U256) -> Result<U256, Self::Error> {
+                Err(std::io::Error::other("lookup slot"))
+            }
+            fn get_code_by_hash(
+                &mut self,
+                _: &alloy_primitives::B256,
+            ) -> Result<Bytecode, Self::Error> {
+                panic!("lookup must not read code")
+            }
+            fn get_block_hash(&mut self, _: &U256) -> Result<alloy_primitives::B256, Self::Error> {
+                panic!("lookup must not read history")
+            }
+        }
+        for account_fault in [true, false] {
+            let mut ctx = Evm::<BaseEvmTypes>::new(
+                SpecId::OSAKA,
+                Default::default(),
+                ethereum_tx_registry(SpecId::OSAKA),
+                evm2::evm::Db::new(FaultDb { account_fault }),
+                Precompiles::base(SpecId::OSAKA),
+            );
+            let error = lookup_authorized_proxy_live(
+                &mut ctx,
+                &lookup(EEZ_ADDRESS, EEZ_AUTHORIZED_PROXIES_SLOT),
+                PROXY_ADDR,
+            )
+            .unwrap_err();
+            let HostError::Execution(ExecutionError::Database(error)) = error else {
+                panic!("unexpected lookup error: {error:?}")
+            };
+            assert_eq!(
+                error.downcast_ref::<std::io::Error>().unwrap().to_string(),
+                if account_fault {
+                    "lookup account"
+                } else {
+                    "lookup slot"
+                }
+            );
+        }
+    }
 
     #[test]
     fn unregistered_address_returns_none() {
-        let mut ctx = fresh_context();
-        ctx.journal_mut()
-            .load_account(EEZ_ADDRESS)
-            .expect("load EEZ account");
-
-        let info = lookup_authorized_proxy_live(
-            &mut ctx,
-            &lookup(EEZ_ADDRESS, EEZ_AUTHORIZED_PROXIES_SLOT),
-            PROXY_ADDR,
+        let mut ctx = fresh_context(InMemoryDB::default());
+        assert!(
+            lookup_authorized_proxy_live(
+                &mut ctx,
+                &lookup(EEZ_ADDRESS, EEZ_AUTHORIZED_PROXIES_SLOT),
+                PROXY_ADDR
+            )
+            .unwrap()
+            .is_none()
         );
-        assert!(info.is_none());
     }
-
     #[test]
     fn registered_in_db_returns_some_cold_read() {
         let key = proxy_mapping_key(PROXY_ADDR, EEZ_AUTHORIZED_PROXIES_SLOT);
-        let value = packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP);
-
-        let mut cache_db = CacheDB::<EmptyDB>::default();
-        cache_db
-            .insert_account_storage(EEZ_ADDRESS, key.into(), value)
-            .expect("populate storage");
-
-        let mut ctx = Context::mainnet().with_db(cache_db);
-        ctx.journal_mut()
-            .load_account(EEZ_ADDRESS)
-            .expect("load EEZ account");
-
+        let mut db = InMemoryDB::default();
+        db.insert_account_info(&EEZ_ADDRESS, AccountInfo::empty());
+        db.insert_account_info(&EEZL2_ADDRESS, AccountInfo::empty());
+        db.insert_account_storage(
+            &EEZ_ADDRESS,
+            &key.into(),
+            &packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP),
+        );
+        let mut ctx = fresh_context(db);
         let info = lookup_authorized_proxy_live(
             &mut ctx,
             &lookup(EEZ_ADDRESS, EEZ_AUTHORIZED_PROXIES_SLOT),
             PROXY_ADDR,
         )
-        .expect("proxy present in DB");
-
+        .unwrap()
+        .unwrap();
         assert_eq!(info.original_address, DESTINATION_ADDR);
         assert_eq!(info.original_rollup_id, RollupId(TARGET_ROLLUP));
+        assert!(
+            !ctx.load_account(&EEZ_ADDRESS, false, false)
+                .unwrap()
+                .is_cold
+        );
+        assert!(!ctx.sload(&EEZ_ADDRESS, &key.into(), false).unwrap().is_cold);
     }
-
     #[test]
     fn registered_in_journal_returns_some_hot_read() {
-        let mut ctx = fresh_context();
+        let mut ctx = fresh_context(InMemoryDB::default());
         let key = proxy_mapping_key(PROXY_ADDR, EEZ_AUTHORIZED_PROXIES_SLOT);
-        let value = packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP);
-
-        ctx.journal_mut()
-            .load_account(EEZ_ADDRESS)
-            .expect("load EEZ account");
-        ctx.journal_mut()
-            .sstore(EEZ_ADDRESS, key.into(), value)
-            .expect("journal sstore");
-
+        ctx.state_mut()
+            .storage_slot(&EEZ_ADDRESS, key.into())
+            .unwrap()
+            .set(packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP));
         let info = lookup_authorized_proxy_live(
             &mut ctx,
             &lookup(EEZ_ADDRESS, EEZ_AUTHORIZED_PROXIES_SLOT),
             PROXY_ADDR,
         )
-        .expect("journal must expose in-tx writes to the inspector");
-
+        .unwrap()
+        .unwrap();
         assert_eq!(info.original_address, DESTINATION_ADDR);
         assert_eq!(info.original_rollup_id, RollupId(TARGET_ROLLUP));
     }
-
     #[test]
     fn wrong_source_contract_slot_returns_none() {
-        // Populate the correct slot; reading an arbitrary other slot
-        // must miss, not silently decode garbage.
         let correct_slot = EEZ_AUTHORIZED_PROXIES_SLOT;
-        let wrong_slot: u8 = 7;
-        assert_ne!(
-            correct_slot, wrong_slot,
-            "test premise: the two slots must differ"
+        let wrong_slot = 7;
+        assert_ne!(correct_slot, wrong_slot);
+        let mut db = InMemoryDB::default();
+        db.insert_account_info(&EEZ_ADDRESS, AccountInfo::empty());
+        db.insert_account_info(&EEZL2_ADDRESS, AccountInfo::empty());
+        db.insert_account_storage(
+            &EEZ_ADDRESS,
+            &proxy_mapping_key(PROXY_ADDR, correct_slot).into(),
+            &packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP),
         );
-
-        let key = proxy_mapping_key(PROXY_ADDR, correct_slot);
-        let value = packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP);
-
-        let mut cache_db = CacheDB::<EmptyDB>::default();
-        cache_db
-            .insert_account_storage(EEZ_ADDRESS, key.into(), value)
-            .expect("populate storage");
-
-        let mut ctx = Context::mainnet().with_db(cache_db);
-        ctx.journal_mut()
-            .load_account(EEZ_ADDRESS)
-            .expect("load EEZ account");
-
-        let info =
-            lookup_authorized_proxy_live(&mut ctx, &lookup(EEZ_ADDRESS, wrong_slot), PROXY_ADDR);
+        let mut ctx = fresh_context(db);
         assert!(
-            info.is_none(),
-            "reading with the wrong slot must miss, not silently decode garbage"
+            lookup_authorized_proxy_live(&mut ctx, &lookup(EEZ_ADDRESS, wrong_slot), PROXY_ADDR)
+                .unwrap()
+                .is_none()
         );
     }
-
+    fn assert_slot_path(config: ProxyLookupConfig) {
+        assert_eq!(config.authorized_proxies_slot, 0);
+        let mut db = InMemoryDB::default();
+        db.insert_account_info(&EEZ_ADDRESS, AccountInfo::empty());
+        db.insert_account_info(&EEZL2_ADDRESS, AccountInfo::empty());
+        db.insert_account_storage(
+            &config.contract_address,
+            &proxy_mapping_key(PROXY_ADDR, config.authorized_proxies_slot).into(),
+            &packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP),
+        );
+        let mut ctx = fresh_context(db);
+        let info = lookup_authorized_proxy_live(&mut ctx, &config, PROXY_ADDR)
+            .unwrap()
+            .unwrap();
+        assert_eq!(info.original_rollup_id, RollupId(TARGET_ROLLUP));
+        assert_eq!(info.original_address, DESTINATION_ADDR);
+    }
     #[test]
     fn eez_slot_path_reads_slot_0() {
-        // ProxyLookupConfig with source_contract=EEZ routes to slot 0
-        // (authorizedProxies declared on EEZBase, first storage slot
-        // of every child).
-        let config = ProxyLookupConfig {
-            contract_address: EEZ_ADDRESS,
-            authorized_proxies_slot: EEZ_AUTHORIZED_PROXIES_SLOT,
-        };
-        assert_eq!(config.authorized_proxies_slot, 0u8);
-
-        let key = proxy_mapping_key(PROXY_ADDR, config.authorized_proxies_slot);
-        let value = packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP);
-
-        let mut cache_db = CacheDB::<EmptyDB>::default();
-        cache_db
-            .insert_account_storage(config.contract_address, key.into(), value)
-            .expect("populate storage");
-        let mut ctx = Context::mainnet().with_db(cache_db);
-        ctx.journal_mut()
-            .load_account(config.contract_address)
-            .expect("load");
-
-        let info = lookup_authorized_proxy_live(&mut ctx, &config, PROXY_ADDR)
-            .expect("EEZ config path must find proxy");
-        assert_eq!(info.original_rollup_id, RollupId(TARGET_ROLLUP));
-        assert_eq!(info.original_address, DESTINATION_ADDR);
+        assert_slot_path(lookup(EEZ_ADDRESS, EEZ_AUTHORIZED_PROXIES_SLOT));
     }
-
     #[test]
     fn eezl2_slot_path_reads_slot_0() {
-        // Keep the EEZL2 constant path distinct so each dialect's configured
-        // slot is tested.
-        let config = ProxyLookupConfig {
-            contract_address: EEZL2_ADDRESS,
-            authorized_proxies_slot: EEZL2_AUTHORIZED_PROXIES_SLOT,
-        };
-        assert_eq!(config.authorized_proxies_slot, 0u8);
-
-        let key = proxy_mapping_key(PROXY_ADDR, config.authorized_proxies_slot);
-        let value = packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP);
-
-        let mut cache_db = CacheDB::<EmptyDB>::default();
-        cache_db
-            .insert_account_storage(config.contract_address, key.into(), value)
-            .expect("populate storage");
-        let mut ctx = Context::mainnet().with_db(cache_db);
-        ctx.journal_mut()
-            .load_account(config.contract_address)
-            .expect("load");
-
-        let info = lookup_authorized_proxy_live(&mut ctx, &config, PROXY_ADDR)
-            .expect("EEZL2 config path must find proxy");
-        assert_eq!(info.original_rollup_id, RollupId(TARGET_ROLLUP));
-        assert_eq!(info.original_address, DESTINATION_ADDR);
+        assert_slot_path(lookup(EEZL2_ADDRESS, EEZL2_AUTHORIZED_PROXIES_SLOT));
     }
-
     #[test]
     fn natural_cross_chain_revert_does_not_create_rollback_span() {
         let span = reverted_dispatch_span(
@@ -755,7 +981,7 @@ mod tests {
                 intercepted_cross_chain: true,
             },
             4,
-            InstructionResult::Revert,
+            InstrStop::Revert,
             false,
         );
 
@@ -770,7 +996,7 @@ mod tests {
                 intercepted_cross_chain: false,
             },
             5,
-            InstructionResult::Revert,
+            InstrStop::Revert,
             false,
         );
 
@@ -785,7 +1011,7 @@ mod tests {
                 intercepted_cross_chain: false,
             },
             5,
-            InstructionResult::Return,
+            InstrStop::Return,
             false,
         );
 

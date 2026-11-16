@@ -6,20 +6,25 @@
 //! <https://github.com/paradigmxyz/reth/blob/444e867155c2a7a4c028e479ca7201b0b6871579/crates/rpc/rpc-eth-types/src/receipt.rs>.
 
 use crate::node::{EezEngineValidatorBuilder, EezNode};
+use alloy_consensus::transaction::Recovered;
 use alloy_consensus::{Receipt as RpcReceipt, TxReceipt};
 use alloy_consensus_any::AnyReceiptEnvelope;
 use alloy_rpc_types_eth::{Header, Log, Transaction, TransactionReceipt, TransactionRequest};
-use eez_evm::EezEvmConfig;
+use eez_evm::{EezEvmConfig, EezEvmTx};
 use eez_primitives::{EezTxEnvelope, Receipt};
+use evm2::ethereum::RecoveredTxEnvelope;
 use reth_chainspec::{ChainSpec, ChainSpecProvider};
+use reth_evm::{EvmEnvFor, TxEnvFor};
 use reth_node_api::FullNodeComponents;
 use reth_node_builder::rpc::{
     BasicEngineApiBuilder, BasicEngineValidatorBuilder, EthApiBuilder, EthApiCtx, Identity,
-    RpcAddOns,
+    RpcAddOns, RpcNodeCoreFor,
 };
 use reth_primitives_traits::{SealedHeader, TransactionMeta};
 use reth_rpc::EthApi;
-use reth_rpc_convert::{RpcConverter, RpcTypes};
+use reth_rpc_convert::{
+    EthTxEnvError, RpcConverter, RpcTypes, TryIntoTxEnv, transaction::TxEnvConverter,
+};
 use reth_rpc_eth_api::helpers::pending_block::PendingEnvBuilder;
 use reth_rpc_eth_types::EthApiError;
 use reth_rpc_eth_types::receipt::EthReceiptConverter;
@@ -40,8 +45,35 @@ impl RpcTypes for EezRpcTypes {
 }
 
 type ReceiptBuilder = fn(Receipt, usize, TransactionMeta) -> AnyReceiptEnvelope<Log>;
-type Converter =
-    RpcConverter<EezRpcTypes, EezEvmConfig, EthReceiptConverter<ChainSpec, ReceiptBuilder>>;
+type Converter = RpcConverter<
+    EezRpcTypes,
+    EezEvmConfig,
+    EthReceiptConverter<ChainSpec, ReceiptBuilder>,
+    (),
+    (),
+    (),
+    (),
+    EezTxEnvConverter,
+>;
+
+/// RPC simulation accepts Ethereum requests; native operations remain internal.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EezTxEnvConverter;
+impl TxEnvConverter<TransactionRequest, EezEvmConfig> for EezTxEnvConverter {
+    type Error = EthTxEnvError;
+    fn convert_tx_env(
+        &self,
+        request: TransactionRequest,
+        env: &EvmEnvFor<EezEvmConfig>,
+    ) -> Result<TxEnvFor<EezEvmConfig>, Self::Error> {
+        let tx: RecoveredTxEnvelope = request.try_into_tx_env(env)?;
+        let signer = tx.signer();
+        Ok(Recovered::new_unchecked(
+            EezEvmTx::Ethereum(tx.into_inner()),
+            signer,
+        ))
+    }
+}
 
 #[derive(Debug, Default, Clone)]
 pub struct EezEthApiBuilder {
@@ -114,7 +146,7 @@ impl EezEthApiBuilder {
 impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EthApiBuilder<N>
     for EezEthApiBuilder
 {
-    type EthApi = EthApi<N, Converter>;
+    type EthApi = EthApi<RpcNodeCoreFor<N>, Converter>;
 
     fn build_eth_api(
         self,
@@ -124,7 +156,7 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EthApiBuilder<N
             .with_builder(build_receipt as ReceiptBuilder);
         ready(Ok(ctx
             .eth_api_builder()
-            .map_converter(|_| Converter::new(receipts))
+            .map_converter(|_| RpcConverter::new(receipts).with_tx_env_converter(EezTxEnvConverter))
             .with_pending_env_builder(self)
             .build()))
     }
@@ -387,20 +419,20 @@ mod tests {
     }
 
     pub(super) fn pending_genesis_db(spec: &ChainSpec) -> reth_rpc_eth_types::StateCacheDb {
-        use reth_revm::{database::StateProviderDatabase, db::State};
+        use evm2::{
+            bytecode::Bytecode,
+            evm::{AccountInfo, CacheDB, Db},
+        };
+        use reth_evm::database::StateProviderDatabase;
         use reth_storage_api::{StateProvider, StateProviderBox, noop::NoopProvider};
-        use revm::state::{AccountInfo, Bytecode};
         let provider: StateProviderBox = Box::new(NoopProvider::eth(Arc::new(spec.clone())));
-        let mut db = State::builder()
-            .with_database(StateProviderDatabase::new(
-                provider.into_evm_state_provider(),
-            ))
-            .build();
+        let mut db = CacheDB::new(Db::new(StateProviderDatabase::new(
+            provider.into_evm_state_provider(),
+        )));
         for (address, account) in &spec.genesis().alloc {
             let code = Bytecode::new_raw(account.code.clone().unwrap_or_default());
-            db.cache.contracts.insert(code.hash_slow(), code.clone());
-            db.insert_account_with_storage(
-                *address,
+            db.insert_account_info(
+                address,
                 AccountInfo {
                     balance: account.balance,
                     nonce: account.nonce.unwrap_or_default(),
@@ -408,13 +440,10 @@ mod tests {
                     code: Some(code),
                     ..Default::default()
                 },
-                account
-                    .storage
-                    .iter()
-                    .flatten()
-                    .map(|(key, value)| ((*key).into(), (*value).into()))
-                    .collect(),
             );
+            for (key, value) in account.storage.iter().flatten() {
+                db.insert_account_storage(address, &(*key).into(), &(*value).into());
+            }
         }
         db
     }
@@ -424,8 +453,7 @@ mod tests {
         use eez_protocol::l1_history::{
             ENDPOINT_SLOT, HISTORY_ADDRESS, HeaderChain, HeaderRules, WitnessHistory,
         };
-        use reth_evm::Evm;
-        use revm::{Database, context::TxEnv};
+        use evm2::evm::DynDatabase;
         let blocks = l1_blocks(false);
         let spec = profile(&blocks[0]);
         let schedule = eez_evm::profile::schedule(&spec).unwrap();
@@ -457,9 +485,9 @@ mod tests {
             parent.timestamp = schedule.timestamp(parent_number).unwrap();
             let parent = SealedHeader::seal_slow(parent);
             let mut db = pending_genesis_db(&spec);
-            db.insert_account(
-                eez_primitives::SYSTEM_ADDRESS,
-                revm::state::AccountInfo {
+            db.insert_account_info(
+                &eez_primitives::SYSTEM_ADDRESS,
+                evm2::evm::AccountInfo {
                     balance: alloy_primitives::U256::from(9),
                     ..Default::default()
                 },
@@ -472,11 +500,11 @@ mod tests {
             assert_eq!(history.endpoint_hash, blocks[selected].header.hash);
             assert_eq!(history.imported, selected != 0);
             assert_eq!(
-                env.block_env.timestamp,
+                env.block.timestamp,
                 alloy_primitives::U256::from(parent.timestamp + 1)
             );
             assert_eq!(
-                env.block_env.prevrandao,
+                Some(B256::from(env.block.prevrandao)),
                 Some(blocks[selected].header.mix_hash)
             );
 
@@ -484,18 +512,18 @@ mod tests {
             // prepared attributes. No system nonce or fee is introduced.
             let probe = alloy_primitives::Address::with_last_byte(90);
             let code =
-                revm::state::Bytecode::new_raw(alloy_primitives::bytes!("4460005260206000f3"));
+                evm2::bytecode::Bytecode::new_raw(alloy_primitives::bytes!("4460005260206000f3"));
             db.cache.contracts.insert(code.hash_slow(), code.clone());
-            db.insert_account(
-                probe,
-                revm::state::AccountInfo {
+            db.insert_account_info(
+                &probe,
+                evm2::evm::AccountInfo {
                     code_hash: code.hash_slow(),
                     code: Some(code),
                     ..Default::default()
                 },
             );
             let system = db
-                .basic(eez_primitives::SYSTEM_ADDRESS)
+                .get_account(&eez_primitives::SYSTEM_ADDRESS)
                 .unwrap()
                 .unwrap_or_default();
             assert_eq!(system.nonce, 0);
@@ -503,35 +531,41 @@ mod tests {
             // preparation nor a history import performs finalization cleanup.
             assert_eq!(system.balance, alloy_primitives::U256::from(9));
             assert_eq!(
-                db.storage(
-                    alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS,
-                    alloy_primitives::U256::from(parent_number)
+                db.get_storage(
+                    &alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS,
+                    &alloy_primitives::U256::from(parent_number)
                 )
                 .unwrap(),
                 alloy_primitives::U256::from_be_slice(parent.hash().as_slice())
             );
-            env.cfg_env.disable_base_fee = true;
-            let chain_id = env.cfg_env.chain_id;
-            let mut evm = config.evm_with_env(&mut db, env);
-            let result = evm
-                .transact(
-                    TxEnv::builder()
-                        .caller(alloy_primitives::Address::with_last_byte(91))
-                        .kind(alloy_primitives::TxKind::Call(probe))
-                        .chain_id(Some(chain_id))
-                        .gas_limit(100_000)
-                        .build()
-                        .unwrap(),
+            env.version
+                .features
+                .remove(evm2::EvmFeatures::BASE_FEE_CHECK);
+            let tx = EezTxEnvConverter
+                .convert_tx_env(
+                    TransactionRequest {
+                        from: Some(alloy_primitives::Address::with_last_byte(91)),
+                        to: Some(alloy_primitives::TxKind::Call(probe)),
+                        chain_id: Some(env.version.chain_id),
+                        gas: Some(100_000),
+                        ..Default::default()
+                    },
+                    &env,
                 )
                 .unwrap();
+            let mut evm = config.evm_with_env(&mut db, env);
+            let result = evm.transact(&tx).unwrap();
             assert_eq!(
-                result.result.output().unwrap().as_ref(),
+                result.result().output.as_ref(),
                 blocks[selected].header.mix_hash.as_slice()
             );
             let mut original = pending_genesis_db(&spec);
             assert_eq!(
                 original
-                    .storage(HISTORY_ADDRESS, alloy_primitives::U256::from(ENDPOINT_SLOT))
+                    .get_storage(
+                        &HISTORY_ADDRESS,
+                        &alloy_primitives::U256::from(ENDPOINT_SLOT)
+                    )
                     .unwrap(),
                 alloy_primitives::U256::ZERO
             );
@@ -541,7 +575,7 @@ mod tests {
     #[tokio::test]
     async fn pending_prefix_rejects_bad_parent_state_and_freezes_evidence() {
         use eez_protocol::l1_history::{ENDPOINT_SLOT, HISTORY_ADDRESS};
-        use revm::Database;
+        use evm2::evm::DynDatabase;
         let blocks = l1_blocks(false);
         let spec = profile(&blocks[0]);
         let head = Arc::new(L1CanonicalHead::default());
@@ -562,27 +596,25 @@ mod tests {
             frozen.l1_headers(1007).unwrap().at(1).unwrap().hash(),
             before.at(1).unwrap().hash()
         );
-        assert_eq!(env.block_env.prevrandao, Some(blocks[1].header.mix_hash));
+        assert_eq!(
+            Some(B256::from(env.block.prevrandao)),
+            Some(blocks[1].header.mix_hash)
+        );
         assert_eq!(
             executed
-                .storage(HISTORY_ADDRESS, alloy_primitives::U256::from(ENDPOINT_SLOT))
+                .get_storage(
+                    &HISTORY_ADDRESS,
+                    &alloy_primitives::U256::from(ENDPOINT_SLOT)
+                )
                 .unwrap(),
             alloy_primitives::U256::from(1)
         );
         let mut corrupt = pending_genesis_db(&spec);
-        corrupt
-            .cache
-            .accounts
-            .get_mut(&HISTORY_ADDRESS)
-            .unwrap()
-            .account
-            .as_mut()
-            .unwrap()
-            .storage
-            .insert(
-                alloy_primitives::U256::from(ENDPOINT_SLOT),
-                alloy_primitives::U256::from(999),
-            );
+        corrupt.insert_account_storage(
+            &HISTORY_ADDRESS,
+            &alloy_primitives::U256::from(ENDPOINT_SLOT),
+            &alloy_primitives::U256::from(999),
+        );
         let error = super::pending::execute_prefix(&frozen, &parent, corrupt)
             .expect_err("malformed endpoint must fail before application overrides");
         assert!(error.to_string().contains("history"), "{error}");
@@ -636,7 +668,10 @@ mod tests {
         let env = EezEvmConfig::new(spec.clone())
             .next_evm_env(&imported, &updated)
             .unwrap();
-        assert_eq!(env.block_env.prevrandao, Some(blocks[1].header.mix_hash));
+        assert_eq!(
+            Some(B256::from(env.block.prevrandao)),
+            Some(blocks[1].header.mix_hash)
+        );
         let repeated = parent_at(3, blocks[0].header.mix_hash);
         assert_eq!(
             builder
@@ -668,7 +703,7 @@ mod tests {
             .next_evm_env(&rebuilt, &restored)
             .unwrap();
         assert_eq!(
-            restored_env.block_env.prevrandao,
+            Some(B256::from(restored_env.block.prevrandao)),
             Some(restored.prev_randao)
         );
     }

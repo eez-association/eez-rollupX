@@ -1,98 +1,873 @@
-diff --git a/crates/engine/tree/src/chain.rs b/crates/engine/tree/src/chain.rs
 --- a/crates/engine/tree/src/chain.rs
 +++ b/crates/engine/tree/src/chain.rs
-@@ -227,9 +227,10 @@ pub enum FromOrchestrator {
+@@ -227,9 +227,9 @@
      BackfillSyncStarted,
      /// Gracefully terminate the engine service.
      ///
 -    /// When this variant is received, the engine will persist all remaining in-memory blocks
--    /// to disk before shutting down. Once persistence is complete, a signal is sent through
--    /// the oneshot channel to notify the caller.
-+    /// Attempts to persist all remaining in-memory blocks, then drops the engine to release its
-+    /// resources and shut down and join the persistence and txpool prewarming workers. The oneshot
-+    /// signals completion only after cleanup, even if persistence failed, so the caller can
-+    /// proceed with shutdown without racing these workers.
+-    /// to disk before shutting down. Once persistence is complete and the engine has shut down,
+-    /// a signal is sent through the oneshot channel to notify the caller.
++    /// Attempts to persist all remaining in-memory blocks, then drops the engine to release
++    /// resources and join its persistence and prewarming workers. Completion is signalled
++    /// after cleanup even if persistence failed, so process teardown cannot race these workers.
      Terminate {
          /// Channel to signal termination completion.
          tx: tokio::sync::oneshot::Sender<()>,
-diff --git a/crates/engine/tree/src/tree/mod.rs b/crates/engine/tree/src/tree/mod.rs
---- a/crates/engine/tree/src/tree/mod.rs
-+++ b/crates/engine/tree/src/tree/mod.rs
-@@ -573,7 +573,19 @@ where
-                 LoopEvent::EngineMessage(msg) => {
-                     debug!(target: "engine::tree", %msg, "received new engine message");
-                     match self.on_engine_message(msg) {
--                        Ok(ops::ControlFlow::Break(())) => return,
-+                        Ok(ops::ControlFlow::Break(tx)) => {
-+                            if let Err(err) = self.persist_until_complete() {
-+                                error!(target: "engine::tree", %err, "Termination failed");
-+                            }
-+                            // Finishing persistence does not stop the additional tasks owned by
-+                            // the engine. Drop their owners to shut down and join the persistence
-+                            // service and txpool prewarmer before acknowledging shutdown, even if
-+                            // persistence failed. Otherwise the caller could tear down the process
-+                            // while those tasks are still running.
-+                            drop(self);
-+                            let _ = tx.send(());
-+                            return
-+                        }
-                         Ok(ops::ControlFlow::Continue(())) => {}
-                         Err(fatal) => {
-                             error!(target: "engine::tree", %fatal, "insert block fatal error");
-@@ -1460,20 +1472,6 @@ where
-         Ok(())
+--- a/crates/engine/tree/src/tree/payload_processor/mod.rs
++++ b/crates/engine/tree/src/tree/payload_processor/mod.rs
+@@ -89,6 +89,9 @@
+ {
+     /// The executor used by to spawn tasks.
+     executor: Runtime,
++    /// Prewarm contexts and validation root/proof work retain senders until providers are released.
++    background_owner: Option<CrossbeamSender<()>>,
++    background_finished: CrossbeamReceiver<()>,
+     /// The most recent cache used for execution.
+     execution_cache: PayloadExecutionCache,
+     /// Metrics for the execution cache.
+@@ -119,10 +122,26 @@
+     bal_prewarm_pool: OnceLock<Arc<bal_prewarm_pool::BalPrewarmPool>>,
+ }
+ 
++impl<Evm: ConfigureEvm> Drop for PayloadProcessor<Evm> {
++    fn drop(&mut self) {
++        // Engine validation releases its payload handles before dropping the processor. Their
++        // termination signals must finish releasing provider resources before shutdown is acked.
++        // A blocked provider read can delay this cooperative wait; acknowledging early is unsafe.
++        drop(self.background_owner.take());
++        let _ = self.background_finished.recv();
++    }
++}
++
+ impl<Evm> PayloadProcessor<Evm>
+ where
+     Evm: ConfigureEvm,
+ {
++    /// Retains this engine's shutdown wait for provider-owning background work.
++    pub(crate) fn shutdown_owner(&self) -> CrossbeamSender<()> {
++        // A shared reference cannot outlive the processor's Drop entry.
++        self.background_owner.as_ref().expect("live processor owns sender").clone()
++    }
++
+     /// Creates a new payload processor.
+     pub fn new(
+         executor: Runtime,
+@@ -130,8 +149,11 @@
+         config: &TreeConfig,
+         precompile_cache_map: PrecompileCacheMap<SpecFor<Evm>>,
+     ) -> Self {
++        let (background_owner, background_finished) = crossbeam_channel::bounded(0);
+         Self {
+             executor,
++            background_owner: Some(background_owner),
++            background_finished,
+             execution_cache: Default::default(),
+             cross_block_cache_size: config.cross_block_cache_size(),
+             disable_transaction_prewarming: config.disable_prewarming(),
+@@ -473,6 +495,8 @@
+             disable_bal_parallel_state_root: self.disable_bal_parallel_state_root,
+             disable_bal_batch_io: self.disable_bal_batch_io,
+             prewarm_results: prewarm_results.clone(),
++            // Present until Drop starts; this method requires a live shared processor reference.
++            _shutdown_owner: self.shutdown_owner(),
+         };
+ 
+         let (prewarm_task, to_prewarm_task) =
+@@ -783,6 +807,30 @@
+             &TreeConfig::default(),
+             PrecompileCacheMap::default(),
+         )
++    }
++
++    #[test]
++    fn processor_drop_waits_for_background_owner() {
++        let processor = test_processor();
++        // Keep runtime teardown outside the observed interval; only processor cleanup may block.
++        let _runtime = processor.executor.clone();
++        let owner = processor.shutdown_owner();
++        let (started, entered) = crossbeam_channel::bounded(1);
++        let (completed, done) = crossbeam_channel::bounded(1);
++        let worker = std::thread::spawn(move || {
++            started.send(()).unwrap();
++            drop(processor);
++            completed.send(()).unwrap();
++        });
++        entered.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
++        let early = done.recv_timeout(std::time::Duration::from_millis(100));
++        drop(owner);
++        assert!(
++            matches!(early, Err(crossbeam_channel::RecvTimeoutError::Timeout)),
++            "processor dropped before its background owner was released"
++        );
++        done.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
++        worker.join().unwrap();
      }
  
--    /// Finishes termination by persisting all remaining blocks and signaling completion.
--    ///
--    /// This blocks until all persistence is complete. Always signals completion,
--    /// even if an error occurs.
--    fn finish_termination(
--        &mut self,
--        pending_termination: oneshot::Sender<()>,
--    ) -> Result<(), AdvancePersistenceError> {
--        trace!(target: "engine::tree", "finishing termination, persisting remaining blocks");
--        let result = self.persist_until_complete();
--        let _ = pending_termination.send(());
--        result
--    }
--
-     /// Persists all remaining blocks until none are left.
-     fn persist_until_complete(&mut self) -> Result<(), AdvancePersistenceError> {
-         loop {
-@@ -1576,11 +1574,11 @@ where
+     #[test]
+--- a/crates/engine/tree/src/tree/payload_processor/prewarm.rs
++++ b/crates/engine/tree/src/tree/payload_processor/prewarm.rs
+@@ -758,6 +758,9 @@
+     pub disable_bal_batch_io: bool,
+     /// Results of transaction prewarming that block execution may reuse, `None` if disabled.
+     pub(crate) prewarm_results: Option<Arc<PrewarmResults<EvmTypesFor<Evm>>>>,
++    /// Must remain last: cloned dispatch/BAL contexts release their provider before allowing
++    /// the owning payload processor's shutdown wait to complete.
++    pub(crate) _shutdown_owner: crossbeam_channel::Sender<()>,
+ }
  
-     /// Handles a message from the engine.
-     ///
--    /// Returns `ControlFlow::Break(())` if the engine should terminate.
-+    /// Returns the completion sender in `ControlFlow::Break` if the engine should terminate.
-     fn on_engine_message(
-         &mut self,
-         msg: FromEngine<EngineApiRequest<T, N>, N::Block>,
--    ) -> Result<ops::ControlFlow<()>, InsertBlockFatalError> {
-+    ) -> Result<ops::ControlFlow<oneshot::Sender<()>>, InsertBlockFatalError> {
-         match msg {
-             FromEngine::Event(event) => match event {
-                 FromOrchestrator::BackfillSyncStarted => {
-@@ -1592,10 +1590,7 @@ where
-                 }
-                 FromOrchestrator::Terminate { tx } => {
-                     debug!(target: "engine::tree", "received terminate request");
--                    if let Err(err) = self.finish_termination(tx) {
--                        error!(target: "engine::tree", %err, "Termination failed");
--                    }
--                    return Ok(ops::ControlFlow::Break(()))
-+                    return Ok(ops::ControlFlow::Break(tx))
-                 }
+ /// Per-thread EVM state initialised by [`PrewarmContext::evm_for_ctx`] and stored in
+@@ -1075,6 +1078,7 @@
+             disable_bal_parallel_state_root: false,
+             disable_bal_batch_io: false,
+             prewarm_results: None,
++            _shutdown_owner: crossbeam_channel::bounded(0).0,
+         };
+         let (task, actions_tx) =
+             PrewarmCacheTask::new(Runtime::test(), PayloadExecutionCache::default(), ctx);
+@@ -1138,6 +1142,7 @@
+                 disable_bal_parallel_state_root: false,
+                 disable_bal_batch_io: false,
+                 prewarm_results: Some(Arc::clone(&results)),
++                _shutdown_owner: crossbeam_channel::bounded(0).0,
+             };
+             let tx =
+                 WithTxEnv { tx_env: ctx.evm_config.tx_env(tx.clone()), tx: Arc::new(tx.clone()) };
+@@ -1204,6 +1209,107 @@
+         assert!(task.ctx.saved_cache.is_some());
+     }
+ 
++    #[derive(Clone, Debug)]
++    struct DropOrderFactory {
++        inner: MockEthProvider,
++        finished: crossbeam_channel::Receiver<()>,
++        ordered: Arc<AtomicBool>,
++        drops: Arc<AtomicUsize>,
++    }
++
++    impl Drop for DropOrderFactory {
++        fn drop(&mut self) {
++            // Record instead of panicking here: the panic-path case is already unwinding.
++            let connected = matches!(self.finished.try_recv(), Err(crossbeam_channel::TryRecvError::Empty));
++            self.ordered.fetch_and(connected, Ordering::SeqCst);
++            self.drops.fetch_add(1, Ordering::SeqCst);
++        }
++    }
++
++    impl DatabaseProviderFactory for DropOrderFactory {
++        type DB = <MockEthProvider as DatabaseProviderFactory>::DB;
++        type Provider = <MockEthProvider as DatabaseProviderFactory>::Provider;
++        type ProviderRW = <MockEthProvider as DatabaseProviderFactory>::ProviderRW;
++
++        fn database_provider_ro(&self) -> reth_provider::ProviderResult<Self::Provider> {
++            DatabaseProviderFactory::database_provider_ro(&self.inner)
++        }
++
++        fn database_provider_rw(&self) -> reth_provider::ProviderResult<Self::ProviderRW> {
++            DatabaseProviderFactory::database_provider_rw(&self.inner)
++        }
++    }
++
++    #[test]
++    fn prewarm_shutdown_signal_follows_factory_drop_on_every_exit() {
++        for mode in 0..4 {
++            let runtime = Runtime::test();
++            let (owner, finished) = crossbeam_channel::bounded(0);
++            let ordered = Arc::new(AtomicBool::new(true));
++            let drops = Arc::new(AtomicUsize::new(0));
++            let inner = MockEthProvider::default();
++            inner.enable_database_provider();
++            inner.add_header(B256::ZERO, Default::default());
++            inner.add_stage_checkpoint(StageId::Finish, StageCheckpoint::new(0));
++            let saved = SavedCache::new(B256::ZERO, crate::tree::ExecutionCache::new(1_000));
++            let base = test_prewarm_context(saved, Gauge::noop());
++            let ctx = PrewarmContext {
++                env: base.env,
++                evm_config: base.evm_config,
++                saved_cache: base.saved_cache,
++                provider: OverlayStateProviderFactory::new(
++                    DropOrderFactory { inner, finished: finished.clone(), ordered: ordered.clone(), drops: drops.clone() },
++                    OverlayManager::default().overlay_builder(B256::ZERO),
++                ),
++                bal_prewarm_pool: base.bal_prewarm_pool,
++                metrics: base.metrics,
++                cache_metrics: base.cache_metrics,
++                cache_state_metrics: base.cache_state_metrics,
++                terminate_execution: base.terminate_execution,
++                executed_tx_index: base.executed_tx_index,
++                precompile_cache_disabled: base.precompile_cache_disabled,
++                precompile_cache_map: base.precompile_cache_map,
++                disable_bal_parallel_state_root: base.disable_bal_parallel_state_root,
++                disable_bal_batch_io: base.disable_bal_batch_io,
++                prewarm_results: base.prewarm_results,
++                _shutdown_owner: owner,
++            };
++            let (task, actions) = PrewarmCacheTask::new(runtime.clone(), PayloadExecutionCache::default(), ctx);
++            match mode {
++                0 => { drop(task.ctx.clone()); drop(task); }
++                1 => {
++                    let (valid_tx, valid_rx) = mpsc::channel();
++                    valid_tx.send(()).unwrap();
++                    drop(valid_tx);
++                    task.save_cache(Arc::new(BlockExecutionOutput { state: Default::default(), result: Default::default() }), valid_rx);
++                }
++                2 => {
++                    let tx = Recovered::new_unchecked(
++                        TransactionSigned::new_unhashed(TxLegacy {
++                            gas_limit: 21_000, to: TxKind::Call(Address::repeat_byte(2)), ..Default::default()
++                        }.into(), Signature::test_signature()), Address::repeat_byte(1));
++                    let tx = WithTxEnv { tx_env: task.ctx.evm_config.tx_env(tx.clone()), tx: Arc::new(tx) };
++                    let (pending_tx, pending_rx) = mpsc::channel();
++                    pending_tx.send((0, tx)).unwrap();
++                    drop(pending_tx);
++                    task.spawn_txs_prewarm(pending_rx, actions, None);
++                    // The dispatched clone must protect its factory after the parent goes away.
++                    drop(task);
++                }
++                3 => {
++                    runtime.spawn_blocking_named("prewarm-panic-probe", move || {
++                        let _task = task;
++                        panic!("intentional prewarm unwind probe");
++                    });
++                }
++                _ => unreachable!(),
++            }
++            assert!(matches!(finished.recv_timeout(Duration::from_secs(5)), Err(crossbeam_channel::RecvTimeoutError::Disconnected)), "mode={mode}");
++            assert!(drops.load(Ordering::SeqCst) > 0, "mode={mode}");
++            assert!(ordered.load(Ordering::SeqCst), "factory outlived shutdown signal, mode={mode}");
++        }
++    }
++
+     fn test_prewarm_context(
+         saved_cache: SavedCache,
+         saving_duration: Gauge,
+@@ -1230,6 +1336,7 @@
+             disable_bal_parallel_state_root: false,
+             disable_bal_batch_io: false,
+             prewarm_results: None,
++            _shutdown_owner: crossbeam_channel::bounded(0).0,
+         }
+     }
+ 
+--- a/crates/engine/tree/src/tree/payload_validator.rs
++++ b/crates/engine/tree/src/tree/payload_validator.rs
+@@ -610,6 +610,7 @@
+                 state_provider_factory.clone(),
+                 &self.config,
+                 parallel_bal_execution,
++                self.payload_processor.shutdown_owner(),
+                 ctx.state_mut(),
+             )));
+         let state_root_job_name = state_root_job.name();
+--- a/crates/engine/tree/src/tree/state_root_strategy/mod.rs
++++ b/crates/engine/tree/src/tree/state_root_strategy/mod.rs
+@@ -55,10 +55,13 @@
+ 
+ mod sparse_trie;
+ 
++#[cfg(test)]
++mod shutdown_tests;
++
+ use self::sparse_trie::{SparseTrieCacheTask, SparseTrieTaskMetrics};
+ use crate::tree::{metrics::BlockValidationMetrics, EngineApiTreeState, ExecutionEnv, TreeConfig};
+ use alloy_primitives::B256;
+-use crossbeam_channel::Receiver as CrossbeamReceiver;
++use crossbeam_channel::{Receiver as CrossbeamReceiver, Sender as CrossbeamSender};
+ use reth_chain_state::{ExecutedBlock, PreservedSparseTrie, SparseTrieWithStorageRoots};
+ use reth_errors::ProviderResult;
+ use reth_evm::ConfigureEvm;
+@@ -97,6 +100,37 @@
+ };
+ use tracing::{debug, debug_span, instrument, warn, Span};
+ 
++/// The value must drop before its completion sender, including an unrun task's captures.
++#[derive(Clone)]
++struct ShutdownOwned<T> {
++    inner: T,
++    owner: Option<CrossbeamSender<()>>,
++}
++
++impl<T> ShutdownOwned<T> {
++    const fn new(inner: T, owner: Option<CrossbeamSender<()>>) -> Self {
++        Self { inner, owner }
++    }
++
++    fn run<R>(self) -> R
++    where
++        T: FnOnce() -> R,
++    {
++        let Self { inner, owner } = self;
++        let result = inner();
++        drop(owner);
++        result
++    }
++}
++
++impl<F: DatabaseProviderROFactory> DatabaseProviderROFactory for ShutdownOwned<F> {
++    type Provider = F::Provider;
++
++    fn database_provider_ro(&self) -> ProviderResult<Self::Provider> {
++        self.inner.database_provider_ro()
++    }
++}
++
+ /// Handle to a [`HashedPostState`] computed on a background thread.
+ pub type LazyHashedPostState = reth_tasks::LazyHandle<Arc<HashedPostState>>;
+ 
+@@ -238,6 +272,7 @@
+     state_provider_factory: OverlayStateProviderFactory<P, N>,
+     config: &'a TreeConfig,
+     parallel_bal_execution: bool,
++    shutdown_owner: CrossbeamSender<()>,
+     state: &'a mut EngineApiTreeState<N>,
+ }
+ 
+@@ -269,6 +304,7 @@
+         state_provider_factory: OverlayStateProviderFactory<P, N>,
+         config: &'a TreeConfig,
+         parallel_bal_execution: bool,
++        shutdown_owner: CrossbeamSender<()>,
+         state: &'a mut EngineApiTreeState<N>,
+     ) -> Self {
+         Self {
+@@ -279,6 +315,7 @@
+             state_provider_factory,
+             config,
+             parallel_bal_execution,
++            shutdown_owner,
+             state,
+         }
+     }
+@@ -546,6 +583,27 @@
+             + StorageSettingsCache
+             + 'static,
+     {
++        self.spawn_state_root_owned(executor, multiproof_provider_factory, options, None)
++    }
++
++    fn spawn_state_root_owned<N, F>(
++        &self,
++        executor: &reth_tasks::Runtime,
++        multiproof_provider_factory: OverlayStateProviderFactory<F, N>,
++        options: StateRootTaskOptions<'_, N>,
++        shutdown_owner: Option<CrossbeamSender<()>>,
++    ) -> (StateRootHandle, mpsc::Receiver<PendingSparseTrie>)
++    where
++        N: NodePrimitives,
++        F: DatabaseProviderFactory + Clone + 'static,
++        F::Provider: BlockNumReader
++            + PruneCheckpointReader
++            + StageCheckpointReader
++            + ChangeSetReader
++            + StorageChangeSetReader
++            + StorageSettingsCache
++            + 'static,
++    {
+         let StateRootTaskOptions {
+             parent_header,
+             preserved_sparse_trie,
+@@ -597,6 +655,7 @@
+                     pending_sparse_trie_prune_blocks
+                 },
              },
-             FromEngine::Request(request) => {
-diff --git a/crates/engine/tree/src/tree/tests.rs b/crates/engine/tree/src/tree/tests.rs
++            shutdown_owner,
+         );
+ 
+         (
+@@ -622,6 +681,7 @@
+         from_multi_proof: CrossbeamReceiver<StateRootMessage>,
+         cancel_rx: CrossbeamReceiver<()>,
+         options: SparseTrieTaskOptions<N>,
++        shutdown_owner: Option<CrossbeamSender<()>>,
+     ) where
+         N: NodePrimitives,
+         F: DatabaseProviderFactory + Clone + 'static,
+@@ -648,7 +708,9 @@
+         let executor = executor.clone();
+ 
+         let parent_span = Span::current();
+-        executor.clone().spawn_blocking_named("sparse-trie", move || {
++        let task_executor = executor.clone();
++        let task_owner = shutdown_owner.clone();
++        let task = ShutdownOwned::new(move || {
+             reth_tasks::once!(increase_thread_priority);
+ 
+             let parent_hash = parent_header.hash();
+@@ -717,7 +779,8 @@
+             } else {
+                 multiproof_provider_factory
+             };
+-            let task_ctx = ProofTaskCtx::new(factory);
++            // Each proof broadcast retains its factory until its worker-local providers exit.
++            let task_ctx = ProofTaskCtx::new(ShutdownOwned::new(factory, shutdown_owner));
+             #[cfg(feature = "trie-debug")]
+             let task_ctx = task_ctx.with_proof_jitter(proof_jitter);
+             let proof_worker_handle =
+@@ -799,7 +862,8 @@
+                 executor.spawn_drop(trie);
+             }
+             executor.spawn_drop(deferred);
+-        });
++        }, task_owner);
++        task_executor.spawn_blocking_named("sparse-trie", move || task.run());
+     }
+ }
+ 
+@@ -926,11 +990,12 @@
+             state_provider_factory,
+             config,
+             parallel_bal_execution,
++            shutdown_owner,
+             state: _,
+         } = ctx;
+ 
+         let preserved_sparse_trie = overlay_manager.take_sparse_trie();
+-        let (mut handle, pending_trie_rx) = self.spawn_state_root(
++        let (mut handle, pending_trie_rx) = self.spawn_state_root_owned(
+             executor,
+             state_provider_factory.clone(),
+             StateRootTaskOptions {
+@@ -941,6 +1006,7 @@
+                 config,
+                 pending_sparse_trie_prune_blocks,
+             },
++            Some(shutdown_owner.clone()),
+         );
+ 
+         // The execution mode decides who finishes the update stream: the execution hook on
+@@ -966,6 +1032,7 @@
+                 executor: executor.clone(),
+                 timeout: config.state_root_task_timeout(),
+                 metrics: BlockValidationMetrics::default(),
++                shutdown_owner: Some(shutdown_owner),
+             }),
+             hashed_state_rx,
+         )
+@@ -1079,6 +1146,7 @@
+     executor: reth_tasks::Runtime,
+     timeout: Option<Duration>,
+     metrics: BlockValidationMetrics,
++    shutdown_owner: Option<CrossbeamSender<()>>,
+ }
+ 
+ impl<N, P> SparseTrieStateRootJob<N, P>
+@@ -1099,7 +1167,7 @@
+     ) -> ProviderResult<SerialFallbackRx> {
+         let provider = self.state_provider_factory.database_provider_ro()?;
+         let (fallback_tx, fallback_rx) = mpsc::channel();
+-        self.executor.spawn_blocking_named("serial-root", move || {
++        let task = ShutdownOwned::new(move || {
+             let result = (|| {
+                 let hashed_state = Arc::new(provider.hashed_post_state(&output.state)?);
+                 let (root, updates) =
+@@ -1107,7 +1175,8 @@
+                 Ok((root, updates, hashed_state))
+             })();
+             let _ = fallback_tx.send(result);
+-        });
++        }, self.shutdown_owner.clone());
++        self.executor.spawn_blocking_named("serial-root", move || task.run());
+ 
+         Ok(fallback_rx)
+     }
+@@ -1274,6 +1343,46 @@
+     use reth_testing_utils::generators;
+     use reth_trie::test_utils::state_root;
+     use reth_trie_common::bundle_state::StorageSlot;
++
++    #[test]
++    fn shutdown_owned_resources_precede_completion_on_return_unwind_and_unrun_drop() {
++        #[derive(Clone)]
++        struct Probe {
++            finished: CrossbeamReceiver<()>,
++            ordered: Arc<std::sync::atomic::AtomicBool>,
++        }
++        impl Drop for Probe {
++            fn drop(&mut self) {
++                self.ordered.fetch_and(
++                    matches!(self.finished.try_recv(), Err(crossbeam_channel::TryRecvError::Empty)),
++                    std::sync::atomic::Ordering::SeqCst,
++                );
++            }
++        }
++        for mode in 0..4 {
++            let (owner, finished) = crossbeam_channel::bounded(0);
++            let ordered = Arc::new(std::sync::atomic::AtomicBool::new(true));
++            let probe = Probe { finished: finished.clone(), ordered: ordered.clone() };
++            if mode == 0 {
++                let factory = ShutdownOwned::new(probe, Some(owner));
++                drop(factory.clone());
++                drop(factory);
++            } else {
++                let task = ShutdownOwned::new(move || {
++                    let _provider = probe;
++                    assert!(mode != 2, "intentional owned-task unwind probe");
++                }, Some(owner));
++                if mode == 3 {
++                    drop(task);
++                } else {
++                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| task.run()));
++                    assert_eq!(result.is_err(), mode == 2);
++                }
++            }
++            assert!(matches!(finished.try_recv(), Err(crossbeam_channel::TryRecvError::Disconnected)));
++            assert!(ordered.load(std::sync::atomic::Ordering::SeqCst), "mode={mode}");
++        }
++    }
+ 
+     #[test]
+     fn proof_worker_count_scales_with_block_gas() {
+@@ -1378,6 +1487,7 @@
+                     executor: runtime.clone(),
+                     timeout,
+                     metrics: Default::default(),
++                    shutdown_owner: None,
+                 };
+                 assert!(overlay_manager.take_sparse_trie().is_none());
+                 if finish {
+--- /dev/null
++++ b/crates/engine/tree/src/tree/state_root_strategy/shutdown_tests.rs
+@@ -0,0 +1,333 @@
++//! Exercise ownership at the launch sites; probes never retain a completion sender themselves.
++use super::*;
++use alloy_consensus::constants::EMPTY_ROOT_HASH;
++use reth_ethereum_primitives::{Block, EthPrimitives};
++use reth_evm_ethereum::EthEvmConfig;
++use reth_provider::test_utils::MockEthProvider;
++use reth_stages_api::{StageCheckpoint, StageId};
++use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
++
++const WAIT: Duration = Duration::from_secs(10);
++
++#[derive(Clone)]
++struct ProbeFactory {
++    inner: MockEthProvider,
++    finished: CrossbeamReceiver<()>,
++    ordered: Arc<AtomicBool>,
++    drops: Arc<AtomicUsize>,
++    opened: CrossbeamSender<()>,
++    release: Option<CrossbeamReceiver<()>>,
++    fail_open: bool,
++}
++
++impl Drop for ProbeFactory {
++    fn drop(&mut self) {
++        self.ordered.fetch_and(
++            matches!(self.finished.try_recv(), Err(crossbeam_channel::TryRecvError::Empty)),
++            Ordering::SeqCst,
++        );
++        self.drops.fetch_add(1, Ordering::SeqCst);
++    }
++}
++
++impl DatabaseProviderFactory for ProbeFactory {
++    type DB = <MockEthProvider as DatabaseProviderFactory>::DB;
++    type Provider = <MockEthProvider as DatabaseProviderFactory>::Provider;
++    type ProviderRW = <MockEthProvider as DatabaseProviderFactory>::ProviderRW;
++
++    fn database_provider_ro(&self) -> ProviderResult<Self::Provider> {
++        self.opened.send(()).unwrap();
++        if let Some(release) = &self.release {
++            assert_eq!(
++                release.recv_timeout(WAIT),
++                Err(crossbeam_channel::RecvTimeoutError::Disconnected)
++            );
++        }
++        if self.fail_open {
++            return Err(ProviderError::other(std::io::Error::other(
++                "intentional provider-open failure",
++            )));
++        }
++        DatabaseProviderFactory::database_provider_ro(&self.inner)
++    }
++
++    fn database_provider_rw(&self) -> ProviderResult<Self::ProviderRW> {
++        DatabaseProviderFactory::database_provider_rw(&self.inner)
++    }
++}
++
++fn factory(finished: CrossbeamReceiver<()>) -> (ProbeFactory, CrossbeamReceiver<()>) {
++    let inner = MockEthProvider::default();
++    inner.enable_database_provider();
++    inner.add_header(B256::ZERO, Default::default());
++    inner.add_stage_checkpoint(StageId::Finish, StageCheckpoint::new(0));
++    let (opened, rx) = crossbeam_channel::unbounded();
++    (
++        ProbeFactory {
++            inner,
++            finished,
++            ordered: Arc::new(AtomicBool::new(true)),
++            drops: Arc::new(AtomicUsize::new(0)),
++            opened,
++            release: None,
++            fail_open: false,
++        },
++        rx,
++    )
++}
++
++fn prepare(
++    runtime: &reth_tasks::Runtime,
++    factory: ProbeFactory,
++    owner: CrossbeamSender<()>,
++    timeout: Option<Duration>,
++) -> PreparedStateRootJob<EthPrimitives> {
++    let overlay = OverlayManager::default();
++    let config = TreeConfig::default()
++        .with_has_enough_parallelism(true)
++        .with_state_root_task_timeout(timeout);
++    let mut state = EngineApiTreeState::new(
++        10,
++        10,
++        config.invalid_header_hit_eviction_threshold(),
++        alloy_eips::BlockNumHash::new(0, B256::ZERO),
++        crate::engine::EngineApiKind::Ethereum,
++        overlay.clone(),
++    );
++    let parent = SealedHeader::new(
++        alloy_consensus::Header { state_root: EMPTY_ROOT_HASH, ..Default::default() },
++        B256::ZERO,
++    );
++    DefaultStateRootStrategy::default()
++        .prepare(StateRootJobContext::new(
++            runtime,
++            &overlay,
++            &ExecutionEnv::<EthEvmConfig>::test_default(),
++            &parent,
++            OverlayStateProviderFactory::new(factory, overlay.overlay_builder(B256::ZERO)),
++            &config,
++            false,
++            owner,
++            &mut state,
++        ))
++        .unwrap()
++}
++
++// Dropping the returned sender releases the task even if an assertion unwinds the test.
++fn hold_named(runtime: &reth_tasks::Runtime, name: &'static str) -> CrossbeamSender<()> {
++    let (entered, rx) = crossbeam_channel::bounded(1);
++    let (release, gate) = crossbeam_channel::bounded(0);
++    runtime.spawn_blocking_named(name, move || {
++        entered.send(()).unwrap();
++        assert_eq!(gate.recv_timeout(WAIT), Err(crossbeam_channel::RecvTimeoutError::Disconnected));
++    });
++    rx.recv_timeout(WAIT).unwrap();
++    release
++}
++
++fn drain(runtime: &reth_tasks::Runtime) {
++    for name in ["sparse-trie", "account-workers", "storage-workers"] {
++        runtime.spawn_blocking_named(name, || {}).get();
++    }
++}
++
++fn assert_pending(finished: &CrossbeamReceiver<()>) {
++    assert_eq!(
++        finished.try_recv(),
++        Err(crossbeam_channel::TryRecvError::Empty),
++        "engine completion disconnected while launched work still owns resources"
++    );
++}
++
++fn assert_done(finished: &CrossbeamReceiver<()>, ordered: &AtomicBool, drops: &AtomicUsize) {
++    assert_eq!(finished.recv_timeout(WAIT), Err(crossbeam_channel::RecvTimeoutError::Disconnected));
++    assert!(drops.load(Ordering::SeqCst) > 0);
++    assert!(ordered.load(Ordering::SeqCst), "factory dropped after completion disconnected");
++}
++
++fn finish_empty(mut prepared: PreparedStateRootJob<EthPrimitives>) {
++    drop(prepared.take_execution_hook());
++    drop(prepared.take_hint_stream());
++    let block = RecoveredBlock::new_unhashed(
++        Block {
++            header: alloy_consensus::Header { state_root: EMPTY_ROOT_HASH, ..Default::default() },
++            ..Default::default()
++        },
++        Vec::new(),
++    );
++    let outcome = prepared
++        .finish(
++            &block,
++            Arc::new(BlockExecutionOutput::default()),
++            &LazyHashedPostState::ready(Default::default()),
++        )
++        .unwrap();
++    assert_eq!(outcome.state_root, EMPTY_ROOT_HASH);
++}
++
++#[test]
++fn prepare_owns_sparse_root_until_success_or_cancellation() {
++    for cancel in [false, true] {
++        let runtime = reth_tasks::Runtime::test();
++        let release = hold_named(&runtime, "sparse-trie");
++        let (owner, finished) = crossbeam_channel::bounded(0);
++        let (factory, _opened) = factory(finished.clone());
++        let (ordered, drops) = (factory.ordered.clone(), factory.drops.clone());
++        let prepared = prepare(&runtime, factory, owner, None);
++        if cancel {
++            drop(prepared);
++            assert_pending(&finished);
++            drop(release);
++        } else {
++            drop(release);
++            finish_empty(prepared);
++        }
++        drain(&runtime);
++        assert_done(&finished, &ordered, &drops);
++    }
++}
++
++#[test]
++fn prepare_owns_proof_workers_after_cancellation_or_open_failure() {
++    for fail_open in [false, true] {
++        let runtime = reth_tasks::Runtime::test();
++        let (owner, finished) = crossbeam_channel::bounded(0);
++        let (mut factory, opened) = factory(finished.clone());
++        let (ordered, drops) = (factory.ordered.clone(), factory.drops.clone());
++        let (release, gate) = crossbeam_channel::bounded(0);
++        factory.release = Some(gate);
++        factory.fail_open = fail_open;
++        let prepared = prepare(&runtime, factory, owner, None);
++        opened.recv_timeout(WAIT).unwrap();
++        drop(prepared);
++        // The sparse task has exited; only dispatched proof-worker factories retain ownership.
++        runtime.spawn_blocking_named("sparse-trie", || {}).get();
++        assert_pending(&finished);
++        drop(release);
++        drain(&runtime);
++        assert_done(&finished, &ordered, &drops);
++    }
++}
++
++#[test]
++fn prepare_owns_serial_fallback_after_sparse_root_wins() {
++    let runtime = reth_tasks::Runtime::test();
++    let sparse_release = hold_named(&runtime, "sparse-trie");
++    let serial_release = hold_named(&runtime, "serial-root");
++    let (owner, finished) = crossbeam_channel::bounded(0);
++    let (factory, opened) = factory(finished.clone());
++    let (ordered, drops) = (factory.ordered.clone(), factory.drops.clone());
++    let prepared = prepare(&runtime, factory, owner, Some(Duration::ZERO));
++    let finish = std::thread::spawn(move || finish_empty(prepared));
++    // Sparse work is held, so this open can only be the zero-timeout serial fallback.
++    opened.recv_timeout(WAIT).unwrap();
++    drop(sparse_release);
++    finish.join().unwrap();
++    drain(&runtime);
++    assert_pending(&finished);
++    drop(serial_release);
++    runtime.spawn_blocking_named("serial-root", || {}).get();
++    assert_done(&finished, &ordered, &drops);
++}
++
++#[derive(Clone)]
++struct PanicFactory {
++    probe: ProbeFactory,
++    opens: Arc<AtomicUsize>,
++    release: CrossbeamReceiver<()>,
++}
++
++impl DatabaseProviderROFactory for PanicFactory {
++    type Provider = PanicProvider;
++
++    fn database_provider_ro(&self) -> ProviderResult<Self::Provider> {
++        let opened = self.opens.fetch_add(1, Ordering::SeqCst);
++        self.probe.opened.send(()).unwrap();
++        // One initial provider per pool; the third open proves catch-unwind reached replacement.
++        if opened >= 2 {
++            assert_eq!(
++                self.release.recv_timeout(WAIT),
++                Err(crossbeam_channel::RecvTimeoutError::Disconnected)
++            );
++        }
++        Ok(PanicProvider(self.probe.clone()))
++    }
++}
++
++struct PanicProvider(ProbeFactory);
++
++impl reth_provider::StateProofProvider for PanicProvider {
++    fn proof(
++        &self,
++        _: reth_trie_common::TrieInput,
++        _: alloy_primitives::Address,
++        _: &[B256],
++    ) -> ProviderResult<reth_trie_common::AccountProof> {
++        unreachable!("proof worker uses multiproof_v2")
++    }
++
++    fn multiproof(
++        &self,
++        _: reth_trie_common::TrieInput,
++        _: reth_trie_common::MultiProofTargets,
++    ) -> ProviderResult<reth_trie_common::MultiProof> {
++        unreachable!("proof worker uses multiproof_v2")
++    }
++
++    fn multiproof_v2(
++        &self,
++        _: reth_trie_common::MultiProofTargetsV2,
++        _: bool,
++    ) -> ProviderResult<reth_trie_common::DecodedMultiProofV2> {
++        assert_pending(&self.0.finished);
++        panic!("intentional proof-job panic")
++    }
++
++    fn witness(
++        &self,
++        _: reth_trie_common::TrieInput,
++        _: HashedPostState,
++        _: reth_trie_common::ExecutionWitnessMode,
++    ) -> ProviderResult<Vec<alloy_primitives::Bytes>> {
++        unreachable!("proof worker uses multiproof_v2")
++    }
++}
++
++#[test]
++fn proof_job_panic_retains_owner_until_provider_replacement_exits() {
++    let runtime = reth_tasks::Runtime::test();
++    let (owner, finished) = crossbeam_channel::bounded(0);
++    let (probe, opened) = factory(finished.clone());
++    let (ordered, drops) = (probe.ordered.clone(), probe.drops.clone());
++    let (release, gate) = crossbeam_channel::bounded(0);
++    let factory = PanicFactory { probe, opens: Arc::new(AtomicUsize::new(0)), release: gate };
++    let workers = ProofWorkerHandle::new(
++        &runtime,
++        ProofTaskCtx::new(ShutdownOwned::new(factory, Some(owner))),
++        ProofWorkerCounts { storage: 1, account: 1 },
++        Default::default(),
++    );
++    for _ in 0..2 {
++        opened.recv_timeout(WAIT).unwrap();
++    }
++    assert_eq!(
++        workers
++            .dispatch(reth_trie_common::MultiProofTargetsV2 {
++                account_targets: vec![B256::ZERO.into()],
++                storage_targets: Default::default(),
++            })
++            .unwrap(),
++        1
++    );
++    let error = workers.results().recv_timeout(WAIT).unwrap().unwrap_err();
++    assert!(
++        error.to_string().contains("proof job panicked: intentional proof-job panic"),
++        "{error}"
++    );
++    opened.recv_timeout(WAIT).unwrap();
++    drop(workers);
++    assert_pending(&finished);
++    drop(release);
++    drain(&runtime);
++    assert_done(&finished, &ordered, &drops);
++}
 --- a/crates/engine/tree/src/tree/tests.rs
 +++ b/crates/engine/tree/src/tree/tests.rs
-@@ -2796,6 +2796,71 @@ mod forkchoice_updated_tests {
-         test_harness.tree.update_reorg_metrics(2, Some(NumHash::new(60, B256::random())));
-     }
+@@ -2860,6 +2860,71 @@
  
+         // Reorg at block 60 (above safe=50) -> head reorg
+         test_harness.tree.update_reorg_metrics(2, Some(NumHash::new(60, B256::random())));
++    }
++
 +    #[test]
 +    fn test_engine_termination_waits_for_cleanup() {
 +        #[derive(Debug)]
@@ -156,61 +931,42 @@ diff --git a/crates/engine/tree/src/tree/tests.rs b/crates/engine/tree/src/tree/
 +                Err(std::sync::mpsc::TryRecvError::Disconnected)
 +            ));
 +        }
-+    }
-+
+     }
+ 
      /// Test that engine termination persists all blocks and signals completion.
-     #[test]
-     fn test_engine_termination_with_everything_persisted() {
-diff --git a/crates/engine/tree/src/tree/txpool_prewarm/mod.rs b/crates/engine/tree/src/tree/txpool_prewarm/mod.rs
 --- a/crates/engine/tree/src/tree/txpool_prewarm/mod.rs
 +++ b/crates/engine/tree/src/tree/txpool_prewarm/mod.rs
-@@ -15,15 +15,22 @@ use reth_provider::{
+@@ -25,15 +25,20 @@
      StorageSettingsCache,
  };
  use reth_storage_overlay::OverlayStateProviderFactory;
 -use std::{fmt::Debug, sync::Arc};
-+use std::{fmt::Debug, sync::Arc, thread::JoinHandle};
- 
+-
 -/// Coordinates a long-lived worker and the latest completed immutable snapshot.
-+/// Owns the txpool prewarming worker and its latest completed immutable snapshot.
++use std::{fmt::Debug, sync::Arc, thread::JoinHandle};
++
++/// Owns the prewarming worker and its latest completed immutable snapshot.
 +///
-+/// Dropping this handle disconnects the command channel, telling the worker to exit, then joins
-+/// its thread to wait for resource cleanup. Cancellation is cooperative: an active warming batch
-+/// may finish before the worker observes disconnection. The runtime shutdown signal cannot
-+/// interrupt the synchronous worker loop, so its owner must drop this handle to stop it.
++/// Drop disconnects the command channel, then joins the worker before engine shutdown
++/// is acknowledged. An active warming batch may finish before observing disconnection.
  pub(crate) struct Handle<N, P, Evm>
  where
      N: NodePrimitives,
      Evm: ConfigureEvm<Primitives = N>,
  {
      control: Arc<Control<Job<N, P, Evm>>>,
-+    /// Must follow `control`: the command channel must disconnect before the join can complete.
++    /// Must follow `control`: disconnect the command channel before joining.
 +    _worker: WorkerGuard,
- }
- 
- impl<N, P, Evm> Debug for Handle<N, P, Evm>
-@@ -59,10 +66,12 @@ where
-     ) -> Self {
-         let (control, commands) = Control::new();
-         let publication = control.publication();
--        runtime.spawn_critical_os_thread("txpool-prewarm", "txpool prewarm worker", async move {
--            worker::Worker::new(commands, publication, source, evm_config).run()
--        });
--        Self { control }
-+        let worker = runtime.spawn_critical_os_thread(
-+            "txpool-prewarm",
-+            "txpool prewarm worker",
-+            async move { worker::Worker::new(commands, publication, source, evm_config).run() },
-+        );
-+        Self { control, _worker: WorkerGuard(Some(worker)) }
-     }
- 
-     /// Pauses speculative work.
-@@ -121,6 +130,17 @@ pub trait Source<N: NodePrimitives>: Send + Sync + Debug {
-     fn best_transactions(&self, parent_hash: B256) -> Option<Transactions<N>>;
- }
- 
-+/// Waits for worker resources to be released before engine shutdown completes.
+     /// Predicts the environment of the next block.
+     evm_config: Evm,
+     /// Whether to record results of pool transactions in the predicted environment of the next
+@@ -41,6 +46,17 @@
+     record_results: bool,
+     /// The parent, predicted environment and results of the recorded speculation, if any.
+     speculation: RwLock<Option<Speculation<Evm>>>,
++}
++
++/// Waits for the worker to release its database resources.
 +struct WorkerGuard(Option<JoinHandle<()>>);
 +
 +impl Drop for WorkerGuard {
@@ -219,63 +975,55 @@ diff --git a/crates/engine/tree/src/tree/txpool_prewarm/mod.rs b/crates/engine/t
 +            let _ = worker.join();
 +        }
 +    }
-+}
-+
- /// A request to warm txpool transactions against one fully validated parent state.
- struct Job<N: NodePrimitives, P, Evm: ConfigureEvm<Primitives = N>> {
-     evm_env: EvmEnvFor<Evm>,
-diff --git a/crates/ethereum/node/tests/e2e/eth.rs b/crates/ethereum/node/tests/e2e/eth.rs
---- a/crates/ethereum/node/tests/e2e/eth.rs
-+++ b/crates/ethereum/node/tests/e2e/eth.rs
-@@ -125,6 +125,40 @@ async fn test_engine_graceful_shutdown() -> eyre::Result<()> {
-     Ok(())
  }
  
-+#[tokio::test]
-+async fn test_engine_shutdown_exits_cleanly() -> eyre::Result<()> {
-+    for explicit_shutdown in [true, false] {
-+        let runtime = Runtime::test();
-+        let NodeHandle { node, node_exit_future } = NodeBuilder::new(
-+            NodeConfig::test()
-+                .with_chain(test_chain_spec(EthereumHardfork::Cancun))
-+                .with_unused_ports(),
-+        )
-+        .testing_node(runtime.clone())
-+        .with_types::<EthereumNode>()
-+        .with_components(EthereumNode::components())
-+        .with_add_ons(EthereumAddOns::default())
-+        .launch()
-+        .await?;
-+
-+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
-+            let _shutdown_guard = if explicit_shutdown {
-+                node.add_ons_handle
-+                    .engine_shutdown
-+                    .shutdown()
-+                    .expect("first shutdown request")
-+                    .await?;
-+                None
-+            } else {
-+                Some(runtime.initiate_graceful_shutdown()?.await)
-+            };
-+            node_exit_future.await
-+        })
-+        .await??;
-+    }
-+    Ok(())
-+}
-+
- #[tokio::test]
- async fn test_testing_build_block_v1_osaka() -> eyre::Result<()> {
-     reth_tracing::init_test_tracing();
-diff --git a/crates/node/builder/src/launch/engine.rs b/crates/node/builder/src/launch/engine.rs
+ impl<N, P, Evm> Debug for Handle<N, P, Evm>
+@@ -81,10 +97,16 @@
+         let (control, commands) = Control::new();
+         let publication = control.publication();
+         let worker_evm_config = evm_config.clone();
+-        runtime.spawn_critical_os_thread("txpool-prewarm", "txpool prewarm worker", async move {
++        let worker = runtime.spawn_critical_os_thread("txpool-prewarm", "txpool prewarm worker", async move {
+             worker::Worker::new(commands, publication, source, worker_evm_config).run()
+         });
+-        Self { control, evm_config, record_results, speculation: RwLock::new(None) }
++        Self {
++            control,
++            _worker: WorkerGuard(Some(worker)),
++            evm_config,
++            record_results,
++            speculation: RwLock::new(None),
++        }
+     }
+ 
+     /// Pauses speculative work.
+--- a/crates/node/builder/src/launch/common.rs
++++ b/crates/node/builder/src/launch/common.rs
+@@ -1214,7 +1214,7 @@
+         &self.node_adapter().components
+     }
+ 
+-    /// Launches ExEx (Execution Extensions) and returns the ExEx manager handle.
++    /// Launches `ExEx` (Execution Extensions) and returns the `ExEx` manager handle.
+     #[expect(clippy::type_complexity)]
+     pub async fn launch_exex(
+         &self,
+@@ -1226,7 +1226,7 @@
+         self.exex_launcher(installed_exex).launch().await
+     }
+ 
+-    /// Creates an [`ExExLauncher`] for the installed ExExes.
++    /// Creates an [`ExExLauncher`] for the installed `ExExes`.
+     ///
+     /// This returns the launcher before calling `.launch()`, allowing custom configuration
+     /// such as setting the WAL blocks warning threshold for L2 chains with faster block times:
 --- a/crates/node/builder/src/launch/engine.rs
 +++ b/crates/node/builder/src/launch/engine.rs
-@@ -387,9 +387,16 @@ impl EngineNodeLauncher {
+@@ -423,9 +423,16 @@
                      shutdown_req = &mut shutdown_rx => {
                          if let Ok(req) = shutdown_req {
                              debug!(target: "reth::cli", "received engine shutdown request");
-+                            // Keep our own receiver to avoid treating event-channel closure as fatal.
++                            // Await cleanup here before event-channel closure can be treated as fatal.
 +                            let (done_tx, done_rx) = oneshot::channel();
                              orchestrator.handler_mut().handler_mut().on_event(
 -                                FromOrchestrator::Terminate { tx: req.done_tx }.into()
@@ -289,3 +1037,14 @@ diff --git a/crates/node/builder/src/launch/engine.rs b/crates/node/builder/src/
                          }
                      }
                      _guard = &mut on_graceful_shutdown => {
+--- a/crates/node/builder/src/launch/exex.rs
++++ b/crates/node/builder/src/launch/exex.rs
+@@ -24,7 +24,7 @@
+     config_container: WithConfigs<<Node::Types as NodeTypes>::ChainSpec>,
+     /// The threshold for the number of blocks in the WAL before emitting a warning.
+     wal_blocks_warning: usize,
+-    /// The max notification buffer capacity for the ExEx manager.
++    /// The max notification buffer capacity for the `ExEx` manager.
+     capacity: usize,
+ }
+ 

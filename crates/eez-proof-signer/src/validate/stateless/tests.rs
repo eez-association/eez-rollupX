@@ -1527,3 +1527,5 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
         matches!(error, ValidationError::Rejected(reason) if reason.contains("mismatched post-state root"))
     );
 }
+
+mod capture;

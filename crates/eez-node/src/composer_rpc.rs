@@ -528,7 +528,8 @@ mod tests {
 
     #[test]
     fn discovery_address_is_not_a_pinned_evm_precompile() {
-        // The pinned Ethereum and Gnosis EVMs use this REVM registry.
-        assert!(!reth_evm::revm::precompile::Precompiles::latest().contains(&discovery::ADDRESS));
+        // The pinned Ethereum and Gnosis factories use evm2's standard base set.
+        let precompiles = evm2::Precompiles::<evm2::BaseEvmTypes>::base(evm2::SpecId::NEXT);
+        assert!(!precompiles.as_map().contains(&discovery::ADDRESS));
     }
 }

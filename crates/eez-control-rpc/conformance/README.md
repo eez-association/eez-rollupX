@@ -97,14 +97,14 @@ No expected digest, cursor or status is learned from a server response.
 
 ## Replay and regeneration
 
-Use Rust 1.95.0, pinned dependencies and `protoc`. The wire-only client does not
+Use Rust 1.96.0, pinned dependencies and `protoc`. The wire-only client does not
 link Stateless or Reth. Set `VALIDATION_IDENTITY` to the 0x-prefixed hash
 independently computed from that fixture's local inputs using the
 [identity contract](../VALIDATION_IDENTITY.md), never a value copied from the server.
 Against an independently provisioned fixture service:
 
 ```bash
-cargo +1.95.0 run --locked -p eez-control-rpc --example replay_streaming -- \
+cargo +1.96.0 run --locked -p eez-control-rpc --example replay_streaming -- \
   http://127.0.0.1:50051 \
   crates/eez-proof-signer/tests/fixtures/streaming-v2/baseline-lookup.json \
   "$VALIDATION_IDENTITY"
@@ -114,7 +114,7 @@ The signer's tests create fresh services with each declared profile and replay
 all 29 frozen cases without changing their expected results:
 
 ```bash
-cargo +1.95.0 test --locked -p eez-proof-signer -- service::sessions::tests
+cargo +1.96.0 test --locked -p eez-proof-signer -- service::sessions::tests
 python3 crates/eez-control-rpc/conformance/check_vectors.py
 ```
 
@@ -123,12 +123,12 @@ an explicitly ignored artifact utility; it is not skipped behavior coverage.
 The manifest writer records source and fixture digests, never server responses:
 
 ```bash
-cargo +1.95.0 test --locked -p eez-proof-signer -- \
+cargo +1.96.0 test --locked -p eez-proof-signer -- \
   --ignored --exact service::tests::derivation::captured::regenerate_native_fixture_commitments
-cargo +1.95.0 test --locked -p eez-proof-signer -- \
+cargo +1.96.0 test --locked -p eez-proof-signer -- \
   --ignored --exact service::sessions::tests::vectors::regenerate_offline_vectors
 python3 crates/eez-control-rpc/conformance/check_vectors.py --write-manifest
-cargo +1.95.0 test --locked -p eez-proof-signer -- service::sessions::tests
+cargo +1.96.0 test --locked -p eez-proof-signer -- service::sessions::tests
 ```
 
 The [manifest](../../eez-proof-signer/tests/fixtures/streaming-v2/manifest.json)

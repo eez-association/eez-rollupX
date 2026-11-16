@@ -10,6 +10,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use alloy_consensus::transaction::Recovered;
 use alloy_consensus::{Header, Transaction, TxEip1559, TxLegacy, Typed2718, TypedTransaction};
 use alloy_eips::{Decodable2718, Encodable2718};
 use alloy_primitives::{Address, B256, Bytes, Signature, TxKind, U256, keccak256};
@@ -21,9 +22,9 @@ use eez_protocol::{
     executor::{ExecutionRequest, SessionSnapshot},
     system_tx::{OutboundSourceEntry, OutboundSyncEffect, OutboundSyncGroup, SystemTxContext},
 };
+use evm2::ethereum::{RecoveredTxEnvelope, TxEnvelope};
 use reth_primitives_traits::{Block, BlockBody, SealedHeader, SignerRecoverable};
 use reth_storage_api::{BlockReader, BlockSource, StateProviderFactory};
-use revm::context::TxEnv;
 use serde_json::{Value, json};
 
 use super::super::{Composer, l1_target_gas, posting::PostingQuote};
@@ -393,20 +394,23 @@ impl L2FeeRequest {
         fields
     }
 
-    pub(super) fn env(&self, tip: u128, cap: u128) -> TxEnv {
-        TxEnv {
-            tx_type: self.tx.ty(),
-            caller: self.sender,
-            gas_limit: self.tx.gas_limit(),
-            gas_price: cap,
-            gas_priority_fee: self.tx.max_priority_fee_per_gas().map(|_| tip),
-            kind: self.tx.kind(),
-            value: self.tx.value(),
-            data: self.tx.input().clone(),
-            nonce: self.tx.nonce(),
-            chain_id: self.tx.chain_id(),
-            ..Default::default()
-        }
+    pub(super) fn env(&self, tip: u128, cap: u128) -> RecoveredTxEnvelope {
+        // Both constructors admit only legacy/type-2 calls with empty access lists.
+        let tx = match &self.tx {
+            TypedTransaction::Legacy(tx) => {
+                let mut tx = tx.clone();
+                tx.gas_price = cap;
+                TxEnvelope::Legacy(tx)
+            }
+            TypedTransaction::Eip1559(tx) => {
+                let mut tx = tx.clone();
+                tx.max_fee_per_gas = cap;
+                tx.max_priority_fee_per_gas = tip;
+                TxEnvelope::Eip1559(tx)
+            }
+            _ => unreachable!("fee request constructors admit only legacy/type-2"),
+        };
+        Recovered::new_unchecked(tx, self.sender)
     }
 
     /// Signature bytes are solely an upper bound for DA encoding length. This
@@ -981,8 +985,13 @@ where
             );
             // Retain typed balance conditions from validation. This isolated
             // quote reports them to its caller; it never queues or retries work.
-            let simulated =
-                l2.simulate_source_env_on(tx_env.clone(), &mut builder, sim_state, sim_env, true);
+            let simulated = l2.simulate_source_env_on(
+                tx_env.clone().map(eez_evm::EezEvmTx::Ethereum),
+                &mut builder,
+                sim_state,
+                sim_env,
+                true,
+            );
             budget.check()?;
             let simulated =
                 simulated.map_err(|e| source_simulation_error(runtime.ctx.l2_chain_id, e))?;
@@ -995,7 +1004,7 @@ where
             }
             if builder.recorded_count() == 0 {
                 let outcome = draft
-                    .preview_unsigned(tx_env)
+                    .preview_unsigned(tx_env.map(eez_evm::EezEvmTx::Ethereum))
                     .map_err(|e| unavailable("ordinary L2 replay", e))?;
                 if !outcome.success {
                     return Err(FeeQuoteError::execution(
@@ -1093,7 +1102,10 @@ where
                     if source_gas.is_some() {
                         return Err(FeeQuoteError::Unsupported("duplicate source"));
                     }
-                    native.execute_unsigned(tx_env.clone(), &mut observer)
+                    native.execute_unsigned(
+                        tx_env.clone().map(eez_evm::EezEvmTx::Ethereum),
+                        &mut observer,
+                    )
                 } else if raw.first() == Some(&eez_primitives::SYSTEM_TX_TYPE) {
                     if source_gas.is_some() {
                         native.execute_committed_inspected(&raw, &mut observer)

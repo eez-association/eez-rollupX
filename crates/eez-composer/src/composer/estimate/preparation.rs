@@ -1,4 +1,8 @@
-use super::*;
+use super::{
+    Address, B256, Bytes, Composition, ConfigureEvm, EstimateError, EvmFeatures, GasEstimator,
+    Probe, Recovered, RecoveredTxEnvelope, RollupId, Snapshot, Transaction, TxEnvelope, TxLegacy,
+    U256, set_source_gas_limit, unavailable, unsupported,
+};
 use alloy_sol_types::SolCall;
 use eez_protocol::{
     abi::{
@@ -32,7 +36,7 @@ fn sidecars(c: &Composition, rid: u64) -> Result<Vec<InboundSidecar>, EstimateEr
 pub(super) fn outbound(
     e: &GasEstimator,
     c: &Composition,
-    mut tx: TxEnv,
+    mut tx: RecoveredTxEnvelope,
     mut fork: crate::local::build::SyncBlockFork,
 ) -> Result<Probe, EstimateError> {
     let mut effects = c
@@ -81,10 +85,10 @@ pub(super) fn outbound(
         &c.actions,
     )
     .map_err(unavailable)?;
-    tx.gas_limit = tx.gas_limit.min(fork.remaining_gas());
-    let limit = tx.gas_limit;
+    let limit = tx.gas_limit().min(fork.remaining_gas());
+    set_source_gas_limit(&mut tx, limit)?;
     let user = fork
-        .execute_unsigned(tx, &mut observer)
+        .execute_unsigned(tx.map(eez_evm::EezEvmTx::Ethereum), &mut observer)
         .map_err(unavailable)?;
     if !user.success {
         return Err(EstimateError::Revert(user.output));
@@ -332,26 +336,26 @@ fn read_call<C: SolCall>(
     call: C,
 ) -> Result<C::Return, EstimateError> {
     let (mut state, mut env) = s.l1.fork_state(&e.l1).map_err(unavailable)?;
-    env.cfg_env.disable_nonce_check = true;
-    env.cfg_env.disable_base_fee = true;
-    env.cfg_env.disable_eip3607 = true;
-    let chain_id = env.cfg_env.chain_id;
-    let evm =
-        e.l1.chain_provider()
-            .evm_config
-            .evm_with_env(&mut state, env);
-    let output = execute_user(
-        evm,
-        TxEnv {
-            kind: alloy_primitives::TxKind::Call(target),
-            data: call.abi_encode().into(),
+    env.version
+        .features
+        .remove(EvmFeatures::NONCE_CHECK | EvmFeatures::BASE_FEE_CHECK | EvmFeatures::EIP3607);
+    let chain_id = env.version.chain_id;
+    let tx = Recovered::new_unchecked(
+        eez_evm::EezEvmTx::Ethereum(TxEnvelope::Legacy(TxLegacy {
+            to: alloy_primitives::TxKind::Call(target),
+            input: call.abi_encode().into(),
             gas_limit: 1_000_000,
             chain_id: Some(chain_id),
             ..Default::default()
-        },
-        None,
-    )?;
-    if !output.success {
+        })),
+        Address::ZERO,
+    );
+    let mut evm =
+        e.l1.chain_provider()
+            .evm_config
+            .evm_with_env(&mut state.db, env);
+    let output = evm.transact(&tx).map_err(unavailable)?.result;
+    if !output.is_success() {
         return Err(unsupported("deployment lookup reverted"));
     }
     C::abi_decode_returns(&output.output).map_err(unsupported)
