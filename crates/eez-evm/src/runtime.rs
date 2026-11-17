@@ -108,9 +108,6 @@ impl<'a> EezEvm<'a> {
     pub fn state_mut(&mut self) -> &mut evm2::evm::State<'a> {
         self.0.state_mut()
     }
-    pub fn overlay_db(&self) -> &evm2::evm::CacheDB<Box<dyn evm2::evm::DynDatabase + 'a>> {
-        self.0.overlay_db()
-    }
     pub fn overlay_db_mut(
         &mut self,
     ) -> &mut evm2::evm::CacheDB<Box<dyn evm2::evm::DynDatabase + 'a>> {
@@ -133,9 +130,7 @@ impl RethEvm for EezEvm<'_> {
         &mut self,
         tx: &Recovered<EezEvmTx>,
     ) -> Result<evm2::TxResultWithState<EezEvmTypes>, BlockExecutionError> {
-        let credit = self.credit(tx).map_err(map_handler_error)?;
-        let raw = RethEvm::transact(&mut self.0, tx)?;
-        carrier::finalize(&mut self.0, tx, raw, credit).map_err(map_handler_error)
+        EezEvm::transact(self, tx).map_err(map_handler_error)
     }
     fn transact_commit(
         &mut self,
