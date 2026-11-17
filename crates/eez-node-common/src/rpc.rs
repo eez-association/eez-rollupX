@@ -556,7 +556,7 @@ mod tests {
             let mut evm = config.evm_with_env(&mut db, env);
             let result = evm.transact(&tx).unwrap();
             assert_eq!(
-                result.result().output.as_ref(),
+                result.result.output.as_ref(),
                 blocks[selected].header.mix_hash.as_slice()
             );
             let mut original = pending_genesis_db(&spec);
