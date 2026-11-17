@@ -10,9 +10,9 @@ The protocol sources are this checkout's `eez-core-protocol` gitlink and the for
 [`Core Rollup`](../../eez-core-protocol/src/rollupContract/Rollup.sol). Source revisions and current
 validation gaps are recorded in the [feature audit](../../docs/audits/2026-10-24-fee-vault-rpc/README.md).
 This profile is for fresh networks, active from genesis. Stateless execution uses the
-[EEZ Stateless fork](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8),
-pinned to commit `0bda6b200c1eb4689c147c080c3c248b50be2ea8`. Its
-[recovered-block and checkpoint APIs](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8#eez-reth-compatibility-branch) preserve the transaction
+[EEZ Stateless fork](https://github.com/eez-association/stateless/tree/9dd4cb3840b3b0535daae436ed44b9c3b1a04c0d),
+pinned to commit `9dd4cb3840b3b0535daae436ed44b9c3b1a04c0d`. Its
+[recovered-block and checkpoint APIs](https://github.com/eez-association/stateless/tree/9dd4cb3840b3b0535daae436ed44b9c3b1a04c0d#eez-reth-compatibility-branch) preserve the transaction
 checkpoints required by this profile; the root lockfile selects the runtime
 dependency graph.
 

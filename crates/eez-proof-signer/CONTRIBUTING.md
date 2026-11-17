@@ -103,11 +103,10 @@ execution binding, value, call-hash, and outcome checks in `settlement/`.
 
 ## Pinned Stateless fork
 
-The [root workspace dependency](../../Cargo.toml) selects the EEZ Stateless fork.
-The Reth 2.11 prerequisite builds on the
-[existing checkpoint branch](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8).
-The isolated migration uses a local path until its reviewed changes have an
-immutable distributable reference; that path is not a shipping dependency pin. The fork exposes the computed pre-state and post-state roots and
+The [root workspace dependency](../../Cargo.toml) selects the published
+[EEZ Stateless fork](https://github.com/eez-association/stateless/tree/9dd4cb3840b3b0535daae436ed44b9c3b1a04c0d)
+at commit `9dd4cb3840b3b0535daae436ed44b9c3b1a04c0d`, aligned with Reth 2.11.
+The fork exposes the computed pre-state and post-state roots and
 selected transaction-state checkpoints while preserving upstream
 Stateless/Reth consensus and execution validation.
 

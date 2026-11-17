@@ -387,9 +387,11 @@ PERMISSION_DENIED without disclosing a cursor.
 | Expensive work | One shared validation worker; finalizations acquire the shared final-proof permit |
 | Deadlines | Configured absolute timeout for each ordered Block/Finalize, including worker admission; idle timeout bounds input silence and output backpressure |
 
-The Reth 2.11 legacy witness producer includes cached empty code as a code item.
-It counts against the unchanged witness-item quota even though its code bytes
-are empty. One such entry per block costs 65,536 items at the default block
+Raw upstream Reth 2.11 Legacy witness output includes cached empty code items.
+RollupX removes them from new captures as described above; previously retained
+witnesses can still contain them. Readers charge every received item against the
+unchanged witness-item quota, even when its code bytes are empty.
+One such entry per block costs 65,536 items at the default block
 limit (about 6.6% of the default item budget); other code-list differences can
 change the net cost. Plan catch-up session boundaries from actual packet sizes
 and item counts. Preserve original retained packets for retries: regeneration
