@@ -1,0 +1,17 @@
+# Composer attestation quorum
+
+**Status.** The collection, timeout and pricing decisions are accepted for implementation. Network activation is a separate operator action.
+
+The accepted #149 behavior is to post as soon as the first M distinct valid proofs arrive, retain late responses for diagnostics within the existing proof budget, and use the missing-signature path whenever fewer than M proofs are available. The proving-cost setting and calculation apply once per settlement as before.
+
+The implementation ports the multi-prover design to the native offline v2 profile at fork revision `81404f15` and Core revision `84a5b520`. The single-rollup public input shared by all verifiers is independent of roster ordering. Each verifier's accumulator binds its own registered network-profile key. This permits existing signers to validate separate singleton requests and lets Composer select the responders at runtime. Composer checks the selected assignments again before passing the actual signed batch through native preflight.
+
+The on-chain threshold is read for each intended submission parent. In explicit roster mode, startup and settlement check the registered manager, verifier implementation, expected network-profile key and signer. A roster contains at most 16 independent systems and signing keys. Each member owns its own v2 session and capabilities. When any member misses startup admission, the planning ceiling is one complete Sync interval so a recovering member with the minimum supported capacity can join. A member that missed startup can participate later if its registration and client checks succeed for the window.
+
+A round has one submission decision. It freezes the first M verified responses and sorts them by verifier address. An optional node-owned task drains outstanding responses until the round's deadline. The next round may preempt the previous drain. Member errors are diagnostic in explicit roster mode because the v2 error response carries no proof-signing-key signature. The existing singleton failure classification still applies when the roster is absent. Retries use one proof budget per round. Ordinary L2 production and settlement queue ownership follow the existing scheduling contract.
+
+Repeated unsigned rejections can keep the same front-of-queue request pending and delay independent work behind it. Retention follows the agreed missing-signature disposition. Alert when a user-bearing `eez.composer.prover.range_retained` recurs across slots without canonical progress, and inspect the member outcomes. Changing eviction policy would require independently attributable evidence and a separate design decision.
+
+Waiting for every configured member would block settlement during a tolerable outage. Cancelling every remaining exchange at the threshold would discard diagnostics the operator needs. Retaining the already-issued calls until the existing cutoff gives those responses a bounded lifetime.
+
+Qualification requires real 2-of-2 settlement, independent recovery of both posted attesters, follower replay of that two-proof batch from canonical L1 and blobs, degraded 2-of-3 with an ineligible registration, controlled early quorum and late-response tests, and measurement of the gas used by additional verifiers. See the [RPC contract](../../crates/eez-control-rpc/SPEC.md) and [operator procedure](../runbooks/attestation-quorum.md).

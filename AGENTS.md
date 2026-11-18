@@ -211,6 +211,7 @@ its Solidity implementation/tests and the applicable fork contract:
   acceptance, or matching height does not complete an attempt. Inconclusive chain
   observations do not authorize execution or eviction; blocked sources must not
   starve independent eligible work.
+- For explicit attestation rosters, preserve the first verified threshold, independent member sessions and the existing missing-signature disposition. Follow the [quorum procedure](docs/runbooks/attestation-quorum.md).
 - For prover/retry changes, preserve the RPC contract's closed retry-status list,
   settlement cutoff, validated request-local failure attribution, and bounded
   prover/relay episode accounting. Transport retries do not each charge an attempt;

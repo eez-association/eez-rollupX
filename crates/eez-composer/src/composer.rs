@@ -67,6 +67,7 @@ mod fees;
 pub use fees::quote::{
     CompactFeeRequest, FeeQuoteError, L2FeeRequest, PreparedCompactFeeQuote, PreparedL2FeeQuote,
 };
+pub(crate) use fees::settlement::proof_registration;
 mod gas;
 pub(crate) mod gas_trace;
 mod policy;
@@ -611,6 +612,7 @@ struct PostBatchGasBudget {
     projected: u64,
     calldata_gas: u64,
     framing_gas: u64,
+    verifier_gas: u64,
     floor_active: bool,
     general: bool,
     /// The shaped projection does not charge a generic entry for the anchor.
@@ -630,15 +632,24 @@ struct PostBatchGasBudget {
 impl PostBatchGasBudget {
     #[cfg(test)]
     fn new(max_gas: u64) -> Self {
-        Self::with_calldata_limits(max_gas, 64, true)
+        Self::with_calldata_limits(max_gas, 64, true, 1)
     }
 
-    fn with_calldata_limits(max_gas: u64, maximum_blobs: usize, floor_active: bool) -> Self {
+    fn with_calldata_limits(
+        max_gas: u64,
+        maximum_blobs: usize,
+        floor_active: bool,
+        members: usize,
+    ) -> Self {
+        let verifier_gas = crate::attestation_quorum::additional_verifier_gas(members);
         Self {
             cap: max_gas,
-            projected: projected_postbatch_gas(1, 0, 0),
+            projected: projected_postbatch_gas(1, 0, 0).saturating_add(verifier_gas),
             calldata_gas: 0,
-            framing_gas: gas::framing::base(maximum_blobs),
+            framing_gas: gas::framing::base(maximum_blobs).saturating_add(
+                crate::attestation_quorum::additional_verifier_calldata_gas(members),
+            ),
+            verifier_gas,
             floor_active,
             general: maximum_blobs > 64,
             anchor_discount: 0,
@@ -653,12 +664,12 @@ impl PostBatchGasBudget {
     }
 
     fn use_projection(&mut self, initial_gas: u64) {
-        self.projected = if self.general {
+        self.projected = self.verifier_gas.saturating_add(if self.general {
             initial_gas.saturating_add(POSTBATCH_ENTRY_GAS_PIN)
         } else {
             self.anchor_discount = POSTBATCH_ENTRY_GAS_PIN;
             initial_gas
-        };
+        });
     }
 
     fn full_estimate(&self) -> u64 {
@@ -1666,6 +1677,7 @@ where
             emission,
             fee_recipient,
             post_batch_target,
+            attestation_quorum,
             ..
         } = settings;
         event!(name: "eez.composer.settlement.policy", Level::INFO,
@@ -1693,6 +1705,11 @@ where
             chain: cross_chain.local.l1_entry.chain_provider().clone(),
             ctx: Arc::clone(&cross_chain.exec_ctx),
             registry,
+            proof_systems: attestation_quorum.as_ref().map_or_else(
+                || vec![cross_chain.exec_ctx.ecdsa_proof_system_address],
+                |quorum| quorum.proof_systems().collect(),
+            ),
+            quorum: attestation_quorum,
             post_batch_target,
             operator_gas_cap: emission.max_gas,
             operator_blob_cap: blob_cap,
@@ -3284,6 +3301,7 @@ where
             estimated_budget,
             self.posting_blob_allowance(bundle_target, 0)?,
             self.inner.posting.calldata_floor_active(bundle_target),
+            self.inner.posting.proof_systems.len(),
         );
         // This separate view never receives accepted speculative effects.
         // Failed lookups or unsupported prior queues retain conservative pins.
@@ -5855,7 +5873,9 @@ where
                 };
             }
             Err(PreparePostBatchError::Prover(error)) => {
-                event!(Level::ERROR, rollup_id, %error,
+                event!(name: "eez.composer.prover.range_retained", Level::ERROR,
+                    event_name = "eez.composer.prover.range_retained", rollup_id,
+                    selected_users = survivors.len(), %error,
                     "proof unavailable or rejected; retaining the complete range and all source ownership");
                 pool.push_front_batch(survivors);
                 return Ok(self.build_empty_slot_block(rollup, parent_header, timestamp));
@@ -6598,7 +6618,7 @@ where
         preparation_started_ms: u64,
     ) -> Result<(Bytes, crate::posting_events::PreparationTiming), PreparePostBatchError> {
         use alloy_sol_types::SolCall;
-        use eez_protocol::abi::{RollupIdWithProofSystemsSol, postAndVerifyBatchCall};
+        use eez_protocol::abi::postAndVerifyBatchCall;
 
         let preparation_started = std::time::Instant::now();
         // Anchor-only windows bind the same canonical parent as cross-chain
@@ -7134,11 +7154,14 @@ where
             rollupId: rollup_id,
             root: pre_block_hash,
         }];
-        batch.proofSystems = vec![ctx.ecdsa_proof_system_address];
-        batch.rollupIdsWithProofSystems = vec![RollupIdWithProofSystemsSol {
-            rollupId: rollup_id,
-            proofSystemIndexes: vec![0u64],
-        }];
+        crate::attestation_quorum::assign_proof_systems(
+            &mut batch,
+            rollup_id,
+            self.inner.posting.quorum.as_ref().map_or_else(
+                || vec![ctx.ecdsa_proof_system_address],
+                |quorum| quorum.proof_systems().collect(),
+            ),
+        );
         // Encode the full L2 block range this batch covers, not just the
         // Sync block: the composer accumulates intermediate live blocks between
         // Sync slots and the deriver must replay all of them. Range:
@@ -7443,7 +7466,14 @@ where
             .gas_budget(&header, bundle_target)
             .map_err(|error| error.to_string())?;
         let mut sized = batch.clone();
-        sized.proofs = vec![Bytes::from(vec![0xffu8; MAX_PROOF_BYTES])];
+        sized.proofs = vec![
+            Bytes::from(vec![0xffu8; MAX_PROOF_BYTES]);
+            self.inner
+                .posting
+                .quorum
+                .as_ref()
+                .map_or(1, crate::AttestationQuorum::len)
+        ];
         let projected = postAndVerifyBatchCall { batch: sized }.abi_encode();
         // EIP-7623 charges max(standard, floor). Standard now covers the bytes the
         // drain could not see; floor is what a fat, entry-light batch hits.
@@ -7459,6 +7489,14 @@ where
                 projection.batch_gas(&batch, calldata_gas(&projected), outbound_target_gas)
             },
         );
+        projected_gas =
+            projected_gas.saturating_add(crate::attestation_quorum::additional_verifier_gas(
+                self.inner
+                    .posting
+                    .quorum
+                    .as_ref()
+                    .map_or(1, crate::AttestationQuorum::len),
+            ));
         let floor_active = posting.calldata_floor_active(bundle_target);
         if floor_active {
             projected_gas = projected_gas.max(calldata_floor_gas(&projected));
@@ -7735,25 +7773,57 @@ where
             );
         }
         let proof_started = std::time::Instant::now();
-        let proof_result = if let Some(deadline) = deadline {
-            crate::prover_retry::prove_with_shared_deadline(
-                self.inner.prover.as_ref(),
-                proving_ctx,
-                self.inner.emission.timing,
-                bundle_target,
-                deadline,
-                post_reserve,
-            )
-            .await
-        } else {
-            prove_with_retry_at(
-                self.inner.prover.as_ref(),
-                proving_ctx,
+        let proof_result = if let Some(quorum) = &self.inner.posting.quorum {
+            let budget = crate::prover_retry::ProofBudget::new(
                 self.inner.emission.timing,
                 bundle_target,
                 proof_gate_ms,
-            )
+                deadline,
+                post_reserve,
+            );
+            Box::pin(async {
+                let policy = quorum.policy_at(&posting.chain, posting.registry, rollup_id, Some(header.clone()));
+                let registration = tokio::time::timeout_at(budget.expires_at(), policy)
+                    .await.map_err(|_| crate::attestation_quorum::deadline_error())?
+                    .inspect_err(|error| tracing::warn!(rollup_id, %error, "attestation registration unavailable at submission parent"))
+                    .map_err(|_| crate::attestation_quorum::deadline_error())?;
+                quorum
+                    .collect_proofs(
+                        &proving_ctx,
+                        prepared_blob_sidecar.versioned_hashes(),
+                        &registration,
+                        budget,
+                    )
+                    .await
+            })
             .await
+        } else {
+            let result = if let Some(deadline) = deadline {
+                crate::prover_retry::prove_with_shared_deadline(
+                    self.inner.prover.as_ref(),
+                    proving_ctx,
+                    self.inner.emission.timing,
+                    bundle_target,
+                    deadline,
+                    post_reserve,
+                )
+                .await
+            } else {
+                prove_with_retry_at(
+                    self.inner.prover.as_ref(),
+                    proving_ctx,
+                    self.inner.emission.timing,
+                    bundle_target,
+                    proof_gate_ms,
+                )
+                .await
+            };
+            result.map(|proof| {
+                vec![crate::attestation_quorum::Attestation {
+                    proof_system: ctx.ecdsa_proof_system_address,
+                    proof,
+                }]
+            })
         };
         let proof = match proof_result {
             Ok(proof) => proof,
@@ -7832,7 +7902,12 @@ where
         if !rollup.l1_head.generation_is(policy_anchor.generation) {
             return Err("canonical settlement evidence changed during proving".into());
         }
-        batch.proofs = vec![proof];
+        crate::attestation_quorum::assign_proof_systems(
+            &mut batch,
+            rollup_id,
+            proof.iter().map(|item| item.proof_system).collect(),
+        );
+        batch.proofs = proof.into_iter().map(|item| item.proof).collect();
 
         let calldata = postAndVerifyBatchCall {
             batch: batch.clone(),
@@ -8523,6 +8598,32 @@ mod tests {
                 .collect(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn quorum_metadata_is_charged_on_both_admission_gas_branches() {
+        let mut single = PostBatchGasBudget::with_calldata_limits(u64::MAX, 1, true, 1);
+        let mut quorum = PostBatchGasBudget::with_calldata_limits(u64::MAX, 1, true, 16);
+        // Shape-based execution accounting must retain the verifier execution.
+        single.use_projection(100_000);
+        quorum.use_projection(100_000);
+        assert_eq!(quorum.projected - single.projected, 15 * 14_000);
+        assert_eq!(quorum.framing_gas - single.framing_gas, 15 * 224 * 16);
+        // A large native source can make EIP-7623's floor dominate execution.
+        single.calldata_gas = 1_000_000;
+        quorum.calldata_gas = 1_000_000;
+        assert_eq!(
+            quorum.full_estimate() - single.full_estimate(),
+            15 * 224 * 40
+        );
+        let cap = single.full_estimate();
+        single.cap = cap;
+        quorum.cap = cap;
+        assert!(single.try_accept(TxL1Gas::default()));
+        assert!(
+            !quorum.try_accept(TxL1Gas::default()),
+            "extra metadata crosses the floor cap"
+        );
     }
 
     #[test]

@@ -5,6 +5,7 @@
 //! (Sequencer + Scheduler), L1 anchoring (`L1Watcher` + Deriver), and
 //! batch submission (Composer umbrella).
 //!
+mod attesters;
 mod bundle_rpc;
 mod composer_rpc;
 mod fee_quotes;
@@ -67,7 +68,7 @@ enum WitnessCapture {
         sender: mpsc::UnboundedSender<eez_l1::L2Endpoint>,
         receiver: mpsc::UnboundedReceiver<eez_l1::L2Endpoint>,
         store: witness_source::WitnessStore,
-        prover: eez_prover_client::RemoteProver,
+        provers: Vec<eez_prover_client::RemoteProver>,
     },
 }
 
@@ -75,6 +76,7 @@ struct ComposerProving {
     maximum_blocks: u64,
     prover: Arc<dyn eez_prover::Prover>,
     witness_capture: WitnessCapture,
+    quorum: Option<eez_composer::AttestationQuorum>,
 }
 
 impl WitnessCapture {
@@ -111,31 +113,93 @@ pub fn run_composer() -> eyre::Result<()> {
 }
 
 async fn composer_proving_from_env(
-    expected_identity: B256,
+    validation: eez_control_rpc::identity::ValidationContext,
     profile: &eez_protocol::l1_history::NetworkProfile,
-    registry: Address,
-    proof_system: Address,
+    l1: &eez_composer::LocalChainClient,
+    runtime: reth_tasks::Runtime,
+    minimum_blocks: u64,
+    config: attesters::Config,
 ) -> eyre::Result<ComposerProving> {
-    let url = env::var("EEZ_PROVER_URL")
-        .map_err(|_| eyre::eyre!("EEZ_PROVER_URL is required for composer proving"))?;
-    if url.trim().is_empty() {
-        return Err(eyre::eyre!("EEZ_PROVER_URL must not be empty"));
+    use futures_util::{StreamExt, stream::FuturesUnordered};
+    let expected_identity = validation.identity();
+    let proof_system = config.members[0].proof_system;
+    let mut provers = Vec::with_capacity(config.members.len());
+    let members = config
+        .members
+        .into_iter()
+        .map(|member| {
+            let remote = eez_prover_client::RemoteProver::new(
+                member.url,
+                member.attester,
+                expected_identity,
+                profile.verification_key(validation.registry, member.proof_system, member.attester),
+            );
+            provers.push((member.proof_system, remote.clone()));
+            eez_composer::QuorumMember {
+                proof_system: member.proof_system,
+                attester: member.attester,
+                prover: Arc::new(remote),
+            }
+        })
+        .collect();
+    let quorum = eez_composer::AttestationQuorum::new(members, validation.manager, runtime)?;
+    let (threshold, eligible) = if config.explicit {
+        tokio::time::timeout(
+            L1_CHAIN_ID_READ_TIMEOUT,
+            quorum.startup_policy(l1, validation.registry, validation.rollup_id.get()),
+        )
+        .await??
+    } else {
+        (1, vec![proof_system])
+    };
+    let mut handshakes: FuturesUnordered<_> = provers
+        .iter()
+        .filter(|(system, _)| eligible.contains(system))
+        .map(|(system, prover)| async move {
+            let result = if config.explicit {
+                tokio::time::timeout(Duration::from_secs(30), prover.capabilities())
+                    .await
+                    .map_err(|_| eez_prover::ProverError::Backend("capability timeout".into()))
+                    .and_then(|caps| caps)
+            } else {
+                prover.capabilities().await
+            };
+            (*system, result)
+        })
+        .collect();
+    let mut maximum_blocks = u64::MAX;
+    let mut capable = Vec::new();
+    while let Some((system, result)) = handshakes.next().await {
+        match result {
+            Ok(caps) if !config.explicit || caps.max_window_blocks >= minimum_blocks => {
+                capable.push(system);
+                maximum_blocks = maximum_blocks.min(caps.max_window_blocks);
+            }
+            Err(error) if !config.explicit => return Err(error.into()),
+            _ => tracing::warn!(%system, "quorum member unavailable or incompatible at startup"),
+        }
     }
-    let attester = env::var("EEZ_ATTESTER_ADDRESS")
-        .map_err(|_| eyre::eyre!("EEZ_ATTESTER_ADDRESS is required for composer proving"))?;
-    let attester =
-        Address::from_str(attester.trim()).map_err(|e| eyre::eyre!("EEZ_ATTESTER_ADDRESS: {e}"))?;
-    let remote = eez_prover_client::RemoteProver::new(
-        url,
-        attester,
-        expected_identity,
-        profile.verification_key(registry, proof_system, attester),
+    eyre::ensure!(
+        capable.len() >= threshold,
+        "only {} capable registered provers, {threshold} required",
+        capable.len()
     );
-    let capabilities = remote.capabilities().await?;
-    event!(Level::INFO, validation_identity = %expected_identity,
-        maximum_blocks = capabilities.max_window_blocks,
-        maximum_request_bytes = capabilities.max_request_bytes,
-        maximum_witness_items = capabilities.max_request_witness_items,
+    // Unknown member ceilings cannot be used to plan catch-up. A single Sync
+    // interval lets any recovering member admitted under the minimum participate.
+    if config.explicit && capable.len() < provers.len() {
+        maximum_blocks = minimum_blocks;
+    }
+    drop(handshakes);
+    let primary = Arc::new(provers[0].1.clone());
+    // Previously absent members can prove from durable witnesses after fresh
+    // round admission. Eager preparation is reserved for the admitted cohort.
+    let provers: Vec<_> = provers
+        .into_iter()
+        .filter_map(|(system, prover)| capable.contains(&system).then_some(prover))
+        .collect();
+    event!(name: "eez.node.prover.ready", Level::INFO, event_name = "eez.node.prover.ready",
+        validation_identity = %expected_identity, sync_interval_blocks = minimum_blocks,
+        maximum_blocks, attesters = provers.len(),
         "prover configuration agreement established");
     let (sender, receiver) = mpsc::unbounded_channel::<eez_l1::L2Endpoint>();
     let witness_db_path =
@@ -148,13 +212,14 @@ async fn composer_proving_from_env(
         "persistent witness store opened",
     );
     Ok(ComposerProving {
-        maximum_blocks: capabilities.max_window_blocks,
-        prover: Arc::new(remote.clone()),
+        maximum_blocks,
+        prover: primary,
+        quorum: config.explicit.then_some(quorum),
         witness_capture: WitnessCapture::Remote {
             sender,
             receiver,
             store,
-            prover: remote,
+            provers,
         },
     })
 }
@@ -206,7 +271,7 @@ async fn run_preparation_worker(
                 })
             }
             Err(error) => {
-                event!(name: "eez.node.witness_preparation.deferred", Level::WARN, %error,
+                event!(name: "eez.node.witness_preparation.deferred", Level::WARN, retryable = ?error.retryable_kind(),
                     "v2 prevalidation deferred; durable witnesses retained");
             }
         }
@@ -520,14 +585,55 @@ async fn launch_composer(
     let offline_rules = eez_l1::chain_config::offline_l1_rules(&offline_l1_spec)?;
     let network_profile =
         offline_rules.profile(derivation_schedule, builder.config().chain.chain().id())?;
-    let ecdsa_proof_system_address: Address =
-        Address::from_str(&env::var("EEZ_ECDSA_PROOF_SYSTEM_ADDRESS").map_err(|_| {
-            eyre::eyre!(
-                "EEZ_ECDSA_PROOF_SYSTEM_ADDRESS required for L1 postBatch \
-                         proofSystems[0]"
+    // Build the cross-chain composer over the mandatory embedded L1.
+    // Inlined because the `FullNode` AddOns type resists a typed helper
+    // return.
+    use eez_composer::{GnosisL1Adapter, LocalChainClient};
+    use eez_protocol::rollup_id::RollupId;
+
+    let l1_rollup_id_u64 = read_l1_rollup_id()?;
+    let l1_rollup_id = RollupId(l1_rollup_id_u64);
+
+    // L1 entry differs per kind: Devnet/Testing use the native
+    // provider + EvmConfig; Chiado wraps it in
+    // `GnosisL1Adapter` and builds a fresh `EthEvmConfig`
+    // over the chiado ChainSpec (source-sim needs only
+    // revm, not GnosisNode's AuRa paths). Both yield the
+    // same concrete client type, so composition is identical.
+    let l1_entry_client: Arc<LocalChainClient> = match &embedded_l1 {
+        EmbeddedL1::Ethereum(l1_handle) => {
+            let l1_provider = l1_handle.node.provider.clone();
+            // Source simulation uses the interpreter with the engine's exact chain rules.
+            let l1_evm_config = eez_evm::EezEvmConfig::for_l1_simulation(
+                l1_handle.node.evm_config.chain_spec().clone(),
+            );
+            LocalChainClient::new_entry(
+                l1_provider,
+                l1_evm_config,
+                l1_rollup_id,
+                eez_registry,
+                eez_protocol::ChainDialect::EvmL1Style,
             )
-        })?)?;
-    let expected_identity = eez_control_rpc::identity::ValidationContext {
+        }
+        EmbeddedL1::Chiado(chiado_handle) => {
+            let l1_provider = GnosisL1Adapter::new(chiado_handle.node.provider.clone());
+            LocalChainClient::new_gnosis_entry(
+                l1_provider,
+                chiado_handle.node.evm_config.clone(),
+                l1_rollup_id,
+                eez_registry,
+                eez_protocol::ChainDialect::EvmL1Style,
+            )
+        }
+    };
+    let prover_config = attesters::Config::from_env()?;
+    let ecdsa_proof_system_address = prover_config.members[0].proof_system;
+    let l1_rpc_url: reqwest::Url = env::var("EEZ_L1_RPC_URL")
+        .map_err(|_| eyre::eyre!("EEZ_L1_RPC_URL required for L1 forwarding"))?
+        .parse()
+        .map_err(|e| eyre::eyre!("EEZ_L1_RPC_URL malformed: {e}"))?;
+    let l1_provider = alloy_provider::RootProvider::new_http(l1_rpc_url.clone());
+    let validation = eez_control_rpc::identity::ValidationContext {
         rollup_id: std::num::NonZeroU64::new(rollup_config.rollup_id)
             .ok_or_else(|| eyre::eyre!("rollup ID must be nonzero"))?,
         chain_id: builder.config().chain.chain().id(),
@@ -537,21 +643,27 @@ async fn launch_composer(
         network_profile_hash: network_profile.commitment(),
         registry: eez_registry,
         manager: rollup_manager,
-    }
-    .identity();
+    };
     // Agreement is established before L2 sequencing or proving starts.
     let ComposerProving {
         maximum_blocks,
         prover,
         witness_capture,
+        quorum,
     } = composer_proving_from_env(
-        expected_identity,
+        validation,
         &network_profile,
-        eez_registry,
-        ecdsa_proof_system_address,
+        &l1_entry_client,
+        builder.task_executor().clone(),
+        u64::from(timing.k()),
+        prover_config,
     )
     .await?;
     let composer_settings = composer_settings.with_prover_block_limit(maximum_blocks)?;
+    let composer_settings = match quorum {
+        Some(quorum) => composer_settings.with_attestation_quorum(quorum),
+        None => composer_settings,
+    };
     let composer_info = composer_rpc::ComposerInfo::new(
         composer_rpc::ComposerContracts {
             registry: eez_registry,
@@ -715,7 +827,6 @@ async fn launch_composer(
     // engine traffic shares one actor, reconcile lock, and head mirror.
     let (sequencer, composer, held_pool, system_tx_cfg, l1_source_chain_id, preparation_worker) = {
         let rollup_id = rollup_config.rollup_id;
-        let l1_variant = &embedded_l1;
         // Share the SAME HeldPool the ingress middleware pushes into.
         let rollup_state = RollupState {
             config: rollup_config.clone(),
@@ -733,49 +844,8 @@ async fn launch_composer(
         let evm_config =
             eez_evm::EezEvmConfig::new(chain_spec.clone()).with_l1_history(l1_head.clone())?;
 
-        // Build the cross-chain composer over the mandatory embedded L1.
-        // Inlined because the `FullNode` AddOns type resists a typed helper
-        // return.
-        use eez_composer::{GnosisL1Adapter, LocalChainClient};
-        use eez_protocol::rollup_id::RollupId;
         use eez_protocol::{ProxyLookupConfig, TargetConfig};
-
-        let l1_rollup_id_u64 = read_l1_rollup_id()?;
-        let l1_rollup_id = RollupId(l1_rollup_id_u64);
         let l2_rollup_id_typed = RollupId(rollup_id);
-
-        // L1 entry differs per kind: Devnet/Testing use the native
-        // provider + EvmConfig; Chiado wraps it in
-        // `GnosisL1Adapter` and builds a fresh `EthEvmConfig`
-        // over the chiado ChainSpec (source-sim needs only
-        // revm, not GnosisNode's AuRa paths). Both yield the
-        // same concrete client type, so composition is identical.
-        let l1_entry_client: Arc<LocalChainClient> = match l1_variant {
-            EmbeddedL1::Ethereum(l1_handle) => {
-                let l1_provider = l1_handle.node.provider.clone();
-                // Source simulation uses the interpreter with the engine's exact chain rules.
-                let l1_evm_config = eez_evm::EezEvmConfig::for_l1_simulation(
-                    l1_handle.node.evm_config.chain_spec().clone(),
-                );
-                LocalChainClient::new_entry(
-                    l1_provider,
-                    l1_evm_config,
-                    l1_rollup_id,
-                    eez_registry,
-                    eez_protocol::ChainDialect::EvmL1Style,
-                )
-            }
-            EmbeddedL1::Chiado(chiado_handle) => {
-                let l1_provider = GnosisL1Adapter::new(chiado_handle.node.provider.clone());
-                LocalChainClient::new_gnosis_entry(
-                    l1_provider,
-                    chiado_handle.node.evm_config.clone(),
-                    l1_rollup_id,
-                    eez_registry,
-                    eez_protocol::ChainDialect::EvmL1Style,
-                )
-            }
-        };
         let entry_client_view: Arc<dyn eez_protocol::executor::ChainClient + Send + Sync> =
             l1_entry_client.clone();
 
@@ -839,11 +909,6 @@ async fn launch_composer(
         // simulation (the E2E harness deliberately uses Anvil here), so
         // derive the signing chain ID from this provider rather than the
         // embedded chain spec.
-        let l1_rpc_url: reqwest::Url = env::var("EEZ_L1_RPC_URL")
-            .map_err(|_| eyre::eyre!("EEZ_L1_RPC_URL required for L1 forwarding"))?
-            .parse()
-            .map_err(|e| eyre::eyre!("EEZ_L1_RPC_URL malformed: {e}"))?;
-        let l1_provider = alloy_provider::RootProvider::new_http(l1_rpc_url.clone());
         let l1_submission_chain_id =
             tokio::time::timeout(L1_CHAIN_ID_READ_TIMEOUT, l1_provider.get_chain_id())
                 .await
@@ -930,7 +995,7 @@ async fn launch_composer(
             WitnessCapture::Remote {
                 receiver: rx,
                 store,
-                prover: preparation_prover,
+                provers: preparation_provers,
                 ..
             } => {
                 let cap_provider = provider.clone();
@@ -940,9 +1005,20 @@ async fn launch_composer(
                 let cap_store = Arc::clone(&store);
                 // Purge floor = L1-FINALIZED height (a reorg could un-settle a posted batch).
                 let cap_l1_head = Arc::clone(&l1_head);
-                let (preparation_notifier, preparation_rx) =
-                    witness_source::PreparationNotifier::channel(128);
-                let capture_notifier = preparation_notifier.clone();
+                let mut notifiers = Vec::with_capacity(preparation_provers.len());
+                let mut workers = Vec::with_capacity(preparation_provers.len());
+                for prover in preparation_provers {
+                    let (notifier, rx) = witness_source::PreparationNotifier::channel(128);
+                    notifiers.push(notifier.clone());
+                    workers.push(run_preparation_worker(
+                        rx,
+                        notifier,
+                        Arc::clone(&store),
+                        prover,
+                        rollup_id,
+                        Arc::clone(&l1_head),
+                    ));
+                }
                 task_executor.spawn_critical_task("eez-witness-capture", async move {
                     witness_source::run_capture(
                         rx,
@@ -950,22 +1026,12 @@ async fn launch_composer(
                         cap_provider,
                         cap_evm,
                         move || cap_l1_head.finalized_l2(),
-                        Some(capture_notifier),
+                        notifiers,
                     )
                     .await;
                 });
-                let preparation_store = Arc::clone(&store);
-                let preparation_l1_head = Arc::clone(&l1_head);
                 let preparation_worker = async move {
-                    run_preparation_worker(
-                        preparation_rx,
-                        preparation_notifier,
-                        preparation_store,
-                        preparation_prover,
-                        rollup_id,
-                        preparation_l1_head,
-                    )
-                    .await;
+                    futures_util::future::join_all(workers).await;
                 };
                 // Hybrid: read the store, else re-exec on demand the newest block
                 // the async capture hasn't drained yet (state still retained; fast

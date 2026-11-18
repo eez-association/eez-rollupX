@@ -198,6 +198,87 @@ impl PipelineDeadline {
 pub(crate) const POST_PROOF_RESERVE: Duration = Duration::from_millis(150);
 pub(crate) const DELIVERY_RESERVE: Duration = Duration::from_millis(25);
 
+/// One proof window shared by all members, registration and diagnostic observation.
+/// Member retries retain the existing status and reserve policy.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ProofBudget {
+    timing: RollupTiming,
+    target: BundleTarget,
+    retry_until: Instant,
+    shared: Option<(PipelineDeadline, Duration)>,
+    expires_at: Instant,
+}
+
+impl ProofBudget {
+    pub fn new(
+        timing: RollupTiming,
+        target: BundleTarget,
+        now_ms: u64,
+        deadline: Option<PipelineDeadline>,
+        reserve: Duration,
+    ) -> Self {
+        let shared = deadline.map(|deadline| (deadline, reserve));
+        let start = Instant::now();
+        let retry = retry_budget(timing, target, now_ms);
+        let retry_until = start + retry.as_ref().copied().unwrap_or_default();
+        let allowance = match shared {
+            Some((deadline, reserve)) => deadline.remaining().saturating_sub(reserve),
+            None => match retry {
+                // Exact-target retries may start up to the existing cutoff,
+                // then consume one nominal proof attempt.
+                Ok(duration) if matches!(target, BundleTarget::Exact { .. }) => {
+                    duration.saturating_add(timing.proof_time())
+                }
+                Ok(duration) => duration,
+                Err(_) => Duration::ZERO,
+            },
+        };
+        Self {
+            timing,
+            target,
+            retry_until,
+            shared,
+            expires_at: start + allowance,
+        }
+    }
+
+    pub fn expires_at(self) -> Instant {
+        self.shared.map_or(self.expires_at, |(deadline, reserve)| {
+            self.expires_at
+                .min(Instant::now() + deadline.remaining().saturating_sub(reserve))
+        })
+    }
+
+    pub async fn prove(
+        self,
+        prover: &dyn Prover,
+        ctx: ProvingContext,
+        complete: &std::sync::atomic::AtomicBool,
+    ) -> Result<Bytes, ProverError> {
+        let remaining = self.expires_at().saturating_duration_since(Instant::now());
+        let budget = if self.shared.is_some() {
+            remaining
+        } else {
+            if Instant::now() > self.retry_until {
+                return Err(crate::attestation_quorum::deadline_error());
+            }
+            self.retry_until
+                .saturating_duration_since(Instant::now())
+                .min(remaining)
+        };
+        prove_with_retry_window(
+            prover,
+            ctx,
+            self.timing,
+            self.target,
+            budget,
+            self.shared,
+            Some(complete),
+        )
+        .await
+    }
+}
+
 /// Work dimensions bound reuse and upward scaling of a timing observation.
 /// Samples are local to the running binary/prover and disappear on restart.
 #[derive(Clone, Copy, Debug, Default)]
@@ -368,6 +449,7 @@ pub(crate) async fn prove_with_shared_deadline(
         target,
         budget,
         Some((deadline, reserve)),
+        None,
     )
     .await
 }
@@ -417,7 +499,7 @@ pub(crate) async fn prove_with_retry_at(
     now_ms: u64,
 ) -> Result<Bytes, ProverError> {
     let budget = retry_budget(timing, target, now_ms)?;
-    prove_with_retry_window(prover, ctx, timing, target, budget, None).await
+    prove_with_retry_window(prover, ctx, timing, target, budget, None, None).await
 }
 
 async fn prove_with_retry_window(
@@ -427,11 +509,15 @@ async fn prove_with_retry_window(
     target: BundleTarget,
     budget: Duration,
     shared: Option<(PipelineDeadline, Duration)>,
+    complete: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<Bytes, ProverError> {
     let retry_deadline = Instant::now() + budget;
     let mut attempt = 1_u32;
 
     loop {
+        if complete.is_some_and(|done| done.load(std::sync::atomic::Ordering::Relaxed)) {
+            return Err(ProverError::Backend("quorum already complete".into()));
+        }
         let attempt_timeout = if let Some((deadline, reserve)) = shared {
             deadline
                 .remaining()
@@ -464,6 +550,9 @@ async fn prove_with_retry_window(
             return Err(error);
         };
 
+        if complete.is_some_and(|done| done.load(std::sync::atomic::Ordering::Relaxed)) {
+            return Err(error);
+        }
         let wake_at = Instant::now() + prover_retry_backoff(attempt);
         if wake_at >= retry_deadline {
             event!(
@@ -487,6 +576,9 @@ async fn prove_with_retry_window(
             "retrying complete proof request after transient failure",
         );
         sleep_until(wake_at).await;
+        if complete.is_some_and(|done| done.load(std::sync::atomic::Ordering::Relaxed)) {
+            return Err(error);
+        }
         // The planned wake was safe, but the runtime may resume this task late.
         if Instant::now() >= retry_deadline {
             event!(

@@ -5,10 +5,7 @@ use super::{
 };
 use alloy_sol_types::SolCall;
 use eez_protocol::{
-    abi::{
-        EtherDeltaSol, ExecutionEntrySol, ExpectedRootPerRollupSol, RollupIdWithProofSystemsSol,
-        RootUpdateSol, rollupsCall,
-    },
+    abi::{EtherDeltaSol, ExecutionEntrySol, ExpectedRootPerRollupSol, RootUpdateSol, rollupsCall},
     entries::{EntryTrace, InboundSidecar},
     system_tx::{
         OutboundSourceEntry, OutboundSyncEffect, OutboundSyncGroup, SystemTxContext,
@@ -126,7 +123,7 @@ pub(super) fn inbound(
     s: &Snapshot,
     c: &Composition,
     blob_hashes: &[B256],
-) -> Result<(eez_protocol::EvmBatch, B256, Vec<Bytes>, B256), EstimateError> {
+) -> Result<(eez_protocol::EvmBatch, Vec<B256>, Vec<Bytes>, B256), EstimateError> {
     let sidecars = sidecars(c, e.rollup_id)?;
     let source_context = eez_protocol::native_source::LiveSourceContext::new(
         system_context(e).l2_chain_id,
@@ -250,16 +247,6 @@ pub(super) fn inbound(
     eez_protocol::entries::finalize_l1_entry_traces(&mut batch, &traces).map_err(unsupported)?;
     batch.immediateEntryCount = U256::from(1);
     batch.blockNumber = u64::MAX;
-    batch.proofSystems = vec![e.verifier];
-    batch.rollupIdsWithProofSystems = vec![RollupIdWithProofSystemsSol {
-        rollupId: e.rollup_id,
-        proofSystemIndexes: vec![0],
-    }];
-    batch.proofs = vec![if blob_hashes.is_empty() {
-        Bytes::new()
-    } else {
-        super::super::fees::settlement::placeholder_proof()
-    }];
     batch.blobIndices = (0..blob_hashes.len()).map(U256::from).collect();
     let registry = read_call(
         e,
@@ -269,7 +256,41 @@ pub(super) fn inbound(
             rollupId: e.rollup_id,
         },
     )?;
-    super::deployment::validate(e, s, registry.rollupContract)?;
+    let members = match &e.quorum {
+        Some(quorum) => {
+            let chain = e.l1.chain_provider();
+            let state = chain
+                .provider
+                .state_by_block_hash(s.l1.anchor.hash())
+                .map_err(unavailable)?;
+            quorum
+                .usable_members(
+                    registry.rollupContract,
+                    |system| super::deployment::known_verifier(state.as_ref(), system),
+                    |to, input| read_bytes(e, s, to, input).map_err(|error| error.to_string()),
+                )
+                .map_err(unavailable)?
+        }
+        None => Vec::new(),
+    };
+    let verifiers = if e.quorum.is_some() {
+        members
+            .iter()
+            .map(|(system, _)| *system)
+            .collect::<Vec<_>>()
+    } else {
+        e.verifiers.clone()
+    };
+    crate::attestation_quorum::assign_proof_systems(&mut batch, e.rollup_id, verifiers.clone());
+    batch.proofs = vec![
+        if blob_hashes.is_empty() {
+            Bytes::new()
+        } else {
+            super::super::fees::settlement::placeholder_proof()
+        };
+        verifiers.len()
+    ];
+    super::deployment::validate(e, s, registry.rollupContract, &verifiers)?;
     if registry.root != s.settled_root {
         return Err(unavailable("settlement root changed"));
     }
@@ -281,12 +302,12 @@ pub(super) fn inbound(
         s,
         registry.rollupContract,
         checkProofSystemsAndGetVkeysCall {
-            proofSystems: vec![e.verifier],
+            proofSystems: verifiers.clone(),
         },
     )?;
-    let [vkey] = keys.as_slice() else {
-        return Err(unsupported("single proof-system profile required"));
-    };
+    if keys.len() != verifiers.len() || keys.is_empty() {
+        return Err(unsupported("invalid verification-key coverage"));
+    }
     batch.expectedRootPerRollup = vec![ExpectedRootPerRollupSol {
         rollupId: e.rollup_id,
         root: s.settled_root,
@@ -302,17 +323,9 @@ pub(super) fn inbound(
         s.l1.anchor.timestamp,
     )
     .map_err(unsupported)?;
-    let digests = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
-        &batch,
-        *vkey,
-        blob_hashes,
-        context,
-    )
-    .map_err(unsupported)?;
-    let [digest] = digests.as_slice() else {
-        return Err(unsupported("single proof digest required"));
-    };
-    Ok((batch, *digest, txs, live))
+    let digests = crate::attestation_quorum::member_digests(&batch, &keys, blob_hashes, context)
+        .map_err(unsupported)?;
+    Ok((batch, digests, txs, live))
 }
 
 fn ether_delta(inflow: U256, outflow: U256) -> Result<EtherDeltaSol, EstimateError> {
@@ -335,6 +348,16 @@ fn read_call<C: SolCall>(
     target: Address,
     call: C,
 ) -> Result<C::Return, EstimateError> {
+    let output = read_bytes(e, s, target, call.abi_encode())?;
+    C::abi_decode_returns(&output).map_err(unsupported)
+}
+
+fn read_bytes(
+    e: &GasEstimator,
+    s: &Snapshot,
+    to: Address,
+    calldata: Vec<u8>,
+) -> Result<Bytes, EstimateError> {
     let (mut state, mut env) = s.l1.fork_state(&e.l1).map_err(unavailable)?;
     env.version
         .features
@@ -342,8 +365,8 @@ fn read_call<C: SolCall>(
     let chain_id = env.version.chain_id;
     let tx = Recovered::new_unchecked(
         eez_evm::EezEvmTx::Ethereum(TxEnvelope::Legacy(TxLegacy {
-            to: alloy_primitives::TxKind::Call(target),
-            input: call.abi_encode().into(),
+            to: alloy_primitives::TxKind::Call(to),
+            input: calldata.into(),
             gas_limit: 1_000_000,
             chain_id: Some(chain_id),
             ..Default::default()
@@ -358,5 +381,5 @@ fn read_call<C: SolCall>(
     if !output.is_success() {
         return Err(unsupported("deployment lookup reverted"));
     }
-    C::abi_decode_returns(&output.output).map_err(unsupported)
+    Ok(output.output)
 }

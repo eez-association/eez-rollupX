@@ -64,6 +64,19 @@ const POST_BATCHER: Code = Code {
     hash: b256!("b9ede5d6a14473b896fe72b193f500250998ab99c9d3e65ad2c7153df35b61d1"),
 };
 
+pub(crate) fn supports_ecdsa(code: &[u8]) -> bool {
+    matches(code, &PROTOCOL_VERIFIER)
+        || (matches(code, &VERIFIER) && {
+            // Both copies of the immutable signer must agree, including the copy used
+            // by verify(). The separate anchored signer() read checks its configured value.
+            let first = VERIFIER.immutables[0];
+            VERIFIER
+                .immutables
+                .iter()
+                .all(|&offset| code[offset..offset + 32] == code[first..first + 32])
+        })
+}
+
 fn matches(code: &[u8], expected: &Code) -> bool {
     let Some(suffix) = code.get(code.len().saturating_sub(2)..) else {
         return false;
@@ -85,6 +98,14 @@ fn matches(code: &[u8], expected: &Code) -> bool {
         normalized[*start..*start + 32].fill(0);
     }
     keccak256(normalized) == expected.hash
+}
+
+pub(in crate::composer) fn known_verifier(state: &dyn StateProvider, system: Address) -> bool {
+    state
+        .account_code(&system)
+        .ok()
+        .flatten()
+        .is_some_and(|code| supports_ecdsa(&code.original_bytes()))
 }
 
 fn check(
@@ -134,19 +155,23 @@ pub(super) fn validate(
     e: &GasEstimator,
     s: &Snapshot,
     rollup: Address,
+    verifiers: &[Address],
 ) -> Result<(), EstimateError> {
     let state =
         e.l1.chain_provider()
             .provider
             .state_by_block_hash(s.l1.anchor.hash())
             .map_err(unavailable)?;
-    validate_at(
-        state.as_ref(),
-        e.l1.manager_address(),
-        rollup,
-        e.verifier,
-        e.post_batch_target,
-    )
+    for &verifier in verifiers {
+        validate_at(
+            state.as_ref(),
+            e.l1.manager_address(),
+            rollup,
+            verifier,
+            e.post_batch_target,
+        )?;
+    }
+    Ok(())
 }
 
 /// Recognize the supported contracts before a conditional proof result is used

@@ -82,11 +82,16 @@ checkpoints under the same identity. On session loss, a cold prover receives the
 complete request from durable Composer witnesses. No prepared-range or lease API
 is required. See the [resource and lifecycle rules](STREAMING_SPEC.md#6-rollupx-runtime-profile).
 
+For an explicit roster, capability agreement is per member. Startup requires the anchored
+threshold of registered members with matching validation identity and sufficient block
+capacity for one Sync interval. The initial planning ceiling is the minimum accepted
+capacity when every member qualifies. With incomplete startup admission it is one Sync interval. Each member uses its own existing limits and checks upon reconnect.
+
 ## 3. Constructing the request
 
 ### 3.1 Settlement batch and native DA
 
-The request carries the exact batch and physical blobs that the Composer intends
+In singleton mode the request carries the exact batch and physical blobs that the Composer intends
 to submit to L1, with only the proof bytes omitted. The pinned Solidity ABI,
 mirrored in [`eez-protocol/src/abi.rs`](../eez-protocol/src/abi.rs), determines
 field order and integer widths.
@@ -330,7 +335,7 @@ and cross-language vectors are in
 preflight avoids submitting a response that recovered to the correct attester
 but was signed over the wrong batch hash.
 
-After validation, the Composer MUST change only the proof carrier:
+In singleton mode, after validation the Composer MUST change only the proof carrier:
 
 ```text
 assert batch.proofSystems == [ecdsa_proof_system_address]
@@ -339,9 +344,16 @@ batch.proofs = [response.proof]
 ```
 
 The Composer MUST NOT modify entries, root updates, rolling hashes,
-physical blobs, blob order, `callData`, proof-system assignments, scheduling counts, or any other proved
+physical blobs, blob order, `callData`, scheduling counts, or any other proved
 batch field after the request. `response.public_inputs_hash` is not inserted
 into the batch; EEZ recomputes it on-chain.
+
+An explicit roster permits one assignment change. Each signer receives its own singleton
+verifier and index zero over the same window, physical blobs and context. At the Mth
+distinct valid proof, Composer freezes the selected pairs, sorts them by raw verifier
+address and sets the sole rollup's indexes to `0..M-1`. It checks every selected digest
+against this final assignment. M is the threshold at the intended submission parent,
+with a minimum of one. The signed transaction goes through the existing native preflight.
 
 Finally, the Composer ABI-encodes `EEZ.postAndVerifyBatch(batch)`, signs the L1
 transaction with its poster key, and sends it to the deployment's EEZ contract.
@@ -350,6 +362,13 @@ public-input hash and calls
 `ECDSAProofSystem.verify(response.proof, publicInputsHash)`.
 
 ## 6. Failure handling
+
+In explicit roster mode a member error yields diagnostics. It cannot evict a user or
+charge an attempt. Persistent rejection of the same request can delay following work indefinitely. Operators should alert on repeated user-bearing `eez.composer.prover.range_retained` events without canonical progress and inspect member diagnostics. If the threshold is unreachable or missed, retain the selected work
+as for a missing singleton signature. After handoff, already-issued operations can be
+observed until the original deadline. Late results cannot change the batch, retry
+counters or ownership, and the round starts no further proof retries. Canonical
+consumption and the ownership rules in section 8 still apply.
 
 No gRPC error yields a usable proof. Composer implementations SHOULD handle the
 canonical status codes as follows:

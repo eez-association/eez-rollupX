@@ -333,6 +333,11 @@ their test harness separate from this protocol proposal.
 
 ## 6. RollupX runtime profile
 
+For an explicit Composer roster each endpoint has its own checked client, preparation
+notifications, retained prefix and session. A committed block may trigger independent
+preparation on each client. Finalize uses that client's singleton assignment. The
+[RPC contract](SPEC.md#5-validating-and-using-the-response) defines threshold collection.
+
 This profile is active from a new network's genesis. The signer serves only v2
 proving plus the shared capability query. Startup uses local L2 genesis, local
 L1 chain rules, registry/manager identities and proof policy. It has no L1/L2

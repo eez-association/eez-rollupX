@@ -39,6 +39,8 @@ the full proposal and the original native-blob commitments. Canonical prefix
 selection and signed-user recovery belong to the deriver and Composer, as
 specified in [settlement ownership](../eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission).
 
+An explicit Composer quorum presents each signer with the same existing singleton v2 request profile and its own registered verifier and key. Composer owns final membership selection under the [RPC contract](../eez-control-rpc/SPEC.md#5-validating-and-using-the-response).
+
 ## 1. Purpose and supported profile
 
 The signer accepts one Composer-supplied L2 block window, validates every block
