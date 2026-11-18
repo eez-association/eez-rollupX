@@ -145,8 +145,10 @@ async fn exercise(config: TestQuorumConfig) {
             .find(|event| event.name == "eez.node.prover.ready")
             .unwrap();
         let ceiling = ready.fields["maximum_blocks"].as_u64().unwrap();
-        assert!(ceiling > 0);
-        assert_eq!(Some(ceiling), ready.fields["sync_interval_blocks"].as_u64());
+        assert!(
+            ceiling > ready.u64("sync_interval_blocks").unwrap(),
+            "the two capable fixture signers must retain enough capacity to drain historical backlog"
+        );
         assert!(
             posts
                 .iter()

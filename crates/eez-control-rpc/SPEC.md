@@ -85,7 +85,7 @@ is required. See the [resource and lifecycle rules](STREAMING_SPEC.md#6-rollupx-
 For an explicit roster, capability agreement is per member. Startup requires the anchored
 threshold of registered members with matching validation identity and sufficient block
 capacity for one Sync interval. The initial planning ceiling is the minimum accepted
-capacity when every member qualifies. With incomplete startup admission it is one Sync interval. Each member uses its own existing limits and checks upon reconnect.
+capacity among the admitted startup cohort. A late member can serve windows within its own agreed limits. Each member uses its own existing limits and checks upon reconnect.
 
 ## 3. Constructing the request
 

@@ -184,11 +184,6 @@ async fn composer_proving_from_env(
         "only {} capable registered provers, {threshold} required",
         capable.len()
     );
-    // Unknown member ceilings cannot be used to plan catch-up. A single Sync
-    // interval lets any recovering member admitted under the minimum participate.
-    if config.explicit && capable.len() < provers.len() {
-        maximum_blocks = minimum_blocks;
-    }
     drop(handshakes);
     let primary = Arc::new(provers[0].1.clone());
     // Previously absent members can prove from durable witnesses after fresh
