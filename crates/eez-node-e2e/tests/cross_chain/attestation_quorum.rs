@@ -1,6 +1,4 @@
 use super::*;
-use alloy_network::TransactionBuilder;
-use alloy_rpc_types_eth::TransactionRequest;
 use eez_testkit::{
     ANVIL_KEY_1, ANVIL_KEY_6, TestQuorumConfig, assert_quorum_batch_signatures,
     setup_cross_chain_quorum,
@@ -13,25 +11,39 @@ async fn exercise(config: TestQuorumConfig) {
     let quorum = world.network.quorum.as_ref().unwrap();
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let from_block = l1.get_block_number().await.unwrap() + 1;
-    let front = ProviderBuilder::new().connect_http(world.l2_xchain().parse().unwrap());
-    let estimate = front
-        .estimate_gas(
-            TransactionRequest::default()
-                .with_from(signer_address(OUTBOUND_USER).unwrap())
-                .with_to(world.outbound_proxy)
-                .with_input(IValue::setValueCall { v: U256::from(43) }.abi_encode()),
-        )
-        .await
-        .unwrap();
-    assert!(
-        estimate > 21_000,
-        "native wallet estimation must include cross-chain execution"
-    );
     let input = serde_json::json!({
         "from": signer_address(OUTBOUND_USER).unwrap(), "to": world.outbound_proxy,
         "value": "0x0", "data": Bytes::from(IValue::setValueCall { v: U256::from(43) }.abi_encode()),
     });
     let client = reqwest::Client::new();
+    let estimate = wait_for(SETTLE_TIMEOUT, || async {
+        let response = crate::fee_quotes::quote_rpc(
+            &client,
+            &world.l2_xchain(),
+            "eth_estimateGas",
+            serde_json::json!([input]),
+        )
+        .await?;
+        let error = &response["error"]["data"];
+        if error["retryable"] == true
+            && matches!(
+                error["code"].as_str(),
+                Some("settlement_reconciliation_pending" | "estimation_context_changed")
+            )
+        {
+            return Ok(None);
+        }
+        let hex = response["result"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("quorum wallet estimate failed: {response}"))?;
+        Ok(Some(u64::from_str_radix(hex.trim_start_matches("0x"), 16)?))
+    })
+    .await
+    .unwrap();
+    assert!(
+        estimate > 21_000,
+        "native wallet estimation must include cross-chain execution"
+    );
     let quote = wait_for(SETTLE_TIMEOUT, || async {
         let response = crate::fee_quotes::quote_rpc(
             &client,
