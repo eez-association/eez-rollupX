@@ -45,7 +45,7 @@ tooling suite:
 git submodule update --init --recursive eez-core-protocol
 ```
 
-Use Rust 1.95.0, Foundry 1.7.1, and the native dependencies documented in
+Use Rust 1.96.0, Foundry 1.7.1, and the native dependencies documented in
 [AGENTS.md](AGENTS.md#build-and-validate). Keep Cargo dependencies locked.
 The Python configuration tests use Docker Compose 5.5.1, also pinned in CI;
 they render configuration without a Docker daemon.

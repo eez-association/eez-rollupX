@@ -1017,3 +1017,280 @@ async fn wire_replayer_rejects_oversized_diagnostic_before_comparing_transcript(
     );
     assert!(status.message().contains("the limit is: 65536 bytes"));
 }
+
+// Legacy capture may include an empty-code item. It is still charged and is
+// part of the retained witness identity, even when replay commitments agree.
+#[tokio::test]
+async fn empty_code_counts_toward_session_quota_and_retry_remains_byte_exact() {
+    let (vector, fixture) = vector_service("sync-range-proof");
+    let frames: Vec<ClientFrame> = vector["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["direction"] == "client")
+        .map(|event| {
+            ClientFrame::decode(
+                hex::decode(event["protobuf_hex"].as_str().unwrap())
+                    .unwrap()
+                    .as_slice(),
+            )
+            .unwrap()
+        })
+        .collect();
+    let begin = frames
+        .iter()
+        .find(|frame| matches!(frame.kind, Some(client_frame::Kind::Begin(_))))
+        .unwrap()
+        .clone();
+    let blocks: Vec<_> = frames
+        .iter()
+        .filter_map(|frame| match &frame.kind {
+            Some(client_frame::Kind::Block(block)) => Some(block.clone()),
+            _ => None,
+        })
+        .take(2)
+        .collect();
+    assert_eq!(
+        blocks.len(),
+        2,
+        "fixture must provide two consecutive real witnesses"
+    );
+    assert_eq!(
+        blocks[1].data.as_ref().unwrap().number,
+        blocks[0].data.as_ref().unwrap().number + 1
+    );
+    let items: usize = blocks
+        .iter()
+        .map(|block| {
+            wire_witness_item_count(block.data.as_ref().unwrap().witness.as_ref().unwrap())
+        })
+        .sum();
+    let mut limits = fixture.limits;
+    limits.window_limits.witness_items = items;
+    let service = ProveSvc::new(Arc::clone(&fixture.state), limits);
+    let mut bound = None;
+    service
+        .sessions
+        .handle_frame(&mut bound, begin)
+        .await
+        .unwrap();
+    let binding = bound.unwrap();
+    let accepted = service
+        .sessions
+        .validate_block(binding, blocks[0].clone(), blocks[0].encoded_len())
+        .await
+        .unwrap();
+    assert!(!accepted.reused);
+    let retained = service.sessions.session(binding.id).await.unwrap();
+    let tip = retained.lock().await.tip();
+
+    let mut changed_retry = blocks[0].clone();
+    changed_retry
+        .data
+        .as_mut()
+        .unwrap()
+        .witness
+        .as_mut()
+        .unwrap()
+        .codes
+        .push(vec![]);
+    let error = service
+        .sessions
+        .validate_block(binding, changed_retry.clone(), changed_retry.encoded_len())
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+    assert_eq!(
+        error.message(),
+        "duplicate witness differs from checked execution"
+    );
+    assert_eq!(retained.lock().await.tip(), tip);
+    assert!(
+        service
+            .sessions
+            .validate_block(binding, blocks[0].clone(), blocks[0].encoded_len())
+            .await
+            .unwrap()
+            .reused
+    );
+
+    let mut over_quota = blocks[1].clone();
+    over_quota
+        .data
+        .as_mut()
+        .unwrap()
+        .witness
+        .as_mut()
+        .unwrap()
+        .codes
+        .push(vec![]);
+    let error = service
+        .sessions
+        .validate_block(binding, over_quota.clone(), over_quota.encoded_len())
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::ResourceExhausted);
+    assert_eq!(error.message(), "session witness quota exceeded");
+    assert_eq!(retained.lock().await.tip(), tip);
+    assert!(
+        !service
+            .sessions
+            .validate_block(binding, blocks[1].clone(), blocks[1].encoded_len())
+            .await
+            .unwrap()
+            .reused
+    );
+    assert_eq!(retained.lock().await.blocks.len(), 2);
+    assert_eq!(service.state.attester.signing_calls(), 0);
+    service.wait_until_idle().await;
+}
+
+// New producer representation is valid on a fresh session, but never rewrites
+// the byte identity or resource accounting of an already accepted old frame.
+#[tokio::test]
+async fn stable_witness_bytes_preserve_quota_edges_and_exact_retry_identity() {
+    let (vector, fixture) = vector_service("sync-range-proof");
+    let frames: Vec<ClientFrame> = vector["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["direction"] == "client")
+        .map(|event| {
+            ClientFrame::decode(
+                hex::decode(event["protobuf_hex"].as_str().unwrap())
+                    .unwrap()
+                    .as_slice(),
+            )
+            .unwrap()
+        })
+        .collect();
+    let begin = frames
+        .iter()
+        .find(|f| matches!(f.kind, Some(client_frame::Kind::Begin(_))))
+        .unwrap()
+        .clone();
+    let original = frames
+        .iter()
+        .find(|f| matches!(f.kind, Some(client_frame::Kind::Block(_))))
+        .unwrap()
+        .clone();
+    let mut execution = None;
+    for stable in [false, true] {
+        let mut block_frame = original.clone();
+        block_frame.session_id = vec![1; 32];
+        block_frame.epoch = 1;
+        block_frame.request_id = 2;
+        let Some(client_frame::Kind::Block(block)) = block_frame.kind.as_mut() else {
+            unreachable!()
+        };
+        let witness = block.data.as_mut().unwrap().witness.as_mut().unwrap();
+        // The pre-change evm2 producer always includes this cache sentinel,
+        // even when the independently captured REVM fixture does not.
+        if !witness.codes.iter().any(Vec::is_empty) {
+            witness.codes.push(vec![]);
+        }
+        if stable {
+            witness.codes.retain(|code| !code.is_empty());
+            witness.state.sort_unstable();
+            witness.codes.sort_unstable();
+            witness.keys.sort_unstable();
+        }
+        let exact_bytes = begin.encoded_len() + block_frame.encoded_len();
+        for below in [true, false] {
+            let mut limits = fixture.limits;
+            limits.window_limits.payload_bytes = exact_bytes - usize::from(below);
+            let service = ProveSvc::new(Arc::clone(&fixture.state), limits);
+            let mut bound = None;
+            service
+                .sessions
+                .handle_frame(&mut bound, begin.clone())
+                .await
+                .unwrap();
+            let binding = bound.unwrap();
+            let mut submitted = block_frame.clone();
+            submitted.session_id = binding.id.to_vec();
+            submitted.epoch = binding.epoch;
+            assert_eq!(submitted.encoded_len(), block_frame.encoded_len());
+            let retained = service.sessions.session(binding.id).await.unwrap();
+            let anchor = retained.lock().await.tip();
+            if !below {
+                let mut extra = submitted.clone();
+                let Some(client_frame::Kind::Block(block)) = extra.kind.as_mut() else {
+                    unreachable!()
+                };
+                let witness = block.data.as_mut().unwrap().witness.as_mut().unwrap();
+                let witness_bytes = witness.encoded_len();
+                witness.codes.push(vec![]);
+                assert_eq!(witness.encoded_len(), witness_bytes + 2);
+                assert!(extra.encoded_len() >= submitted.encoded_len() + 2);
+                let (_, error) = service
+                    .sessions
+                    .handle_frame(&mut bound, extra)
+                    .await
+                    .unwrap_err();
+                assert_eq!(error.code(), tonic::Code::ResourceExhausted);
+                assert_eq!(error.message(), "session payload quota exceeded");
+                assert_eq!(retained.lock().await.tip(), anchor);
+            }
+            let result = service
+                .sessions
+                .handle_frame(&mut bound, submitted.clone())
+                .await;
+            if below {
+                let (_, error) = result.unwrap_err();
+                assert_eq!(error.code(), tonic::Code::ResourceExhausted);
+                assert_eq!(error.message(), "session payload quota exceeded");
+                assert_eq!(retained.lock().await.tip(), anchor);
+                assert!(retained.lock().await.blocks.is_empty());
+            } else {
+                let (response, _) = result.unwrap();
+                let Some(server_frame::Kind::Validated(accepted)) = response.kind else {
+                    panic!("not validated")
+                };
+                assert!(!accepted.reused);
+                let identity = (accepted.hash.clone(), accepted.post_state_root.clone());
+                if let Some(previous) = &execution {
+                    assert_eq!(&identity, previous);
+                } else {
+                    execution = Some(identity);
+                }
+                let tip = retained.lock().await.tip();
+                for add_empty in [false, true] {
+                    let mut changed = submitted.clone();
+                    let Some(client_frame::Kind::Block(block)) = changed.kind.as_mut() else {
+                        unreachable!()
+                    };
+                    let witness = block.data.as_mut().unwrap().witness.as_mut().unwrap();
+                    if add_empty {
+                        witness.codes.push(vec![]);
+                    } else {
+                        witness.state.reverse();
+                    }
+                    assert_ne!(changed, submitted, "mutation must change witness bytes");
+                    let (_, error) = service
+                        .sessions
+                        .handle_frame(&mut bound, changed)
+                        .await
+                        .unwrap_err();
+                    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+                    assert_eq!(
+                        error.message(),
+                        "duplicate witness differs from checked execution"
+                    );
+                    assert_eq!(retained.lock().await.tip(), tip);
+                }
+                let (response, _) = service
+                    .sessions
+                    .handle_frame(&mut bound, submitted)
+                    .await
+                    .unwrap();
+                assert!(
+                    matches!(response.kind, Some(server_frame::Kind::Validated(v)) if v.reused)
+                );
+                assert_eq!(retained.lock().await.blocks.len(), 1);
+            }
+            assert_eq!(service.state.attester.signing_calls(), 0);
+            service.wait_until_idle().await;
+        }
+    }
+}

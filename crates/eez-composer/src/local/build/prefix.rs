@@ -1,18 +1,18 @@
 //! Candidate-local canonical prefix construction. Finalizing a block applies
 //! post-execution changes, so only the state *before* `finish` is reusable.
-use super::*;
+use super::{
+    Address, B256, BlockBuilder, BuildError, Bytes, ConfigureEvm, EezEvmConfig,
+    EvmStateProviderAdapter, Header, Recovered, SealedHeader, StateProviderDatabase,
+    TransactionSigned, next_block_attributes, recover_tx,
+};
 use crate::local::provider::StateSnapshotProvider;
-use eez_primitives::{EezPrimitives, Receipt};
-use reth_evm::execute::BasicBlockBuilder;
+use eez_primitives::EezPrimitives;
+use reth_evm::{BlockExecutorFactory, execute::BasicBlockBuilder};
 
 struct Checkpoint {
-    state: DraftDb,
+    cache: evm2::evm::Cache,
+    execution: eez_evm::block::EezBlockCheckpoint,
     transactions: Vec<Recovered<TransactionSigned>>,
-    receipts: Vec<Receipt>,
-    cumulative_tx_gas_used: u64,
-    block_regular_gas_used: u64,
-    block_state_gas_used: u64,
-    blob_gas_used: u64,
 }
 
 /// Reuses execution only inside one candidate's immutable block environment.
@@ -38,7 +38,11 @@ impl<'a> SyncPrefixHashes<'a> {
     #[cfg(test)]
     pub(super) fn assert_state_matches_rebuild(&self) {
         let saved = self.checkpoint.as_ref().expect("checkpoint exists");
-        let mut db = open_draft_db(self.provider, self.parent.hash(), None).unwrap();
+        let state = self
+            .provider
+            .state_by_block_hash(self.parent.hash())
+            .unwrap();
+        let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state));
         let attributes = next_block_attributes(
             self.config,
             self.timestamp,
@@ -55,26 +59,9 @@ impl<'a> SyncPrefixHashes<'a> {
                 .execute_transaction(recover_tx(raw, idx).unwrap())
                 .unwrap();
         }
-        assert_eq!(saved.receipts, builder.executor().receipts);
-        assert_eq!(
-            saved.cumulative_tx_gas_used,
-            builder.executor().cumulative_tx_gas_used
-        );
-        assert_eq!(
-            saved.block_regular_gas_used,
-            builder.executor().block_regular_gas_used
-        );
-        assert_eq!(
-            saved.block_state_gas_used,
-            builder.executor().block_state_gas_used
-        );
-        assert_eq!(saved.blob_gas_used, builder.executor().blob_gas_used);
-        let state = builder.evm_mut().db_mut();
-        assert_eq!(saved.state.cache, state.cache);
-        assert_eq!(saved.state.transition_state, state.transition_state);
-        assert_eq!(saved.state.bundle_state, state.bundle_state);
-        assert_eq!(saved.state.block_hashes, state.block_hashes);
-        assert_eq!(saved.state.bal_state, state.bal_state);
+        let rebuilt = builder.executor().execution_checkpoint().unwrap();
+        assert_eq!(saved.execution, rebuilt);
+        assert_eq!(saved.cache, builder.evm_mut().overlay_db_mut().cache);
     }
 
     pub(crate) fn new(
@@ -149,23 +136,11 @@ impl<'a> SyncPrefixHashes<'a> {
         }
 
         let checkpoint = self.checkpoint.take();
-        let mut db = open_draft_db(self.provider, self.parent.hash(), None)?;
-        let (prior_transactions, prior_execution) = match checkpoint {
-            Some(saved) => {
-                db = saved.state;
-                (
-                    saved.transactions,
-                    Some((
-                        saved.receipts,
-                        saved.cumulative_tx_gas_used,
-                        saved.block_regular_gas_used,
-                        saved.block_state_gas_used,
-                        saved.blob_gas_used,
-                    )),
-                )
-            }
-            None => (Vec::new(), None),
-        };
+        let state = self
+            .provider
+            .state_by_block_hash(self.parent.hash())
+            .map_err(|e| BuildError::Provider(format!("prefix state provider: {e}")))?;
+        let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state));
         let attributes = next_block_attributes(
             self.config,
             self.timestamp,
@@ -180,7 +155,7 @@ impl<'a> SyncPrefixHashes<'a> {
             .config
             .context_for_next_block(self.parent, attributes)
             .map_err(|e| BuildError::Builder(format!("prefix context: {e}")))?;
-        let evm = self.config.evm_with_env(&mut db, env);
+        let evm = self.config.evm_with_env(&mut db, env.clone());
         let mut builder: BasicBlockBuilder<
             '_,
             <EezEvmConfig as ConfigureEvm>::BlockExecutorFactory,
@@ -188,18 +163,23 @@ impl<'a> SyncPrefixHashes<'a> {
             _,
             EezPrimitives,
         > = BasicBlockBuilder {
-            executor: self.config.create_executor(evm, ctx.clone()),
+            executor: self
+                .config
+                .block_executor_factory()
+                .create_executor(evm, ctx.clone()),
             ctx,
+            evm_env: env,
             assembler: self.config.block_assembler(),
             parent: self.parent,
-            transactions: prior_transactions,
+            transactions: Vec::new(),
         };
-        if let Some((receipts, cumulative, regular, state, blob)) = prior_execution {
-            builder.executor.receipts = receipts;
-            builder.executor.cumulative_tx_gas_used = cumulative;
-            builder.executor.block_regular_gas_used = regular;
-            builder.executor.block_state_gas_used = state;
-            builder.executor.blob_gas_used = blob;
+        if let Some(saved) = checkpoint {
+            builder.evm_mut().overlay_db_mut().cache = saved.cache;
+            builder
+                .executor
+                .restore_execution_checkpoint(saved.execution)
+                .map_err(|e| BuildError::Builder(e.to_string()))?;
+            builder.transactions = saved.transactions;
         } else {
             builder
                 .apply_pre_execution_changes()
@@ -219,22 +199,19 @@ impl<'a> SyncPrefixHashes<'a> {
             self.executed_transactions += 1;
         }
 
-        // Keep every REVM state component, including transition history and
-        // block-access tracking. Finalization mutates only the original db;
-        // the saved copy remains at the next transaction's pre-state.
-        let state = copy_state(
-            builder.evm_mut().db_mut(),
-            self.provider,
-            self.parent.hash(),
-        )?;
+        builder
+            .executor
+            .validate_prefix()
+            .map_err(|e| BuildError::Builder(e.to_string()))?;
+        // The copy precedes terminal cleanup. This path installs neither state hooks
+        // nor inspectors, and Osaka has no block-access-list builder to retain.
         let next = Checkpoint {
-            state,
+            cache: copy_execution_cache(builder.evm_mut())?,
+            execution: builder
+                .executor
+                .execution_checkpoint()
+                .map_err(|e| BuildError::Builder(e.to_string()))?,
             transactions: builder.transactions.clone(),
-            receipts: builder.executor.receipts.clone(),
-            cumulative_tx_gas_used: builder.executor.cumulative_tx_gas_used,
-            block_regular_gas_used: builder.executor.block_regular_gas_used,
-            block_state_gas_used: builder.executor.block_state_gas_used,
-            blob_gas_used: builder.executor.blob_gas_used,
         };
         let provider = self
             .provider
@@ -251,62 +228,34 @@ impl<'a> SyncPrefixHashes<'a> {
     }
 }
 
-fn copy_state(
-    state: &DraftDb,
-    provider: &dyn StateSnapshotProvider,
-    parent: B256,
-) -> Result<DraftDb, BuildError> {
-    // Exhaustive destructuring makes newly added REVM state fields require an
-    // explicit decision here when the pinned dependency is upgraded.
-    let State {
-        cache,
-        database: _,
-        transition_state,
-        bundle_state,
-        use_preloaded_bundle,
-        block_hashes,
-        bal_state,
-        state_hook,
-    } = state;
-    // open_draft_db and this execution path install no hooks. A hook owns
-    // non-cloneable observer state; silently dropping it would make reuse
-    // differ from an independent rebuild if that invariant ever changes.
-    if state_hook.is_some() {
+fn copy_execution_cache(evm: &mut eez_evm::EezEvm<'_>) -> Result<evm2::evm::Cache, BuildError> {
+    if evm.state().bal_builder().is_some() || evm.inspector().is_some() {
         return Err(BuildError::Builder(
-            "prefix checkpoint cannot copy a state hook".into(),
+            "prefix checkpoint cannot copy execution observers".into(),
         ));
     }
-    let database = provider
-        .state_by_block_hash(parent)
-        .map_err(|e| BuildError::Provider(format!("prefix snapshot provider: {e}")))?;
-    Ok(State {
-        cache: cache.clone(),
-        database: StateProviderDatabase::new(EvmStateProviderAdapter(database)),
-        transition_state: transition_state.clone(),
-        bundle_state: bundle_state.clone(),
-        use_preloaded_bundle: *use_preloaded_bundle,
-        block_hashes: block_hashes.clone(),
-        bal_state: bal_state.clone(),
-        state_hook: None,
-    })
+    Ok(evm.overlay_db_mut().cache.clone())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use reth_provider::test_utils::MockEthProvider;
+    use evm2::evm::inspector::NoopInspector;
 
     #[test]
-    fn prefix_checkpoint_rejects_non_cloneable_state_hook() {
-        let provider: MockEthProvider = MockEthProvider::new();
-        let mut state = open_draft_db(&provider, B256::ZERO, None).unwrap();
-        assert!(copy_state(&state, &provider, B256::ZERO).is_ok());
-        state.set_state_hook(Some(Box::new(|_| {})));
-        assert!(matches!(
-            copy_state(&state, &provider, B256::ZERO),
-            Err(BuildError::Builder(message))
-                if message == "prefix checkpoint cannot copy a state hook"
-        ));
-        assert!(state.state_hook.is_some());
+    fn prefix_checkpoint_rejects_execution_observers() {
+        let config = EezEvmConfig::for_l1_simulation(reth_chainspec::MAINNET.clone());
+        let env = reth_evm_ethereum::EthEvmEnv::new(evm2::SpecId::OSAKA, Default::default(), 1);
+        let mut evm = config.evm_with_env(evm2::evm::EmptyDB::default(), env);
+        assert!(copy_execution_cache(&mut evm).is_ok());
+        evm.set_inspector(NoopInspector::default());
+        assert!(
+            matches!(copy_execution_cache(&mut evm), Err(BuildError::Builder(message))
+            if message == "prefix checkpoint cannot copy execution observers")
+        );
+        assert!(evm.clear_inspector().is_some());
+        evm.state_mut().enable_bal_builder();
+        assert!(copy_execution_cache(&mut evm).is_err());
+        assert!(evm.state().bal_builder().is_some());
     }
 }

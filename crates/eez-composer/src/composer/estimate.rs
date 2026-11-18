@@ -6,16 +6,20 @@ use crate::{
     local::{InboundL2TargetSession, L1SlotState, L1TargetSession, LocalChainClient},
 };
 use alloy_consensus::Header;
+use alloy_consensus::{Transaction, Typed2718, transaction::Recovered};
+use alloy_consensus::{TxEip1559, TxEip2930, TxLegacy};
 use alloy_primitives::{Address, B256, Bytes, U256};
 use alloy_rpc_types_eth::TransactionRequest;
 use eez_protocol::{Composition, CompositionBuilder, RollupId, composition::Rollup};
-use reth_evm::{ConfigureEvm, Evm, EvmEnv, NextBlockEnvAttributes, rpc::TryIntoTxEnv};
-use reth_primitives_traits::SealedHeader;
-use reth_storage_api::StateProvider;
-use revm::{
-    Database, DatabaseCommit,
-    context::{Cfg as _, TxEnv},
+use evm2::{
+    EvmFeatures,
+    ethereum::{RecoveredTxEnvelope, TxEnvelope},
+    evm::{Database, Db},
 };
+use reth_evm::{ConfigureEvm, EvmEnvFor, NextBlockEnvAttributes};
+use reth_primitives_traits::SealedHeader;
+use reth_rpc_convert::TryIntoTxEnv;
+use reth_storage_api::StateProvider;
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
 mod budget;
@@ -61,6 +65,69 @@ fn unsupported(e: impl std::fmt::Display) -> EstimateError {
     EstimateError::Unsupported(e.to_string())
 }
 
+// Preserve the estimator's explicit type override after RPC fee normalization.
+// Legacy ignores access lists; an omitted type-2 priority fee means flat pricing.
+fn source_transaction(
+    request: TransactionRequest,
+    env: &EvmEnvFor<eez_evm::EezEvmConfig>,
+) -> Result<RecoveredTxEnvelope, EstimateError> {
+    let explicit = request.transaction_type;
+    let tx: RecoveredTxEnvelope = request
+        .try_into_tx_env(env)
+        .map_err(|error| EstimateError::Invalid(error.to_string()))?;
+    let Some(kind) = explicit.filter(|kind| *kind != tx.ty()) else {
+        return Ok(tx);
+    };
+    let sender = tx.signer();
+    let chain_id = tx.chain_id().unwrap_or(env.version.chain_id);
+    let native = match kind {
+        0 => TxEnvelope::Legacy(TxLegacy {
+            chain_id: Some(chain_id),
+            nonce: tx.nonce(),
+            gas_price: tx.max_fee_per_gas(),
+            gas_limit: tx.gas_limit(),
+            to: tx.kind(),
+            value: tx.value(),
+            input: tx.input().clone(),
+        }),
+        1 => TxEnvelope::Eip2930(TxEip2930 {
+            chain_id,
+            nonce: tx.nonce(),
+            gas_price: tx.max_fee_per_gas(),
+            gas_limit: tx.gas_limit(),
+            to: tx.kind(),
+            value: tx.value(),
+            input: tx.input().clone(),
+            access_list: tx.access_list().cloned().unwrap_or_default(),
+        }),
+        2 => TxEnvelope::Eip1559(TxEip1559 {
+            chain_id,
+            nonce: tx.nonce(),
+            max_fee_per_gas: tx.max_fee_per_gas(),
+            max_priority_fee_per_gas: tx
+                .max_priority_fee_per_gas()
+                .unwrap_or(tx.max_fee_per_gas()),
+            gas_limit: tx.gas_limit(),
+            to: tx.kind(),
+            value: tx.value(),
+            input: tx.input().clone(),
+            access_list: tx.access_list().cloned().unwrap_or_default(),
+        }),
+        _ => return Err(unsupported("unsupported source transaction type")),
+    };
+    Ok(Recovered::new_unchecked(native, sender))
+}
+
+fn set_source_gas_limit(tx: &mut RecoveredTxEnvelope, gas_limit: u64) -> Result<(), EstimateError> {
+    match tx.inner_mut() {
+        TxEnvelope::Legacy(tx) => tx.gas_limit = gas_limit,
+        TxEnvelope::Eip2930(tx) => tx.gas_limit = gas_limit,
+        TxEnvelope::Eip1559(tx) => tx.gas_limit = gas_limit,
+        _ => return Err(unsupported("unsupported source transaction type")),
+    }
+    Ok(())
+}
+
 /// Immutable dependencies only. Each probe creates independent execution and
 /// overlay sessions; sharing this handle does not share speculative state.
 #[derive(Clone, Debug)]
@@ -79,7 +146,7 @@ pub struct GasEstimator {
 
 pub(super) struct Snapshot {
     l1: L1SlotState,
-    l1_env: EvmEnv,
+    l1_env: EvmEnvFor<eez_evm::EezEvmConfig>,
     l1_attributes: NextBlockEnvAttributes,
     pub(super) l2_parent: SealedHeader<Header>,
     pub(super) l2_timestamp: u64,
@@ -104,7 +171,7 @@ pub(super) struct Probe {
     post_funding: Option<crate::PosterBalanceError>,
     output: Bytes,
     actions: Vec<eez_protocol::ExecutedAction>,
-    retained_l1: Option<revm::database::CacheState>,
+    retained_l1: Option<eez_evm_inspector::OverlaySnapshot>,
     retained_l2: Vec<Bytes>,
     retained_root: Option<B256>,
 }
@@ -151,11 +218,12 @@ impl GasEstimator {
         direction: Direction,
         snapshot: &Snapshot,
         address: Address,
-    ) -> Result<revm::state::AccountInfo, EstimateError> {
+    ) -> Result<evm2::evm::AccountInfo, EstimateError> {
         if direction == Direction::Inbound {
             let (mut state, _) = snapshot.l1.fork_state(&self.l1).map_err(unavailable)?;
             state
-                .basic(address)
+                .db
+                .get_account(&address)
                 .map(Option::unwrap_or_default)
                 .map_err(unavailable)
         } else {
@@ -163,7 +231,8 @@ impl GasEstimator {
             let mut fork = draft.fork().map_err(unavailable)?;
             fork.state_and_env()
                 .0
-                .basic(address)
+                .db
+                .get_account(&address)
                 .map(Option::unwrap_or_default)
                 .map_err(unavailable)
         }
@@ -176,7 +245,7 @@ impl GasEstimator {
     pub(super) fn advance_inbound(
         &self,
         snapshot: &mut Snapshot,
-        tx: TxEnv,
+        tx: RecoveredTxEnvelope,
         deadline: Instant,
         pricing: InboundPricing<'_>,
     ) -> Result<(), EstimateError> {
@@ -255,10 +324,10 @@ impl GasEstimator {
         } else {
             draft.evm_env().clone()
         };
-        env.cfg_env.disable_base_fee = true;
+        env.version.features.remove(EvmFeatures::BASE_FEE_CHECK);
         if request
             .chain_id
-            .is_some_and(|id| id != env.cfg_env.chain_id)
+            .is_some_and(|id| id != env.version.chain_id)
         {
             return Err(EstimateError::Invalid(
                 "chainId differs from the source chain".into(),
@@ -273,7 +342,8 @@ impl GasEstimator {
             let mut fork = draft.fork().map_err(unavailable)?;
             fork.state_and_env()
                 .0
-                .basic(caller)
+                .db
+                .get_account(&caller)
                 .map_err(unavailable)?
                 .unwrap_or_default()
         };
@@ -283,28 +353,30 @@ impl GasEstimator {
                 "nonce must match replayed source state ({nonce})"
             )));
         }
-        let mut tx: TxEnv = request
-            .clone()
-            .try_into_tx_env(&env)
-            .map_err(|e| EstimateError::Invalid(format!("{e}")))?;
-        tx.nonce = nonce;
-        tx.tx_type = request.transaction_type.unwrap_or(tx.tx_type);
-        let cap = env.cfg_env.tx_gas_limit_cap().min(env.block_env.gas_limit);
-        tx.gas_limit = tx.gas_limit.min(cap);
+        let mut request = request.clone();
+        request.nonce = Some(nonce);
+        let mut tx = source_transaction(request, &env)?;
+        let cap = env
+            .version
+            .tx_gas_limit_cap
+            .min(env.block.gas_limit.saturating_to::<u64>());
+        let limit = tx.gas_limit().min(cap);
+        set_source_gas_limit(&mut tx, limit)?;
         let balance = account.balance;
         let available = balance
-            .checked_sub(tx.value)
+            .checked_sub(tx.value())
             .ok_or(EstimateError::InsufficientFunds(
                 crate::SourceBalanceError {
                     available: balance,
-                    required: tx.value,
-                    chain_id: env.cfg_env.chain_id,
+                    required: tx.value(),
+                    chain_id: env.version.chain_id,
                 },
             ))?;
-        if tx.gas_price != 0 {
-            tx.gas_limit = tx
-                .gas_limit
-                .min((available / U256::from(tx.gas_price)).saturating_to());
+        if tx.max_fee_per_gas() != 0 {
+            let limit = tx
+                .gas_limit()
+                .min((available / U256::from(tx.max_fee_per_gas())).saturating_to());
+            set_source_gas_limit(&mut tx, limit)?;
         }
         let first = self.probe(direction, snapshot, tx.clone(), deadline, &mut draft)?;
         // Native setup consumes block capacity. Its measured remainder can
@@ -324,10 +396,10 @@ impl GasEstimator {
             })
             .div_ceil(100)
             .min(ceiling);
-        let selected = if candidate == ceiling && tx.gas_limit == ceiling {
+        let selected = if candidate == ceiling && tx.gas_limit() == ceiling {
             ceiling
         } else {
-            tx.gas_limit = candidate;
+            set_source_gas_limit(&mut tx, candidate)?;
             match self.probe(direction, snapshot, tx.clone(), deadline, &mut draft) {
                 Ok(ref lower)
                     if lower.limit == candidate
@@ -337,7 +409,7 @@ impl GasEstimator {
                     candidate
                 }
                 Ok(_) | Err(EstimateError::Revert(_) | EstimateError::Effects(_)) => {
-                    tx.gas_limit = ceiling;
+                    set_source_gas_limit(&mut tx, ceiling)?;
                     let repeated = self.probe(direction, snapshot, tx, deadline, &mut draft)?;
                     if repeated.limit != ceiling
                         || !same_actions(&first.actions, &repeated.actions)
@@ -406,11 +478,11 @@ impl GasEstimator {
             .provider
             .state_by_block_hash(parent.hash())
             .map_err(unavailable)?;
-        let mut db = reth_revm::database::StateProviderDatabase::new(
+        let mut db = reth_evm::database::StateProviderDatabase::new(
             reth_storage_api::EvmStateProviderAdapter(provider),
         );
         let (plan, tx) = config
-            .prepare_history(&mut db, parent, timestamp)
+            .prepare_history(&mut Db::new(&mut db), parent, timestamp)
             .map_err(unavailable)?;
         Ok((
             timestamp,
@@ -492,10 +564,17 @@ impl GasEstimator {
             slot_number: None,
         };
         let env = if let Some(config) = &l1_provider.gnosis_evm_config {
-            config.next_evm_env(&parent.header().clone().into(), &attributes)
+            config
+                .next_evm_env(&parent.header().clone().into(), &attributes)
+                .map(|env| {
+                    reth_evm_ethereum::EthEvmEnv::new_with_version(env.spec, env.block, env.version)
+                })
         } else {
             reth_evm_ethereum::EthEvmConfig::new(l1_provider.evm_config.chain_spec().clone())
                 .next_evm_env(&parent, &attributes)
+                .map(|env| {
+                    reth_evm_ethereum::EthEvmEnv::new_with_version(env.spec, env.block, env.version)
+                })
         }
         .map_err(unavailable)?;
         let l2_provider = self.l2.chain_provider();
@@ -570,7 +649,7 @@ impl GasEstimator {
         &self,
         direction: Direction,
         s: &Snapshot,
-        tx: TxEnv,
+        tx: RecoveredTxEnvelope,
         deadline: Instant,
         draft: &mut SyncBlockState,
     ) -> Result<Probe, EstimateError> {
@@ -580,11 +659,11 @@ impl GasEstimator {
     pub(super) fn priced_inbound(
         &self,
         s: &Snapshot,
-        tx: TxEnv,
+        tx: RecoveredTxEnvelope,
         deadline: Instant,
         pricing: InboundPricing<'_>,
     ) -> Result<Probe, EstimateError> {
-        let limit = tx.gas_limit;
+        let limit = tx.gas_limit();
         if Instant::now() >= deadline {
             return Err(EstimateError::Timeout);
         }
@@ -607,7 +686,7 @@ impl GasEstimator {
         &self,
         direction: Direction,
         s: &Snapshot,
-        tx: TxEnv,
+        tx: RecoveredTxEnvelope,
         deadline: Instant,
         pricing: Option<InboundPricing<'_>>,
         draft: &mut SyncBlockState,
@@ -669,10 +748,19 @@ impl GasEstimator {
                 ]));
             let (mut state, _) = s.l1.fork_state(&l1).map_err(unavailable)?;
             let mut source_env = s.l1_env.clone();
-            source_env.cfg_env.disable_base_fee = true;
-            let chain_id = source_env.cfg_env.chain_id;
+            source_env
+                .version
+                .features
+                .remove(EvmFeatures::BASE_FEE_CHECK);
+            let chain_id = source_env.version.chain_id;
             let source = l1
-                .simulate_source_env_on(tx.clone(), &mut builder, &mut state, source_env, true)
+                .simulate_source_env_on(
+                    tx.clone().map(eez_evm::EezEvmTx::Ethereum),
+                    &mut builder,
+                    &mut state,
+                    source_env,
+                    true,
+                )
                 .map_err(|error| source_error(chain_id, error))?;
             (RollupId::MAINNET, builder, source)
         } else {
@@ -684,10 +772,19 @@ impl GasEstimator {
             let mut fork = draft.fork().map_err(unavailable)?;
             let (state, env) = fork.state_and_env();
             let mut source_env = env.clone();
-            source_env.cfg_env.disable_base_fee = true;
-            let chain_id = source_env.cfg_env.chain_id;
+            source_env
+                .version
+                .features
+                .remove(EvmFeatures::BASE_FEE_CHECK);
+            let chain_id = source_env.version.chain_id;
             let source = l2
-                .simulate_source_env_on(tx.clone(), &mut builder, state, source_env, true)
+                .simulate_source_env_on(
+                    tx.clone().map(eez_evm::EezEvmTx::Ethereum),
+                    &mut builder,
+                    state,
+                    source_env,
+                    true,
+                )
                 .map_err(|error| source_error(chain_id, error))?;
             (RollupId(self.rollup_id), builder, source)
         };
@@ -700,11 +797,14 @@ impl GasEstimator {
         if builder.recorded_count() == 0 {
             if direction == Direction::Outbound {
                 let mut fork = draft.fork().map_err(unavailable)?;
-                let limit = tx.gas_limit.min(fork.remaining_gas());
+                let limit = tx.gas_limit().min(fork.remaining_gas());
                 let mut tx = tx;
-                tx.gas_limit = limit;
+                set_source_gas_limit(&mut tx, limit)?;
                 let user = fork
-                    .execute_unsigned(tx, revm::inspector::NoOpInspector)
+                    .execute_unsigned(
+                        tx.map(eez_evm::EezEvmTx::Ethereum),
+                        evm2::evm::inspector::NoopInspector::default(),
+                    )
                     .map_err(unavailable)?;
                 if !user.success {
                     return Err(EstimateError::Revert(user.output));
@@ -850,44 +950,41 @@ impl GasEstimator {
     }
 }
 
-fn execute_user<E: Evm<Tx = TxEnv, HaltReason = revm::context_interface::result::HaltReason>>(
-    mut evm: E,
-    tx: TxEnv,
+fn execute_user<T: evm2::EvmTypes>(
+    mut evm: evm2::Evm<'_, T>,
+    tx: &Recovered<T::Tx>,
     funding: Option<&crate::PosterBalanceError>,
-) -> Result<TxOutcome, EstimateError>
+) -> Result<(TxOutcome, evm2::PendingState), EstimateError>
 where
-    E::DB: DatabaseCommit,
+    T::Tx: Transaction + Typed2718,
 {
-    let gas_limit = tx.gas_limit;
-    let result = evm.transact(tx).map_err(|error| match funding {
-        Some(funding) if funding.explains(gas_limit, &error) => {
-            EstimateError::PosterFunds(Box::new(funding.clone()))
-        }
-        _ => unavailable(error),
-    })?;
+    let gas_limit = tx.gas_limit();
+    let result = evm
+        .transact(tx)
+        .map_err(|error| match funding {
+            Some(funding) if funding.explains(gas_limit, &error) => {
+                EstimateError::PosterFunds(Box::new(funding.clone()))
+            }
+            _ => unavailable(error),
+        })?
+        .detach();
     if let Some(funding) = funding
         && funding.limits_probe()
         && gas_limit == funding.affordable_gas
-        && matches!(
-            result.result,
-            revm::context_interface::result::ExecutionResult::Halt {
-                reason: revm::context_interface::result::HaltReason::OutOfGas(_),
-                ..
-            }
-        )
+        && result.result.stop == evm2::interpreter::InstrStop::OutOfGas
     {
         return Err(EstimateError::PosterFunds(Box::new(funding.clone())));
     }
-    let gas = result.result.gas();
+    let gas = &result.result;
     let output = TxOutcome {
-        success: result.result.is_success(),
+        success: gas.is_success(),
         gas_used: gas.tx_gas_used(),
-        gas_required: gas.total_gas_spent().max(gas.floor_gas()),
-        output: result.result.output().cloned().unwrap_or_default(),
-        logs: result.result.logs().to_vec(),
+        gas_required: gas.total_gas_spent.max(gas.floor_gas),
+        output: gas.output.clone(),
+        logs: gas.logs.clone(),
     };
-    evm.db_mut().commit(result.state);
-    Ok(output)
+    // The caller owns the session and commits after this EVM releases its borrow.
+    Ok((output, result.pending_state))
 }
 
 fn same_actions(
@@ -909,3 +1006,6 @@ fn same_actions(
                 && a.outcome.return_data() == b.outcome.return_data()
         })
 }
+
+#[cfg(test)]
+mod request_vectors;

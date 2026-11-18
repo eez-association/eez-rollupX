@@ -1,15 +1,12 @@
 //! Native history transaction planning and validation shared by every L2 executor.
-use alloy_evm::{
-    Evm,
-    block::{BlockExecutionError, StateDB},
-};
 use alloy_primitives::{B256, U256, keccak256};
 use eez_primitives::{EezTxEnvelope, HISTORY_TX_VERSION, HistoryBlock, HistoryTransaction};
 use eez_protocol::l1_history::{
     ENDPOINT_SLOT, HISTORY_ADDRESS, HISTORY_RUNTIME, HistoryExecution, HistorySchedule,
     HistoryState, MAX_IMPORT_HEADERS, hash_storage_key,
 };
-use revm::{Database, context::Block as _};
+use evm2::evm::DynDatabase;
+use reth_evm::BlockExecutionError;
 use std::sync::Arc;
 
 pub use eez_protocol::l1_history::{L1HistorySource, WitnessHistory};
@@ -25,19 +22,19 @@ pub(crate) struct HistoryConfig {
 fn error(message: impl Into<String>) -> BlockExecutionError {
     BlockExecutionError::msg(message.into())
 }
-fn scalar<DB: Database>(db: &mut DB, slot: u64) -> Result<u64, BlockExecutionError> {
+fn scalar<DB: DynDatabase + ?Sized>(db: &mut DB, slot: u64) -> Result<u64, BlockExecutionError> {
     let value = db
-        .storage(HISTORY_ADDRESS, U256::from(slot))
+        .get_storage(&HISTORY_ADDRESS, &U256::from(slot))
         .map_err(|_| error("cannot read L1 history storage"))?;
     u64::try_from(value).map_err(|_| error("L1 history scalar exceeds uint64"))
 }
 
-pub(crate) fn state<DB: Database>(
+pub(crate) fn state<DB: DynDatabase + ?Sized>(
     db: &mut DB,
     config: &HistoryConfig,
 ) -> Result<HistoryState, BlockExecutionError> {
     let info = db
-        .basic(HISTORY_ADDRESS)
+        .get_account(&HISTORY_ADDRESS)
         .map_err(|_| error("cannot load L1 history account"))?
         .ok_or_else(|| error("missing L1 history account"))?;
     // Pin the proxy and its immutable admin, not the genesis implementation.
@@ -47,14 +44,14 @@ pub(crate) fn state<DB: Database>(
         return Err(error("incorrect L1 history runtime or nonce"));
     }
     let code = db
-        .code_by_hash(info.code_hash)
+        .get_code_by_hash(&info.code_hash)
         .map_err(|_| error("missing L1 history runtime witness"))?;
     if code.original_bytes().as_ref() != HISTORY_RUNTIME {
         return Err(error("incorrect L1 history runtime bytes"));
     }
     let endpoint = scalar(db, ENDPOINT_SLOT)?;
     let endpoint_hash = B256::from(
-        db.storage(HISTORY_ADDRESS, hash_storage_key(endpoint))
+        db.get_storage(&HISTORY_ADDRESS, &hash_storage_key(endpoint))
             .map_err(|_| error("missing L1 history endpoint witness"))?,
     );
     if endpoint == 0 {
@@ -79,7 +76,7 @@ pub(crate) fn state<DB: Database>(
 
 /// Freeze a producer choice from local parent state and ready evidence. The
 /// returned transaction is a block input; replay never reruns producer policy.
-pub(crate) fn prepare<DB: Database>(
+pub(crate) fn prepare<DB: DynDatabase + ?Sized>(
     db: &mut DB,
     config: &HistoryConfig,
     timestamp: u64,
@@ -142,14 +139,14 @@ pub(crate) fn prepare<DB: Database>(
 /// Bind inherited state and randomness even when an eligible update is omitted.
 /// Returns whether the block header agrees with inheritance; the block executor
 /// permits a different value only if transaction zero validates a real update.
-pub(crate) fn begin<E: Evm<DB: StateDB>>(
-    evm: &mut E,
+pub(crate) fn begin(
+    evm: &mut evm2::Evm<'_, crate::EezEvmTypes>,
     config: &HistoryConfig,
 ) -> Result<bool, BlockExecutionError> {
-    let timestamp = u64::try_from(evm.block().timestamp())
+    let timestamp = u64::try_from(evm.block().timestamp)
         .map_err(|_| error("L2 history timestamp exceeds uint64"))?;
-    let execution = transition(evm.db_mut(), config, timestamp, None)?;
-    let inherited = evm.block().prevrandao() == Some(execution.prev_randao);
+    let execution = transition(evm.overlay_db_mut(), config, timestamp, None)?;
+    let inherited = B256::from(evm.block().prevrandao) == execution.prev_randao;
     if !inherited && execution.cutoff.checked_add(config.schedule.delay()) != Some(timestamp) {
         return Err(error("L2 PREVRANDAO differs from inherited L1 origin"));
     }
@@ -157,7 +154,7 @@ pub(crate) fn begin<E: Evm<DB: StateDB>>(
 }
 
 /// Validate a publicly recorded update against authenticated parent storage.
-pub(crate) fn transition<DB: Database>(
+pub(crate) fn transition<DB: DynDatabase + ?Sized>(
     db: &mut DB,
     config: &HistoryConfig,
     timestamp: u64,
@@ -190,15 +187,15 @@ pub(crate) fn transition<DB: Database>(
         .map_err(BlockExecutionError::other)
 }
 
-pub(crate) fn validate<E: Evm<DB: StateDB>>(
-    evm: &mut E,
+pub(crate) fn validate(
+    evm: &mut evm2::Evm<'_, crate::EezEvmTypes>,
     config: &HistoryConfig,
     tx: &EezTxEnvelope,
 ) -> Result<alloy_primitives::Bytes, BlockExecutionError> {
-    let timestamp = u64::try_from(evm.block().timestamp())
+    let timestamp = u64::try_from(evm.block().timestamp)
         .map_err(|_| error("L2 history timestamp exceeds uint64"))?;
-    let execution = transition(evm.db_mut(), config, timestamp, Some(tx))?;
-    if evm.block().prevrandao() != Some(execution.prev_randao) {
+    let execution = transition(evm.overlay_db_mut(), config, timestamp, Some(tx))?;
+    if B256::from(evm.block().prevrandao) != execution.prev_randao {
         return Err(error("L2 PREVRANDAO differs from selected L1 origin"));
     }
     execution

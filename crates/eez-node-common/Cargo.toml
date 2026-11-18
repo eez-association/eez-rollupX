@@ -67,13 +67,19 @@ reth-execution-cache.workspace = true
 reth-node-ethereum.workspace = true
 reth-payload-builder-primitives.workspace = true
 reth-provider.workspace = true
-reth-revm.workspace = true
 reth-rpc.workspace = true
 reth-rpc-convert.workspace = true
 reth-rpc-eth-types.workspace = true
-revm.workspace = true
+evm2.workspace = true
 
 [dev-dependencies]
+reth-trie-common.workspace = true
+reth-engine-tree.workspace = true
+reth-storage-overlay.workspace = true
+reth-db-common.workspace = true
+reth-trie-parallel.workspace = true
+serde_json.workspace = true
+alloy-genesis.workspace = true
 reth-network-api.workspace = true
 reth-payload-builder.workspace = true
 reth-provider = { workspace = true, features = ["test-utils"] }

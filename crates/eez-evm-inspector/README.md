@@ -6,16 +6,16 @@ each one into a recorded, dispatched protocol call.
 ## Why a separate crate
 
 Cross-chain composition needs to react to individual CALL opcodes, which only
-an EVM inspector can see. That couples this code to `revm`, and the coupling
+an EVM inspector can see. That couples this code to `evm2`, and the coupling
 is deliberately confined here: [`eez-protocol`](../eez-protocol/) (types, ABI,
 `CompositionBuilder`) stays EVM-free so verifiers and external tools can
 consume it without the execution stack, while `eez-composer` wires this crate
 into reth.
 
 ```text
-eez-protocol            types, ABI, CompositionBuilder   (no revm)
+eez-protocol            types, ABI, CompositionBuilder   (no EVM)
      ↑
-eez-evm-inspector       SessionInspector, overlay        (revm)
+eez-evm-inspector       SessionInspector, overlay        (evm2)
      ↑
 eez-composer            reth integration, wiring
 ```
@@ -24,8 +24,7 @@ eez-composer            reth integration, wiring
 
 `SessionInspector` hooks every mutable CALL during source simulation:
 
-1. It reads `authorizedProxies[target]` from the **live** EVM state (revm
-   journal + DB), so proxies registered earlier in the same transaction or
+1. It reads `authorizedProxies[target]` from the **live** EVM state (journal + DB), so proxies registered earlier in the same transaction or
    block are visible — a pre-transaction snapshot would miss them.
 2. If the target is a registered proxy, the call is forwarded through
    `CompositionBuilder::dispatch_call`, which executes it on the target
@@ -44,7 +43,8 @@ calls as successful entries.
 A dispatched call may call back into the suspended rollup (flash-loan-style
 patterns). Its live `State` is mutably borrowed by the paused EVM, so the
 re-entered session cannot touch it directly. The overlay channel bridges that
-gap with cache snapshots:
+gap with native cache snapshots plus cumulative account-lifecycle status. A cache alone
+cannot distinguish reads from callback changes or creation from destruction:
 
 1. Before every dispatch the inspector opens a frame holding a snapshot of its
    rollup's cache with the journal's live account changes applied. This includes
@@ -61,7 +61,9 @@ gap with cache snapshots:
    per-account, per-slot difference onto the live state as journal entries.
    Code, nonces, balances, storage and account creation are included, so the
    original caller can use a contract created in the callback. An outer revert
-   unwinds those changes together with the source's own writes. A dispatch that
+   unwinds those changes together with the source's own writes. Applied accounts
+   and changed slots also acquire journaled warmth, preserving resumed CALL/SLOAD
+   gas and restoring the access set on an enclosing revert. A dispatch that
    did not re-enter the rollup has no result, and a failed one discards its result.
 
 Frames are nested, so recursive re-entry stays paired with its dispatch and a
@@ -84,7 +86,7 @@ for scope and acceptance checks.
 ## Tests
 
 ```bash
-cargo +1.95.0 test --locked --package eez-evm-inspector
+cargo +1.96.0 test --locked --package eez-evm-inspector
 ```
 
 The tests cover proxy lookup against live EVM state, snapshot completeness,

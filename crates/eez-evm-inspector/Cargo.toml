@@ -5,7 +5,7 @@ edition.workspace      = true
 license.workspace      = true
 rust-version.workspace = true
 readme                 = "README.md"
-description            = "EVM composer glue: revm inspector for proxy-call detection and shared-state overlays"
+description            = "EVM composer glue: EVM inspector for proxy-call detection and shared-state overlays"
 
 [lints]
 workspace = true
@@ -21,10 +21,13 @@ eez-protocol.workspace = true
 alloy-primitives.workspace = true
 
 # EVM inspector (the one genuinely EVM-coupled piece in this crate)
-revm.workspace = true
+evm2.workspace = true
 
 # Logging
 tracing.workspace = true
 
 # Error types for overlay + submitter
 thiserror.workspace = true
+
+[dev-dependencies]
+alloy-consensus.workspace = true

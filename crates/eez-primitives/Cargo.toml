@@ -14,11 +14,9 @@ alloy-consensus = { workspace = true, features = ["serde", "k256"] }
 alloy-eips.workspace = true
 alloy-primitives = { workspace = true, features = ["serde"] }
 alloy-rlp.workspace = true
-alloy-evm.workspace = true
 reth-codecs.workspace = true
 reth-primitives-traits = { workspace = true, features = ["serde", "reth-codec"] }
 reth-ethereum-primitives.workspace = true
-revm.workspace = true
 serde.workspace = true
 
 reth-engine-primitives.workspace = true

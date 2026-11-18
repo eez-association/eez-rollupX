@@ -1,373 +1,122 @@
-//! Native nonce-free execution and ordinary L2 base-fee distribution.
-//!
-//! Uses the pinned Ethereum instructions, precompiles, validation and gas rules.
-//! Native caller accounting and the L2 base-fee destination are specialized;
-//! plain and inspected execution run the same handler.
-
-use alloy_evm::{
-    Database, EthEvmFactory, Evm, EvmEnv, EvmFactory, eth::EthEvmContext,
-    precompiles::PrecompilesMap,
+//! Candidate RollupX transaction handlers; not yet wired into shipping Reth.
+//! Wire envelopes and profile validation come from the frozen parent crates.
+use alloy_consensus::{Transaction, TxLegacy, Typed2718, transaction::Recovered};
+use alloy_eips::{eip2930::AccessList, eip7702::SignedAuthorization};
+use alloy_primitives::{Address, TxKind, U256};
+use alloy_primitives::{B256, Bytes};
+use eez_primitives::{
+    EEZL2_ADDRESS, EezTxEnvelope, HISTORY_ADDRESS, HISTORY_TX_GAS_CAP, HISTORY_TX_TYPE,
+    SYSTEM_ADDRESS, SYSTEM_TX_GAS_CAP, SYSTEM_TX_TYPE,
 };
-use alloy_primitives::{Address, Bytes, TxKind, U256};
-use eez_primitives::{EEZL2_ADDRESS, SYSTEM_ADDRESS, SYSTEM_TX_GAS_CAP, SYSTEM_TX_TYPE};
 use eez_protocol::l2::{ProfileError, validate_fee_collector};
-use revm::{
-    Context, Inspector, SystemCallEvm,
-    context::{BlockEnv, CfgEnv, Evm as RevmEvm, TxEnv},
-    context_interface::{
-        Cfg as _, JournalTr, Transaction as _,
-        journaled_state::account::JournaledAccountTr,
-        result::{EVMError, HaltReason, ResultAndState},
-    },
-    handler::{
-        EthFrame, FrameResult, Handler, instructions::EthInstructions, post_execution,
-        pre_execution,
-    },
-    inspector::{InspectorHandler, NoOpInspector},
-    interpreter::{InitialAndFloorGas, interpreter::EthInterpreter},
-    primitives::hardfork::SpecId,
+use evm2::{
+    BaseEvmConfigSelector, Evm, EvmFeatures, EvmTypesHost, SpecId, TxResult,
+    env::TxEnvExt,
+    ethereum::{self as eth, TxEnvelope, eip1559, eip2930, eip4844, eip7702, legacy},
+    handler::{GasSettlement, TxHandlerHooks},
+    interpreter::GasTracker,
+    registry::{HandlerError, HandlerResult, TxRegistry, TxRequest, handler},
 };
-use std::marker::PhantomData;
 
-type Inner<DB, I> = RevmEvm<
-    EthEvmContext<DB>,
-    I,
-    EthInstructions<EthInterpreter, EthEvmContext<DB>>,
-    PrecompilesMap,
-    EthFrame,
->;
-
-pub struct EezEvm<DB: Database, I> {
-    inner: Inner<DB, I>,
-    inspect: bool,
-    // EvmFactory cannot return an error. Retain a failed profile and reject
-    // execution; missing L2 configuration never selects L1 rules.
-    collector: Result<Option<Address>, ProfileError>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EezEvmTx {
+    Ethereum(TxEnvelope),
+    /// Derived execution fields only; source identity and history authority remain block checks.
+    Native {
+        ty: u8,
+        call: TxLegacy,
+        access_list: AccessList,
+    },
+    /// Request-local destination simulation with external value and fee charging disabled.
+    Funded(TxLegacy),
+    /// Preserve request metadata while retaining the baseline legacy simulation rules:
+    /// REVM ignores access lists for type-0 funded calls; they do not change gas or warming.
+    FundedAccessList {
+        call: TxLegacy,
+        access_list: AccessList,
+    },
 }
-
-impl<DB: Database, I> std::fmt::Debug for EezEvm<DB, I> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EezEvm")
-            .field("collector", &self.collector)
-            .finish_non_exhaustive()
+impl Typed2718 for EezEvmTx {
+    fn ty(&self) -> u8 {
+        match self {
+            Self::Ethereum(tx) => tx.ty(),
+            Self::Native { ty, .. } => *ty,
+            Self::Funded(_) | Self::FundedAccessList { .. } => 0,
+        }
     }
 }
-
-struct EezHandler<DB, I> {
-    collector: Option<Address>,
-    marker: PhantomData<(DB, I)>,
-}
-
-impl<DB: Database, I: Inspector<EthEvmContext<DB>>> Handler for EezHandler<DB, I> {
-    type Evm = Inner<DB, I>;
-    type Error = EVMError<DB::Error>;
-    type HaltReason = HaltReason;
-
-    fn validate_against_state_and_deduct_caller(
-        &self,
-        evm: &mut Self::Evm,
-        _initial_gas: &mut InitialAndFloorGas,
-    ) -> Result<(), Self::Error> {
-        if !eez_primitives::is_native_type(evm.ctx.tx.tx_type) {
-            return pre_execution::validate_against_state_and_deduct_caller(&mut evm.ctx);
-        }
-        let ctx = &mut evm.ctx;
-        let mut caller = ctx
-            .journaled_state
-            .load_account_with_code_mut(SYSTEM_ADDRESS)?
-            .data;
-        pre_execution::validate_account_nonce_and_code(
-            &caller.account().info,
-            ctx.tx.nonce,
-            ctx.cfg.is_eip3607_disabled(),
-            true,
-        )?;
-        let balance =
-            pre_execution::calculate_caller_fee(*caller.balance(), &ctx.tx, &ctx.block, &ctx.cfg)?;
-        caller.set_balance(balance);
-        // A temporary bump changes account emptiness and CALL/SELFDESTRUCT gas
-        // during execution. There is no native nonce transition to roll back.
-        Ok(())
-    }
-
-    fn reward_beneficiary(
-        &self,
-        evm: &mut Self::Evm,
-        result: &mut FrameResult,
-    ) -> Result<(), Self::Error> {
-        post_execution::reward_beneficiary(&mut evm.ctx, result.gas())?;
-        let Some(collector) = self.collector else {
-            return Ok(());
-        };
-        if eez_primitives::is_native_type(evm.ctx.tx.tx_type)
-            || evm.ctx.cfg.is_fee_charge_disabled()
-        {
-            return Ok(());
-        }
-        // Retain the original account in the transaction state. Credit is
-        // applied after finalization so SELFDESTRUCT cannot erase the base fee.
-        if evm.ctx.block.basefee != 0
-            && evm.ctx.tx.effective_gas_price(evm.ctx.block.basefee.into()) != 0
-        {
-            evm.ctx.journaled_state.load_account_mut(collector)?;
-        }
-        Ok(())
-    }
-}
-
-impl<DB: Database, I: Inspector<EthEvmContext<DB>>> InspectorHandler for EezHandler<DB, I> {
-    type IT = EthInterpreter;
-}
-
-impl<DB: Database, I: Inspector<EthEvmContext<DB>>> EezEvm<DB, I> {
-    /// Execute a synthetic destination call whose value arrives from outside
-    /// this frame. The manager forwards that value through the caller proxy in
-    /// canonical execution; a direct-call simulation must preserve its existing
-    /// balance and any value returned during execution.
-    ///
-    /// This entry point requires fee charging to be disabled and rejects native
-    /// transactions and creation. The result is provisional; the caller owns
-    /// committing effects and restoring the synthetic transaction sender nonce.
-    /// Failed calls remove the temporary credit. Errors leave no journal credit.
-    pub fn transact_funded_call(
-        &mut self,
-        tx: TxEnv,
-    ) -> Result<ResultAndState, EVMError<DB::Error>> {
-        if !self.inner.ctx.cfg.is_fee_charge_disabled()
-            || tx.tx_type != 0
-            || tx.caller == SYSTEM_ADDRESS
-            || !matches!(tx.kind, TxKind::Call(_))
-        {
-            return Err(EVMError::Custom("invalid funded simulation call".into()));
-        }
-        self.execute_with_value_credit(tx)
-    }
-
-    fn execute_with_value_credit(
-        &mut self,
-        tx: TxEnv,
-    ) -> Result<ResultAndState, EVMError<DB::Error>> {
-        self.collector
-            .map_err(|error| EVMError::Custom(error.to_string()))?;
-        if tx.value.is_zero() {
-            return self.execute(tx);
-        }
-        let caller = tx.caller;
-        let journal = &mut self.inner.ctx.journaled_state;
-        let funding = journal
-            .load_account_with_code_mut(caller)
-            .map_err(EVMError::Database)
-            .and_then(|mut account| {
-                let balance = *account.balance();
-                let funded = balance
-                    .checked_add(tx.value)
-                    .ok_or_else(|| EVMError::Custom("call value credit balance overflow".into()))?;
-                account.set_balance(funded);
-                Ok(balance)
-            });
-        let previous_balance = match funding {
-            Ok(balance) => balance,
-            Err(error) => {
-                journal.finalize();
-                return Err(error);
-            }
-        };
-        let mut output = self.execute(tx)?;
-        if !output.result.is_success() {
-            output
-                .state
-                .get_mut(&caller)
-                // Caller loading is mandatory before any executed call or halt.
-                .expect("executed funded call has a caller account")
-                .info
-                .balance = previous_balance;
-        }
-        Ok(output)
-    }
-
-    fn execute(&mut self, tx: TxEnv) -> Result<ResultAndState, EVMError<DB::Error>> {
-        let collector = self
-            .collector
-            .map_err(|error| EVMError::Custom(error.to_string()))?;
-        // Canonical transactions pass base-fee admission, so this is basefee.
-        // Advisory calls may relax that admission and pay less; they cannot
-        // distribute fees the sender did not pay.
-        let credit = collector
-            .filter(|_| {
-                !eez_primitives::is_native_type(tx.tx_type)
-                    && !self.inner.ctx.cfg.is_fee_charge_disabled()
-            })
-            .map(|address| {
-                (
-                    address,
-                    tx.effective_gas_price(self.inner.ctx.block.basefee.into())
-                        .min(self.inner.ctx.block.basefee.into()),
-                )
-            });
-        self.inner.ctx.tx = tx;
-        let mut handler = EezHandler {
-            collector,
-            marker: PhantomData,
-        };
-        let result = if self.inspect {
-            handler.inspect_run(&mut self.inner)
+impl EezEvmTx {
+    fn ethereum(&self) -> Option<&TxEnvelope> {
+        if let Self::Ethereum(tx) = self {
+            Some(tx)
         } else {
-            handler.run(&mut self.inner)
-        };
-        // Match ExecuteEvm: finalize even on errors, so failed validation/DB
-        // access cannot leak loaded or minted state into the next transaction.
-        let mut state = self.inner.ctx.journaled_state.finalize();
-        let result = result?;
-        if let Some((collector, price)) = credit.filter(|(_, price)| *price != 0) {
-            let amount = U256::from(price)
-                .checked_mul(U256::from(result.tx_gas_used()))
-                .ok_or_else(|| EVMError::Custom("L2 base fee overflow".into()))?;
-            let account = state.get_mut(&collector).ok_or_else(|| {
-                EVMError::Custom("fee collector absent after successful fee settlement".into())
-            })?;
-            if account.is_selfdestructed() {
-                // Execution deleted this account. Recreate only the fee credit,
-                // preserving neither code, nonce nor storage from the deletion.
-                // Created makes both CacheDB and the block State clear old storage.
-                account.info = Default::default();
-                account.storage.clear();
-                account.unmark_selfdestruct();
-                account.unmark_selfdestructed_locally();
-                account.mark_created();
-            }
-            account.info.balance = account
-                .info
-                .balance
-                .checked_add(amount)
-                .ok_or_else(|| EVMError::Custom("L2 fee collector balance overflow".into()))?;
-            account.mark_touch();
+            None
         }
-        Ok(ResultAndState { result, state })
+    }
+    fn legacy(&self) -> Option<&TxLegacy> {
+        match self {
+            Self::Ethereum(tx) => tx.as_legacy(),
+            Self::Funded(tx) | Self::FundedAccessList { call: tx, .. } => Some(tx),
+            _ => None,
+        }
+    }
+    fn native(&self) -> Option<&TxLegacy> {
+        if let Self::Native { call, .. } = self {
+            Some(call)
+        } else {
+            None
+        }
+    }
+}
+impl From<EezTxEnvelope> for EezEvmTx {
+    fn from(tx: EezTxEnvelope) -> Self {
+        match tx {
+            EezTxEnvelope::Ethereum(tx) => Self::Ethereum(tx.into()),
+            EezTxEnvelope::System(tx) => Self::Native {
+                ty: SYSTEM_TX_TYPE,
+                access_list: Default::default(),
+                call: TxLegacy {
+                    chain_id: Some(tx.chain_id),
+                    gas_limit: tx.gas_limit,
+                    to: TxKind::Call(tx.to),
+                    value: tx.value,
+                    input: tx.input.clone(),
+                    ..Default::default()
+                },
+            },
+            EezTxEnvelope::History(tx) => Self::Native {
+                ty: HISTORY_TX_TYPE,
+                access_list: Default::default(),
+                call: TxLegacy {
+                    chain_id: Some(tx.chain_id),
+                    gas_limit: HISTORY_TX_GAS_CAP,
+                    to: TxKind::Call(HISTORY_ADDRESS),
+                    // The block adapter must install independently validated history calldata/budget.
+                    ..Default::default()
+                },
+            },
+        }
     }
 }
 
-impl<DB: Database, I: Inspector<EthEvmContext<DB>>> Evm for EezEvm<DB, I> {
-    type DB = DB;
-    type Tx = TxEnv;
-    type Error = EVMError<DB::Error>;
-    type HaltReason = HaltReason;
-    type Spec = SpecId;
-    type BlockEnv = BlockEnv;
-    type Precompiles = PrecompilesMap;
-    type Inspector = I;
-
-    fn block(&self) -> &BlockEnv {
-        &self.inner.ctx.block
-    }
-    fn cfg_env(&self) -> &CfgEnv {
-        &self.inner.ctx.cfg
-    }
-    fn chain_id(&self) -> u64 {
-        self.inner.ctx.cfg.chain_id
-    }
-
-    /// Mint committed native value before validation and transfer. Failed calls
-    /// remove only this mint; complete-group cleanup runs in the block executor
-    /// after execution, retaining the metered receipt.
-    fn transact_raw(&mut self, tx: TxEnv) -> Result<ResultAndState, Self::Error> {
-        let collector = self
-            .collector
-            .map_err(|error| EVMError::Custom(error.to_string()))?;
-        if !eez_primitives::is_native_type(tx.tx_type) {
-            if tx.caller == SYSTEM_ADDRESS {
-                return Err(EVMError::Custom(
-                    "reserved system sender requires the native transaction type".into(),
-                ));
-            }
-            return self.execute(tx);
-        }
-        // Direct TxEnv callers bypass envelope conversion. Block/semantic
-        // validation additionally checks position gas and source authority.
-        if collector.is_none()
-            || tx.caller != SYSTEM_ADDRESS
-            || (tx.tx_type == SYSTEM_TX_TYPE && tx.kind != TxKind::Call(EEZL2_ADDRESS))
-            || (tx.tx_type == eez_primitives::HISTORY_TX_TYPE
-                && (tx.kind != TxKind::Call(eez_primitives::HISTORY_ADDRESS)
-                    || !tx.value.is_zero()))
-            || tx.gas_limit > SYSTEM_TX_GAS_CAP
-            || (tx.kind == TxKind::Call(eez_primitives::HISTORY_ADDRESS)
-                && tx.gas_limit > eez_primitives::HISTORY_TX_GAS_CAP)
-            || tx.nonce != 0
-            || tx.gas_price != 0
-            || tx.chain_id.is_none()
-            || tx.gas_priority_fee.is_some()
-            || !tx.access_list.0.is_empty()
-            || !tx.blob_hashes.is_empty()
-            || tx.max_fee_per_blob_gas != 0
-            || !tx.authorization_list.is_empty()
-        {
-            return Err(EVMError::Custom(
-                "invalid native system transaction environment".into(),
-            ));
-        }
-        self.execute_with_value_credit(tx)
-    }
-
-    fn transact_system_call(
-        &mut self,
-        caller: Address,
-        contract: Address,
-        data: Bytes,
-    ) -> Result<ResultAndState, Self::Error> {
-        self.collector
-            .map_err(|error| EVMError::Custom(error.to_string()))?;
-        if contract == eez_primitives::HISTORY_ADDRESS {
-            return Err(EVMError::Custom(
-                "history updates require a recorded native transaction".into(),
-            ));
-        }
-        // Ethereum protocol calls, including EIP-2935, retain their own semantics.
-        self.inner.system_call_with_caller(caller, contract, data)
-    }
-
-    fn finish(self) -> (DB, EvmEnv) {
-        let Context {
-            block: block_env,
-            cfg: cfg_env,
-            journaled_state,
-            ..
-        } = self.inner.ctx;
-        (journaled_state.database, EvmEnv { block_env, cfg_env })
-    }
-    fn set_inspector_enabled(&mut self, enabled: bool) {
-        self.inspect = enabled;
-    }
-    fn components(&self) -> (&DB, &I, &PrecompilesMap) {
-        (
-            &self.inner.ctx.journaled_state.database,
-            &self.inner.inspector,
-            &self.inner.precompiles,
-        )
-    }
-    fn components_mut(&mut self) -> (&mut DB, &mut I, &mut PrecompilesMap) {
-        (
-            &mut self.inner.ctx.journaled_state.database,
-            &mut self.inner.inspector,
-            &mut self.inner.precompiles,
-        )
-    }
-}
-
-/// Selects authenticated L2 fee rules or explicit L1 simulation semantics.
-#[derive(Debug, Clone, Copy)]
-pub struct EezEvmFactory {
+#[derive(Clone, Copy, Debug)]
+pub struct EezEvmExt {
     pub(crate) collector: Result<Option<Address>, ProfileError>,
 }
-
-impl EezEvmFactory {
-    /// Construct L2 execution from the genesis-selected collector.
+impl Default for EezEvmExt {
+    fn default() -> Self {
+        Self {
+            collector: Err(ProfileError("execution profile is not configured")),
+        }
+    }
+}
+impl EezEvmExt {
     pub fn for_rollup(collector: Address) -> Result<Self, ProfileError> {
         validate_fee_collector(collector)?;
         Ok(Self {
             collector: Ok(Some(collector)),
         })
     }
-    /// L1 source simulation retains Ethereum fee distribution.
     pub const fn for_l1_simulation() -> Self {
         Self {
             collector: Ok(None),
@@ -375,38 +124,407 @@ impl EezEvmFactory {
     }
 }
 
-impl EvmFactory for EezEvmFactory {
-    type Evm<DB: Database, I: Inspector<EthEvmContext<DB>>> = EezEvm<DB, I>;
-    type Context<DB: Database> = EthEvmContext<DB>;
-    type Tx = TxEnv;
-    type Error<DBError: revm::database_interface::DBErrorMarker> = EVMError<DBError>;
-    type HaltReason = HaltReason;
-    type Spec = SpecId;
-    type BlockEnv = BlockEnv;
-    type Precompiles = PrecompilesMap;
+#[derive(Clone, Copy, Debug)]
+pub struct EezEvmTypes;
+impl EvmTypesHost for EezEvmTypes {
+    type ConfigSelector = BaseEvmConfigSelector;
+    type SpecId = SpecId;
+    type Tx = EezEvmTx;
+    type EvmExt = EezEvmExt;
+    type MessageExt = ();
+    type MessageResultExt = ();
+    type TxEnvExt = ();
+    type TxResultExt = ();
+    type BlockEnvExt = ();
+    type Host<'a> = Evm<'a, Self>;
+}
 
-    fn create_evm<DB: Database>(&self, db: DB, input: EvmEnv) -> EezEvm<DB, NoOpInspector> {
-        EezEvm {
-            inner: EthEvmFactory::default().create_evm(db, input).into_inner(),
-            inspect: false,
-            collector: self.collector,
-        }
+/// Match REVM's uncharged-call balance semantics without minting a synthetic gas balance.
+/// Native nonce/code and per-call validation switches remain the caller's responsibility.
+pub fn disable_fee_charging(version: &mut evm2::Version) {
+    version
+        .features
+        .remove(EvmFeatures::FEE_CHARGE | EvmFeatures::BALANCE_CHECK | EvmFeatures::BALANCE_TOP_UP);
+}
+
+#[derive(Debug)]
+struct ExecutionError(&'static str);
+impl std::fmt::Display for ExecutionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.0)
     }
-    fn create_evm_with_inspector<DB: Database, I: Inspector<Self::Context<DB>>>(
-        &self,
-        db: DB,
-        input: EvmEnv,
-        inspector: I,
-    ) -> EezEvm<DB, I> {
-        EezEvm {
-            inner: EthEvmFactory::default()
-                .create_evm_with_inspector(db, input, inspector)
-                .into_inner(),
-            inspect: true,
-            collector: self.collector,
+}
+impl std::error::Error for ExecutionError {}
+fn reject(message: &'static str) -> HandlerError {
+    HandlerError::external(ExecutionError(message))
+}
+
+struct Hooks;
+impl TxHandlerHooks<EezEvmTypes> for Hooks {
+    fn before_execution(
+        host: &mut Evm<'_, EezEvmTypes>,
+        tx: &EezEvmTx,
+        caller: Address,
+        upfront: U256,
+    ) -> HandlerResult<()> {
+        host.ext().collector.map_err(HandlerError::external)?;
+        if caller == SYSTEM_ADDRESS {
+            return Err(reject("reserved system sender requires native type"));
         }
+        if host.feature(EvmFeatures::FEE_CHARGE)
+            && !host.feature(EvmFeatures::BALANCE_CHECK)
+            && host.feature(EvmFeatures::BALANCE_TOP_UP)
+            && let Some(tx) = tx.ethereum()
+        {
+            // REVM floors the balance after the effective fee, not the maximum fee cap.
+            // Restore that simulation rule from the transaction's original balance: evm2's
+            // sender validation has already topped it up against the maximum fee cap.
+            let mut account = host.state_mut().account(&caller)?;
+            let original = account.original().map_or(U256::ZERO, |info| info.balance);
+            account.set_balance(original.saturating_sub(upfront).max(tx.value()));
+            return Ok(());
+        }
+        eth::charge_upfront(host, caller, upfront)
     }
 }
 
+pub fn registry(spec: SpecId) -> TxRegistry<EezEvmTypes, TxResult<EezEvmTypes>> {
+    let mut registry = TxRegistry::new()
+        .with_handler(0, EezEvmTx::legacy, handler(prepare_legacy, execute_legacy))
+        .with_handler(
+            SYSTEM_TX_TYPE,
+            EezEvmTx::native,
+            handler(prepare_native, execute_native),
+        )
+        .with_handler(
+            HISTORY_TX_TYPE,
+            EezEvmTx::native,
+            handler(prepare_native, execute_native),
+        );
+    macro_rules! register {
+        ($fork:ident, $ty:literal, $access:ident, $module:ident) => {
+            if spec.enables(SpecId::$fork) {
+                registry.register(
+                    $ty,
+                    |tx: &EezEvmTx| tx.ethereum().and_then(TxEnvelope::$access),
+                    handler(
+                        $module::prepare_with_hooks::<EezEvmTypes, Hooks>,
+                        $module::execute_prepared::<EezEvmTypes, Hooks>,
+                    ),
+                );
+            }
+        };
+    }
+    register!(BERLIN, 1, as_eip2930, eip2930);
+    register!(LONDON, 2, as_eip1559, eip1559);
+    register!(CANCUN, 3, as_eip4844, eip4844);
+    register!(PRAGUE, 4, as_eip7702, eip7702);
+    registry
+}
+
+struct PreparedLegacy {
+    inner: eth::PreparedTx,
+    funded_balance: Option<U256>,
+}
+fn prepare_legacy(
+    req: &mut TxRequest<'_, '_, EezEvmTypes, TxLegacy>,
+) -> HandlerResult<PreparedLegacy> {
+    let funded_balance = if matches!(
+        req.envelope,
+        EezEvmTx::Funded(_) | EezEvmTx::FundedAccessList { .. }
+    ) {
+        let caller = req.tx.signer();
+        if req.host.feature(EvmFeatures::FEE_CHARGE)
+            || caller == SYSTEM_ADDRESS
+            || !matches!(req.tx.inner().to, TxKind::Call(_))
+        {
+            return Err(reject("invalid funded simulation call"));
+        }
+        Some(credit_value(req.host, caller, req.tx.inner().value)?)
+    } else {
+        None
+    };
+    Ok(PreparedLegacy {
+        inner: legacy::prepare_with_hooks::<EezEvmTypes, Hooks>(req)?,
+        funded_balance,
+    })
+}
+fn execute_legacy(
+    req: TxRequest<'_, '_, EezEvmTypes, TxLegacy>,
+    prepared: PreparedLegacy,
+) -> HandlerResult<TxResult<EezEvmTypes>> {
+    let caller = req.tx.signer();
+    let value = req.tx.inner().value;
+    // The execution borrows the host, so keep it available for rollback of external credit.
+    let host = req.host;
+    let result = legacy::execute_prepared::<EezEvmTypes, Hooks>(
+        TxRequest {
+            host: &mut *host,
+            tx: req.tx,
+            envelope: req.envelope,
+            _non_exhaustive: (),
+        },
+        prepared.inner,
+    )?;
+    if let Some(balance) = prepared.funded_balance
+        && !result.is_success()
+        && !value.is_zero()
+    {
+        host.state_mut().account(&caller)?.set_balance(balance);
+    }
+    Ok(result)
+}
+fn credit_value(
+    host: &mut Evm<'_, EezEvmTypes>,
+    caller: Address,
+    value: U256,
+) -> HandlerResult<U256> {
+    let mut account = host.state_mut().account(&caller)?;
+    let previous = account.balance();
+    if !value.is_zero() {
+        let balance = previous
+            .checked_add(value)
+            .ok_or_else(|| reject("call value credit balance overflow"))?;
+        account.set_balance(balance);
+    }
+    Ok(previous)
+}
+
+struct PreparedNative {
+    intrinsic: u64,
+    floor: u64,
+    previous_balance: U256,
+}
+fn prepare_native(
+    req: &mut TxRequest<'_, '_, EezEvmTypes, TxLegacy>,
+) -> HandlerResult<PreparedNative> {
+    let caller = req.tx.signer();
+    let tx = req.tx.inner();
+    let ty = req.envelope.ty();
+    let collector = req.host.ext().collector.map_err(HandlerError::external)?;
+    if req
+        .envelope
+        .access_list()
+        .is_some_and(|list| !list.0.is_empty())
+        || collector.is_none()
+        || caller != SYSTEM_ADDRESS
+        || tx.chain_id.is_none()
+        || tx.nonce != 0
+        || tx.gas_price != 0
+        || tx.gas_limit > SYSTEM_TX_GAS_CAP
+        || (ty == SYSTEM_TX_TYPE && tx.to != TxKind::Call(EEZL2_ADDRESS))
+        || (ty == HISTORY_TX_TYPE
+            && (tx.to != TxKind::Call(HISTORY_ADDRESS)
+                || !tx.value.is_zero()
+                || tx.gas_limit > HISTORY_TX_GAS_CAP))
+    {
+        return Err(reject("invalid native system transaction environment"));
+    }
+    let version = req.host.version();
+    eth::validate_chain_id(version, tx.chain_id, true)?;
+    eth::validate_tx_gas_limit_cap(version, tx.gas_limit)?;
+    eth::validate_block_gas_limit(version, tx.gas_limit, req.host.block().gas_limit)?;
+    let (intrinsic, floor) =
+        eth::intrinsic_and_floor_gas(version, caller, tx.to, &tx.input, 0, 0, tx.value);
+    eth::validate_intrinsic_gas(tx.gas_limit, intrinsic, 0)?;
+    eth::validate_floor_gas(tx.gas_limit, floor)?;
+    eth::validate_execution_gas_limit_cap(version, tx.gas_limit, intrinsic, floor)?;
+    let previous_balance = credit_value(req.host, caller, tx.value)?;
+    let check_code = req.host.feature(EvmFeatures::EIP3607);
+    {
+        let mut account = req.host.state_mut().account(&caller)?;
+        if check_code && !account.is_empty_code_hash() {
+            let code = account.load_code()?;
+            if !code.is_empty() && !code.is_eip7702() {
+                return Err(HandlerError::RejectCallerWithCode);
+            }
+        }
+        // Match the native caller touch without an ordinary nonce check or bump.
+        account.touch();
+        account.warm();
+    }
+    eth::warm_base_accounts(req.host, tx.to);
+    Ok(PreparedNative {
+        intrinsic,
+        floor,
+        previous_balance,
+    })
+}
+fn execute_native(
+    req: TxRequest<'_, '_, EezEvmTypes, TxLegacy>,
+    prepared: PreparedNative,
+) -> HandlerResult<TxResult<EezEvmTypes>> {
+    let caller = req.tx.signer();
+    let tx = req.tx.inner();
+    let (gas_limit, reservoir) =
+        eth::initial_gas_and_reservoir(req.host.version(), tx.gas_limit, prepared.intrinsic, 0);
+    *req.host.tx_env_mut() = TxEnvExt {
+        origin: caller,
+        gas_price: U256::ZERO,
+        chain_id: U256::from(req.host.version().chain_id),
+        ..Default::default()
+    };
+    let mut gas = GasTracker::new_with_execution_gas_and_reservoir(gas_limit, reservoir);
+    // Native transactions can only call: the create-only nonce argument is irrelevant.
+    let frame =
+        eth::prepare_initial_frame(req.host, caller, 0, tx.to, &tx.input, tx.value, &mut gas)?;
+    let result = eth::execute_initial_frame(req.host, frame, &mut gas, gas_limit, reservoir)?;
+    if !result.is_success() && !tx.value.is_zero() {
+        req.host
+            .state_mut()
+            .account(&caller)?
+            .set_balance(prepared.previous_balance);
+    }
+    eth::default_settle_gas(
+        req.host,
+        GasSettlement {
+            caller,
+            gas_price: U256::ZERO,
+            gas_limit: tx.gas_limit,
+            floor_gas: prepared.floor,
+            initial_state_gas: 0,
+            result,
+        },
+    )
+}
+
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
+
+#[derive(Debug, Clone, Copy)]
+pub struct EezEvmFactory {
+    pub(crate) collector: Result<Option<Address>, ProfileError>,
+}
+impl EezEvmFactory {
+    pub fn for_rollup(collector: Address) -> Result<Self, ProfileError> {
+        validate_fee_collector(collector)?;
+        Ok(Self {
+            collector: Ok(Some(collector)),
+        })
+    }
+    pub const fn for_l1_simulation() -> Self {
+        Self {
+            collector: Ok(None),
+        }
+    }
+}
+impl reth_evm_ethereum::EvmFactory for EezEvmFactory {
+    type Types = EezEvmTypes;
+    type SpecId = SpecId;
+    fn spec_id(&self, spec: SpecId) -> SpecId {
+        spec
+    }
+    fn tx_registry(&self, spec: SpecId) -> TxRegistry<Self::Types, TxResult<Self::Types>> {
+        registry(spec)
+    }
+    fn configure_evm(&self, evm: &mut Evm<'_, Self::Types>) {
+        *evm.ext_mut() = EezEvmExt {
+            collector: self.collector,
+        };
+    }
+}
+impl reth_evm::FromRecoveredTx<EezTxEnvelope> for EezEvmTx {
+    fn from_recovered_tx(tx: Recovered<EezTxEnvelope>) -> Self {
+        tx.into_inner().into()
+    }
+}
+impl reth_evm::FromTxWithEncoded<EezTxEnvelope> for EezEvmTx {}
+
+impl EezEvmTx {
+    fn fields(&self) -> &dyn Transaction {
+        match self {
+            Self::Ethereum(tx) => tx,
+            Self::Native { call, .. }
+            | Self::Funded(call)
+            | Self::FundedAccessList { call, .. } => call,
+        }
+    }
+}
+impl Transaction for EezEvmTx {
+    fn chain_id(&self) -> Option<u64> {
+        self.fields().chain_id()
+    }
+    fn nonce(&self) -> u64 {
+        self.fields().nonce()
+    }
+    fn gas_limit(&self) -> u64 {
+        self.fields().gas_limit()
+    }
+    fn gas_price(&self) -> Option<u128> {
+        self.fields().gas_price()
+    }
+    fn max_fee_per_gas(&self) -> u128 {
+        self.fields().max_fee_per_gas()
+    }
+    fn max_priority_fee_per_gas(&self) -> Option<u128> {
+        self.fields().max_priority_fee_per_gas()
+    }
+    fn max_fee_per_blob_gas(&self) -> Option<u128> {
+        self.fields().max_fee_per_blob_gas()
+    }
+    fn priority_fee_or_price(&self) -> u128 {
+        self.fields().priority_fee_or_price()
+    }
+    fn effective_gas_price(&self, base_fee: Option<u64>) -> u128 {
+        self.fields().effective_gas_price(base_fee)
+    }
+    fn is_dynamic_fee(&self) -> bool {
+        self.fields().is_dynamic_fee()
+    }
+    fn kind(&self) -> TxKind {
+        self.fields().kind()
+    }
+    fn is_create(&self) -> bool {
+        self.fields().is_create()
+    }
+    fn value(&self) -> U256 {
+        self.fields().value()
+    }
+    fn input(&self) -> &Bytes {
+        self.fields().input()
+    }
+    fn access_list(&self) -> Option<&AccessList> {
+        match self {
+            Self::Native { access_list, .. } | Self::FundedAccessList { access_list, .. } => {
+                Some(access_list)
+            }
+            _ => self.fields().access_list(),
+        }
+    }
+    fn blob_versioned_hashes(&self) -> Option<&[B256]> {
+        self.fields().blob_versioned_hashes()
+    }
+    fn authorization_list(&self) -> Option<&[SignedAuthorization]> {
+        self.fields().authorization_list()
+    }
+}
+impl reth_evm::TransactionEnvMut for EezEvmTx {
+    fn set_gas_limit(&mut self, gas_limit: u64) {
+        match self {
+            Self::Ethereum(tx) => tx.set_gas_limit(gas_limit),
+            Self::Native { call, .. }
+            | Self::Funded(call)
+            | Self::FundedAccessList { call, .. } => call.gas_limit = gas_limit,
+        }
+    }
+    fn set_access_list(&mut self, access_list: AccessList) {
+        match self {
+            Self::Ethereum(tx) => tx.set_access_list(access_list),
+            // Retain forbidden input so native execution rejects it, rather than ignoring it.
+            Self::Native {
+                access_list: current,
+                ..
+            }
+            | Self::FundedAccessList {
+                access_list: current,
+                ..
+            } => *current = access_list,
+            Self::Funded(call) => {
+                *self = Self::FundedAccessList {
+                    call: std::mem::take(call),
+                    access_list,
+                };
+            }
+        }
+    }
+}

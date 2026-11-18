@@ -42,10 +42,10 @@ The ordinary unit test reconstructs and compares every fixture byte. Explicit
 regeneration is available after reviewing intentional changes:
 
 ```bash
-cargo +1.95.0 test --locked -p eez-proof-signer -- --ignored --exact \
+cargo +1.96.0 test --locked -p eez-proof-signer -- --ignored --exact \
   service::tests::derivation::history_observations::regenerate_history_observation_process_fixtures
-cargo +1.95.0 test --locked -p eez-proof-signer -- history_observations
-cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- \
+cargo +1.96.0 test --locked -p eez-proof-signer -- history_observations
+cargo +1.96.0 test --locked -p eez-node-e2e --test node_e2e -- \
   cross_chain::history_observations:: --test-threads=1
 ```
 

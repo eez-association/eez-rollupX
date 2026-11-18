@@ -1048,7 +1048,7 @@ export EEZ_COMBINED_CAPTURE_DIR="$PWD/artifacts/combined-history/capture"
 bash testing/kurtosis/scripts/capture-combined-history.sh
 source testing/kurtosis/ports.sh
 export EEZ_COMBINED_L2_RPC="$EEZ_DEVNET_L2_RPC"
-cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e \
+cargo +1.96.0 test --locked -p eez-node-e2e --test node_e2e \
   -- cross_chain::combined_history::kurtosis_combined_history_observations_replay_offline \
   --ignored --exact --nocapture
 ```

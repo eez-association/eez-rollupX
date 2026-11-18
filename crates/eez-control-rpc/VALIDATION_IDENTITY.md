@@ -167,6 +167,21 @@ only when the accepted semantics change. The test suite does not pin a Cargo.loc
 digest: unrelated dependency updates do not change wire compatibility, and a
 lockfile hash does not establish semantic equivalence.
 
+The 2026-11-15 Reth 2.11 migration replaces the Reth 2.7/REVM execution
+integration with evm2 and aligns Stateless with the reviewed engine hooks. It
+retains validation version 9, signing domain 7, the network profile and Core pin.
+The decision is supported by independent baseline/candidate execution and signing
+vectors, prefix/checkpoint regressions and unchanged-packet witness replay in
+both directions for 14 synthetic blocks; it is not a proof of equivalence for
+all inputs. Legacy witness iteration order and redundant/empty code entries can
+differ, so regenerated packets are not exact duplicate messages and their quota
+costs can differ. Keep exact duplicate checks and existing limits. Immutable
+source publication, shipping-artifact qualification and deployment-state
+continuity remain release gates; see the
+[Reth upgrade procedure](../../docs/runbooks/chiado-deployment.md#reth-211-dependency-upgrade).
+Any discovered validation-semantic change needs separate acceptance and the
+corresponding version/specification review.
+
 The [2026-11-12 Hickory review](../../docs/audits/2026-11-12-hickory-assessment/implementation.md)
 updates net/proto/resolver to 0.26.3 in the shipping and vendored-Reth test
 lockfiles. These packages serve Reth DNS discovery; their DNS decoding changes

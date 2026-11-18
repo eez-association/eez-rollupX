@@ -408,27 +408,30 @@ preserve in-memory unsettled work.
 
 ## Build, test, teardown
 
-Use Rust 1.95.0 and the checked-in lockfile. Reth is pinned to upstream v2.7.0 commit
-`3d592ece6de8c4559987416a544fc215fd6d6921`, which includes the
-forkchoice fix in [#27429](https://github.com/paradigmxyz/reth/pull/27429). Gnosis uses unmodified
-[upstream PR #138](https://github.com/gnosischain/reth_gnosis/pull/138), and Stateless
-uses the [native replay compatibility branch](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8).
-The checked-in lockfile resolves these dependencies. Private `testing` and
+Use Rust 1.96.0 and the checked-in lockfile. Reth is pinned to upstream
+[v2.11.0](https://github.com/paradigmxyz/reth/tree/b9abbcc1b982755baa9021e6874e2e58936ca65f),
+with the recorded [shutdown and shared-RPC-quota patches](crates/vendor/reth/README.md).
+Gnosis uses revision
+[`114795df`](https://github.com/gnosischain/reth_gnosis/tree/114795df05e18aaa140e2f22d10f533a2a3c8510).
+Stateless and official evm2 use exact Git revisions in `Cargo.toml` and
+`Cargo.lock`; no evm2 fork is required. The prepared Stateless revision must
+be available from its repository before Docker/CI release qualification. See the [dependency-upgrade procedure](docs/runbooks/chiado-deployment.md#reth-211-dependency-upgrade).
+The checked-in lockfile resolves the current dependency graph. Private `testing` and
 `testing-gnosis` L1 miners retain the previous two-block persistence threshold, without state
 masking or an in-memory buffer. They have no consensus peers to recover a lost
 chain after a crash. Consensus-driven `devnet` and `chiado` launchers use Reth's
 upstream persistence defaults. Recent unpersisted blocks can still be lost on
 an abrupt stop; database persistence is not durable queue recovery.
 
-The upstream default build features require LLVM 22, Polly, Clang 22 and `m4`.
+The upstream default build features require LLVM 23, Polly, Clang 23 and `m4`.
 Docker builds install them automatically. For a Debian/Ubuntu source build:
 
 ```bash
 sudo bash scripts/ci/install-llvm.sh
-export LLVM_SYS_221_PREFIX=/usr/lib/llvm-22
-export PATH="$LLVM_SYS_221_PREFIX/bin:$PATH"
-cargo +1.95.0 build --locked --workspace
-cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings
-cargo +1.95.0 test --locked --workspace                  # Rust; `cd contracts && forge test` for Solidity
+export LLVM_SYS_231_PREFIX=/usr/lib/llvm-23
+export PATH="$LLVM_SYS_231_PREFIX/bin:$PATH"
+cargo +1.96.0 build --locked --workspace
+cargo +1.96.0 clippy --locked --workspace --all-targets -- -D warnings
+cargo +1.96.0 test --locked --workspace                  # Rust; `cd contracts && forge test` for Solidity
 bash scripts/teardown-chiado.sh         # stop eez-node + eez-proof-signer + lighthouse (datadirs untouched)
 ```

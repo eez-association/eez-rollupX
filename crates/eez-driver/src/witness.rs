@@ -10,7 +10,9 @@
 //! (`re_execute_block`) and `DebugApi::debug_execution_witness_for_block`.
 //! The node's prover feed defaults to `ExecutionWitnessMode::Legacy`
 //! (ZisK's `native-validate` needs it for outbound/cross-chain blocks);
-//! `Canonical` is the minimal witness (sorted, deduped, no empty nodes).
+//! `Canonical` selects Reth's minimal base witness. Both modes retain the local
+//! removal closure, omit empty bytecode and sort state/code/key bytes after
+//! augmentation. Headers remain in ancestry order; no other items are removed.
 //!
 //! Why re-execute instead of capturing during the build: the witness must
 //! be **exact** (the prover requires a minimal witness), and only an
@@ -26,14 +28,14 @@ use alloy_rpc_types_debug::ExecutionWitness;
 use eez_evm::EezEvmConfig;
 use eez_primitives::{Block, EezPrimitives};
 use eez_prover::BlockWitness;
-use reth_evm::{ConfigureEvm, execute::Executor};
+use evm2::evm::{CacheDB, Db, DynDatabase};
+use reth_evm::{BundleState, ConfigureEvm, execute::Executor};
+use reth_evm::{database::StateProviderDatabase, witness::ExecutionWitnessRecord};
 use reth_primitives_traits::RecoveredBlock;
-use reth_revm::{database::StateProviderDatabase, witness::ExecutionWitnessRecord};
 use reth_storage_api::{
     EvmStateProviderAdapter, HashedPostStateProvider, HeaderProvider, StateProviderFactory,
 };
 use reth_trie::{HashedPostState, HashedStorage};
-use revm::database::State;
 use std::collections::HashSet;
 use tracing::{debug, trace};
 
@@ -143,7 +145,9 @@ fn capture_history<P: StateProviderFactory>(
 ) -> eyre::Result<(EezEvmConfig, Vec<Bytes>)> {
     let header = block.header();
     let state = provider.state_by_block_hash(header.parent_hash)?;
-    let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state.as_ref()));
+    let mut db = Db::new(StateProviderDatabase::new(EvmStateProviderAdapter(
+        state.as_ref(),
+    )));
     let first = config.history_state(&mut db)?.endpoint;
     let last = match block.body().transactions.first() {
         Some(eez_primitives::EezTxEnvelope::History(tx)) => {
@@ -181,15 +185,11 @@ where
     P: StateProviderFactory + HeaderProvider<Header = Header>,
 {
     let parent_hash = block.header().parent_hash();
-    let has_bal = block.header().block_access_list_hash().is_some();
-    let mut state = State::builder()
-        .with_database(StateProviderDatabase::new(EvmStateProviderAdapter(
-            provider.state_by_block_hash(parent_hash)?,
-        )))
-        .with_bundle_update()
-        .with_bal_builder_if(has_bal)
-        .build();
+    let mut state = CacheDB::new(Db::new(StateProviderDatabase::new(
+        EvmStateProviderAdapter(provider.state_by_block_hash(parent_hash)?),
+    )));
     replay_block_with_observations(&mut state, evm_config, block, observations)
+        .map(|(_, outcomes)| outcomes)
 }
 
 pub fn block_execution_witness<P, E>(
@@ -211,16 +211,13 @@ where
         "block_execution_witness: re-executing block on parent state",
     );
 
-    // 1. Re-execute the exact canonical block on the parent state. The
-    //    executor builds its own `State` over the parent provider; reads
-    //    warm its cache → that cache is the exact access set.
-    let mut executor = evm_config.batch_executor(StateProviderDatabase::new(
+    // Reads warm the parent cache; only accepted block writes enter witness state.
+    let mut state = CacheDB::new(Db::new(StateProviderDatabase::new(
         EvmStateProviderAdapter(provider.state_by_block_hash(parent_hash)?),
-    ));
-    executor.execute_one(block)?;
-    let state = executor.into_state();
-
-    execution_witness_from_state(provider, block, mode, &state)
+    )));
+    let output = evm_config.executor(&mut state).execute(block)?;
+    let codes = ExecutionWitnessRecord::commit_execution(&mut state, &output.state);
+    execution_witness_from_state(provider, block, mode, &state, &output.state, codes)
 }
 
 fn block_execution_witness_with_observations<P>(
@@ -234,16 +231,14 @@ where
     P: StateProviderFactory + HeaderProvider<Header = Header>,
 {
     let parent_hash = block.header().parent_hash();
-    let has_bal = block.header().block_access_list_hash().is_some();
-    let mut state = State::builder()
-        .with_database(StateProviderDatabase::new(EvmStateProviderAdapter(
-            provider.state_by_block_hash(parent_hash)?,
-        )))
-        .with_bundle_update()
-        .with_bal_builder_if(has_bal)
-        .build();
-    let outcomes = replay_block_with_observations(&mut state, evm_config, block, observations)?;
-    let witness = execution_witness_from_state(provider, block, mode, &state)?;
+    let mut state = CacheDB::new(Db::new(StateProviderDatabase::new(
+        EvmStateProviderAdapter(provider.state_by_block_hash(parent_hash)?),
+    )));
+    let (output, outcomes) =
+        replay_block_with_observations(&mut state, evm_config, block, observations)?;
+    let codes = ExecutionWitnessRecord::commit_execution(&mut state, &output.state);
+    let witness =
+        execution_witness_from_state(provider, block, mode, &state, &output.state, codes)?;
     Ok((witness, outcomes))
 }
 
@@ -251,29 +246,35 @@ fn execution_witness_from_state<P, DB>(
     provider: &P,
     block: &RecoveredBlock<Block>,
     mode: ExecutionWitnessMode,
-    state: &State<DB>,
+    state: &CacheDB<DB>,
+    bundle: &BundleState,
+    codes: Vec<Bytes>,
 ) -> eyre::Result<ExecutionWitness>
 where
+    DB: DynDatabase,
     P: StateProviderFactory + HeaderProvider<Header = Header>,
 {
     let parent_hash = block.header().parent_hash();
     let block_number = block.header().number();
 
     // Record the access set (cheap: cache walk, no trie).
-    let record = ExecutionWitnessRecord::new(state);
+    let record = ExecutionWitnessRecord::new(state).with_canonical_codes(codes);
 
     // One batched trie pass against the parent → trie nodes + headers.
     //    Re-open the parent provider (the first was consumed by the executor).
     let state_provider = provider.state_by_block_hash(parent_hash)?;
-    let accesses = witness_access_state(state, state_provider.as_ref())?;
+    let accesses = witness_access_state(state, bundle, state_provider.as_ref())?;
     let (account_removal_state, removal_accounts) = touched_account_removal_state(&accesses);
     let (storage_removal_state, removal_slots) = touched_storage_removal_state(&accesses)?;
     let oldest = state
+        .cache
         .block_hashes
-        .lowest()
-        .map_or(block_number.saturating_sub(1), |(number, _)| number);
+        .keys()
+        .map(U256::saturating_to::<u64>)
+        .min()
+        .unwrap_or_else(|| block_number.saturating_sub(1));
     eyre::ensure!(
-        oldest < block_number && block_number - oldest <= revm::primitives::BLOCK_HASH_HISTORY,
+        oldest < block_number && block_number - oldest <= 256,
         "invalid witness ancestor window {oldest}..{block_number}"
     );
     let mut witness =
@@ -323,6 +324,13 @@ where
         )?;
         extra_state_nodes += extend_unique_by_hash(&mut witness.state, extra);
     }
+
+    // Fix the producer representation after augmentation: maps do not define order,
+    // and empty code needs no witness lookup. Keep multiplicities and ancestry intact.
+    witness.codes.retain(|code| !code.is_empty());
+    witness.state.sort_unstable();
+    witness.codes.sort_unstable();
+    witness.keys.sort_unstable();
 
     debug!(
         target: "eez::witness",
@@ -392,7 +400,8 @@ fn touched_storage_removal_state(
 /// Include read-only cached slots as well as the provider's expanded storage
 /// resets; final bundle values take precedence over the execution cache.
 fn witness_access_state<DB>(
-    state: &State<DB>,
+    state: &CacheDB<DB>,
+    bundle: &BundleState,
     provider: &(impl HashedPostStateProvider + ?Sized),
 ) -> eyre::Result<HashedPostState> {
     let mut accesses = HashedPostState::default();
@@ -400,16 +409,16 @@ fn witness_access_state<DB>(
         let hashed_address = keccak256(address);
         accesses.accounts.insert(
             hashed_address,
-            account.account.as_ref().map(|a| (&a.info).into()),
+            account.as_ref().map(reth_primitives_traits::Account::from),
         );
         let storage = accesses.storages.entry(hashed_address).or_default();
-        if let Some(account) = &account.account {
-            for (slot, value) in &account.storage {
+        if let Some(account_storage) = state.cache.storage.get(address) {
+            for (slot, value) in &account_storage.slots {
                 storage.storage.insert(keccak256(B256::from(*slot)), *value);
             }
         }
     }
-    accesses.extend(provider.hashed_post_state(&state.bundle_state)?);
+    accesses.extend(provider.hashed_post_state(bundle)?);
     Ok(accesses)
 }
 
@@ -449,9 +458,9 @@ mod tests {
 
     #[test]
     fn removal_closure_keeps_read_only_slots_and_expanded_storage_resets() {
+        use evm2::evm::{AccountInfo, InMemoryDB};
+        use reth_evm::BundleState;
         use reth_storage_api::{HashedPostStateProvider, errors::provider::ProviderResult};
-        use revm::database::{BundleState, EmptyDB, State, states::CacheAccount};
-        use revm::state::AccountInfo;
 
         struct ExpandedState(HashedPostState);
         impl HashedPostStateProvider for ExpandedState {
@@ -466,14 +475,9 @@ mod tests {
         let destroyed_slot = alloy_primitives::keccak256(B256::from(U256::from(4)));
         let read_hash = alloy_primitives::keccak256(read_address);
         let destroyed_hash = alloy_primitives::keccak256(destroyed_address);
-        let mut executed = State::builder().with_database(EmptyDB::default()).build();
-        executed.cache.accounts.insert(
-            read_address,
-            CacheAccount::new_loaded(
-                AccountInfo::default(),
-                [(read_slot, U256::from(7))].into_iter().collect(),
-            ),
-        );
+        let mut executed = InMemoryDB::default();
+        executed.insert_account_info(&read_address, AccountInfo::default());
+        executed.insert_account_storage(&read_address, &read_slot, &U256::from(7));
         // A destroyed account's old slot is absent from the execution cache;
         // the parent provider expands it into an explicit zero write.
         let provider = ExpandedState(
@@ -484,7 +488,8 @@ mod tests {
                     HashedStorage::from_iter([(destroyed_slot, U256::ZERO)]),
                 )]),
         );
-        let accesses = super::witness_access_state(&executed, &provider).unwrap();
+        let accesses =
+            super::witness_access_state(&executed, &BundleState::default(), &provider).unwrap();
         let (accounts, count) = touched_account_removal_state(&accesses);
         assert_eq!(count, 2);
         assert_eq!(accounts.accounts.get(&read_hash), Some(&None));
@@ -655,8 +660,9 @@ mod tests {
         let parent_hash = parent.hash_slow();
         provider.add_header(parent_hash, parent.clone());
         let state = reth_storage_api::StateProviderFactory::latest(&provider).unwrap();
-        let mut db =
-            super::StateProviderDatabase::new(super::EvmStateProviderAdapter(state.as_ref()));
+        let mut db = super::Db::new(super::StateProviderDatabase::new(
+            super::EvmStateProviderAdapter(state.as_ref()),
+        ));
         let (_, transaction) = evm_config.prepare_history(&mut db, &parent, 1_012).unwrap();
         let transaction = transaction.unwrap();
         let block = RecoveredBlock::new_unhashed(
@@ -683,6 +689,32 @@ mod tests {
             vec![eez_primitives::SYSTEM_ADDRESS],
         );
         (provider, evm_config, block, parent_hash)
+    }
+
+    #[test]
+    fn witness_capture_has_stable_bytes_without_empty_code() {
+        let (provider, evm_config, block, _) = observation_fixture();
+        for mode in [
+            ExecutionWitnessMode::Legacy,
+            ExecutionWitnessMode::Canonical,
+        ] {
+            let first = block_execution_witness(&provider, &evm_config, &block, mode).unwrap();
+            assert!(first.codes.iter().all(|code| !code.is_empty()));
+            for collection in [&first.state, &first.codes, &first.keys] {
+                assert!(collection.windows(2).all(|pair| pair[0] <= pair[1]));
+            }
+            let second = block_execution_witness(&provider, &evm_config, &block, mode).unwrap();
+            assert_eq!(first, second);
+            let (observed, _) = block_execution_witness_with_observations(
+                &provider,
+                &evm_config,
+                &block,
+                mode,
+                &[],
+            )
+            .unwrap();
+            assert_eq!(first, observed);
+        }
     }
 
     #[test]
@@ -771,26 +803,31 @@ mod tests {
             ),
             Vec::new(),
         );
-        let mut state = revm::database::State::builder()
-            .with_database(revm::database::EmptyDB::default())
-            .build();
+        let mut state = evm2::evm::InMemoryDB::default();
         let oldest: Header = alloy_rlp::decode_exact(&expected[0]).unwrap();
-        state.block_hashes.insert(1, oldest.hash_slow());
+        state
+            .cache
+            .block_hashes
+            .insert(U256::from(1), oldest.hash_slow());
         let witness = super::execution_witness_from_state(
             &provider,
             &block,
             ExecutionWitnessMode::Legacy,
             &state,
+            &super::BundleState::default(),
+            Vec::new(),
         )
         .unwrap();
         assert_eq!(witness.headers, expected);
 
-        state.block_hashes.insert(0, B256::ZERO);
+        state.cache.block_hashes.insert(U256::ZERO, B256::ZERO);
         let error = super::execution_witness_from_state(
             &provider,
             &block,
             ExecutionWitnessMode::Legacy,
             &state,
+            &super::BundleState::default(),
+            Vec::new(),
         )
         .expect_err("BLOCKHASH cannot require more than 256 ancestor headers");
         assert!(

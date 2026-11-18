@@ -27,9 +27,17 @@ members = [
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-rust-version = "1.95"
+rust-version = "1.96"
 
 [workspace.dependencies]
+reth-engine-tree = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-storage-overlay = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-trie-parallel = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-node-types = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-db-common = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+
+alloy-eip7928 = { version = "=0.4.11", default-features = false }
+
 # async + tracing + errors
 tokio              = { version = "1.53.3", features = ["full"] }
 async-trait        = "0.1"
@@ -66,53 +74,51 @@ mimalloc           = "0.1"
 # CLI
 clap               = { version = "4", features = ["derive"] }
 
-# Upstream Reth v2.7.0; only the documented local patches below differ.
-reth-chain-state                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-chainspec                  = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-cli                        = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-db                         = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-engine-primitives          = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-ethereum-cli               = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-ethereum-engine-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-basic-payload-builder     = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-ethereum-payload-builder   = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-ethereum-primitives        = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-evm                        = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-evm-ethereum               = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-network-api                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-network-peers              = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-node-api                   = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-node-builder               = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-node-core                  = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-node-ethereum              = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-payload-builder            = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-payload-primitives         = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-transaction-pool           = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-eth-wire-types             = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-execution-types            = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-primitives-traits          = { version = "0.8.1", default-features = false }
-reth-provider                   = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-revm                       = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-rpc-eth-api                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-storage-api                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-storage-errors             = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-codecs                     = { version = "=0.8.1" }
-reth-rpc-traits                 = { version = "=0.8.1" }
-reth-tasks                      = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-trie                       = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-trie-common                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0", default-features = false, features = ["std"] }
+# Reth v2.11.0; keep every consumer aligned with the locked Gnosis graph.
+reth-chain-state                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-chainspec                  = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-cli                        = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-db                         = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-engine-primitives          = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-ethereum-cli               = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-ethereum-engine-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-basic-payload-builder     = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-ethereum-payload-builder   = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-ethereum-primitives        = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-evm                        = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-evm-ethereum               = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-network-api                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-network-peers              = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-node-api                   = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-node-builder               = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-node-core                  = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-node-ethereum              = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-payload-builder            = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-payload-primitives         = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-transaction-pool           = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-eth-wire-types             = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-execution-types            = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-primitives-traits          = { version = "0.8.2", default-features = false }
+reth-provider                   = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-rpc-eth-api                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-storage-api                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-storage-errors             = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-codecs                     = { version = "=0.8.2" }
+reth-rpc-traits                 = { version = "=0.8.2" }
+reth-tasks                      = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-trie                       = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-trie-common                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0", default-features = false, features = ["std"] }
 # libmdbx (reth's own mdbx binding) — backs the persistent witness store in a
 # DEDICATED env (never reth's node DB). Same rev so we don't link a 2nd mdbx build.
-reth-libmdbx                    = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
+reth-libmdbx                    = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
 
-# Stateless execution, aligned with the same Reth revision used by the node.
-stateless-reth = { package = "stateless", git = "https://github.com/eez-association/stateless", rev = "0bda6b200c1eb4689c147c080c3c248b50be2ea8" }
-stateless-tries = { package = "tries", git = "https://github.com/eez-association/stateless", rev = "0bda6b200c1eb4689c147c080c3c248b50be2ea8" }
+# Stateless checkpoints aligned with Reth and the official evm2 patch below.
+stateless-reth = { package = "stateless", git = "https://github.com/eez-association/stateless", rev = "9dd4cb3840b3b0535daae436ed44b9c3b1a04c0d" }
+stateless-tries = { package = "tries", git = "https://github.com/eez-association/stateless", rev = "9dd4cb3840b3b0535daae436ed44b9c3b1a04c0d" }
 
-# Unmodified upstream Gnosis PR #138 aligns with Reth v2.7.0.
-# Its release tag shares the exact Cargo source identity used above.
-reth_gnosis = { git = "https://github.com/gnosischain/reth_gnosis", rev = "9517ba3b3c139ed43d3e0814b60ec67b95e163d7" }
-gnosis-primitives = { git = "https://github.com/gnosischain/rust-primitives.git", tag = "v0.2.9" }
+# Gnosis uses the same Reth release tag/source identity as the workspace.
+reth_gnosis = { git = "https://github.com/gnosischain/reth_gnosis", rev = "114795df05e18aaa140e2f22d10f533a2a3c8510" }
+gnosis-primitives = { git = "https://github.com/gnosischain/rust-primitives.git", tag = "v0.2.12" }
 revm                            = { version = "43.0.3", default-features = false, features = [
     "optional_balance_check",
     "optional_block_gas_limit",
@@ -176,15 +182,17 @@ eez-prover         = { path = "crates/eez-prover" }
 eez-testkit        = { path = "crates/eez-testkit" }
 
 alloy-consensus-any = { version = "=2.5.0" }
-reth-consensus-common = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-engine-local = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-ethereum-consensus = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-execution-cache = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-payload-builder-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-rpc = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-rpc-convert = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-rpc-eth-types = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
+reth-consensus-common = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-engine-local = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-errors = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-ethereum-consensus = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-execution-cache = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-payload-builder-primitives = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-rpc = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-rpc-convert = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+reth-rpc-eth-types = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
+
+evm2 = { git = "https://github.com/alloy-rs/evm2", rev = "66687c18b34d3bdbb899f5eb7605070615c03475", default-features = false, features = ["std", "block"] }
 
 # Profiles copied from reth (paradigmxyz/reth Cargo.toml), minus its
 # hivetests/reproducible CI profiles. `release` is the fast-to-build
@@ -292,9 +300,20 @@ clone_on_ref_ptr                 = "allow"
 # a refactor or dediacted crates would reduce some of this
 too_many_arguments               = "allow"
 
-# v2.7.0 shutdown ordering and shared RPC quota accessor; exact source and
-# minimal patches are recorded in crates/vendor/reth/README.md.
+
+[patch."https://github.com/alloy-rs/evm2"]
+evm2-macros = { git = "https://github.com/DaniPopes/evm2", rev = "e681662b6d9ec59edafd112f7c8d64f49f1e6dd1" }
+evm2 = { git = "https://github.com/DaniPopes/evm2", rev = "e681662b6d9ec59edafd112f7c8d64f49f1e6dd1" }
+evm2-inspectors = { git = "https://github.com/DaniPopes/evm2", rev = "e681662b6d9ec59edafd112f7c8d64f49f1e6dd1" }
+evm2-jit = { git = "https://github.com/DaniPopes/evm2", rev = "e681662b6d9ec59edafd112f7c8d64f49f1e6dd1" }
+
+[patch.crates-io]
+reth-codecs = { git = "https://github.com/paradigmxyz/reth-core", rev = "275ce4cf5befeb9f1e8acd935ff2882d2d25fc61" }
+reth-codecs-derive = { git = "https://github.com/paradigmxyz/reth-core", rev = "275ce4cf5befeb9f1e8acd935ff2882d2d25fc61" }
+reth-primitives-traits = { git = "https://github.com/paradigmxyz/reth-core", rev = "275ce4cf5befeb9f1e8acd935ff2882d2d25fc61" }
+reth-rpc-traits = { git = "https://github.com/paradigmxyz/reth-core", rev = "275ce4cf5befeb9f1e8acd935ff2882d2d25fc61" }
+reth-zstd-compressors = { git = "https://github.com/paradigmxyz/reth-core", rev = "275ce4cf5befeb9f1e8acd935ff2882d2d25fc61" }
+
 [patch."https://github.com/paradigmxyz/reth"]
 reth-engine-tree = { path = "crates/vendor/reth/reth-engine-tree" }
-reth-node-builder = { path = "crates/vendor/reth/reth-node-builder" }
 reth-rpc-builder = { path = "crates/vendor/reth/reth-rpc-builder" }

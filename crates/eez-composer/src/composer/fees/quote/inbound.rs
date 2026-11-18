@@ -68,7 +68,7 @@ where
         let estimator = self
             .gas_estimator(prepared.rollup_id)
             .map_err(compact::estimate_error)?;
-        let base = u128::from(posting.env.block_env.basefee);
+        let base = posting.env.block.basefee.saturating_to::<u128>();
         let mut tip = if request.signed_fees {
             request
                 .tx
@@ -90,7 +90,7 @@ where
             };
             let effective_tip = request
                 .env(tip, cap)
-                .gas_priority_fee
+                .max_priority_fee_per_gas()
                 .map_or(cap.saturating_sub(base), |tip| {
                     tip.min(cap.saturating_sub(base))
                 });

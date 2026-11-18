@@ -1,21 +1,78 @@
 use super::*;
 use alloy_consensus::{SignableTransaction, TxEip1559, TxEip4844};
 use alloy_eips::eip4895::Withdrawal;
-use alloy_evm::{EvmFactory, FromRecoveredTx};
+
+use crate::evm::tests::create_evm;
+use alloy_consensus::{TxLegacy, transaction::Recovered};
 use alloy_primitives::{Address, B256, Signature, TxKind, U256, address, b256, bytes};
 use eez_primitives::{
     EEZL2_ADDRESS, EEZL2_GENESIS_IMPLEMENTATION_ADDRESS, SYSTEM_ADDRESS, SYSTEM_TX_GAS_CAP,
     SYSTEM_TX_TYPE, SystemTransaction,
 };
-use reth_evm::{ConvertTx, ExecutableTxTuple, execute::Executor};
-use revm::{
-    DatabaseCommit,
-    context::TxEnv,
-    context_interface::result::EVMError,
-    database::InMemoryDB,
-    inspector::CountInspector,
-    state::{AccountInfo, Bytecode},
+use evm2::{
+    Inspector,
+    bytecode::Bytecode,
+    evm::{AccountInfo, DynDatabase, InMemoryDB, TxResultWithState},
+    interpreter::{Interpreter, Message, MessageResult},
+    registry::{HandlerError, HandlerResult},
 };
+use reth_evm::{ConvertTx, ExecutableTxTuple, execute::Executor};
+use std::{cell::RefCell, rc::Rc};
+
+fn native_call(tx: &EezTxEnvelope) -> TxLegacy {
+    let EezEvmTx::Native { call, .. } = EezEvmTx::from(tx.clone()) else {
+        panic!("expected native fixture")
+    };
+    call
+}
+fn native_env(call: TxLegacy) -> EezEvmTx {
+    EezEvmTx::Native {
+        ty: SYSTEM_TX_TYPE,
+        call,
+        access_list: Default::default(),
+    }
+}
+fn execute(
+    evm: &mut crate::EezEvm<'_>,
+    call: TxLegacy,
+) -> HandlerResult<TxResultWithState<EezEvmTypes>> {
+    execute_as(evm, native_env(call), SYSTEM_ADDRESS)
+}
+fn execute_as(
+    evm: &mut crate::EezEvm<'_>,
+    tx: EezEvmTx,
+    caller: Address,
+) -> HandlerResult<TxResultWithState<EezEvmTypes>> {
+    evm.transact(&Recovered::new_unchecked(tx, caller))
+}
+#[derive(Default)]
+struct Counts {
+    calls: usize,
+    ends: usize,
+    steps: usize,
+}
+struct Counter(Rc<RefCell<Counts>>);
+impl Inspector<EezEvmTypes> for Counter {
+    fn step(&mut self, _: &mut Interpreter<'_, '_, EezEvmTypes>) {
+        self.0.borrow_mut().steps += 1;
+    }
+    fn call(
+        &mut self,
+        _: &mut Interpreter<'_, '_, EezEvmTypes>,
+        _: &mut Message<EezEvmTypes>,
+    ) -> Option<MessageResult<EezEvmTypes>> {
+        self.0.borrow_mut().calls += 1;
+        None
+    }
+    fn call_end(
+        &mut self,
+        _: &mut Interpreter<'_, '_, EezEvmTypes>,
+        _: &Message<EezEvmTypes>,
+        _: &mut MessageResult<EezEvmTypes>,
+    ) {
+        self.0.borrow_mut().ends += 1;
+    }
+}
 
 pub(crate) const FEE_COLLECTOR: Address = address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266");
 
@@ -165,16 +222,16 @@ fn database(balance: U256, code: Bytes) -> InMemoryDB {
     // Zero means the account is absent, matching a genesis without an alloc entry.
     if !balance.is_zero() {
         db.insert_account_info(
-            SYSTEM_ADDRESS,
+            &SYSTEM_ADDRESS,
             AccountInfo {
                 balance,
                 ..Default::default()
             },
         );
     }
-    let code = Bytecode::new_raw(code);
+    let code = Bytecode::from_stored(code);
     db.insert_account_info(
-        EEZL2_ADDRESS,
+        &EEZL2_ADDRESS,
         AccountInfo {
             code_hash: code.hash_slow(),
             code: Some(code),
@@ -205,8 +262,7 @@ fn native_mints_without_prefunding_and_rolls_back_failed_calls_after_burning_pri
                 // An empty 30M block leaves more than the cap, so the budget is the cap.
                 assert_eq!(receipt.cumulative_gas_used, SYSTEM_TX_GAS_CAP);
             }
-            let mut state = executor.into_state();
-            let bundle = state.take_bundle();
+            let bundle = executor.into_state();
             let system = bundle
                 .state
                 .get(&SYSTEM_ADDRESS)
@@ -287,7 +343,7 @@ fn native_execution_retains_chain_and_exact_block_gas_validation() {
         .execute_one(&SealedBlock::seal_slow(full).try_recover().unwrap())
         .unwrap_err();
     assert!(
-        format!("{error:?}").contains("CallGasCostMoreThanGasLimit"),
+        format!("{error:?}").contains("IntrinsicGasTooLow"),
         "{error:?}"
     );
 }
@@ -331,9 +387,9 @@ fn looping_user_tx(gas_limit: u64) -> (EezTxEnvelope, Address) {
 
 fn looping_database(user: Address) -> InMemoryDB {
     let mut db = database(U256::ZERO, bytes!("5b600056"));
-    let code = Bytecode::new_raw(bytes!("5b600056"));
+    let code = Bytecode::from_stored(bytes!("5b600056"));
     db.insert_account_info(
-        LOOP,
+        &LOOP,
         AccountInfo {
             code_hash: code.hash_slow(),
             code: Some(code),
@@ -341,7 +397,7 @@ fn looping_database(user: Address) -> InMemoryDB {
         },
     );
     db.insert_account_info(
-        user,
+        &user,
         AccountInfo {
             balance: U256::from(u64::MAX),
             ..Default::default()
@@ -404,7 +460,7 @@ fn native_budget_below_intrinsic_gas_invalidates_the_block() {
         .execute_one(&SealedBlock::seal_slow(crowded).try_recover().unwrap())
         .unwrap_err();
     assert!(
-        format!("{error:?}").contains("GasFloorMoreThanGasLimit"),
+        format!("{error:?}").contains("GasLimitBelowFloor"),
         "{error:?}"
     );
 }
@@ -470,149 +526,302 @@ fn l2_rejects_beacon_withdrawals_during_construction_import_and_engine_replay() 
 fn native_execution_rejects_noncanonical_gas_fields_without_mutating_state() {
     let block = block(0, 1);
     let balance = U256::from(20_000_000);
-    let mut evm = factory().create_evm(
+    let mut evm = create_evm(
+        factory(),
         database(balance, bytes!("00")),
         config().evm_env(block.header()).unwrap(),
     );
-    let tx = TxEnv::from_recovered_tx(&block.body().transactions[0], SYSTEM_ADDRESS);
+    let tx = native_call(&block.body().transactions[0]);
     for value in [U256::ZERO, U256::from(13)] {
         for (gas_limit, gas_price) in [
             (SYSTEM_TX_GAS_CAP + 1, 0),
             (u64::MAX, 0),
             (SYSTEM_TX_GAS_CAP, 7),
         ] {
-            let invalid = TxEnv {
+            let invalid = TxLegacy {
                 gas_limit,
                 gas_price,
                 value,
                 ..tx.clone()
             };
             assert!(
-                matches!(evm.transact_raw(invalid), Err(EVMError::Custom(_))),
+                matches!(execute(&mut evm, invalid), Err(HandlerError::External(_))),
                 "accepted noncanonical native gas fields: limit={gas_limit}, price={gas_price}, value={value}"
             );
-            let account = &evm.db().cache.accounts[&SYSTEM_ADDRESS].info;
+            let account = &evm
+                .overlay_db_mut()
+                .get_account(&SYSTEM_ADDRESS)
+                .unwrap()
+                .unwrap();
             assert_eq!(account.balance, balance);
             assert_eq!(account.nonce, 0);
         }
     }
     // Any budget up to the cap is a valid position-dependent native budget.
-    let clamped = evm
-        .transact_raw(TxEnv {
+    let clamped = execute(
+        &mut evm,
+        TxLegacy {
             gas_limit: 100_000,
             ..tx.clone()
-        })
-        .unwrap();
+        },
+    )
+    .unwrap();
     assert!(clamped.result.is_success());
-    let output = evm.transact_raw(tx).unwrap();
+    let output = execute(&mut evm, tx).unwrap();
     assert!(output.result.is_success());
-    assert_eq!(output.state[&SYSTEM_ADDRESS].info.balance, balance);
-    assert_eq!(output.state[&SYSTEM_ADDRESS].info.nonce, 0);
-    assert_eq!(output.state[&EEZL2_ADDRESS].info.balance, U256::from(13));
+    assert_eq!(
+        output
+            .pending_state
+            .account_info(&SYSTEM_ADDRESS)
+            .unwrap()
+            .balance,
+        balance
+    );
+    assert_eq!(
+        output
+            .pending_state
+            .account_info(&SYSTEM_ADDRESS)
+            .unwrap()
+            .nonce,
+        0
+    );
+    assert_eq!(
+        output
+            .pending_state
+            .account_info(&EEZL2_ADDRESS)
+            .unwrap()
+            .balance,
+        U256::from(13)
+    );
 }
 
 #[test]
 fn native_raw_environment_rejects_non_wire_fields_and_forged_recovery() {
     let block = block(0, 1);
-    let valid = TxEnv::from_recovered_tx(&block.body().transactions[0], SYSTEM_ADDRESS);
-    let mut invalid = Vec::new();
-    let mut tx = valid.clone();
-    tx.chain_id = None;
-    invalid.push(tx);
-    let mut tx = valid.clone();
-    tx.gas_priority_fee = Some(0);
-    invalid.push(tx);
-    let mut tx = valid.clone();
-    tx.max_fee_per_blob_gas = 1;
-    invalid.push(tx);
-    let mut tx = valid.clone();
-    tx.blob_hashes.push(B256::repeat_byte(1));
-    invalid.push(tx);
-    let mut tx = valid.clone();
-    tx.access_list.0.push(alloy_eips::eip2930::AccessListItem {
+    let valid = native_call(&block.body().transactions[0]);
+    let mut missing_chain = valid.clone();
+    missing_chain.chain_id = None;
+    let mut access_list = alloy_eips::eip2930::AccessList::default();
+    access_list.0.push(alloy_eips::eip2930::AccessListItem {
         address: EEZL2_ADDRESS,
         storage_keys: Vec::new(),
     });
-    invalid.push(tx);
-    invalid.push(TxEnv::from_recovered_tx(
-        &block.body().transactions[0],
-        Address::ZERO,
-    ));
-    let mut tx = valid.clone();
-    tx.tx_type = 0;
-    invalid.push(tx);
-    for (index, tx) in invalid.into_iter().enumerate() {
+    // Native now carries TxLegacy: priority fees and blob fields are unrepresentable.
+    // Access lists remain representable and must be rejected, never dropped.
+    let invalid = [
+        (native_env(missing_chain), SYSTEM_ADDRESS),
+        (
+            EezEvmTx::Native {
+                ty: SYSTEM_TX_TYPE,
+                call: valid.clone(),
+                access_list,
+            },
+            SYSTEM_ADDRESS,
+        ),
+        (native_env(valid.clone()), Address::ZERO),
+        (
+            EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Legacy(valid.clone())),
+            SYSTEM_ADDRESS,
+        ),
+        (
+            EezEvmTx::Native {
+                ty: 0,
+                call: valid.clone(),
+                access_list: Default::default(),
+            },
+            SYSTEM_ADDRESS,
+        ),
+        (
+            EezEvmTx::Native {
+                ty: eez_primitives::HISTORY_TX_TYPE,
+                call: TxLegacy {
+                    gas_limit: eez_primitives::HISTORY_TX_GAS_CAP,
+                    value: U256::ZERO,
+                    ..valid.clone()
+                },
+                access_list: Default::default(),
+            },
+            SYSTEM_ADDRESS,
+        ),
+    ];
+    for (index, (tx, caller)) in invalid.into_iter().enumerate() {
         let balance = U256::from(7);
-        let mut evm = factory().create_evm(
+        let mut evm = create_evm(
+            factory(),
             database(balance, bytes!("00")),
             config().evm_env(block.header()).unwrap(),
         );
-        assert!(
-            matches!(evm.transact_raw(tx), Err(EVMError::Custom(_))),
-            "accepted invalid native environment {index}"
-        );
-        let result = evm.transact_raw(valid.clone()).unwrap();
+        let error = execute_as(&mut evm, tx, caller).unwrap_err();
+        if index == 3 {
+            assert!(
+                matches!(error, HandlerError::FeeCapLessThanBaseFee { .. }),
+                "{error:?}"
+            );
+        } else if index == 4 {
+            assert_eq!(error, HandlerError::WrongTransactionType { expected: 0 });
+        } else {
+            assert!(
+                matches!(error, HandlerError::External(_)),
+                "invalid native environment {index}: {error:?}"
+            );
+        }
+        let result = execute(&mut evm, valid.clone()).unwrap();
         assert!(result.result.is_success());
-        assert_eq!(result.state[&SYSTEM_ADDRESS].info.balance, balance);
-        assert_eq!(result.state[&SYSTEM_ADDRESS].info.nonce, 0);
-        assert_eq!(result.state[&EEZL2_ADDRESS].info.balance, U256::from(13));
+        assert_eq!(
+            result
+                .pending_state
+                .account_info(&SYSTEM_ADDRESS)
+                .unwrap()
+                .balance,
+            balance
+        );
+        assert_eq!(
+            result
+                .pending_state
+                .account_info(&SYSTEM_ADDRESS)
+                .unwrap()
+                .nonce,
+            0
+        );
+        assert_eq!(
+            result
+                .pending_state
+                .account_info(&EEZL2_ADDRESS)
+                .unwrap()
+                .balance,
+            U256::from(13)
+        );
     }
+    // Give the forged ordinary envelope sufficient funds/fees so it reaches
+    // the reserved-sender hook rather than failing earlier Ethereum validation.
+    let mut evm = create_evm(
+        factory(),
+        database(U256::from(30_000_000), bytes!("00")),
+        config().evm_env(block.header()).unwrap(),
+    );
+    let forged = TxLegacy {
+        gas_price: 1,
+        ..valid
+    };
+    let error = execute_as(
+        &mut evm,
+        EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Legacy(forged)),
+        SYSTEM_ADDRESS,
+    )
+    .unwrap_err();
+    assert!(matches!(error, HandlerError::External(_)));
+    assert!(
+        error
+            .to_string()
+            .contains("reserved system sender requires native type")
+    );
 }
 
 #[test]
 fn failed_validation_and_uncommitted_execution_do_not_leak_minted_value() {
     let block = block(0, 1);
     let env = config().evm_env(block.header()).unwrap();
-    let mut evm = factory().create_evm(database(U256::from(5), bytes!("00")), env);
-    let tx = TxEnv::from_recovered_tx(&block.body().transactions[0], SYSTEM_ADDRESS);
+    let mut evm = create_evm(factory(), database(U256::from(5), bytes!("00")), env);
+    let tx = native_call(&block.body().transactions[0]);
     for (nonce, chain) in [(1, 1), (0, 2)] {
         let mut invalid = tx.clone();
         invalid.nonce = nonce;
         invalid.chain_id = Some(chain);
-        assert!(evm.transact_raw(invalid).is_err());
+        assert!(execute(&mut evm, invalid).is_err());
         assert_eq!(
-            evm.db().cache.accounts[&SYSTEM_ADDRESS].info.balance,
+            evm.overlay_db_mut()
+                .get_account(&SYSTEM_ADDRESS)
+                .unwrap()
+                .unwrap()
+                .balance,
             U256::from(5)
         );
     }
-    let preview = evm.transact_raw(tx.clone()).unwrap();
-    let replay = evm.transact_raw(tx.clone()).unwrap();
+    let preview = execute(&mut evm, tx.clone()).unwrap();
+    let replay = execute(&mut evm, tx.clone()).unwrap();
     assert_eq!(
         preview, replay,
         "preview must not modify the underlying database"
     );
-    assert_eq!(replay.state[&SYSTEM_ADDRESS].info.balance, U256::from(5));
-    assert_eq!(replay.state[&EEZL2_ADDRESS].info.balance, U256::from(13));
-    evm.db_mut().commit(replay.state);
+    assert_eq!(
+        replay
+            .pending_state
+            .account_info(&SYSTEM_ADDRESS)
+            .unwrap()
+            .balance,
+        U256::from(5)
+    );
+    assert_eq!(
+        replay
+            .pending_state
+            .account_info(&EEZL2_ADDRESS)
+            .unwrap()
+            .balance,
+        U256::from(13)
+    );
+    evm.overlay_db_mut().commit_pending(&replay.pending_state);
     // Source authorization is external to EVM execution. There is no nonce
     // deduplication: another authorized occurrence can execute on this state.
-    let next = evm.transact_raw(tx).unwrap();
-    assert_eq!(next.state[&SYSTEM_ADDRESS].info.nonce, 0);
-    assert_eq!(next.state[&SYSTEM_ADDRESS].info.balance, U256::from(5));
-    assert_eq!(next.state[&EEZL2_ADDRESS].info.balance, U256::from(26));
+    let next = execute(&mut evm, tx).unwrap();
+    assert_eq!(
+        next.pending_state
+            .account_info(&SYSTEM_ADDRESS)
+            .unwrap()
+            .nonce,
+        0
+    );
+    assert_eq!(
+        next.pending_state
+            .account_info(&SYSTEM_ADDRESS)
+            .unwrap()
+            .balance,
+        U256::from(5)
+    );
+    assert_eq!(
+        next.pending_state
+            .account_info(&EEZL2_ADDRESS)
+            .unwrap()
+            .balance,
+        U256::from(26)
+    );
 }
 
 #[test]
 fn mint_overflow_does_not_poison_the_next_execution() {
     let block = block(0, 1);
-    let mut evm = factory().create_evm(
+    let mut evm = create_evm(
+        factory(),
         database(U256::MAX, bytes!("00")),
         config().evm_env(block.header()).unwrap(),
     );
-    let tx = TxEnv::from_recovered_tx(&block.body().transactions[0], SYSTEM_ADDRESS);
+    let tx = native_call(&block.body().transactions[0]);
     assert!(
-        format!("{:?}", evm.transact_raw(tx.clone()).unwrap_err())
+        format!("{:?}", execute(&mut evm, tx.clone()).unwrap_err())
             .contains("credit balance overflow")
     );
-    let out = evm
-        .transact_raw(TxEnv {
+    let out = execute(
+        &mut evm,
+        TxLegacy {
             value: U256::ZERO,
             ..tx
-        })
-        .unwrap();
+        },
+    )
+    .unwrap();
     assert!(out.result.is_success());
-    assert_eq!(out.state[&SYSTEM_ADDRESS].info.balance, U256::MAX);
-    assert_eq!(out.state[&SYSTEM_ADDRESS].info.nonce, 0);
+    assert_eq!(
+        out.pending_state
+            .account_info(&SYSTEM_ADDRESS)
+            .unwrap()
+            .balance,
+        U256::MAX
+    );
+    assert_eq!(
+        out.pending_state
+            .account_info(&SYSTEM_ADDRESS)
+            .unwrap()
+            .nonce,
+        0
+    );
 }
 
 #[test]
@@ -634,36 +843,45 @@ fn inspection_and_normal_execution_apply_identical_mint_and_rollback_rules() {
             let env = config().evm_env(block.header()).unwrap();
             let mut db = database(U256::from(5), code);
             db.insert_account_info(
-                user,
+                &user,
                 AccountInfo {
                     balance: U256::from(30_000_000),
                     ..Default::default()
                 },
             );
-            let mut plain = factory().create_evm(db.clone(), env.clone());
-            let mut inspected =
-                factory().create_evm_with_inspector(db, env, CountInspector::default());
-            let tx = TxEnv {
-                tx_type,
-                caller,
+            let mut plain = create_evm(factory(), db.clone(), env.clone());
+            let mut inspected = create_evm(factory(), db, env);
+            let call = TxLegacy {
                 value: U256::from(value),
                 gas_price,
-                ..TxEnv::from_recovered_tx(&block.body().transactions[0], SYSTEM_ADDRESS)
+                ..native_call(&block.body().transactions[0])
             };
-            let expected = plain.transact_raw(tx.clone()).unwrap();
-            // First verify that the factory enables the inspector itself, then
-            // check that runtime toggles preserve execution while gating callbacks.
+            let tx = if tx_type == SYSTEM_TX_TYPE {
+                native_env(call)
+            } else {
+                EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Legacy(call))
+            };
+            let expected = execute_as(&mut plain, tx.clone(), caller).unwrap();
+            let counts = Rc::new(RefCell::new(Counts::default()));
+            inspected.set_inspector(Counter(counts.clone()));
             for enabled in [None, Some(false), Some(true)] {
                 if let Some(enabled) = enabled {
-                    inspected.set_inspector_enabled(enabled);
+                    if enabled {
+                        inspected.set_inspector(Counter(counts.clone()));
+                    } else {
+                        inspected.clear_inspector();
+                    }
                 }
-                inspected.components_mut().1.clear();
-                assert_eq!(expected, inspected.transact_raw(tx.clone()).unwrap());
-                let inspector = inspected.components().1;
+                *counts.borrow_mut() = Counts::default();
+                assert_eq!(
+                    expected,
+                    execute_as(&mut inspected, tx.clone(), caller).unwrap()
+                );
+                let counts = counts.borrow();
                 let enabled = enabled.unwrap_or(true);
-                assert_eq!(inspector.call_count(), u64::from(enabled));
-                assert_eq!(inspector.call_end_count(), u64::from(enabled));
-                assert_eq!(inspector.step_count() > 0, enabled);
+                assert_eq!(counts.calls, usize::from(enabled));
+                assert_eq!(counts.ends, usize::from(enabled));
+                assert_eq!(counts.steps > 0, enabled);
             }
         }
     }
@@ -687,9 +905,9 @@ fn native_gasprice_is_zero_in_nested_calls_including_reimbursement_and_positive_
         inner.extend_from_slice(&bytes!("3a6000523a6152080260205260406000f3"));
         for native in [true, false] {
             let mut db = database(U256::ZERO, outer.clone().into());
-            let code = Bytecode::new_raw(inner.clone().into());
+            let code = Bytecode::from_stored(inner.clone().into());
             db.insert_account_info(
-                target,
+                &target,
                 AccountInfo {
                     code_hash: code.hash_slow(),
                     code: Some(code),
@@ -697,25 +915,27 @@ fn native_gasprice_is_zero_in_nested_calls_including_reimbursement_and_positive_
                 },
             );
             db.insert_account_info(
-                user,
+                &user,
                 AccountInfo {
                     balance: U256::from(200_000_000),
                     ..Default::default()
                 },
             );
             let block = block(0, 1);
-            let mut evm = factory().create_evm(db, config().evm_env(block.header()).unwrap());
-            assert_eq!(evm.block().basefee, 1);
-            let mut tx = TxEnv::from_recovered_tx(&block.body().transactions[0], SYSTEM_ADDRESS);
+            let mut evm = create_evm(factory(), db, config().evm_env(block.header()).unwrap());
+            assert_eq!(evm.block().basefee, U256::ONE);
+            let mut call = native_call(&block.body().transactions[0]);
             let price = if native { 0 } else { 7 };
-            if !native {
-                tx.tx_type = 0;
-                tx.caller = user;
-                tx.gas_price = price;
-            }
-            let result = evm.transact_raw(tx).unwrap();
+            call.gas_price = price;
+            let tx = if native {
+                native_env(call)
+            } else {
+                EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Legacy(call))
+            };
+            let result =
+                execute_as(&mut evm, tx, if native { SYSTEM_ADDRESS } else { user }).unwrap();
             assert!(result.result.is_success());
-            let output = result.result.output().unwrap();
+            let output = &result.result.output;
             let words = output
                 .as_chunks::<32>()
                 .0
@@ -744,19 +964,18 @@ fn ordinary_transactions_still_pay_fees_and_outbound_eth_stays_at_the_system_add
     let block = block(0, 1);
     let mut db = database(U256::ZERO, bytes!("00"));
     db.insert_account_info(
-        user,
+        &user,
         AccountInfo {
             balance,
             ..Default::default()
         },
     );
-    let mut evm = factory().create_evm(db, config().evm_env(block.header()).unwrap());
-    let native = TxEnv::from_recovered_tx(&block.body().transactions[0], SYSTEM_ADDRESS);
-    let mint = evm.transact_raw(native.clone()).unwrap();
-    evm.db_mut().commit(mint.state);
-    let ordinary = TxEnv {
-        caller: user,
-        kind: TxKind::Call(SYSTEM_ADDRESS),
+    let mut evm = create_evm(factory(), db, config().evm_env(block.header()).unwrap());
+    let native = native_call(&block.body().transactions[0]);
+    let mint = execute(&mut evm, native.clone()).unwrap();
+    evm.overlay_db_mut().commit_pending(&mint.pending_state);
+    let ordinary = TxLegacy {
+        to: TxKind::Call(SYSTEM_ADDRESS),
         value: U256::from(17),
         gas_limit: 21_000,
         gas_price: 7,
@@ -764,23 +983,50 @@ fn ordinary_transactions_still_pay_fees_and_outbound_eth_stays_at_the_system_add
         ..Default::default()
     };
     assert!(
-        evm.transact_raw(TxEnv {
-            gas_price: 0,
-            ..ordinary.clone()
-        })
+        execute_as(
+            &mut evm,
+            EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Legacy(TxLegacy {
+                gas_price: 0,
+                ..ordinary.clone()
+            })),
+            user
+        )
         .is_err()
     );
-    let out = evm.transact_raw(ordinary).unwrap();
+    let out = execute_as(
+        &mut evm,
+        EezEvmTx::Ethereum(evm2::ethereum::TxEnvelope::Legacy(ordinary)),
+        user,
+    )
+    .unwrap();
     assert!(out.result.is_success());
     assert_eq!(
-        out.state[&user].info.balance,
+        out.pending_state.account_info(&user).unwrap().balance,
         balance - U256::from(21_000 * 7 + 17)
     );
-    assert_eq!(out.state[&SYSTEM_ADDRESS].info.balance, U256::from(17));
-    evm.db_mut().commit(out.state);
-    let next = evm.transact_raw(native).unwrap();
-    assert_eq!(next.state[&SYSTEM_ADDRESS].info.balance, U256::from(17));
-    assert_eq!(next.state[&EEZL2_ADDRESS].info.balance, U256::from(26));
+    assert_eq!(
+        out.pending_state
+            .account_info(&SYSTEM_ADDRESS)
+            .unwrap()
+            .balance,
+        U256::from(17)
+    );
+    evm.overlay_db_mut().commit_pending(&out.pending_state);
+    let next = execute(&mut evm, native).unwrap();
+    assert_eq!(
+        next.pending_state
+            .account_info(&SYSTEM_ADDRESS)
+            .unwrap()
+            .balance,
+        U256::from(17)
+    );
+    assert_eq!(
+        next.pending_state
+            .account_info(&EEZL2_ADDRESS)
+            .unwrap()
+            .balance,
+        U256::from(26)
+    );
 }
 
 #[test]
@@ -819,7 +1065,7 @@ fn l2_block_and_engine_replay_reject_blobs_but_l1_simulation_still_executes_them
         let block = SealedBlock::seal_slow(block).try_recover().unwrap();
         let mut db = database(U256::ZERO, bytes!("00"));
         db.insert_account_info(
-            signer,
+            &signer,
             AccountInfo {
                 balance: U256::from(1_000_000),
                 ..Default::default()
@@ -828,7 +1074,7 @@ fn l2_block_and_engine_replay_reject_blobs_but_l1_simulation_still_executes_them
 
         // The same raw-EVM path is used for cross-chain L1 simulation.
         let mut evm = config.evm_with_env(db.clone(), config.evm_env(block.header()).unwrap());
-        let result = evm.transact(tx.with_signer(signer)).unwrap();
+        let result = execute_as(&mut evm, tx.clone().into(), signer).unwrap();
         assert!(result.result.is_success());
 
         let result = config.executor(db).execute_one(&block);

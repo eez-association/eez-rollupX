@@ -100,20 +100,20 @@ fn parent_for(fork: EthereumHardfork) -> SealedHeader {
     parent()
 }
 
-fn install_parent_history(database: &mut revm::database::InMemoryDB, config: &EezEvmConfig) {
+fn install_parent_history(database: &mut evm2::evm::InMemoryDB, config: &EezEvmConfig) {
     use eez_protocol::l1_history::{
         HISTORY_ADDRESS, HISTORY_ADMIN_ADDRESS, HISTORY_IMPLEMENTATION_ADDRESS,
     };
-    use revm::{bytecode::Bytecode, state::AccountInfo};
+    use evm2::{bytecode::Bytecode, evm::AccountInfo};
     for address in [
         HISTORY_ADDRESS,
         HISTORY_IMPLEMENTATION_ADDRESS,
         HISTORY_ADMIN_ADDRESS,
     ] {
         let account = &config.chain_spec().genesis.alloc[&address];
-        let code = Bytecode::new_raw(account.code.clone().unwrap());
+        let code = Bytecode::from_stored(account.code.clone().unwrap());
         database.insert_account_info(
-            address,
+            &address,
             AccountInfo {
                 nonce: account.nonce.unwrap(),
                 code_hash: code.hash_slow(),
@@ -122,13 +122,11 @@ fn install_parent_history(database: &mut revm::database::InMemoryDB, config: &Ee
             },
         );
         for (key, value) in account.storage.iter().flatten() {
-            database
-                .insert_account_storage(
-                    address,
-                    U256::from_be_bytes(key.0),
-                    U256::from_be_bytes(value.0),
-                )
-                .unwrap();
+            database.insert_account_storage(
+                &address,
+                &U256::from_be_bytes(key.0),
+                &U256::from_be_bytes(value.0),
+            );
         }
     }
 }
@@ -447,21 +445,20 @@ fn state_commitment_and_parent_fee_are_taken_from_replay_and_parent() {
 #[test]
 fn empty_derived_blocks_execute_history_but_no_beacon_updates() {
     use alloy_primitives::{address, hex};
-    use reth_evm::{Evm as _, block::BlockExecutor as _, execute::BlockBuilder as _};
-    use revm::{
+    use evm2::{
         bytecode::Bytecode,
-        database::{InMemoryDB, State, states::bundle_state::BundleRetention},
-        state::AccountInfo,
+        evm::{AccountInfo, InMemoryDB},
     };
+    use reth_evm::{BlockExecutor as _, execute::BlockBuilder as _};
 
     // Real EIP-4788 code must remain untouched even though Osaka is active.
     let address = address!("000F3df6D732807Ef1319fB7B8bB8522d0Beac02");
-    let code = Bytecode::new_raw(Bytes::from_static(&hex!(
+    let code = Bytecode::from_stored(Bytes::from_static(&hex!(
         "3373fffffffffffffffffffffffffffffffffffffffe14604d57602036146024575f5ffd5b5f35801560495762001fff810690815414603c575f5ffd5b62001fff01545f5260205ff35b5f5ffd5b62001fff42064281555f359062001fff015500"
     )));
     let mut database = InMemoryDB::default();
     database.insert_account_info(
-        address,
+        &address,
         AccountInfo {
             code_hash: code.hash_slow(),
             code: Some(code),
@@ -469,9 +466,9 @@ fn empty_derived_blocks_execute_history_but_no_beacon_updates() {
         },
     );
     let history = alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS;
-    let history_code = Bytecode::new_raw(alloy_eips::eip2935::HISTORY_STORAGE_CODE.clone());
+    let history_code = Bytecode::from_stored(alloy_eips::eip2935::HISTORY_STORAGE_CODE.clone());
     database.insert_account_info(
-        history,
+        &history,
         AccountInfo {
             code_hash: history_code.hash_slow(),
             code: Some(history_code),
@@ -480,10 +477,7 @@ fn empty_derived_blocks_execute_history_but_no_beacon_updates() {
     );
     let config = config(EthereumHardfork::Osaka);
     install_parent_history(&mut database, &config);
-    let mut state = State::builder()
-        .with_database(database)
-        .with_bundle_update()
-        .build();
+    let mut state = database;
     let mut parent = parent_for(EthereumHardfork::Osaka);
 
     // Reuse actual in-memory state for two consecutive empty derived blocks.
@@ -496,13 +490,8 @@ fn empty_derived_blocks_execute_history_but_no_beacon_updates() {
             .builder_for_next_block(&mut state, &parent, attrs)
             .unwrap();
         builder.apply_pre_execution_changes().unwrap();
-        let (evm, result) = builder.into_executor().finish().unwrap();
-        let (db, _) = evm.finish();
-        db.merge_transitions(BundleRetention::PlainState);
-        let output = BlockExecutionOutput {
-            result,
-            state: db.take_bundle(),
-        };
+        let output = builder.into_executor().finish().unwrap();
+        state.commit_source(&evm2::block::BundleSource(&output.state));
         assert!(output.result.receipts.is_empty());
         assert_eq!(output.result.gas_used, 0);
         assert_eq!(
@@ -535,12 +524,9 @@ fn empty_derived_blocks_execute_history_but_no_beacon_updates() {
 fn nonempty_derived_block_uses_executed_transactions_receipts_and_gas() {
     use alloy_consensus::{SignableTransaction, TxLegacy, TxReceipt as _};
     use alloy_primitives::{Signature, TxKind, keccak256};
-    use reth_evm::{Evm as _, block::BlockExecutor as _, execute::BlockBuilder as _};
+    use evm2::evm::{AccountInfo, InMemoryDB};
+    use reth_evm::{BlockExecutor as _, execute::BlockBuilder as _};
     use reth_primitives_traits::SignedTransaction as _;
-    use revm::{
-        database::{InMemoryDB, State, states::bundle_state::BundleRetention},
-        state::AccountInfo,
-    };
 
     let recipient = Address::repeat_byte(0xa1);
     let transaction = TransactionSigned::from(
@@ -557,7 +543,7 @@ fn nonempty_derived_block_uses_executed_transactions_receipts_and_gas() {
     let recovered = transaction.clone().try_into_recovered().unwrap();
     let mut database = InMemoryDB::default();
     database.insert_account_info(
-        recovered.signer(),
+        &recovered.signer(),
         AccountInfo {
             balance: U256::from(1_000_000_000_000_000u64),
             ..Default::default()
@@ -565,10 +551,7 @@ fn nonempty_derived_block_uses_executed_transactions_receipts_and_gas() {
     );
     let config = config(EthereumHardfork::Osaka);
     install_parent_history(&mut database, &config);
-    let mut state = State::builder()
-        .with_database(database)
-        .with_bundle_update()
-        .build();
+    let mut state = database;
     let parent = parent_for(EthereumHardfork::Osaka);
     let attrs = next_attributes(&config, &parent, &environment(), None).unwrap();
     let mut builder = config
@@ -576,13 +559,8 @@ fn nonempty_derived_block_uses_executed_transactions_receipts_and_gas() {
         .unwrap();
     builder.apply_pre_execution_changes().unwrap();
     builder.execute_transaction(recovered).unwrap();
-    let (evm, result) = builder.into_executor().finish().unwrap();
-    let (db, _) = evm.finish();
-    db.merge_transitions(BundleRetention::PlainState);
-    let output = BlockExecutionOutput {
-        result,
-        state: db.take_bundle(),
-    };
+    let output = builder.into_executor().finish().unwrap();
+    state.commit_source(&evm2::block::BundleSource(&output.state));
     assert_eq!(
         output.account(&recipient).unwrap().unwrap().balance,
         U256::from(100)

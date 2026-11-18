@@ -22,8 +22,27 @@ use std::sync::{
 pub(super) struct FaultProvider {
     pub inner: MockEthProvider,
     pub fail_storage_at: Address,
+    pub fail_account_at: Option<Address>,
+    pub fail_storage_key: Option<B256>,
+    pub once: bool,
+    pub injected: Arc<AtomicUsize>,
+    pub matched: Arc<AtomicUsize>,
     pub failing: Arc<AtomicBool>,
     pub target_reads: Arc<AtomicUsize>,
+}
+impl FaultProvider {
+    fn inject(&self) -> bool {
+        self.matched.fetch_add(1, Ordering::Relaxed);
+        let fail = if self.once {
+            self.failing.swap(false, Ordering::Relaxed)
+        } else {
+            self.failing.load(Ordering::Relaxed)
+        };
+        if fail {
+            self.injected.fetch_add(1, Ordering::Relaxed);
+        }
+        fail
+    }
 }
 impl StateSnapshotProvider for FaultProvider {
     fn latest(&self) -> ProviderResult<StateProviderBox> {
@@ -37,6 +56,9 @@ impl AccountReader for FaultProvider {
     fn basic_account(&self, address: &Address) -> ProviderResult<Option<Account>> {
         if *address == super::TARGET {
             self.target_reads.fetch_add(1, Ordering::Relaxed);
+        }
+        if self.fail_account_at == Some(*address) && self.inject() {
+            return Err(ProviderError::StateForHashNotFound(B256::repeat_byte(0xfa)));
         }
         self.inner.basic_account(address)
     }
@@ -56,7 +78,10 @@ impl BytecodeReader for FaultProvider {
 }
 impl StateProvider for FaultProvider {
     fn storage(&self, address: Address, key: B256) -> ProviderResult<Option<U256>> {
-        if address == self.fail_storage_at && self.failing.load(Ordering::Relaxed) {
+        if address == self.fail_storage_at
+            && self.fail_storage_key.is_none_or(|expected| key == expected)
+            && self.inject()
+        {
             return Err(ProviderError::StateForHashNotFound(B256::repeat_byte(0xfa)));
         }
         self.inner.storage(address, key)
@@ -65,7 +90,7 @@ impl StateProvider for FaultProvider {
 impl HashedPostStateProvider for FaultProvider {
     fn hashed_post_state(
         &self,
-        state: &revm::database::BundleState,
+        state: &evm2::block::BundleState,
     ) -> ProviderResult<HashedPostState> {
         self.inner.hashed_post_state(state)
     }
@@ -129,10 +154,10 @@ impl StateProofProvider for FaultProvider {
     }
     fn multiproof_v2(
         &self,
-        input: TrieInput,
         targets: MultiProofTargetsV2,
+        requires_masks: bool,
     ) -> ProviderResult<DecodedMultiProofV2> {
-        self.inner.multiproof_v2(input, targets)
+        self.inner.multiproof_v2(targets, requires_masks)
     }
     fn witness(
         &self,

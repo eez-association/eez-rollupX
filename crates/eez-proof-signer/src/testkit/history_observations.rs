@@ -11,21 +11,36 @@ use eez_control_rpc::v2::{BlockWitness, ExecutionWitness};
 use eez_evm::EezEvmConfig;
 use eez_primitives::{Block, EezTxEnvelope, SystemTransaction};
 use eez_protocol::l1_history::{HISTORY_ADDRESS, HeaderChain, WitnessHistory};
-use reth_evm::{ConfigureEvm, block::BlockExecutor as _, execute::BlockExecutionOutput};
-use reth_primitives_traits::Block as _;
-use revm::{
+use evm2::{
     bytecode::Bytecode,
-    database::{InMemoryDB, State, states::bundle_state::BundleRetention},
-    state::AccountInfo,
+    evm::{AccountInfo, InMemoryDB},
 };
+use reth_evm::{ConfigureEvm, execute::Executor as _};
+use reth_primitives_traits::Block as _;
 use std::sync::Arc;
 
 pub(crate) const PROBE: Address = Address::with_last_byte(0x90);
+
+#[derive(Default)]
+pub(crate) struct CaptureScenario {
+    pub accounts: Vec<(Address, GenesisAccount)>,
+    pub transactions: Vec<(TxKind, Bytes)>,
+    pub suffix_call: Option<(Address, Bytes)>,
+    pub native_prefix: Vec<EezTxEnvelope>,
+    pub omit_donation: bool,
+    // Characterize the provider projection separately from EVM storage reset.
+    pub retain_prior_storage_at: Option<Address>,
+    pub followup_call: Option<(Address, Bytes)>,
+    pub extra_empty_child: bool,
+    pub expected_child_storage: Option<(Address, U256, U256)>,
+}
 
 pub(crate) struct Fixture {
     pub genesis: Genesis,
     pub blocks: Vec<BlockWitness>,
     pub origin_hashes: [B256; 2],
+    pub(super) capture_states: Vec<Genesis>,
+    pub(super) capture_config: EezEvmConfig,
 }
 
 /// Full account/storage proofs, including reads used only by observations.
@@ -79,9 +94,9 @@ fn witness(alloc: &Genesis) -> (B256, Vec<Bytes>, Vec<Bytes>) {
 fn database(alloc: &Genesis) -> InMemoryDB {
     let mut db = InMemoryDB::default();
     for (address, account) in &alloc.alloc {
-        let code = Bytecode::new_raw(account.code.clone().unwrap_or_default());
+        let code = Bytecode::from_stored(account.code.clone().unwrap_or_default());
         db.insert_account_info(
-            *address,
+            address,
             AccountInfo {
                 balance: account.balance,
                 nonce: account.nonce.unwrap_or(0),
@@ -92,11 +107,10 @@ fn database(alloc: &Genesis) -> InMemoryDB {
         );
         for (key, value) in account.storage.iter().flatten() {
             db.insert_account_storage(
-                *address,
-                U256::from_be_bytes(key.0),
-                U256::from_be_bytes(value.0),
-            )
-            .unwrap();
+                address,
+                &U256::from_be_bytes(key.0),
+                &U256::from_be_bytes(value.0),
+            );
         }
     }
     db
@@ -147,23 +161,10 @@ pub(crate) fn complete_native_capture_witness(name: &str) {
         for &(number, hash) in &ancestors {
             database.cache.block_hashes.insert(U256::from(number), hash);
         }
-        let mut db = State::builder()
-            .with_database(database)
-            .with_bundle_update()
-            .build();
+        let mut db = database;
         let recovered = block.clone().try_into_recovered().unwrap();
-        let result = {
-            let mut executor = config
-                .executor_for_block(&mut db, recovered.sealed_block())
-                .unwrap();
-            executor.apply_pre_execution_changes().unwrap();
-            for transaction in recovered.transactions_recovered() {
-                executor.execute_transaction(transaction).unwrap();
-            }
-            executor.finish().unwrap().1
-        };
-        db.merge_transitions(BundleRetention::PlainState);
-        let bundle = db.take_bundle();
+        let output = config.executor(&mut db).execute(&recovered).unwrap();
+        let bundle = &output.state;
         for (address, account) in &bundle.state {
             if let Some(info) = &account.info {
                 let target = alloc.alloc.entry(*address).or_default();
@@ -186,10 +187,6 @@ pub(crate) fn complete_native_capture_witness(name: &str) {
                 alloc.alloc.remove(address);
             }
         }
-        let output = BlockExecutionOutput {
-            result,
-            state: bundle,
-        };
         let rebuilt = eez_driver::derivation::reassemble_full_from_replay(
             &config,
             &reth_primitives_traits::SealedHeader::seal_slow(parent.clone()),
@@ -260,7 +257,15 @@ impl Fixture {
         )
     }
 
-    fn with_probe_code(native_suffix: bool, probe_code: Option<Vec<u8>>) -> Self {
+    pub(crate) fn with_probe_code(native_suffix: bool, probe_code: Option<Vec<u8>>) -> Self {
+        Self::with_capture_scenario(native_suffix, probe_code, CaptureScenario::default())
+    }
+
+    pub(crate) fn with_capture_scenario(
+        native_suffix: bool,
+        probe_code: Option<Vec<u8>>,
+        scenario: CaptureScenario,
+    ) -> Self {
         let mut genesis = history::genesis();
         genesis.config.extra_fields.get_mut("rollupX").unwrap()["historyUpdateOffset"] = 5.into();
         let first = history::l1_spec().genesis_header().clone();
@@ -308,6 +313,7 @@ impl Fixture {
                 ..Default::default()
             },
         );
+        genesis.alloc.extend(scenario.accounts);
         let spec = Arc::new(eez_evm::profile::chain_spec(genesis.clone()).unwrap());
         let config = EezEvmConfig::new(Arc::clone(&spec))
             .with_l1_history(Arc::new(WitnessHistory(Arc::new(chain))))
@@ -317,13 +323,18 @@ impl Fixture {
         assert_eq!(witness(&alloc).0, parent.state_root);
         let mut ancestors = vec![alloy_rlp::encode(&parent)];
         let mut blocks = Vec::new();
-        for number in 1..=6 {
+        let mut capture_states = Vec::new();
+        assert!(!scenario.extra_empty_child || scenario.followup_call.is_some());
+        let last = if scenario.followup_call.is_some() {
+            7
+        } else {
+            6
+        };
+        for number in 1..=last + u64::from(scenario.extra_empty_child) {
+            capture_states.push(alloc.clone());
             let (pre_root, nodes, codes) = witness(&alloc);
             assert_eq!(pre_root, parent.state_root);
-            let mut db = State::builder()
-                .with_database(database(&alloc))
-                .with_bundle_update()
-                .build();
+            let mut db = database(&alloc);
             let timestamp = 80 + 2 * number;
             let base_fee = parent
                 .next_block_base_fee(eez_protocol::l2::BASE_FEE_PARAMS)
@@ -332,20 +343,41 @@ impl Fixture {
             let mut transactions: Vec<EezTxEnvelope> = history_tx.into_iter().collect();
             if number == 6 {
                 assert_eq!(transactions.len(), 1);
-                let tx = TxLegacy {
-                    chain_id: Some(1),
-                    gas_limit: 200_000,
-                    gas_price: u128::from(base_fee),
-                    to: TxKind::Call(eez_primitives::SYSTEM_ADDRESS),
-                    value: U256::from(7),
-                    ..Default::default()
-                };
-                let sig = Signature::from(
-                    key.credential()
-                        .sign_prehash_recoverable(tx.signature_hash().as_slice())
-                        .unwrap(),
-                );
-                transactions.push(tx.into_signed(sig).into());
+                transactions.extend(scenario.native_prefix.iter().cloned());
+                for (nonce, (to, input)) in scenario.transactions.iter().enumerate() {
+                    let tx = TxLegacy {
+                        chain_id: Some(1),
+                        nonce: nonce as u64,
+                        gas_limit: 1_000_000,
+                        gas_price: u128::from(base_fee),
+                        to: *to,
+                        input: input.clone(),
+                        ..Default::default()
+                    };
+                    let signature = Signature::from(
+                        key.credential()
+                            .sign_prehash_recoverable(tx.signature_hash().as_slice())
+                            .unwrap(),
+                    );
+                    transactions.push(tx.into_signed(signature).into());
+                }
+                if !scenario.omit_donation {
+                    let tx = TxLegacy {
+                        chain_id: Some(1),
+                        nonce: scenario.transactions.len() as u64,
+                        gas_limit: 200_000,
+                        gas_price: u128::from(base_fee),
+                        to: TxKind::Call(eez_primitives::SYSTEM_ADDRESS),
+                        value: U256::from(7),
+                        ..Default::default()
+                    };
+                    let sig = Signature::from(
+                        key.credential()
+                            .sign_prehash_recoverable(tx.signature_hash().as_slice())
+                            .unwrap(),
+                    );
+                    transactions.push(tx.into_signed(sig).into());
+                }
                 if native_suffix {
                     transactions.push(
                         SystemTransaction {
@@ -367,10 +399,24 @@ impl Fixture {
                     // end on a load. The no-op user does not change the probe.
                     let user = TxLegacy {
                         chain_id: Some(1),
-                        nonce: 1,
-                        gas_limit: 21_000,
+                        nonce: scenario.transactions.len() as u64
+                            + u64::from(!scenario.omit_donation),
+                        gas_limit: if scenario.suffix_call.is_some() {
+                            200_000
+                        } else {
+                            21_000
+                        },
                         gas_price: u128::from(base_fee),
-                        to: TxKind::Call(Address::with_last_byte(0x91)),
+                        to: TxKind::Call(
+                            scenario
+                                .suffix_call
+                                .as_ref()
+                                .map_or(Address::with_last_byte(0x91), |(address, _)| *address),
+                        ),
+                        input: scenario
+                            .suffix_call
+                            .as_ref()
+                            .map_or_else(Bytes::new, |(_, input)| input.clone()),
                         ..Default::default()
                     };
                     let signature = Signature::from(
@@ -380,6 +426,29 @@ impl Fixture {
                     );
                     transactions.push(user.into_signed(signature).into());
                 }
+            }
+            if number == 7 {
+                let (target, input) = scenario.followup_call.as_ref().unwrap();
+                let tx = TxLegacy {
+                    chain_id: Some(1),
+                    nonce: alloc.alloc[&key.address()].nonce.unwrap_or(0),
+                    gas_limit: 1_000_000,
+                    gas_price: u128::from(base_fee),
+                    to: TxKind::Call(*target),
+                    input: input.clone(),
+                    ..Default::default()
+                };
+                let signature = Signature::from(
+                    key.credential()
+                        .sign_prehash_recoverable(tx.signature_hash().as_slice())
+                        .unwrap(),
+                );
+                transactions.push(tx.into_signed(signature).into());
+                assert_eq!(
+                    transactions.len(),
+                    1,
+                    "follow-up must touch the scenario account"
+                );
             }
             let header = Header {
                 number,
@@ -402,19 +471,48 @@ impl Fixture {
                     ..Default::default()
                 },
             );
-            let recovered = block.clone().try_into_recovered().unwrap();
-            let result = {
-                let mut executor = config
-                    .executor_for_block(&mut db, recovered.sealed_block())
-                    .unwrap();
+            let mut block = block;
+            let output = if scenario.native_prefix.is_empty() {
+                let recovered = block.clone().try_into_recovered().unwrap();
+                config.executor(&mut db).execute(&recovered).unwrap()
+            } else {
+                use alloy_consensus::transaction::{Recovered, SignerRecoverable as _};
+                use reth_evm::BlockExecutor as _;
+                let sealed = reth_primitives_traits::SealedBlock::seal_slow(block.clone());
+                let mut executor = config.executor_for_block(&mut db, &sealed).unwrap();
                 executor.apply_pre_execution_changes().unwrap();
-                for transaction in recovered.transactions_recovered() {
-                    executor.execute_transaction(transaction).unwrap();
+                for tx in &mut block.body.transactions {
+                    if let EezTxEnvelope::System(native) = tx {
+                        let mut rebound = (**native).clone();
+                        rebound.gas_limit = eez_primitives::system_tx_gas_limit(
+                            block.header.gas_limit,
+                            executor
+                                .receipts()
+                                .last()
+                                .map_or(0, |r| r.cumulative_gas_used),
+                        );
+                        *native = alloy_primitives::Sealed::new(rebound);
+                    }
+                    let recovered =
+                        Recovered::new_unchecked(tx.clone(), tx.recover_signer().unwrap());
+                    let pending = executor
+                        .execute_transaction_without_commit(recovered)
+                        .unwrap();
+                    executor.commit_transaction(pending).unwrap();
                 }
-                executor.finish().unwrap().1
+                executor.finish().unwrap()
             };
-            db.merge_transitions(BundleRetention::PlainState);
-            let bundle = db.take_bundle();
+            let bundle = &output.state;
+            if number == 7
+                && let Some((address, slot, expected)) = scenario.expected_child_storage
+            {
+                let change = &bundle.state[&address].storage[&slot];
+                assert_eq!(change.original_value(), U256::ZERO);
+                assert_eq!(
+                    change.present_value, expected,
+                    "child must execute the observed storage write"
+                );
+            }
             for (address, account) in &bundle.state {
                 if let Some(info) = &account.info {
                     let target = alloc.alloc.entry(*address).or_default();
@@ -426,6 +524,11 @@ impl Fixture {
                         .or_else(|| bundle.contracts.get(&info.code_hash))
                     {
                         target.code = Some(code.original_bytes());
+                    }
+                    if account.status.is_storage_known()
+                        && scenario.retain_prior_storage_at != Some(*address)
+                    {
+                        target.storage = None;
                     }
                     for (key, slot) in &account.storage {
                         target
@@ -445,10 +548,6 @@ impl Fixture {
                 U256::ZERO,
                 "closed block must burn the ordinary donation; observation still expects seven"
             );
-            let output = BlockExecutionOutput {
-                result,
-                state: bundle,
-            };
             let block = eez_driver::derivation::reassemble_full_from_replay(
                 &config,
                 &reth_primitives_traits::SealedHeader::seal_slow(parent.clone()),
@@ -477,7 +576,69 @@ impl Fixture {
             genesis,
             blocks,
             origin_hashes: [B256::ZERO, second.hash_slow()],
+            capture_states,
+            capture_config: config,
         }
+    }
+
+    /// Capture through the production driver, using exact parent state and real
+    /// trie witnesses. The returned feed is consumed unchanged by the signer.
+    pub(crate) fn captured(
+        &self,
+        observations: &[eez_driver::observation::BlockObservation],
+    ) -> (
+        Vec<BlockWitness>,
+        Vec<eez_driver::observation::ObservedOutcome>,
+    ) {
+        use alloy_rlp::Decodable as _;
+        let mut blocks = Vec::new();
+        let mut outcomes = Vec::new();
+        for (index, original) in self.blocks.iter().enumerate() {
+            let provider = super::capture_provider::Provider::new(
+                &self.capture_states[index],
+                &original.witness.as_ref().unwrap().headers,
+            );
+            let mut raw = original.rlp.as_slice();
+            let block = Block::decode(&mut raw)
+                .unwrap()
+                .try_into_recovered()
+                .unwrap();
+            assert!(raw.is_empty());
+            let claims = if index + 1 == self.blocks.len() {
+                observations
+            } else {
+                &[]
+            };
+            let (captured, observed) = eez_driver::witness::block_witness_with_observations(
+                &provider,
+                &self.capture_config,
+                &block,
+                eez_driver::witness::ExecutionWitnessMode::Legacy,
+                claims,
+            )
+            .unwrap();
+            assert_eq!(captured.rlp.as_ref(), original.rlp.as_slice());
+            let witness = captured.witness;
+            blocks.push(BlockWitness {
+                number: captured.number,
+                hash: captured.hash.to_vec(),
+                parent_hash: captured.parent_hash.to_vec(),
+                rlp: captured.rlp.to_vec(),
+                witness: Some(ExecutionWitness {
+                    state: witness.state.into_iter().map(|b| b.to_vec()).collect(),
+                    codes: witness.codes.into_iter().map(|b| b.to_vec()).collect(),
+                    keys: witness.keys.into_iter().map(|b| b.to_vec()).collect(),
+                    headers: witness.headers.into_iter().map(|b| b.to_vec()).collect(),
+                    l1_headers_rlp: captured
+                        .l1_headers_rlp
+                        .into_iter()
+                        .map(|b| b.to_vec())
+                        .collect(),
+                }),
+            });
+            outcomes.extend(observed);
+        }
+        (blocks, outcomes)
     }
 
     pub(crate) fn outcome(&self, balance: u64, origin: usize) -> Bytes {

@@ -1,7 +1,7 @@
 diff --git a/crates/rpc/rpc-builder/src/lib.rs b/crates/rpc/rpc-builder/src/lib.rs
 --- a/crates/rpc/rpc-builder/src/lib.rs
 +++ b/crates/rpc/rpc-builder/src/lib.rs
-@@ -577,6 +577,15 @@
+@@ -574,6 +574,15 @@
      /// Returns a reference to the installed [`EthHandlers`].
      pub const fn eth_handlers(&self) -> &EthHandlers<EthApi> {
          &self.eth
@@ -15,12 +15,12 @@ diff --git a/crates/rpc/rpc-builder/src/lib.rs b/crates/rpc/rpc-builder/src/lib.
 +    pub fn blocking_pool_guard(&self) -> BlockingTaskGuard {
 +        self.blocking_pool_guard.clone()
      }
-
+ 
      /// Returns a reference to the pool
-@@ -2407,6 +2416,46 @@
+@@ -2408,6 +2417,48 @@
  mod tests {
      use super::*;
-
+ 
 +    #[tokio::test]
 +    async fn test_exported_guard_shares_debug_quota() {
 +        use reth_consensus::noop::NoopConsensus;
@@ -60,6 +60,8 @@ diff --git a/crates/rpc/rpc-builder/src/lib.rs b/crates/rpc/rpc-builder/src/lib.
 +        assert_eq!(error.code(), -32602);
 +        assert_eq!(error.message(), "bundles are empty.");
 +    }
++
++
 +
      #[test]
      fn parse_eth_call_bundle_selection() {

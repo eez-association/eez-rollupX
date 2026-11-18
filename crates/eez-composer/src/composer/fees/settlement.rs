@@ -3,6 +3,7 @@
 //! estimation inputs. Actual dispatch still uses independent proof validation
 //! and `PostingRuntime::finalize` on the complete signed bundle.
 
+use alloy_consensus::{Transaction, TxEip4844, TxLegacy, transaction::Recovered};
 use alloy_primitives::{Address, B256, Bytes, I256, TxKind, U256, b256};
 use alloy_sol_types::{SolCall, SolEvent};
 use eez_protocol::{
@@ -15,16 +16,19 @@ use eez_protocol::{
     entries::EntryTrace,
     system_tx::OutboundSyncGroup,
 };
-use reth_evm::{ConfigureEvm, Evm as _, execute::BlockExecutor as _};
-use reth_primitives_traits::SealedHeader;
-use reth_revm::{database::StateProviderDatabase, db::State};
-use reth_storage_api::EvmStateProviderAdapter;
-use revm::{
-    Database, Inspector, Journal,
-    context::TxEnv,
-    context_interface::ContextTr,
-    interpreter::{CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome},
+use evm2::{
+    EvmFeatures, EvmTypes, Inspector,
+    ethereum::TxEnvelope,
+    evm::inspector::InspectorConfig,
+    interpreter::{InstrStop, Interpreter, Message, MessageKind, MessageResult},
 };
+use reth_evm::{
+    BlockExecutorFactory, ConfigureEvm, database::StateProviderDatabase,
+    execute::BlockExecutor as _,
+};
+use reth_evm_ethereum::EthEvmEnv;
+use reth_primitives_traits::SealedHeader;
+use reth_storage_api::EvmStateProviderAdapter;
 
 use super::super::posting::{EffectInspector, PostingQuote, PostingRuntime};
 use super::quote::FeeQuoteError;
@@ -178,7 +182,7 @@ impl PreparationCache {
 /// the L2 envelope. Blob count/fees and expected nested results remain bound.
 #[derive(Clone, PartialEq, Eq)]
 struct PreparedReplay {
-    tx: TxEnv,
+    tx: Recovered<TxEip4844>,
     verify_data: Bytes,
     endpoint: B256,
     rollup_id: u64,
@@ -338,36 +342,29 @@ fn read_call<C: SolCall>(
         .provider
         .state_by_block_hash(posting.quote.sample.hash)
         .map_err(unavailable)?;
-    let mut state = State::builder()
-        .with_database(StateProviderDatabase::new(EvmStateProviderAdapter(
-            provider,
-        )))
-        .build();
-    let mut env = posting.env.clone();
-    env.cfg_env.disable_nonce_check = true;
-    env.cfg_env.disable_balance_check = true;
-    env.cfg_env.disable_base_fee = true;
-    env.cfg_env.disable_fee_charge = true;
-    let mut evm = runtime.chain.evm_config.evm_with_env(&mut state, env);
-    let result = evm
-        .transact(TxEnv {
-            kind: TxKind::Call(to),
-            data: call.abi_encode().into(),
+    let state = StateProviderDatabase::new(EvmStateProviderAdapter(provider));
+    let mut env =
+        EthEvmEnv::new_with_version(posting.env.spec, posting.env.block, posting.env.version);
+    env.version
+        .features
+        .remove(EvmFeatures::NONCE_CHECK | EvmFeatures::BASE_FEE_CHECK);
+    eez_evm::disable_fee_charging(&mut env.version);
+    let mut evm = runtime.chain.evm_config.evm_with_env(state, env);
+    let tx = Recovered::new_unchecked(
+        eez_evm::EezEvmTx::Ethereum(TxEnvelope::Legacy(TxLegacy {
+            to: TxKind::Call(to),
+            input: call.abi_encode().into(),
             gas_limit: 1_000_000,
             chain_id: Some(runtime.ctx.l1_chain_id),
             ..Default::default()
-        })
-        .map_err(unavailable)?;
-    if !result.result.is_success() {
+        })),
+        Address::ZERO,
+    );
+    let result = evm.transact(&tx).map_err(unavailable)?.result;
+    if !result.is_success() {
         return Err(FeeQuoteError::Unsupported("settlement deployment lookup"));
     }
-    C::abi_decode_returns(
-        result
-            .result
-            .output()
-            .ok_or(FeeQuoteError::Unavailable("deployment output"))?,
-    )
-    .map_err(unavailable)
+    C::abi_decode_returns(&result.output).map_err(unavailable)
 }
 
 fn prepare_snapshot(
@@ -472,24 +469,25 @@ fn prepare(
     if funding.affordable_gas < 21_000 {
         return Err(FeeQuoteError::PosterFunds(Box::new(funding)));
     }
-    let tx = TxEnv {
-        tx_type: 3,
-        caller: poster,
-        kind: TxKind::Call(runtime.post_batch_target),
-        data: postAndVerifyBatchCall {
-            batch: batch.clone(),
-        }
-        .abi_encode()
-        .into(),
-        nonce: snapshot.poster_nonce,
-        gas_limit: funding.affordable_gas,
-        gas_price: posting.quote.max_fee_per_gas,
-        gas_priority_fee: Some(posting.quote.max_priority_fee_per_gas),
-        max_fee_per_blob_gas: posting.quote.max_fee_per_blob_gas,
-        blob_hashes: hashes,
-        chain_id: Some(runtime.ctx.l1_chain_id),
-        ..Default::default()
-    };
+    let tx = Recovered::new_unchecked(
+        TxEip4844 {
+            to: runtime.post_batch_target,
+            input: postAndVerifyBatchCall {
+                batch: batch.clone(),
+            }
+            .abi_encode()
+            .into(),
+            nonce: snapshot.poster_nonce,
+            gas_limit: funding.affordable_gas,
+            max_fee_per_gas: posting.quote.max_fee_per_gas,
+            max_priority_fee_per_gas: posting.quote.max_priority_fee_per_gas,
+            max_fee_per_blob_gas: posting.quote.max_fee_per_blob_gas,
+            blob_versioned_hashes: hashes,
+            chain_id: runtime.ctx.l1_chain_id,
+            ..Default::default()
+        },
+        poster,
+    );
     let endpoint = batch
         .entries
         .last()
@@ -519,7 +517,7 @@ fn estimate(
     let execute = |tx| replay(runtime, posting, prepared, tx, funding);
     let (used, required) = execute(prepared.tx.clone())?;
     let mut selected = prepared.tx.clone();
-    selected.gas_limit = runtime
+    selected.inner_mut().gas_limit = runtime
         .fees
         .declared_gas(required, funding.affordable_gas)
         .map_err(|error| {
@@ -529,7 +527,7 @@ fn estimate(
                 unavailable(error)
             }
         })?;
-    if selected.gas_limit == funding.affordable_gas {
+    if selected.gas_limit() == funding.affordable_gas {
         return Ok(used);
     }
     // As in final preflight, gas-sensitive code may need the larger verified
@@ -545,21 +543,17 @@ fn replay(
     runtime: &PostingRuntime,
     posting: &PostingQuote,
     prepared: &PreparedReplay,
-    tx: TxEnv,
+    tx: Recovered<TxEip4844>,
     funding: &crate::PosterBalanceError,
 ) -> Result<(u64, u64), FeeQuoteError> {
-    let gas_limit = tx.gas_limit;
+    let gas_limit = tx.gas_limit();
+    let tx = tx.map(|tx| TxEnvelope::Eip4844(tx.into()));
     let provider = runtime
         .chain
         .provider
         .state_by_block_hash(posting.quote.sample.hash)
         .map_err(unavailable)?;
-    let mut state = State::builder()
-        .with_database(StateProviderDatabase::new(EvmStateProviderAdapter(
-            provider,
-        )))
-        .with_bundle_update()
-        .build();
+    let mut state = StateProviderDatabase::new(EvmStateProviderAdapter(provider));
     let mut inspector = MeteredProof {
         registry: runtime.registry,
         verifier: runtime.ctx.ecdsa_proof_system_address,
@@ -575,20 +569,28 @@ fn replay(
             let context = config
                 .context_for_next_block(&$parent, posting.attributes.clone())
                 .map_err(unavailable)?;
-            let evm = config.evm_with_env(&mut state, posting.env.clone());
-            config
-                .create_executor(evm, context)
+            let env = EthEvmEnv::new_with_version(
+                posting.env.spec,
+                posting.env.block,
+                posting.env.version,
+            );
+            let evm = config.evm_with_env(&mut state, env);
+            let mut executor = config
+                .block_executor_factory()
+                .create_executor(evm, context);
+            executor
                 .apply_pre_execution_changes()
                 .map_err(unavailable)?;
-            let traced = crate::composer::quote_trace::inspect(
+            // Reuse the pre-execution EVM: accepted native changes live in its overlay.
+            let mut traced = crate::composer::quote_trace::inspect(
                 &mut inspector,
-                posting.env.cfg_env.chain_id,
+                posting.env.version.chain_id,
                 "settlement",
                 &tx,
             );
-            let mut evm =
-                config.evm_with_env_and_inspector(&mut state, posting.env.clone(), traced);
-            evm.transact(tx)
+            executor
+                .evm_mut()
+                .transact_with_inspector(&tx, &mut traced)
                 .map_err(|error| {
                     if funding.explains(gas_limit, &error) {
                         FeeQuoteError::PosterFunds(Box::new(funding.clone()))
@@ -596,7 +598,7 @@ fn replay(
                         unavailable(error)
                     }
                 })?
-                .result
+                .discard()
         }};
     }
     let result = if let Some(config) = &runtime.chain.gnosis_evm_config {
@@ -614,13 +616,7 @@ fn replay(
     };
     if funding.limits_probe()
         && gas_limit == funding.affordable_gas
-        && matches!(
-            result,
-            revm::context_interface::result::ExecutionResult::Halt {
-                reason: revm::context_interface::result::HaltReason::OutOfGas(_),
-                ..
-            }
-        )
+        && result.stop == InstrStop::OutOfGas
     {
         return Err(FeeQuoteError::PosterFunds(Box::new(funding.clone())));
     }
@@ -639,7 +635,7 @@ fn replay(
     }
     let mut last = None;
     for log in result
-        .logs()
+        .logs
         .iter()
         .filter(|log| log.address == runtime.registry)
     {
@@ -663,11 +659,8 @@ fn replay(
         tracing::debug!(%error, "settlement fee effects mismatch");
         FeeQuoteError::Unsupported("settlement effects mismatch")
     })?;
-    let gas = result.gas();
-    Ok((
-        gas.tx_gas_used(),
-        gas.total_gas_spent().max(gas.floor_gas()),
-    ))
+    let gas = result;
+    Ok((gas.tx_gas_used(), gas.total_gas_spent.max(gas.floor_gas)))
 }
 
 /// Execute the actual verifier bytecode and preserve all its gas consumption.
@@ -705,49 +698,66 @@ impl MeteredProof {
         !self.invalid && self.matches == 1 && self.completed == 1
     }
 
-    fn matches<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>>(
-        &self,
-        context: &C,
-        inputs: &CallInputs,
-    ) -> bool {
-        inputs.scheme == CallScheme::StaticCall
-            && inputs.is_static
+    fn matches<T: EvmTypes>(&self, context: &Interpreter<'_, '_, T>, inputs: &Message<T>) -> bool {
+        inputs.kind == MessageKind::StaticCall
+            && inputs.is_static()
             && inputs.caller == self.registry
-            && inputs.target_address == self.verifier
-            && inputs.bytecode_address == self.verifier
-            && &*inputs.input.as_bytes(context) == self.calldata.as_ref()
+            && inputs.destination == self.verifier
+            && inputs.code_address == self.verifier
+            && *inputs.input.to_bytes(context.memory()) == self.calldata.as_ref()
     }
 }
 
-impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> for MeteredProof {
-    fn create(&mut self, context: &mut C, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+impl<T: EvmTypes> Inspector<T> for MeteredProof {
+    fn inspector_config(&self) -> InspectorConfig {
+        InspectorConfig::without_steps()
+    }
+    fn create(
+        &mut self,
+        context: &mut Interpreter<'_, '_, T>,
+        inputs: &mut Message<T>,
+    ) -> Option<MessageResult<T>> {
         self.effects.create(context, inputs)
     }
 
-    fn create_end(&mut self, context: &mut C, inputs: &CreateInputs, outcome: &mut CreateOutcome) {
+    fn create_end(
+        &mut self,
+        context: &mut Interpreter<'_, '_, T>,
+        inputs: &Message<T>,
+        outcome: &mut MessageResult<T>,
+    ) {
         self.effects.create_end(context, inputs, outcome);
     }
 
-    fn call(&mut self, context: &mut C, inputs: &mut CallInputs) -> Option<CallOutcome> {
+    fn call(
+        &mut self,
+        context: &mut Interpreter<'_, '_, T>,
+        inputs: &mut Message<T>,
+    ) -> Option<MessageResult<T>> {
         if self.matches(context, inputs) {
             self.matches += 1;
         }
         self.effects.call(context, inputs)
     }
 
-    fn call_end(&mut self, context: &mut C, inputs: &CallInputs, outcome: &mut CallOutcome) {
+    fn call_end(
+        &mut self,
+        context: &mut Interpreter<'_, '_, T>,
+        inputs: &Message<T>,
+        outcome: &mut MessageResult<T>,
+    ) {
         if self.matches(context, inputs) {
             self.completed += 1;
             let zero = U256::ZERO.to_be_bytes::<32>();
             let one = U256::from(1).to_be_bytes::<32>();
             if self.matches != 1
                 || self.completed != 1
-                || !outcome.result.result.is_ok()
-                || (outcome.result.output.as_ref() != zero && outcome.result.output.as_ref() != one)
+                || !outcome.stop.is_success()
+                || (outcome.output.as_ref() != zero && outcome.output.as_ref() != one)
             {
                 self.invalid = true;
             } else {
-                outcome.result.output = one.to_vec().into();
+                outcome.output = one.to_vec().into();
             }
         }
         self.effects.call_end(context, inputs, outcome);
@@ -758,8 +768,10 @@ impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> fo
 mod tests {
     use super::*;
     use eez_protocol::{CallMode, ExecutedAction, ExecutionOutcome, RollupId};
-    use revm::interpreter::{CallInput, CallValue, Gas, InstructionResult, InterpreterResult};
-    use revm::{Context, MainContext, database::InMemoryDB};
+    use evm2::{
+        BaseEvmTypes, SpecId, ethereum::ethereum_tx_registry, evm::InMemoryDB,
+        precompiles::Precompiles,
+    };
 
     fn snapshot_fixture(nonce: u64) -> SnapshotPreparation {
         SnapshotPreparation {
@@ -844,11 +856,14 @@ mod tests {
 
     fn prepared_fixture() -> PreparedReplay {
         PreparedReplay {
-            tx: TxEnv {
-                gas_limit: 1_000_000,
-                data: Bytes::from_static(&[1, 2, 3]),
-                ..Default::default()
-            },
+            tx: Recovered::new_unchecked(
+                TxEip4844 {
+                    gas_limit: 1_000_000,
+                    input: Bytes::from_static(&[1, 2, 3]),
+                    ..Default::default()
+                },
+                Address::ZERO,
+            ),
             verify_data: Bytes::from_static(&[4, 5, 6]),
             endpoint: B256::repeat_byte(7),
             rollup_id: 1,
@@ -893,15 +908,22 @@ mod tests {
             assert_eq!(cache.measure(original.clone(), |_| Ok(123)).unwrap(), 123);
             let mut changed = original.clone();
             match variant {
-                0 => changed.tx.data = Bytes::from_static(&[9]),
-                1 => changed.tx.gas_limit -= 1,
-                2 => changed.tx.gas_price += 1,
-                3 => changed.tx.gas_priority_fee = Some(1),
-                4 => changed.tx.blob_hashes.push(B256::repeat_byte(1)),
-                5 => changed.tx.max_fee_per_blob_gas += 1,
-                6 => changed.tx.caller = Address::repeat_byte(9),
-                7 => changed.tx.nonce += 1,
-                8 => changed.tx.kind = TxKind::Call(Address::repeat_byte(9)),
+                0 => changed.tx.inner_mut().input = Bytes::from_static(&[9]),
+                1 => changed.tx.inner_mut().gas_limit -= 1,
+                2 => changed.tx.inner_mut().max_fee_per_gas += 1,
+                3 => changed.tx.inner_mut().max_priority_fee_per_gas = 1,
+                4 => changed
+                    .tx
+                    .inner_mut()
+                    .blob_versioned_hashes
+                    .push(B256::repeat_byte(1)),
+                5 => changed.tx.inner_mut().max_fee_per_blob_gas += 1,
+                6 => {
+                    changed.tx =
+                        Recovered::new_unchecked(changed.tx.into_inner(), Address::repeat_byte(9))
+                }
+                7 => changed.tx.inner_mut().nonce += 1,
+                8 => changed.tx.inner_mut().to = Address::repeat_byte(9),
                 9 => changed.verify_data = Bytes::from_static(&[9]),
                 10 => changed.endpoint = B256::repeat_byte(9),
                 11 => changed.rollup_id += 1,
@@ -956,7 +978,11 @@ mod tests {
         );
     }
 
-    fn fixture() -> (MeteredProof, CallInputs, CallOutcome) {
+    fn fixture() -> (
+        MeteredProof,
+        Message<BaseEvmTypes>,
+        MessageResult<BaseEvmTypes>,
+    ) {
         let registry = Address::repeat_byte(1);
         let verifier = Address::repeat_byte(2);
         let calldata: Bytes = verifyCall {
@@ -974,51 +1000,49 @@ mod tests {
             invalid: false,
             effects: EffectInspector::new(registry, 1, &[]).unwrap(),
         };
-        let input = CallInputs {
-            input: CallInput::Bytes(calldata),
-            return_memory_offset: 0..32,
+        let input = Message::<BaseEvmTypes> {
+            input: calldata.into(),
             gas_limit: 100_000,
             reservoir: 0,
-            bytecode_address: verifier,
-            known_bytecode: Default::default(),
-            target_address: verifier,
+            code_address: verifier,
+            destination: verifier,
+            call_target: verifier,
             caller: registry,
-            value: CallValue::Transfer(U256::ZERO),
-            scheme: CallScheme::StaticCall,
-            is_static: true,
-            charged_new_account_state_gas: false,
+            value: U256::ZERO,
+            kind: MessageKind::StaticCall,
+            caller_is_static: true,
+            ..Default::default()
         };
-        let mut gas = Gas::new(100_000);
-        assert!(gas.record_regular_cost(4_321));
-        let outcome = CallOutcome::new(
-            InterpreterResult::new(
-                InstructionResult::Return,
-                U256::ZERO.to_be_bytes::<32>().to_vec().into(),
-                gas,
-            ),
-            0..32,
-        );
+        let outcome = MessageResult::<BaseEvmTypes> {
+            stop: InstrStop::Return,
+            output: U256::ZERO.to_be_bytes::<32>().to_vec().into(),
+            gas: evm2::interpreter::GasTracker::new_used_gas(100_000, 4_321, 0),
+            ..Default::default()
+        };
         (inspector, input, outcome)
     }
 
     #[test]
     fn proof_assumption_runs_verifier_and_preserves_its_metered_gas() {
-        let mut context = Context::mainnet().with_db(InMemoryDB::default());
+        let mut host = evm2::Evm::<BaseEvmTypes>::new(
+            SpecId::OSAKA,
+            Default::default(),
+            ethereum_tx_registry(SpecId::OSAKA),
+            InMemoryDB::default(),
+            Precompiles::base(SpecId::OSAKA),
+        );
+        let frame = Message::<BaseEvmTypes>::default();
+        let mut context = Interpreter::<BaseEvmTypes>::new(&frame);
+        context.prepare_run(&mut host);
         let (mut inspector, mut input, mut outcome) = fixture();
-        let gas = outcome.result.gas;
+        let gas = outcome.gas;
         assert!(
             inspector.call(&mut context, &mut input).is_none(),
             "verifier must execute"
         );
         inspector.call_end(&mut context, &input, &mut outcome);
-        assert_eq!(
-            outcome.result.output.as_ref(),
-            U256::from(1).to_be_bytes::<32>()
-        );
-        assert_eq!(
-            outcome.result.gas, gas,
-            "assumption cannot erase verifier cost"
-        );
+        assert_eq!(outcome.output.as_ref(), U256::from(1).to_be_bytes::<32>());
+        assert_eq!(outcome.gas, gas, "assumption cannot erase verifier cost");
         assert_eq!(
             (inspector.matches, inspector.completed, inspector.invalid),
             (1, 1, false)
@@ -1033,29 +1057,41 @@ mod tests {
 
     #[test]
     fn proof_assumption_rejects_wrong_scope_reverts_and_malformed_returns() {
-        let mut context = Context::mainnet().with_db(InMemoryDB::default());
+        let mut host = evm2::Evm::<BaseEvmTypes>::new(
+            SpecId::OSAKA,
+            Default::default(),
+            ethereum_tx_registry(SpecId::OSAKA),
+            InMemoryDB::default(),
+            Precompiles::base(SpecId::OSAKA),
+        );
+        let frame = Message::<BaseEvmTypes>::default();
+        let mut context = Interpreter::<BaseEvmTypes>::new(&frame);
+        context.prepare_run(&mut host);
         for variant in 0..7 {
             let (mut inspector, mut input, mut outcome) = fixture();
             match variant {
                 0 => input.caller = Address::ZERO,
-                1 => input.target_address = Address::ZERO,
-                2 => input.bytecode_address = Address::ZERO,
-                3 => input.scheme = CallScheme::Call,
-                4 => input.is_static = false,
-                5 => input.input = CallInput::Bytes(Bytes::new()),
+                1 => input.destination = Address::ZERO,
+                2 => input.code_address = Address::ZERO,
+                3 => input.kind = MessageKind::Call,
+                4 => {
+                    input.kind = MessageKind::DelegateCall;
+                    input.caller_is_static = false;
+                }
+                5 => input.input = Bytes::new().into(),
                 _ => inspector.calldata = Bytes::new(),
             }
             assert!(inspector.call(&mut context, &mut input).is_none());
             inspector.call_end(&mut context, &input, &mut outcome);
             assert_eq!(inspector.matches, 0);
-            assert_eq!(outcome.result.output.as_ref(), [0; 32]);
+            assert_eq!(outcome.output.as_ref(), [0; 32]);
         }
         for variant in 0..3 {
             let (mut inspector, mut input, mut outcome) = fixture();
             match variant {
-                0 => outcome.result.result = InstructionResult::Revert,
-                1 => outcome.result.output = vec![1].into(),
-                _ => outcome.result.output = U256::from(2).to_be_bytes::<32>().to_vec().into(),
+                0 => outcome.stop = InstrStop::Revert,
+                1 => outcome.output = vec![1].into(),
+                _ => outcome.output = U256::from(2).to_be_bytes::<32>().to_vec().into(),
             }
             let original = outcome.clone();
             inspector.call(&mut context, &mut input);

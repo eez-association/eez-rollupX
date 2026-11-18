@@ -18,22 +18,20 @@ use reth_chainspec::{ChainSpecProvider, EthereumHardforks};
 use reth_consensus_common::validation::MAX_RLP_BLOCK_SIZE;
 use reth_errors::{BlockExecutionError, BlockValidationError, ConsensusError};
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
+use reth_evm::database::StateProviderDatabase;
 use reth_evm::{
-    ConfigureEvm, Evm, NextBlockEnvAttributes,
-    block::TxResult,
+    BlockExecutor, ConfigureEvm, EvmEnv, NextBlockEnvAttributes, OnStateHook,
     execute::{BlockBuilder, BlockBuilderOutcome},
 };
 use reth_execution_cache::{CachedStateMetrics, CachedStateMetricsSource, CachedStateProvider};
 use reth_payload_primitives::{PayloadAttributes, PayloadBuilderError};
 use reth_primitives_traits::SignedTransaction as _;
 use reth_primitives_traits::transaction::error::InvalidTransactionError;
-use reth_revm::{database::StateProviderDatabase, db::State};
 use reth_storage_api::{EvmStateProvider, StateProvider, StateProviderFactory};
 use reth_transaction_pool::{
     BestTransactions, BestTransactionsAttributes, PoolTransaction, ValidPoolTransaction,
     error::InvalidPoolTransactionError,
 };
-use revm::context_interface::{Block as _, Cfg as _};
 use std::sync::Arc;
 use tracing::{debug, trace, warn};
 
@@ -89,16 +87,12 @@ where
     );
     let chain_spec = client.chain_spec();
     let is_amsterdam = chain_spec.is_amsterdam_active_at_timestamp(attributes.timestamp());
-    let mut db = State::builder()
-        .with_database(cached_reads.as_db_mut(state))
-        .with_bundle_update()
-        .with_bal_builder_if(is_amsterdam)
-        .build();
+    let db = cached_reads.as_db_mut(state);
 
     let evm_config = evm_config.with_jit_support();
     let mut builder = evm_config
         .builder_for_next_block(
-            &mut db,
+            db,
             &parent_header,
             NextBlockEnvAttributes {
                 timestamp: attributes.timestamp(),
@@ -118,21 +112,29 @@ where
     let mut cumulative_tx_gas_used = 0;
     let mut block_regular_gas_used = 0;
     let mut block_state_gas_used = 0;
-    let block_gas_limit: u64 = builder.evm_mut().block().gas_limit();
-    let tx_gas_limit_cap = builder.evm_mut().cfg_env().tx_gas_limit_cap();
-    let base_fee = builder.evm_mut().block().basefee();
+    if is_amsterdam {
+        builder.executor_mut().enable_block_access_list_builder();
+    }
+    let block_gas_limit = builder
+        .evm_env()
+        .block_env()
+        .gas_limit
+        .saturating_to::<u64>();
+    let tx_gas_limit_cap = builder.evm_env().regular_gas_limit_cap();
+    let base_fee = builder.evm_env().block_base_fee();
 
     let mut best_txs = best_txs(BestTransactionsAttributes::new(base_fee, None));
     best_txs.skip_blobs();
     let mut total_fees = U256::ZERO;
 
-    // If we have a state-root task, wire a state hook that streams per-tx state diffs.
-    if let Some(task) = state_root_handle.as_mut() {
-        builder
-            .evm_mut()
-            .db_mut()
-            .set_state_hook(Some(Box::new(task.take_state_hook())));
-    }
+    // Stream the executor's accepted state, including block-finalization cleanup.
+    let use_state_root_task =
+        if let Some(task) = state_root_handle.as_mut().filter(|_| !skip_state_root) {
+            let mut hook = task.take_state_hook();
+            builder.set_state_hook(move |state| hook.on_state(state))
+        } else {
+            false
+        };
 
     builder.apply_pre_execution_changes().map_err(|err| {
         warn!(target: "payload_builder", %err, "failed to apply pre-execution changes");
@@ -239,10 +241,7 @@ where
             let miner_fee = tx.effective_tip_per_gas(base_fee);
             let tx_hash = *tx.tx_hash();
 
-            let mut tx_regular_gas_used = 0;
-            let gas_output = match builder.execute_transaction_with_result_closure(tx, |result| {
-                tx_regular_gas_used = result.result().result.gas().block_regular_gas_used();
-            }) {
+            let gas_output = match builder.execute_transaction(tx) {
                 Ok(gas_output) => gas_output,
                 Err(BlockExecutionError::Validation(BlockValidationError::InvalidTx {
                     error,
@@ -293,7 +292,7 @@ where
             let miner_fee = miner_fee.expect("fee is always valid; execution succeeded");
             total_fees += U256::from(miner_fee) * U256::from(gas_used);
             cumulative_tx_gas_used += gas_used;
-            block_regular_gas_used += tx_regular_gas_used;
+            block_regular_gas_used += gas_output.regular_gas_used();
             block_state_gas_used += gas_output.state_gas_used();
         }
     }
@@ -325,29 +324,17 @@ where
             state_provider.as_ref(),
             Some((parent_header.state_root(), Default::default())),
         )?
-    } else if let Some(mut task) = state_root_handle {
-        // Drop the state hook, which signals the state-root task to finalize.
-        builder.evm_mut().db_mut().set_state_hook(None);
-
-        // The state-root task has been computing incrementally alongside tx execution.
-        // This recv() waits for the final root hash — most work is already done.
-        // Fall back to sync state root if the trie pipeline fails.
-        match task.state_root() {
-            Ok(outcome) => {
-                debug!(target: "payload_builder", id=%payload_id, state_root=?outcome.state_root, job = task.name(), "received state root from state-root job");
-                builder.finish(
-                    state_provider.as_ref(),
-                    Some((
-                        outcome.state_root,
-                        Arc::unwrap_or_clone(outcome.trie_updates),
-                    )),
-                )?
-            }
+    } else if use_state_root_task {
+        let mut task =
+            state_root_handle.expect("state-root task exists when its hook was installed");
+        // Finish execution before waiting: final cleanup is part of the streamed root.
+        builder.finish_with_state_root(state_provider.as_ref(), |_| match task.state_root() {
+            Ok(outcome) => Ok(Some((outcome.state_root, Arc::unwrap_or_clone(outcome.trie_updates)))),
             Err(err) => {
                 warn!(target: "payload_builder", id=%payload_id, %err, "state-root job failed, falling back to sync state root");
-                builder.finish(state_provider.as_ref(), None)?
+                Ok(None)
             }
-        }
+        })?
     } else {
         builder.finish(state_provider.as_ref(), None)?
     };
@@ -373,3 +360,6 @@ where
         cached_reads,
     })
 }
+
+#[cfg(test)]
+mod tests;

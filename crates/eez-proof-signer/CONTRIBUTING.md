@@ -103,9 +103,10 @@ execution binding, value, call-hash, and outcome checks in `settlement/`.
 
 ## Pinned Stateless fork
 
-The production dependency pins the
-[EEZ Stateless fork](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8).
-This crate consumes it through the root workspace dependency. The fork exposes the computed pre-state and post-state roots and
+The [root workspace dependency](../../Cargo.toml) selects the published
+[EEZ Stateless fork](https://github.com/eez-association/stateless/tree/9dd4cb3840b3b0535daae436ed44b9c3b1a04c0d)
+at commit `9dd4cb3840b3b0535daae436ed44b9c3b1a04c0d`, aligned with Reth 2.11.
+The fork exposes the computed pre-state and post-state roots and
 selected transaction-state checkpoints while preserving upstream
 Stateless/Reth consensus and execution validation.
 
@@ -127,7 +128,7 @@ needs focused fixture coverage.
   Composer-controlled semantic rejection as a failed precondition.
 - Add focused tests beside the owning module and a service-level regression
   when orchestration, status mapping, timeout, cancellation, or signing changes.
-- This crate requires Rust 1.95.
+- This crate requires Rust 1.96.
 
 ## Verify
 
@@ -140,16 +141,16 @@ rules do not establish current validity.
 From the repository root:
 
 ```bash
-cargo +1.95.0 fmt --package eez-proof-signer -- --check
-cargo +1.95.0 check --package eez-proof-signer --all-targets --locked
-cargo +1.95.0 clippy --package eez-proof-signer --all-targets --all-features --locked -- -D warnings
-cargo +1.95.0 test --package eez-proof-signer --locked
-RUSTDOCFLAGS='-D warnings' cargo +1.95.0 doc --package eez-proof-signer --no-deps --locked
+cargo +1.96.0 fmt --package eez-proof-signer -- --check
+cargo +1.96.0 check --package eez-proof-signer --all-targets --locked
+cargo +1.96.0 clippy --package eez-proof-signer --all-targets --all-features --locked -- -D warnings
+cargo +1.96.0 test --package eez-proof-signer --locked
+RUSTDOCFLAGS='-D warnings' cargo +1.96.0 doc --package eez-proof-signer --no-deps --locked
 ```
 
 When changing the dependency, run the fork's checkpoint and trie checks at the
-exact proposed commit, following its
-[host validation instructions](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8#eez-reth-compatibility-branch).
+exact proposed commit, following that checkout's `README.md` section
+`EEZ Reth compatibility branch`.
 Those crates live in a separate repository, so EEZ workspace tests do not execute
 their own tests. Run the fork checks in its exact pinned checkout, then rerun
 the signer checks and affected process tests with EEZ's root lockfile.

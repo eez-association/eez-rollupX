@@ -142,7 +142,7 @@ if [[ "$operation" == prepare-state ]]; then
     }
     mkdir "$state_dir"
     set_build_cap
-    rust_base="$(resolve_base "${RUST_IMAGE:-rust:1.95.0-bookworm}")"
+    rust_base="$(resolve_base "${RUST_IMAGE:-rust:1.96.0-bookworm}")"
     "${state_build[@]}" --build-arg "RUST_IMAGE=$rust_base" --target build-contract \
         --output "type=local,dest=$state_dir/contract" .
     compatibility="$( { printf '%s\n' "$rust_base"; cat "$state_dir/contract/toolchain.txt";
@@ -277,7 +277,7 @@ if [[ "$cache" == true && "$publish" == true && "${GITHUB_REF:-}" == refs/* ]]; 
 fi
 echo "==> BuildKit cache: $cache_status"
 
-[[ "$state_cache" == true ]] || rust_base="$(resolve_base "${RUST_IMAGE:-rust:1.95.0-bookworm}")"
+[[ "$state_cache" == true ]] || rust_base="$(resolve_base "${RUST_IMAGE:-rust:1.96.0-bookworm}")"
 runtime_base="$(resolve_base "${RUNTIME_IMAGE:-debian:bookworm-slim}")"
 build=(docker buildx build --builder default --platform linux/amd64 --progress plain --provenance=false
        --build-arg "RUNTIME_IMAGE=$runtime_base")

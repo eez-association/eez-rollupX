@@ -736,6 +736,20 @@ using the fork's native blob layout. Alternative wrapper ABIs or internal batch
 rewrites require separate support. A poster changing dispatch must re-estimate gas
 for that path; the original queue-only estimate need not cover its callback.
 
+### Reth 2.11 dependency upgrade
+
+Use matching tested Composer, follower and signer artifacts; preserve the current
+network profile, storage, pruning and Engine settings. Follow the
+[coordinated recovery procedure](#coordinated-recovery-procedure), with readers/signers
+ready before Composer. Rehearse on consistent copies of node and witness data;
+disposable tests required no migration or resync but do not qualify mixed-version
+operation or in-place downgrade. Retain pre-upgrade data and artifacts for recovery.
+Confirm all database writers have exited before copying files; shutdown can wait
+indefinitely. See [vendor notes](../../crates/vendor/reth/README.md) for validation limits,
+including opt-in shared sparse-trie payload building.
+
+### Coordinated recovery procedure
+
 For ordered restore/replay setup, use the
 [existing-rollup Composer procedure](chiado-existing-rollup.md).
 

@@ -592,7 +592,7 @@ genesis_state_root() {
     else
         (
             cd "$REPO"
-            cargo +1.95.0 run --quiet --locked --package eez-node --example genesis_state_root -- "$genesis"
+            cargo +1.96.0 run --quiet --locked --package eez-node --example genesis_state_root -- "$genesis"
         )
     fi
 }

@@ -17,7 +17,7 @@ import tarfile
 
 REPO = Path(__file__).resolve().parents[2]
 NEXTEST_VERSION = "0.9.143"
-RUST_VERSION = "1.95.0"
+RUST_VERSION = "1.96.0"
 RUSTFLAGS = "-C link-arg=-fuse-ld=mold"
 RUNTIME_BINARIES = ("eez-composer", "eez-follower", "eez-proof-signer")
 # Written only after the producer suite passes for this exact manifest. It gates

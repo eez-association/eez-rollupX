@@ -119,7 +119,7 @@ compute_genesis_state_root() {
     else
         (
             cd "$REPO"
-            cargo +1.95.0 run --quiet --locked --package eez-node --example genesis_state_root -- "$genesis"
+            cargo +1.96.0 run --quiet --locked --package eez-node --example genesis_state_root -- "$genesis"
         )
     fi
 }
@@ -131,7 +131,7 @@ compute_genesis_block_hash() {
     else
         (
             cd "$REPO"
-            cargo +1.95.0 run --quiet --locked --package eez-node --example genesis_block_hash -- "$genesis" "${@:2}"
+            cargo +1.96.0 run --quiet --locked --package eez-node --example genesis_block_hash -- "$genesis" "${@:2}"
         )
     fi
 }

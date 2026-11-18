@@ -1508,11 +1508,11 @@ fn append_and_execute(
 
 /// Take the L1 session's accumulated effects for commit into the slot's state.
 /// The payload shape is pinned by `L1TargetSession::checkpoint`: a boxed
-/// `CacheState` and nothing else.
+/// `OverlaySnapshot` and nothing else.
 fn take_l1_cache(
     sessions: &mut SlotSessions,
     l1_rollup_id: eez_protocol::RollupId,
-) -> Result<revm::database::CacheState, String> {
+) -> Result<eez_evm_inspector::OverlaySnapshot, String> {
     let mut session = sessions
         .remove(&l1_rollup_id)
         .ok_or_else(|| format!("composition returned no session for L1 rollup {l1_rollup_id}"))?;
@@ -1520,9 +1520,9 @@ fn take_l1_cache(
         .checkpoint()
         .map_err(|e| format!("L1 session checkpoint: {e}"))?;
     snapshot
-        .downcast::<revm::database::CacheState>()
+        .downcast::<eez_evm_inspector::OverlaySnapshot>()
         .map(|cache| *cache)
-        .map_err(|_e| "L1 session checkpoint payload is not a CacheState".to_owned())
+        .map_err(|_e| "L1 session checkpoint payload is not an OverlaySnapshot".to_owned())
 }
 
 /// Hex of the first 32 bytes of a revert/return payload, for event messages.
@@ -2057,7 +2057,7 @@ where
         let config = self.inner.evm_config.clone();
         let witnesses = self.inner.witness_source.clone();
         tokio::task::spawn_blocking(move || {
-            use reth_revm::database::StateProviderDatabase;
+            use reth_evm::database::StateProviderDatabase;
             use reth_storage_api::EvmStateProviderAdapter;
             // Fast local catch-up can outrun asynchronous capture and Reth's
             // retained trie overlays. Persist this exact parent before advancing;
@@ -2070,7 +2070,9 @@ where
             let state = provider
                 .state_by_block_hash(parent.header.hash())
                 .map_err(|e| e.to_string())?;
-            let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state.as_ref()));
+            let mut db = evm2::evm::Db::new(StateProviderDatabase::new(EvmStateProviderAdapter(
+                state.as_ref(),
+            )));
             let (history, tx) = config
                 .prepare_history(&mut db, &parent.header, attributes.timestamp)
                 .map_err(|e| e.to_string())?;
@@ -3362,7 +3364,7 @@ where
             admission.selected,
             l1_state.posting.as_ref().map_or_else(
                 || l1_state.anchor.base_fee_per_gas.unwrap_or_default(),
-                |(env, _, _)| env.block_env.basefee,
+                |(env, _, _)| env.block.basefee.saturating_to::<u64>(),
             ),
             draft.base_fee(),
         );
@@ -4907,7 +4909,7 @@ where
                     sync_txs.extend(deliveries);
                     // The source fork carries the L1 user tx's committed writes;
                     // later inbound sims must observe them (design §4 step 6).
-                    l1_state.cache = l1_fork.cache;
+                    l1_state.cache = l1_fork.take_snapshot();
 
                     let target_count = target_entries.len();
                     pending_in.extend(target_entries);
@@ -9173,7 +9175,12 @@ mod tests {
         use crate::local::client::session_tests::{
             manager_lookup_errors, manager_lookup_execution_error,
         };
-        for error in manager_lookup_errors() {
+        for error in manager_lookup_errors()
+            .into_iter()
+            .chain([true, false].map(|account| {
+                crate::local::client::session_tests::proxy_lookup::injected_error(account, true)
+            }))
+        {
             let error = eez_protocol::ComposerError::from(error);
             assert!(!sim_error_is_poison(&error), "{error:?}");
             assert_eq!(source_condition(&error), None);

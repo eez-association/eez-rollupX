@@ -14,7 +14,9 @@ eez-protocol.workspace = true
 alloy-genesis.workspace = true
 alloy-consensus.workspace = true
 alloy-eips.workspace = true
-alloy-evm.workspace = true
+evm2.workspace = true
+alloy-eip7928.workspace = true
+reth-execution-types.workspace = true
 alloy-primitives.workspace = true
 alloy-rpc-types-engine.workspace = true
 reth-chainspec.workspace = true
@@ -22,7 +24,6 @@ reth-evm.workspace = true
 reth-evm-ethereum.workspace = true
 reth-primitives-traits.workspace = true
 reth-storage-errors.workspace = true
-revm.workspace = true
 alloy-rpc-types-debug = { workspace = true, optional = true }
 reth-trie-common = { workspace = true, optional = true }
 stateless-reth = { workspace = true, optional = true }

@@ -344,10 +344,10 @@ fn legacy_admission_preserves_gas_price_and_requires_replay_protection() {
     assert!(fields.get("maxFeePerGas").is_none());
     assert!(fields.get("maxPriorityFeePerGas").is_none());
     let env = request.env(5, 15);
-    assert_eq!(env.tx_type, 0);
-    assert_eq!(env.gas_priority_fee, None);
-    assert_eq!(env.gas_price, 15);
-    assert_eq!(env.chain_id, Some(1));
+    assert!(matches!(env.inner(), evm2::ethereum::TxEnvelope::Legacy(_)));
+    assert_eq!(env.max_priority_fee_per_gas(), None);
+    assert_eq!(env.max_fee_per_gas(), 15);
+    assert_eq!(env.chain_id(), Some(1));
 
     tx.chain_id = None;
     let signature = signer.sign_transaction_sync(&mut tx).unwrap();
@@ -413,10 +413,10 @@ fn placeholder_bounds_signature_encoding_but_env_has_real_sender() {
         );
     }
     let env = request.env(5, 15);
-    assert_eq!(env.caller, request.sender);
-    assert_eq!(env.gas_priority_fee, Some(5));
-    assert_eq!(env.gas_price, 15);
-    assert_eq!(env.gas_limit, 100_000);
+    assert_eq!(env.signer(), request.sender);
+    assert_eq!(env.max_priority_fee_per_gas(), Some(5));
+    assert_eq!(env.max_fee_per_gas(), 15);
+    assert_eq!(env.gas_limit(), 100_000);
 }
 
 #[test]

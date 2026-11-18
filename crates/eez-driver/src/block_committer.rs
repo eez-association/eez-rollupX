@@ -1159,7 +1159,11 @@ mod witness_receiver_tests {
             for _ in 0..if sequence { 4 } else { 3 } {
                 let valid = PayloadStatus::from_status(PayloadStatusEnum::Valid);
                 match engine_rx.recv().await.unwrap() {
-                    BeaconEngineMessage::NewPayload { payload, tx } => {
+                    BeaconEngineMessage::NewPayload {
+                        payload,
+                        tx,
+                        cause: _,
+                    } => {
                         assert_eq!(payload.block_hash(), header.hash());
                         calls.push("new_payload");
                         tx.send(Ok(valid)).unwrap();
@@ -1168,6 +1172,7 @@ mod witness_receiver_tests {
                         state,
                         payload_attrs,
                         tx,
+                        cause: _,
                     } => {
                         assert_eq!(state.safe_block_hash, initial.hash());
                         assert_eq!(state.finalized_block_hash, initial.hash());

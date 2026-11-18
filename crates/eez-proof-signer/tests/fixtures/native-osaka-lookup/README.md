@@ -64,7 +64,7 @@ The request grew from 473,911 to 495,704 bytes. Its Keccak changed from
 Run the ignored utility explicitly:
 
 ```bash
-cargo +1.95.0 test --locked -p eez-proof-signer -- --ignored --exact service::tests::derivation::captured::supplement_native_lookup_capture_witness
+cargo +1.96.0 test --locked -p eez-proof-signer -- --ignored --exact service::tests::derivation::captured::supplement_native_lookup_capture_witness
 ```
 
 Then regenerate dependent streaming vectors using the

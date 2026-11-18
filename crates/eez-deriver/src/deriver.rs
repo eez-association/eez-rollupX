@@ -19,18 +19,18 @@ use eez_payload_codec::v0::Payload;
 use eez_primitives::engine::EezEngineTypes;
 use eez_primitives::{Block as EthereumBlock, EezTxEnvelope as TransactionSigned};
 use eez_protocol::outbound_gate::OutboundCallObservation;
+use evm2::evm::Db;
 use reth_chainspec::ChainSpec;
+use reth_evm::database::StateProviderDatabase;
 use reth_evm::{ConfigureEvm, execute::BlockBuilder};
 use reth_payload_primitives::PayloadTypes;
 use reth_primitives_traits::{
     AlloyBlockHeader, Block, BlockBody, SealedHeader, SignedTransaction, SignerRecoverable,
 };
 use reth_provider::StateProviderFactory;
-use reth_revm::database::StateProviderDatabase;
 use reth_storage_api::{
     BlockReader, EvmStateProviderAdapter, ReceiptProvider, TransactionsProvider,
 };
-use revm::database::State;
 use tokio::sync::broadcast;
 use tracing::{Level, event};
 
@@ -314,7 +314,9 @@ where
             .l2_provider
             .state_by_block_hash(endpoint_header.hash_slow())
             .map_err(DeriverError::l2_provider)?;
-        let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(provider.as_ref()));
+        let mut db = Db::new(StateProviderDatabase::new(EvmStateProviderAdapter(
+            provider.as_ref(),
+        )));
         let endpoint_history = self
             .inner
             .evm_config
@@ -392,8 +394,9 @@ where
                         .l2_provider
                         .state_by_block_hash(retained.hash())
                         .map_err(DeriverError::l2_provider)?;
-                    let mut db =
-                        StateProviderDatabase::new(EvmStateProviderAdapter(provider.as_ref()));
+                    let mut db = Db::new(StateProviderDatabase::new(EvmStateProviderAdapter(
+                        provider.as_ref(),
+                    )));
                     let (_, history) = self
                         .inner
                         .evm_config
@@ -433,7 +436,9 @@ where
                 .l2_provider
                 .state_by_block_hash(parent.hash_slow())
                 .map_err(DeriverError::l2_provider)?;
-            let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state.as_ref()));
+            let mut db = Db::new(StateProviderDatabase::new(EvmStateProviderAdapter(
+                state.as_ref(),
+            )));
             self.inner
                 .evm_config
                 .history_state(&mut db)
@@ -493,7 +498,9 @@ where
             .l2_provider
             .state_by_block_hash(block.hash())
             .map_err(DeriverError::l2_provider)?;
-        let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state.as_ref()));
+        let mut db = Db::new(StateProviderDatabase::new(EvmStateProviderAdapter(
+            state.as_ref(),
+        )));
         let origin = self
             .inner
             .evm_config
@@ -1328,11 +1335,7 @@ where
                 );
                 DeriverError::l2_provider(e)
             })?;
-        let state_db = StateProviderDatabase::new(EvmStateProviderAdapter(state_provider.as_ref()));
-        let mut db = State::builder()
-            .with_database(state_db)
-            .with_bundle_update()
-            .build();
+        let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state_provider.as_ref()));
 
         let attributes = inputs.attributes(&self.inner.evm_config, parent_header, raw_txs)?;
         let block_gas_limit = attributes.gas_limit;
@@ -2212,7 +2215,9 @@ where
                 .l2_provider
                 .state_by_block_hash(original_parent.hash_slow())
                 .map_err(DeriverError::l2_provider)?;
-            let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state.as_ref()));
+            let mut db = Db::new(StateProviderDatabase::new(EvmStateProviderAdapter(
+                state.as_ref(),
+            )));
             self.inner
                 .evm_config
                 .history_state(&mut db)
@@ -2866,7 +2871,9 @@ where
             .l2_provider
             .state_by_block_hash(parent.hash())
             .map_err(DeriverError::l2_provider)?;
-        let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state.as_ref()));
+        let mut db = Db::new(StateProviderDatabase::new(EvmStateProviderAdapter(
+            state.as_ref(),
+        )));
         let first = raw_txs
             .first()
             .map(|raw| TransactionSigned::decode_2718_exact(raw))

@@ -35,18 +35,15 @@ impl PosterBalanceError {
         self.affordable_gas < self.gas_budget
     }
 
-    pub(crate) fn explains(&self, gas_limit: u64, error: &impl reth_evm::EvmError) -> bool {
-        use reth_evm::InvalidTxError;
-        use revm::context_interface::result::InvalidTransaction;
-        error.as_invalid_tx_err().is_some_and(|error| {
-            (self.limits_probe()
-                && gas_limit == self.affordable_gas
-                && error.is_gas_limit_too_low())
-                || matches!(
-                    error.as_invalid_tx_err(),
-                    Some(InvalidTransaction::LackOfFundForMaxFee { .. })
-                )
-        })
+    pub(crate) fn explains(&self, gas_limit: u64, error: &evm2::registry::HandlerError) -> bool {
+        use evm2::registry::HandlerError;
+        (self.limits_probe()
+            && gas_limit == self.affordable_gas
+            && matches!(
+                error,
+                HandlerError::IntrinsicGasTooLow { .. } | HandlerError::GasLimitBelowFloor { .. }
+            ))
+            || matches!(error, HandlerError::InsufficientFunds { .. })
     }
 }
 
@@ -171,8 +168,7 @@ impl std::fmt::Display for FundingDiagnostic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use revm::context_interface::result::{EVMError, InvalidTransaction};
-    use std::convert::Infallible;
+    use evm2::registry::HandlerError;
 
     #[test]
     fn poster_diagnostic_does_not_misclassify_a_tighter_replay_or_unrelated_error() {
@@ -188,27 +184,40 @@ mod tests {
                 hash: Default::default(),
             },
         };
-        let intrinsic: EVMError<Infallible> =
-            EVMError::Transaction(InvalidTransaction::CallGasCostMoreThanGasLimit {
-                initial_gas: 60_000,
-                gas_limit: 50_000,
-            });
+        let intrinsic = HandlerError::IntrinsicGasTooLow {
+            required: 60_000,
+            got: 50_000,
+        };
         assert!(funds.explains(50_000, &intrinsic));
+        let floor = HandlerError::GasLimitBelowFloor {
+            required: 60_000,
+            got: 50_000,
+        };
+        assert!(funds.explains(50_000, &floor));
+        assert!(!funds.explains(40_000, &floor));
+        assert!(!funds.explains(
+            50_000,
+            &HandlerError::IntrinsicGasGreaterThanCap {
+                required: 60_000,
+                cap: 50_000,
+            }
+        ));
         // A smaller measured replay may fail while the affordable probe works;
         // that must preserve the existing fallback to the successful probe.
         assert!(!funds.explains(40_000, &intrinsic));
         funds.affordable_gas = funds.gas_budget;
         assert!(!funds.explains(100_000, &intrinsic));
-        let balance: EVMError<Infallible> =
-            EVMError::Transaction(InvalidTransaction::LackOfFundForMaxFee {
-                fee: Box::new(U256::from(100_000)),
-                balance: Box::new(funds.available),
-            });
+        let balance = HandlerError::InsufficientFunds {
+            fee: U256::from(100_000),
+            balance: funds.available,
+        };
         assert!(funds.explains(100_000, &balance));
-        let nonce: EVMError<Infallible> =
-            EVMError::Transaction(InvalidTransaction::NonceTooLow { tx: 0, state: 1 });
+        let nonce = HandlerError::InvalidNonce {
+            got: 0,
+            expected: 1,
+        };
         assert!(!funds.explains(100_000, &nonce));
-        let provider: EVMError<Infallible> = EVMError::Custom("unavailable".into());
+        let provider = HandlerError::Database(evm2::DatabaseError::new(std::fmt::Error, false));
         assert!(!funds.explains(100_000, &provider));
     }
 }

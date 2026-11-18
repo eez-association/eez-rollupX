@@ -18,22 +18,22 @@ use eez_l1::{
     },
 };
 use eez_protocol::{CallMode, ExecutionOutcome, blob_semantics::SemanticTransaction};
+use evm2::{
+    EvmTypes, Inspector,
+    evm::inspector::InspectorConfig,
+    interpreter::{InstrStop, Interpreter, Message, MessageKind, MessageResult},
+};
 use reth_chainspec::EthereumHardforks;
 use reth_ethereum_primitives::TransactionSigned;
 use reth_evm::{
-    ConfigureEvm, EvmEnv, NextBlockEnvAttributes, block::BlockExecutor, eth::EthTxResult,
+    BlockExecutorFactory, ConfigureEvm, NextBlockEnvAttributes,
+    database::StateProviderDatabase,
+    execute::{BlockExecutor, BlockTransactionResult},
 };
+use reth_evm_ethereum::EthEvmEnv;
 use reth_primitives_traits::{Recovered, SealedHeader, SignerRecoverable};
-use reth_revm::{database::StateProviderDatabase, db::State};
 use reth_storage_api::EvmStateProviderAdapter;
-use revm::{
-    Database, Inspector,
-    context::Journal,
-    context_interface::{Cfg as _, ContextTr},
-    interpreter::{
-        CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, InstructionResult,
-    },
-};
+
 use tracing::{Level, event};
 
 use super::CrossChainExecCtx;
@@ -92,7 +92,7 @@ pub(super) struct PostingQuote {
     pub quote: FeeQuote,
     pub parent: Header,
     pub(super) attributes: NextBlockEnvAttributes,
-    pub env: EvmEnv,
+    pub env: reth_evm::EvmEnvFor<eez_evm::EezEvmConfig>,
     pub gas_budget: u64,
 }
 
@@ -154,7 +154,13 @@ impl PostingRuntime {
         &self,
         parent: &Header,
         target: BundleTarget,
-    ) -> Result<(EvmEnv, NextBlockEnvAttributes), PostingError> {
+    ) -> Result<
+        (
+            reth_evm::EvmEnvFor<eez_evm::EezEvmConfig>,
+            NextBlockEnvAttributes,
+        ),
+        PostingError,
+    > {
         let BundleTarget::Exact { block, timestamp } = target else {
             return Err(PostingError::Unavailable("unresolved target".into()));
         };
@@ -182,16 +188,21 @@ impl PostingRuntime {
             slot_number: None,
         };
         let mut env = if let Some(config) = &self.chain.gnosis_evm_config {
-            config.next_evm_env(&parent.clone().into(), &attributes)
+            // Both networks have unit block extensions. Preserve the Gnosis-derived
+            // version/fees here; execution still uses its native factory below.
+            config
+                .next_evm_env(&parent.clone().into(), &attributes)
+                .map(|env| EthEvmEnv::new_with_version(env.spec, env.block, env.version))
         } else {
             reth_evm_ethereum::EthEvmConfig::new(Arc::clone(self.chain.evm_config.chain_spec()))
                 .next_evm_env(parent, &attributes)
+                .map(|env| EthEvmEnv::new_with_version(env.spec, env.block, env.version))
         }
         .map_err(|error| PostingError::Unavailable(error.to_string()))?;
         // Conservative planning may be more than one block ahead. Final
         // execution below requires the exact next parent and rebuilds the env.
-        env.block_env.number = U256::from(block);
-        if env.block_env.blob_excess_gas_and_price.is_none() {
+        env.block.number = U256::from(block);
+        if env.spec < evm2::SpecId::CANCUN || env.block.blob_basefee.is_zero() {
             return Err(PostingError::Unavailable(
                 "target fork has no blob pricing rules".into(),
             ));
@@ -202,8 +213,8 @@ impl PostingRuntime {
     pub fn gas_budget(&self, parent: &Header, target: BundleTarget) -> Result<u64, PostingError> {
         let (env, _) = self.environment(parent, target)?;
         Ok(env
-            .cfg_env
-            .tx_gas_limit_cap()
+            .version
+            .tx_gas_limit_cap
             .min(parent.gas_limit)
             .min(self.operator_gas_cap))
     }
@@ -213,11 +224,7 @@ impl PostingRuntime {
         parent: &Header,
         target: BundleTarget,
     ) -> Result<u64, PostingError> {
-        Ok(self
-            .environment(parent, target)?
-            .0
-            .cfg_env
-            .tx_gas_limit_cap())
+        Ok(self.environment(parent, target)?.0.version.tx_gas_limit_cap)
     }
 
     /// Sample only for selected posting work. An unset override uses recent
@@ -300,7 +307,7 @@ impl PostingRuntime {
                 },
             };
         let (env, attributes) = self.environment(&parent, target)?;
-        if final_parent && sample.number.checked_add(1) != Some(env.block_env.number.to::<u64>()) {
+        if final_parent && sample.number.checked_add(1) != Some(env.block.number.to::<u64>()) {
             return Err(PostingError::Unavailable(
                 "target's canonical parent is not yet available".into(),
             ));
@@ -357,11 +364,8 @@ impl PostingRuntime {
             chain_id,
             block: sample,
             target,
-            execution_base_fee: Some(u128::from(env.block_env.basefee)),
-            blob_base_fee: env
-                .block_env
-                .blob_excess_gas_and_price
-                .map(|blob| blob.blob_gasprice),
+            execution_base_fee: Some(env.block.basefee.saturating_to::<u128>()),
+            blob_base_fee: Some(env.block.blob_basefee.saturating_to::<u128>()),
             profile,
             estimated_priority_fee,
         })?;
@@ -376,19 +380,19 @@ impl PostingRuntime {
             ));
         }
         let gas_budget = env
-            .cfg_env
-            .tx_gas_limit_cap()
+            .version
+            .tx_gas_limit_cap
             .min(parent.gas_limit)
             .min(self.operator_gas_cap);
         event!(name: "eez.composer.postbatch.fee_quote", Level::INFO,
             event_name = "eez.composer.postbatch.fee_quote", chain_id, sample_block = sample.number,
             sample_hash = %sample.hash, target = ?target, gas_budget,
-            network_transaction_gas_max = env.cfg_env.tx_gas_limit_cap(), block_gas = parent.gas_limit,
+            network_transaction_gas_max = env.version.tx_gas_limit_cap, block_gas = parent.gas_limit,
             operator_gas_cap = self.operator_gas_cap, priority_source = if self.fees.priority_override.is_some() { "override" } else if filtered_priority { "filtered_receipts" } else { "fee_history" },
             excluded_priority_transactions,
             priority_history_blocks = PRIORITY_FEE_HISTORY_BLOCKS,
             priority_profile = ?profile, priority_reward_percentile = percentile,
-            execution_base_fee = env.block_env.basefee, blob_base_fee = quote.estimated_blob_gas_price,
+            execution_base_fee = %env.block.basefee, blob_base_fee = quote.estimated_blob_gas_price,
             estimated_priority_fee,
             priority_min = self.fees.priority_min, priority_max = self.fees.priority_max_for(profile),
             priority_fee = quote.max_priority_fee_per_gas, execution_fee_cap = quote.max_fee_per_gas,
@@ -419,7 +423,7 @@ impl PostingRuntime {
         let mut blob_counts = Vec::with_capacity(raw.len());
         for bytes in raw {
             let (transaction, blobs) = decode_transaction(bytes)?;
-            if transaction.gas_limit() > quote.env.cfg_env.tx_gas_limit_cap() {
+            if transaction.gas_limit() > quote.env.version.tx_gas_limit_cap {
                 return Err(PostingError::Capacity(
                     "companion or poster exceeds active per-transaction gas limit".into(),
                 ));
@@ -477,19 +481,15 @@ impl PostingRuntime {
             .provider
             .state_by_block_hash(quote.quote.sample.hash)
             .map_err(|e| PostingError::Unavailable(e.to_string()))?;
-        let mut state = State::builder()
-            .with_database(StateProviderDatabase::new(EvmStateProviderAdapter(
-                provider,
-            )))
-            .with_bundle_update()
-            .build();
-        let selected = self.gas_trace.as_ref().and_then(|config| {
-            semantics
+        let mut state = StateProviderDatabase::new(EvmStateProviderAdapter(provider));
+        let selected = match self.gas_trace.as_ref() {
+            Some(config) => semantics
                 .iter()
                 .map(|semantic| alloy_primitives::keccak256(&semantic.tx_data))
                 .find(|hash| config.selects(*hash))
-                .map(|hash| (config, hash))
-        });
+                .map(|hash| (config, hash)),
+            None => None,
+        };
         let _trace = selected.and_then(|(config, hash)| {
             match config.begin(stage, quote.quote.sample.hash, hash) {
                 Ok(scope) => Some(scope),
@@ -518,9 +518,17 @@ impl PostingRuntime {
                 .context_for_next_block(&parent, quote.attributes.clone())
                 .map_err(|e| PostingError::Unavailable(e.to_string()))?;
             let traced = gas_trace::maybe_trace(&mut inspector, self.ctx.l1_chain_id);
-            let evm = config.evm_with_env_and_inspector(&mut state, quote.env.clone(), traced);
+            let env = reth_evm_ethereum::EthEvmEnv::new_with_version(
+                quote.env.spec,
+                quote.env.block,
+                quote.env.version,
+            );
+            let mut evm = config.evm_with_env(&mut state, env);
+            evm.set_inspector(traced);
             run_bundle(
-                config.create_executor(evm, context),
+                config
+                    .block_executor_factory()
+                    .create_executor(evm, context),
                 transactions,
                 self.registry,
                 rollup_id,
@@ -536,9 +544,17 @@ impl PostingRuntime {
                 .context_for_next_block(&parent, quote.attributes.clone())
                 .map_err(|e| PostingError::Unavailable(e.to_string()))?;
             let traced = gas_trace::maybe_trace(&mut inspector, self.ctx.l1_chain_id);
-            let evm = config.evm_with_env_and_inspector(&mut state, quote.env.clone(), traced);
+            let env = reth_evm_ethereum::EthEvmEnv::new_with_version(
+                quote.env.spec,
+                quote.env.block,
+                quote.env.version,
+            );
+            let mut evm = config.evm_with_env(&mut state, env);
+            evm.set_inspector(traced);
             run_bundle(
-                config.create_executor(evm, context),
+                config
+                    .block_executor_factory()
+                    .create_executor(evm, context),
                 transactions,
                 self.registry,
                 rollup_id,
@@ -709,11 +725,8 @@ fn run_bundle<E>(
     endpoint: B256,
 ) -> Result<BundleExecution, PostingError>
 where
-    E: BlockExecutor<
-            Transaction = TransactionSigned,
-            Result = EthTxResult<revm::context::result::HaltReason, alloy_consensus::TxType>,
-        >,
-    E::Evm: reth_evm::Evm<Tx: reth_evm::FromRecoveredTx<TransactionSigned>>,
+    E: BlockExecutor<Transaction = TransactionSigned>,
+    E::Evm: reth_evm::Evm<Transaction = evm2::ethereum::TxEnvelope>,
 {
     executor
         .apply_pre_execution_changes()
@@ -754,25 +767,15 @@ where
         let result = executor
             .execute_transaction_without_commit(transaction)
             .map_err(|e| PostingError::Transaction(format!("transaction {index}: {e}")))?;
-        if !result.result.result.is_success() {
-            let selector = result
-                .result
-                .result
-                .output()
-                .and_then(|bytes| bytes.get(..4))
-                .map(alloy_primitives::hex::encode);
+        let execution = &result.result().result;
+        if !execution.is_success() {
+            let selector = execution.output.get(..4).map(alloy_primitives::hex::encode);
             return Err(effects(format!(
-                "transaction {index} failed: {}; revert selector: {selector:?}",
-                result.result.result
+                "transaction {index} failed: {:?}; revert selector: {selector:?}",
+                execution.stop
             )));
         }
-        for log in result
-            .result
-            .result
-            .logs()
-            .iter()
-            .filter(|log| log.address == registry)
-        {
+        for log in execution.logs.iter().filter(|log| log.address == registry) {
             if log.data.topics().first() == Some(&eez_protocol::abi::L2TxSkipped::SIGNATURE_HASH) {
                 return Err(effects(format!(
                     "transaction {index} skipped an intended immediate entry"
@@ -788,19 +791,21 @@ where
                 }
             }
         }
-        let gas = result.result.result.gas();
+        let gas = execution;
         if gas_trace::active() {
             gas_trace::emit(serde_json::json!({
                 "kind": "transaction_result", "tx_index": index,
                 "gas_used": gas.tx_gas_used(),
-                "gas_required": gas.total_gas_spent().max(gas.floor_gas()),
+                "gas_required": gas.total_gas_spent.max(gas.floor_gas),
             }));
         }
         gas_used.push(gas.tx_gas_used());
         // Refunds reduce the receipt charge, but cannot fund execution. The
         // calldata floor can also exceed execution consumption.
-        gas_required.push(gas.total_gas_spent().max(gas.floor_gas()));
-        executor.commit_transaction(result);
+        gas_required.push(gas.total_gas_spent.max(gas.floor_gas));
+        executor
+            .commit_transaction(result)
+            .map_err(|e| PostingError::Transaction(format!("transaction {index} commit: {e}")))?;
     }
     if final_root != Some(endpoint) {
         return Err(PostingError::Effects(format!(
@@ -977,15 +982,15 @@ impl EffectInspector {
         Ok(())
     }
 
-    fn end_frame(&mut self, result: InstructionResult, source_call: bool) -> Option<usize> {
+    fn end_frame(&mut self, result: InstrStop, source_call: bool) -> Option<usize> {
         let (index, start) = self.frames.pop()?;
         let end = self.observed.len();
-        if !result.is_ok() {
+        if !result.is_success() {
             self.reverted[start..end].fill(true);
             // Only explicit source-call reverts establish retry eligibility.
             // Halts/CREATE rollbacks preserve earlier explicit revert evidence;
             // a broader explicit scope overrides single-call eligibility.
-            if source_call && index.is_none() && result == InstructionResult::Revert {
+            if source_call && index.is_none() && result == InstrStop::Revert {
                 self.retry_reverted[start..end].fill(end - start == 1);
             }
         }
@@ -996,31 +1001,40 @@ impl EffectInspector {
     }
 }
 
-impl<DB: Database, CTX: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<CTX>
-    for EffectInspector
-{
-    fn create(&mut self, _context: &mut CTX, _inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+impl<T: EvmTypes> Inspector<T> for EffectInspector {
+    fn inspector_config(&self) -> InspectorConfig {
+        InspectorConfig::without_steps()
+    }
+    fn create(
+        &mut self,
+        _interp: &mut Interpreter<'_, '_, T>,
+        _inputs: &mut Message<T>,
+    ) -> Option<MessageResult<T>> {
         self.frames.push((None, self.observed.len()));
         None
     }
 
     fn create_end(
         &mut self,
-        _context: &mut CTX,
-        _inputs: &CreateInputs,
-        outcome: &mut CreateOutcome,
+        _interp: &mut Interpreter<'_, '_, T>,
+        _inputs: &Message<T>,
+        outcome: &mut MessageResult<T>,
     ) {
-        self.end_frame(outcome.result.result, false);
+        self.end_frame(outcome.stop, false);
     }
 
-    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
-        let data = inputs.input.as_bytes(context);
+    fn call(
+        &mut self,
+        interp: &mut Interpreter<'_, '_, T>,
+        inputs: &mut Message<T>,
+    ) -> Option<MessageResult<T>> {
+        let data = inputs.input.to_bytes(interp.memory());
         // The registry is a transparent proxy: its DELEGATECALL into the
         // implementation repeats the target (storage context), caller and
         // calldata of the CALL that entered it. Only the entering frame is
         // the cross-chain call, so recording both would count it twice.
-        let recognized = matches!(inputs.scheme, CallScheme::Call | CallScheme::StaticCall)
-            && inputs.target_address == self.registry
+        let recognized = matches!(inputs.kind, MessageKind::Call | MessageKind::StaticCall)
+            && inputs.destination == self.registry
             && (data.starts_with(&executeCrossChainCallCall::SELECTOR)
                 || data.starts_with(&eez_protocol::abi::staticCrossChainCallCall::SELECTOR));
         let start = self.observed.len();
@@ -1034,23 +1048,27 @@ impl<DB: Database, CTX: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<CTX
         None
     }
 
-    fn call_end(&mut self, context: &mut CTX, inputs: &CallInputs, outcome: &mut CallOutcome) {
-        let Some(index) = self.end_frame(outcome.result.result, true) else {
+    fn call_end(
+        &mut self,
+        interp: &mut Interpreter<'_, '_, T>,
+        inputs: &Message<T>,
+        outcome: &mut MessageResult<T>,
+    ) {
+        let Some(index) = self.end_frame(outcome.stop, true) else {
             return;
         };
         // The real manager has already read this slot. Inspect the journal
         // directly so observation cannot change cold/warm gas accounting.
         let key = eez_protocol::proxy_mapping_key(inputs.caller, self.proxy_slot);
-        let proxy = context
-            .journal()
-            .state
-            .get(&self.registry)
-            .and_then(|account| account.storage.get(&U256::from_be_bytes(key.0)))
-            .and_then(|slot| eez_protocol::decode_proxy_value(slot.present_value));
+        let proxy = interp
+            .host()
+            .state()
+            .get_storage(&self.registry, &U256::from_be_bytes(key.0))
+            .and_then(eez_protocol::decode_proxy_value);
         let Some(proxy) = proxy.filter(|proxy| proxy.original_rollup_id.0 == self.rollup_id) else {
             return;
         };
-        let data = inputs.input.as_bytes(context);
+        let data = inputs.input.to_bytes(interp.memory());
         let (source, data, mode) = if data.starts_with(&executeCrossChainCallCall::SELECTOR) {
             let Ok(call) = executeCrossChainCallCall::abi_decode(&data) else {
                 return;
@@ -1062,15 +1080,14 @@ impl<DB: Database, CTX: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<CTX
             };
             (call.sourceAddress, call.callData, CallMode::Static)
         };
-        let success = outcome.result.result.is_ok();
+        let success = outcome.stop.is_success();
         let output = if success {
-            let Ok(output) = executeCrossChainCallCall::abi_decode_returns(&outcome.result.output)
-            else {
+            let Ok(output) = executeCrossChainCallCall::abi_decode_returns(&outcome.output) else {
                 return;
             };
             output
         } else {
-            outcome.result.output.clone()
+            outcome.output.clone()
         };
         // This resolver error occurs before a remote callback is executed.
         // Read only the account already checked by the real manager so this
@@ -1080,17 +1097,24 @@ impl<DB: Database, CTX: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<CTX
             && !success
             && let Ok(failure) = eez_protocol::abi::StaticCallProxyNotDeployed::abi_decode(&output)
             && failure.abi_encode().as_slice() == output.as_ref()
-            && context
-                .journal()
-                .state
-                .get(&failure.proxy)
-                .is_some_and(|account| account.info.is_empty_code_hash())
+            && interp
+                .host()
+                .state()
+                .loaded_accounts()
+                .any(|(address, _)| *address == failure.proxy)
+            && interp
+                .host()
+                .state_mut()
+                .account_info_untracked(&failure.proxy)
+                // The loaded-account guard guarantees this is an overlay peek, with no DB read.
+                .expect("loaded observer account cannot require a database read")
+                .is_none_or(|account| account.code_hash == alloy_primitives::KECCAK256_EMPTY)
             && self.expected.iter().any(|expected| {
                 expected.mode == CallMode::Static
                     && expected.source == source
                     && expected.target == proxy.original_address
                     && expected.data == data
-                    && expected.value == inputs.call_value()
+                    && expected.value == inputs.value
             })
         {
             return;
@@ -1099,7 +1123,7 @@ impl<DB: Database, CTX: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<CTX
             source,
             target: proxy.original_address,
             data,
-            value: inputs.call_value(),
+            value: inputs.value,
             mode,
             success,
             output,
@@ -1114,13 +1138,12 @@ mod tests {
     use alloy_network::TxSignerSync;
     use alloy_primitives::TxKind;
     use alloy_signer_local::PrivateKeySigner;
-    use reth_chainspec::ChainSpecBuilder;
-    use reth_evm::Evm as _;
-    use reth_evm_ethereum::EthEvmConfig;
-    use revm::{
-        database::InMemoryDB,
-        state::{AccountInfo, Bytecode},
+    use evm2::{
+        bytecode::Bytecode,
+        evm::{AccountInfo, InMemoryDB},
     };
+    use reth_chainspec::ChainSpecBuilder;
+    use reth_evm_ethereum::EthEvmConfig;
 
     const REGISTRY: Address = Address::repeat_byte(0x11);
     const PROXY: Address = Address::repeat_byte(0x22);
@@ -1291,14 +1314,14 @@ mod tests {
     fn database(code: Vec<u8>) -> InMemoryDB {
         let mut db = InMemoryDB::default();
         db.insert_account_info(
-            signer().address(),
+            &signer().address(),
             AccountInfo {
                 balance: U256::from(10).pow(U256::from(24)),
                 ..Default::default()
             },
         );
         db.insert_account_info(
-            REGISTRY,
+            &REGISTRY,
             AccountInfo {
                 code: Some(Bytecode::new_raw(code.into())),
                 ..Default::default()
@@ -1339,15 +1362,14 @@ mod tests {
     ) -> Result<BundleExecution, PostingError> {
         let (config, parent, attributes) = configuration(gas_limit);
         let env = config.next_evm_env(&parent, &attributes).unwrap();
-        let mut state = State::builder()
-            .with_database(database(code))
-            .with_bundle_update()
-            .build();
+        let mut state = database(code);
         let parent = SealedHeader::seal_slow(parent);
         let context = config.context_for_next_block(&parent, attributes).unwrap();
         let evm = config.evm_with_env(&mut state, env);
         run_bundle(
-            config.create_executor(evm, context),
+            config
+                .block_executor_factory()
+                .create_executor(evm, context),
             txs,
             REGISTRY,
             1,
@@ -1532,10 +1554,7 @@ mod tests {
         let run = |tip, expected| {
             let (config, parent, attrs) = configuration(120_000);
             let env = config.next_evm_env(&parent, &attrs).unwrap();
-            let mut state = State::builder()
-                .with_database(database(priced.clone()))
-                .with_bundle_update()
-                .build();
+            let mut state = database(priced.clone());
             let context = config
                 .context_for_next_block(&SealedHeader::seal_slow(parent), attrs)
                 .unwrap();
@@ -1551,7 +1570,9 @@ mod tests {
             let signature = signer().sign_transaction_sync(&mut transaction).unwrap();
             let raw = transaction.into_signed(signature).encoded_2718();
             run_bundle(
-                config.create_executor(config.evm_with_env(&mut state, env), context),
+                config
+                    .block_executor_factory()
+                    .create_executor(config.evm_with_env(&mut state, env), context),
                 vec![decode_transaction(&raw).unwrap().0],
                 REGISTRY,
                 1,
@@ -1587,10 +1608,7 @@ mod tests {
             let env = config.next_evm_env(&parent, &attrs).unwrap();
             let mut code = vec![0x60, 1, 0x60, 0, 0x55]; // SSTORE(0, 1)
             code.extend(emit_root(false));
-            let mut state = State::builder()
-                .with_database(database(code))
-                .with_bundle_update()
-                .build();
+            let mut state = database(code);
             let context = config
                 .context_for_next_block(&SealedHeader::seal_slow(parent), attrs)
                 .unwrap();
@@ -1600,10 +1618,13 @@ mod tests {
                     .begin("preflight_final", B256::ZERO, B256::ZERO)
                     .unwrap()
             });
-            let traced = gas_trace::maybe_trace(&mut inspector, 1);
-            let evm = config.evm_with_env_and_inspector(&mut state, env, traced);
+            let mut traced = gas_trace::maybe_trace(&mut inspector, 1);
+            let mut evm = config.evm_with_env(&mut state, env);
+            evm.set_inspector(&mut traced);
             let execution = run_bundle(
-                config.create_executor(evm, context),
+                config
+                    .block_executor_factory()
+                    .create_executor(evm, context),
                 vec![tx(0, REGISTRY, 120_000, Bytes::new())],
                 REGISTRY,
                 1,
@@ -1660,15 +1681,14 @@ mod tests {
         // Same Solidity packed layout as the production proxy mapping.
         let value =
             (U256::from_be_slice(PROXY.as_slice()) << 8) | (U256::from(1) << 168) | U256::from(1);
-        db.insert_account_storage(REGISTRY, U256::from_be_bytes(key.0), value)
-            .unwrap();
+        db.insert_account_storage(&REGISTRY, &U256::from_be_bytes(key.0), &value);
         // Copy the calldata, STATICCALL the actual manager, ignore success,
         // and return. This deliberately permits a caller to catch a bad lookup.
         let mut proxy = vec![0x36, 0x5f, 0x5f, 0x37, 0x5f, 0x5f, 0x36, 0x5f, 0x73];
         proxy.extend(REGISTRY.0);
         proxy.extend([0x5a, 0xfa, 0x50, 0x00]);
         db.insert_account_info(
-            PROXY,
+            &PROXY,
             AccountInfo {
                 code: Some(Bytecode::new_raw(proxy.into())),
                 ..Default::default()
@@ -1728,27 +1748,26 @@ mod tests {
         }
         .abi_encode();
         let transaction = tx(0, PROXY, 200_000, data.into());
-        let tx_env = config.tx_env(&transaction);
+        let tx_env = config.tx_env(transaction.clone());
         let mut plain = static_call_database(42);
         let baseline = config
             .evm_with_env(&mut plain, env.clone())
-            .transact(tx_env.clone())
-            .unwrap();
-        assert!(baseline.result.is_success());
+            .transact(&tx_env)
+            .unwrap()
+            .discard();
+        assert!(baseline.is_success());
         for (returned, valid) in [(42, true), (43, false)] {
             let mut state = static_call_database(returned);
             let mut inspector = EffectInspector::new(REGISTRY, 1, &static_semantics()).unwrap();
             let actual = config
-                .evm_with_env_and_inspector(&mut state, env.clone(), &mut inspector)
-                .transact(tx_env.clone())
-                .unwrap();
-            assert!(
-                actual.result.is_success(),
-                "source catches the lookup result"
-            );
+                .evm_with_env(&mut state, env.clone())
+                .transact_with_inspector(&tx_env.clone(), &mut inspector)
+                .unwrap()
+                .discard();
+            assert!(actual.is_success(), "source catches the lookup result");
             assert_eq!(
-                actual.result.tx_gas_used(),
-                baseline.result.tx_gas_used(),
+                actual.tx_gas_used(),
+                baseline.tx_gas_used(),
                 "observation must not warm storage"
             );
             assert_eq!(inspector.verify().is_ok(), valid);
@@ -1758,10 +1777,11 @@ mod tests {
         let duplicate = twice[0].actions[0].clone();
         twice[0].actions.push(duplicate);
         let mut inspector = EffectInspector::new(REGISTRY, 1, &twice).unwrap();
-        config
-            .evm_with_env_and_inspector(&mut state, env, &mut inspector)
-            .transact(tx_env)
-            .unwrap();
+        let _ = config
+            .evm_with_env(&mut state, env)
+            .transact_with_inspector(&tx_env, &mut inspector)
+            .unwrap()
+            .discard();
         assert!(
             inspector.verify().is_err(),
             "one lookup cannot satisfy two expected calls"
@@ -1852,7 +1872,7 @@ mod tests {
         }
         fn install(db: &mut InMemoryDB, address: Address, code: Vec<u8>) {
             db.insert_account_info(
-                address,
+                &address,
                 AccountInfo {
                     code: Some(Bytecode::new_raw(code.into())),
                     ..Default::default()
@@ -1915,10 +1935,11 @@ mod tests {
             {
                 let tx_env = config.tx_env(tx(0, target, 1_000_000, data.clone()));
                 let actual = config
-                    .evm_with_env_and_inspector(&mut state, env.clone(), &mut inspector)
-                    .transact(tx_env)
-                    .unwrap();
-                assert!(actual.result.is_success());
+                    .evm_with_env(&mut state, env.clone())
+                    .transact_with_inspector(&tx_env, &mut inspector)
+                    .unwrap()
+                    .discard();
+                assert!(actual.is_success());
             }
             inspector
         };
@@ -1989,7 +2010,7 @@ mod tests {
         );
         let factory = Address::repeat_byte(0x44);
         state.insert_account_info(
-            factory,
+            &factory,
             AccountInfo {
                 code: Some(Bytecode::new_raw(outer.into())),
                 ..Default::default()
@@ -2000,10 +2021,14 @@ mod tests {
         semantics[0].actions[0].revert_spans = vec![1];
         let mut inspector = EffectInspector::new(REGISTRY, 1, &semantics).unwrap();
         let result = config
-            .evm_with_env_and_inspector(&mut state, env, &mut inspector)
-            .transact(config.tx_env(tx(0, factory, 1_000_000, Bytes::new())))
-            .unwrap();
-        assert!(result.result.is_success());
+            .evm_with_env(&mut state, env)
+            .transact_with_inspector(
+                &config.tx_env(tx(0, factory, 1_000_000, Bytes::new())),
+                &mut inspector,
+            )
+            .unwrap()
+            .discard();
+        assert!(result.is_success());
         assert_eq!(inspector.reverted, [true]);
         assert_eq!(inspector.retry_reverted, [false]);
         assert_eq!(inspector.transaction_ends, [1]);
@@ -2047,7 +2072,7 @@ mod tests {
             }
             code.extend([0x60, output.len() as u8, 0x5f, 0xfd]);
             state.insert_account_info(
-                REGISTRY,
+                &REGISTRY,
                 AccountInfo {
                     code: Some(Bytecode::new_raw(code.into())),
                     ..Default::default()
@@ -2055,7 +2080,7 @@ mod tests {
             );
             if proxy_has_code {
                 state.insert_account_info(
-                    missing,
+                    &missing,
                     AccountInfo {
                         code: Some(Bytecode::new_raw(vec![0].into())),
                         ..Default::default()
@@ -2063,19 +2088,21 @@ mod tests {
                 );
             }
             let mut inspector = EffectInspector::new(REGISTRY, 1, &static_semantics()).unwrap();
-            config
-                .evm_with_env_and_inspector(&mut state, env.clone(), &mut inspector)
-                .transact(tx_env.clone())
-                .unwrap();
+            let _ = config
+                .evm_with_env(&mut state, env.clone())
+                .transact_with_inspector(&tx_env.clone(), &mut inspector)
+                .unwrap()
+                .discard();
             assert!(
                 inspector.clone().verify().is_err(),
                 "a failed lookup alone cannot satisfy the expected read"
             );
             let mut retry = static_call_database(42);
-            config
-                .evm_with_env_and_inspector(&mut retry, env.clone(), &mut inspector)
-                .transact(tx_env.clone())
-                .unwrap();
+            let _ = config
+                .evm_with_env(&mut retry, env.clone())
+                .transact_with_inspector(&tx_env.clone(), &mut inspector)
+                .unwrap()
+                .discard();
             assert_eq!(
                 inspector.verify().is_ok(),
                 valid,
@@ -2122,42 +2149,45 @@ mod tests {
             parent.timestamp = timestamp;
             attributes.timestamp = timestamp + 5;
             let env = config.next_evm_env(&parent.into(), &attributes).unwrap();
-            assert_eq!(env.cfg_env.chain_id, 10200);
+            assert_eq!(env.version.chain_id, 10200);
             assert_eq!(
-                env.cfg_env.tx_gas_limit_cap(),
+                env.version.tx_gas_limit_cap,
                 u64::MAX,
                 "Osaka's cap must not be imposed at Cancun"
             );
-            assert_eq!(
-                env.block_env
-                    .blob_excess_gas_and_price
-                    .unwrap()
-                    .blob_gasprice,
-                1_000_000_000
+            assert_eq!(env.block.blob_basefee, U256::from(1_000_000_000_u64));
+            let tx_env = Recovered::new_unchecked(
+                evm2::ethereum::TxEnvelope::Eip4844(
+                    alloy_consensus::TxEip4844 {
+                        chain_id: 10200,
+                        to: Address::repeat_byte(0x44),
+                        gas_limit: 100_000,
+                        max_fee_per_gas: 100,
+                        max_priority_fee_per_gas: 2,
+                        max_fee_per_blob_gas: 2_000_000_000,
+                        blob_versioned_hashes: vec![B256::from([1; 32])],
+                        ..Default::default()
+                    }
+                    .into(),
+                ),
+                signer().address(),
             );
-            let tx_env = revm::context::TxEnv {
-                tx_type: 3,
-                caller: signer().address(),
-                kind: TxKind::Call(Address::repeat_byte(0x44)),
-                gas_limit: 100_000,
-                gas_price: 100,
-                gas_priority_fee: Some(2),
-                chain_id: Some(10200),
-                max_fee_per_blob_gas: 2_000_000_000,
-                blob_hashes: vec![B256::from([1; 32])],
-                ..Default::default()
-            };
             let initial = U256::from(10).pow(U256::from(24));
             let result = config
                 .evm_with_env(database(vec![0]), env.clone())
-                .transact(tx_env)
-                .unwrap();
+                .transact(&tx_env)
+                .unwrap()
+                .detach();
             assert!(result.result.is_success());
             let gas = result.result.tx_gas_used();
             let blob_cost =
                 U256::from(alloy_eips::eip4844::DATA_GAS_PER_BLOB) * U256::from(1_000_000_000_u64);
             assert_eq!(
-                result.state[&collector].info.balance,
+                result
+                    .pending_state
+                    .account_info(&collector)
+                    .unwrap()
+                    .balance,
                 U256::from(gas * 10)
                     + if collects_blob_fees {
                         blob_cost
@@ -2166,7 +2196,12 @@ mod tests {
                     }
             );
             assert_eq!(
-                initial - result.state[&signer().address()].info.balance,
+                initial
+                    - result
+                        .pending_state
+                        .account_info(&signer().address())
+                        .unwrap()
+                        .balance,
                 U256::from(gas * 12) + blob_cost
             );
         }
