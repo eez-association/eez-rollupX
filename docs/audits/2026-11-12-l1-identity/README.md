@@ -92,8 +92,8 @@ Relevant implementation:
 [replay](../../../crates/eez-l1/examples/verify_blob_evidence/prefixes.rs).
 
 The database check is wired by the vendored
-[Reth engine launcher](../../../crates/vendor/reth/reth-node-builder/src/launch/engine.rs)
-and [launch context](../../../crates/vendor/reth/reth-node-builder/src/launch/common.rs).
+[Reth engine launcher](https://github.com/eez-association/eez-rollupX/blob/dbe1cdb9047e7f3502505f381aaa602e6ebf552f/crates/vendor/reth/reth-node-builder/src/launch/engine.rs)
+and [launch context](https://github.com/eez-association/eez-rollupX/blob/dbe1cdb9047e7f3502505f381aaa602e6ebf552f/crates/vendor/reth/reth-node-builder/src/launch/common.rs).
 Its dependency implementation was inspected in the locked Reth v2.7.0 checkout
 (`3d592ece`, `crates/storage/db-common/src/init.rs`); Cargo's cache was not edited.
 

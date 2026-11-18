@@ -316,5 +316,4 @@ reth-zstd-compressors = { git = "https://github.com/paradigmxyz/reth-core", rev 
 
 [patch."https://github.com/paradigmxyz/reth"]
 reth-engine-tree = { path = "crates/vendor/reth/reth-engine-tree" }
-reth-node-builder = { path = "crates/vendor/reth/reth-node-builder" }
 reth-rpc-builder = { path = "crates/vendor/reth/reth-rpc-builder" }

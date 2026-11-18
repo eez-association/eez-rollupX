@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["reth-engine-tree", "reth-node-builder", "reth-rpc-builder"]
+members = ["reth-engine-tree", "reth-rpc-builder"]
 
 [workspace.package]
 version = "2.11.0"
@@ -135,7 +135,6 @@ tracing-subscriber = { "version" = "0.3", "default-features" = false }
 
 [patch."https://github.com/paradigmxyz/reth"]
 reth-engine-tree = { path = "reth-engine-tree" }
-reth-node-builder = { path = "reth-node-builder" }
 reth-rpc-builder = { path = "reth-rpc-builder" }
 
 [patch."https://github.com/alloy-rs/evm2"]

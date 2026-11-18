@@ -1,14 +1,21 @@
 # Reth v2.11 patches
 
-These three crates are copied from Reth **v2.11.0**, commit
+These two crates are copied from Reth **v2.11.0**, commit
 `b9abbcc1b982755baa9021e6874e2e58936ca65f`. They retain their upstream
 `MIT OR Apache-2.0` license; both license texts are included here.
 
 | Local crate | Upstream directory | Patch |
 | --- | --- | --- |
 | `reth-engine-tree` | `crates/engine/tree` | `shutdown.patch` |
-| `reth-node-builder` | `crates/node/builder` | `shutdown.patch` |
 | `reth-rpc-builder` | `crates/rpc/rpc-builder` | `rpc-shared-guard.patch` |
+
+`reth-node-builder` uses unmodified v2.11.0. RollupX's CLI takes its graceful
+branch, which waits for termination acknowledgement or channel closure. The
+embedded L1 runtime retains its existing parent link and five-second drain budget.
+The unused explicit `EngineShutdown::shutdown()` API keeps upstream behavior:
+it forwards the acknowledgement sender and continues polling the orchestrator,
+whose later events determine the launcher result. Review that ordering before
+adding a caller. The retained shutdown backport is tree-side only.
 
 The shutdown fix was originally backported from
 [upstream PR #27609](https://github.com/paradigmxyz/reth/pull/27609), head
@@ -19,9 +26,8 @@ v2.11.0 release, not an adoption of upstream main.
 Reth v2.11.0 already drops the engine before acknowledging termination in
 `EngineApiTreeHandler::run`, and its persistence service joins on drop. Those
 upstream implementations are unchanged. The local patch retains the missing
-prewarming-worker join, waits for every payload-prewarm context to release its provider,
-and makes explicit launcher shutdown await completion before event-channel closure can
-be treated as fatal. These joins are cooperative and unbounded: an in-flight transaction
+prewarming-worker join and waits for every payload-prewarm context to release its
+provider. These joins are cooperative and unbounded: an in-flight transaction
 or blocked provider read can delay shutdown indefinitely. The original cleanup regression
 uses an idle worker and covers successful and failed persistence; on unpatched v2.11.0
 it fails because termination is acknowledged before that worker's cleanup.
@@ -63,8 +69,8 @@ BAL execution, a blocked provider or prewarming-pool thread, and full-node resta
 need validation. The signal does not establish that every RocksDB owner is released before
 Engine acknowledgement, and cannot provide bounded shutdown for non-returning work.
 
-`shutdown.patch` is the complete local difference from v2.11.0 for these two
-crates, including the unit regression. The original Ethereum process regression
+`shutdown.patch` is the complete local difference from v2.11.0 for
+`reth-engine-tree`, including its regressions. The original Ethereum process regression
 is outside these crates and is not coverage provided by this workspace. Full
 node shutdown/restart still needs process validation. The historical
 [investigation](../../../docs/audits/2026-10-11-public-release-readiness/README.md)
@@ -89,7 +95,7 @@ The crate manifests are unchanged from v2.11.0. This directory's workspace
 manifest expands their inherited package metadata, lints and dependency entries
 from the same revision; upstream path dependencies point to the existing
 `v2.11.0` Git source. Its Tokio minimum is 1.53.3, matching the root workspace's
-reviewed security update. The root and this workspace patch only these three
+reviewed security update. The root and this workspace patch only these two
 Reth packages; the RPC accessor introduces no dependency or feature change.
 Keeping the patches under `crates/` makes them part of every existing Docker
 producer and source-content cache key. The root and this workspace select official evm2 at
@@ -104,7 +110,7 @@ The debug unit CI lane selects the cleanup and shared-quota regressions in
 separate steps in this workspace, both with `--locked` and `--no-tests=fail`.
 Its lockfile starts from the
 root lockfile and includes upstream test dependencies; common package versions
-and source identities remain aligned. Its local patches select the same three
+and source identities remain aligned. Its local patches select the same two
 packages. Reproduce the cleanup check from the repository root:
 
 ```bash
