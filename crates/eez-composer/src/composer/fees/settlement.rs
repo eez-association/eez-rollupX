@@ -420,6 +420,15 @@ pub(crate) fn proof_registration(
             manager,
             |system| super::super::estimate::deployment::known_verifier(state.as_ref(), system),
             |system, input| read_view(chain, hash, &env, system, input).map_err(|e| e.to_string()),
+            |member, reason| {
+                tracing::warn!(
+                    name: "eez.composer.attestation.member_skipped",
+                    event_name = "eez.composer.attestation.member_skipped",
+                    proof_system = %member.proof_system,
+                    attester = %member.attester,
+                    %manager, reason, "an attester is not asked for this batch"
+                );
+            },
         )
         .map_err(|error| eez_prover::ProverError::Backend(error.to_string()))
 }
@@ -446,9 +455,9 @@ fn prepare_snapshot(
         .provider
         .state_by_block_hash(posting.quote.sample.hash)
         .map_err(unavailable)?;
-    let members = match &runtime.quorum {
+    let proof_systems = match &runtime.quorum {
         Some(quorum) => quorum
-            .usable_members(
+            .usable_proof_systems(
                 registry.rollupContract,
                 |system| {
                     super::super::estimate::deployment::known_verifier(provider.as_ref(), system)
@@ -458,26 +467,16 @@ fn prepare_snapshot(
                 },
             )
             .map_err(unavailable)?,
-        None => Vec::new(),
+        None => runtime.proof_systems.clone(),
     };
-    let proof_systems = if runtime.quorum.is_some() {
-        members
-            .iter()
-            .map(|(system, _)| *system)
-            .collect::<Vec<_>>()
-    } else {
-        runtime.proof_systems.clone()
-    };
-    for &system in &proof_systems {
-        super::super::estimate::deployment::validate_at(
-            provider.as_ref(),
-            runtime.registry,
-            registry.rollupContract,
-            system,
-            runtime.post_batch_target,
-        )
-        .map_err(unavailable)?;
-    }
+    super::super::estimate::deployment::validate_at(
+        provider.as_ref(),
+        runtime.registry,
+        registry.rollupContract,
+        &proof_systems,
+        runtime.post_batch_target,
+    )
+    .map_err(unavailable)?;
     let keys = read_call(
         runtime,
         posting,

@@ -2430,22 +2430,6 @@ pub async fn assert_latest_batch_signature(
     dep: &Deployment,
     expected_attester: Address,
 ) -> Result<()> {
-    assert_latest_batch_signatures(
-        l1_rpc,
-        dep,
-        &[(dep.proof_system_address, expected_attester)],
-        1,
-    )
-    .await?;
-    Ok(())
-}
-
-pub async fn assert_latest_batch_signatures(
-    l1_rpc: &str,
-    dep: &Deployment,
-    members: &[(Address, Address)],
-    minimum: usize,
-) -> Result<Vec<Address>> {
     use alloy_rpc_types_eth::Filter;
 
     let provider = ProviderBuilder::new().connect_http(l1_rpc.parse()?);
@@ -2461,7 +2445,15 @@ pub async fn assert_latest_batch_signatures(
     let tx_hash = log
         .transaction_hash
         .ok_or_else(|| anyhow!("BatchPosted log has no transaction hash"))?;
-    verify_batch_signatures(&provider, dep, tx_hash, members, minimum).await
+    verify_batch_signatures(
+        &provider,
+        dep,
+        tx_hash,
+        &[(dep.proof_system_address, expected_attester)],
+        1,
+    )
+    .await?;
+    Ok(())
 }
 
 /// Check every proof of every post after the test enables its quorum policy.

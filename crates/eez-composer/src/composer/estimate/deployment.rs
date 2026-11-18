@@ -64,7 +64,7 @@ const POST_BATCHER: Code = Code {
     hash: b256!("b9ede5d6a14473b896fe72b193f500250998ab99c9d3e65ad2c7153df35b61d1"),
 };
 
-pub(crate) fn supports_ecdsa(code: &[u8]) -> bool {
+fn supports_ecdsa(code: &[u8]) -> bool {
     matches(code, &PROTOCOL_VERIFIER)
         || (matches(code, &VERIFIER) && {
             // Both copies of the immutable signer must agree, including the copy used
@@ -162,16 +162,13 @@ pub(super) fn validate(
             .provider
             .state_by_block_hash(s.l1.anchor.hash())
             .map_err(unavailable)?;
-    for &verifier in verifiers {
-        validate_at(
-            state.as_ref(),
-            e.l1.manager_address(),
-            rollup,
-            verifier,
-            e.post_batch_target,
-        )?;
-    }
-    Ok(())
+    validate_at(
+        state.as_ref(),
+        e.l1.manager_address(),
+        rollup,
+        verifiers,
+        e.post_batch_target,
+    )
 }
 
 /// Recognize the supported contracts before a conditional proof result is used
@@ -180,7 +177,7 @@ pub(in crate::composer) fn validate_at(
     state: &dyn StateProvider,
     registry: Address,
     rollup: Address,
-    verifier: Address,
+    verifiers: &[Address],
     post_batch_target: Address,
 ) -> Result<(), EstimateError> {
     proxy(state, registry, &[&REGISTRY])?;
@@ -203,7 +200,10 @@ pub(in crate::composer) fn validate_at(
             return Err(unsupported("posting wrapper registry differs"));
         }
     }
-    check_any(state, verifier, &[&VERIFIER, &PROTOCOL_VERIFIER])
+    for &verifier in verifiers {
+        check_any(state, verifier, &[&VERIFIER, &PROTOCOL_VERIFIER])?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

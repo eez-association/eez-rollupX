@@ -256,7 +256,7 @@ pub(super) fn inbound(
             rollupId: e.rollup_id,
         },
     )?;
-    let members = match &e.quorum {
+    let verifiers = match &e.quorum {
         Some(quorum) => {
             let chain = e.l1.chain_provider();
             let state = chain
@@ -264,22 +264,14 @@ pub(super) fn inbound(
                 .state_by_block_hash(s.l1.anchor.hash())
                 .map_err(unavailable)?;
             quorum
-                .usable_members(
+                .usable_proof_systems(
                     registry.rollupContract,
                     |system| super::deployment::known_verifier(state.as_ref(), system),
                     |to, input| read_bytes(e, s, to, input).map_err(|error| error.to_string()),
                 )
                 .map_err(unavailable)?
         }
-        None => Vec::new(),
-    };
-    let verifiers = if e.quorum.is_some() {
-        members
-            .iter()
-            .map(|(system, _)| *system)
-            .collect::<Vec<_>>()
-    } else {
-        e.verifiers.clone()
+        None => e.verifiers.clone(),
     };
     crate::attestation_quorum::assign_proof_systems(&mut batch, e.rollup_id, verifiers.clone());
     batch.proofs = vec![

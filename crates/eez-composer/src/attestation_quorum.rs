@@ -158,7 +158,7 @@ impl AttestationQuorum {
     /// # Errors
     ///
     /// Returns [`QuorumConfigError`] for an empty or oversized set, a zero
-    /// address, or a proof system configured twice.
+    /// address, a duplicate proof system, or a duplicate signing address.
     pub fn new(
         mut members: Vec<QuorumMember>,
         manager: Address,
@@ -207,34 +207,19 @@ impl AttestationQuorum {
         self.members.iter().map(|m| m.proof_system)
     }
 
-    /// Number of configured attesters.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.members.len()
-    }
-
-    /// Always false: an attester set is never empty.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.members.is_empty()
-    }
-
     /// Resolve the same usable set in request-local native estimation state.
     /// The caller pins every read to one immutable L1 snapshot.
-    pub(crate) fn usable_members(
+    pub(crate) fn usable_proof_systems(
         &self,
         manager: Address,
         supported: impl FnMut(Address) -> bool,
         read: impl FnMut(Address, Vec<u8>) -> Result<Bytes, String>,
-    ) -> Result<Vec<(Address, B256)>, ProverError> {
+    ) -> Result<Vec<Address>, ProverError> {
         let registration = self
-            .local_registration(manager, supported, read)
+            .local_registration(manager, supported, read, |_, _| {})
             .map_err(|e| ProverError::Backend(e.to_string()))?;
-        Ok(self
-            .members
-            .iter()
-            .zip(registration.vkeys)
-            .filter_map(|(member, key)| Some((member.proof_system, key?)))
+        Ok(registration
+            .usable_systems(&self.members)
             .take(registration.threshold)
             .collect())
     }
@@ -244,6 +229,7 @@ impl AttestationQuorum {
         manager: Address,
         mut supported: impl FnMut(Address) -> bool,
         mut read: impl FnMut(Address, Vec<u8>) -> Result<Bytes, String>,
+        mut skipped: impl FnMut(&QuorumMember, &'static str),
     ) -> Result<QuorumRegistration, RegistrationError> {
         if manager != self.manager {
             return Err(RegistrationError::ManagerMismatch);
@@ -259,6 +245,7 @@ impl AttestationQuorum {
             .iter()
             .map(|member| {
                 if !supported(member.proof_system) {
+                    skipped(member, "unrecognized verifier deployment");
                     return None;
                 }
                 let key = decode::<IRollupAttestationReader::verificationKeyCall>(read(
@@ -272,7 +259,9 @@ impl AttestationQuorum {
                     member.proof_system,
                     IEcdsaProofSystemReader::signerCall {}.abi_encode(),
                 ));
-                usable_vkey(member, manager, key, signer)
+                usable_vkey(member, key, signer)
+                    .map_err(|reason| skipped(member, reason))
+                    .ok()
             })
             .collect();
         QuorumRegistration::new(threshold, keys)
@@ -288,12 +277,7 @@ impl AttestationQuorum {
         let registration = self
             .policy_at(local.chain_provider(), registry, rollup_id, None)
             .await?;
-        let systems = self
-            .members
-            .iter()
-            .zip(registration.vkeys)
-            .filter_map(|(member, key)| key.map(|_| member.proof_system))
-            .collect();
+        let systems = registration.usable_systems(&self.members).collect();
         Ok((registration.threshold, systems))
     }
 }
@@ -518,6 +502,16 @@ impl QuorumRegistration {
         Ok(registration)
     }
 
+    fn usable_systems<'a>(
+        &'a self,
+        members: &'a [QuorumMember],
+    ) -> impl Iterator<Item = Address> + 'a {
+        members
+            .iter()
+            .zip(&self.vkeys)
+            .filter_map(|(member, key)| key.map(|_| member.proof_system))
+    }
+
     fn usable(&self) -> usize {
         self.vkeys.iter().flatten().count()
     }
@@ -543,47 +537,19 @@ fn decode<C: SolCall>(output: Result<Bytes, impl std::fmt::Display>) -> Result<C
     C::abi_decode_returns(&output).map_err(|error| error.to_string())
 }
 
-/// The verification key `member` is asked under, or `None` when it sits this
-/// batch out: unreadable, unregistered, or accepting another signer.
 fn usable_vkey(
     member: &QuorumMember,
-    manager: Address,
     vkey: Result<B256, String>,
     signer: Result<Address, String>,
-) -> Option<B256> {
-    let warn = |reason: &str| {
-        event!(
-            name: "eez.composer.attestation.member_skipped",
-            Level::WARN,
-            event_name = "eez.composer.attestation.member_skipped",
-            proof_system = %member.proof_system,
-            attester = %member.attester,
-            %manager,
-            reason,
-            "an attester is not asked for this batch",
-        );
-    };
-    let Ok(vkey) = vkey else {
-        warn("its verification key cannot be read");
-        return None;
-    };
+) -> Result<B256, &'static str> {
+    let vkey = vkey.map_err(|_| "its verification key cannot be read")?;
     if vkey.is_zero() || vkey != member.prover.vkey() {
-        warn("its registered key does not match the configured network profile");
-        return None;
+        return Err("its registered key does not match the configured network profile");
     }
-    match signer {
-        Ok(signer) if signer == member.attester => Some(vkey),
-        // A proof from the configured key would revert the batch on-chain, so
-        // the member sits out until its config matches.
-        Ok(_) => {
-            warn("its proof system accepts another signer");
-            None
-        }
-        Err(_) => {
-            warn("its proof system's signer cannot be read");
-            None
-        }
+    if signer.map_err(|_| "its proof system's signer cannot be read")? != member.attester {
+        return Err("its proof system accepts another signer");
     }
+    Ok(vkey)
 }
 
 /// `member`'s proof for `request`, counted only if it verifies.

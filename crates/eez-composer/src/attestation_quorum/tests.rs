@@ -530,7 +530,7 @@ async fn registration_reads_the_threshold_vkeys_and_signers() {
     let provider = answering(2, &[answers_for(&provers[0]), answers_for(&provers[1])]);
 
     let registration = quorum
-        .local_registration(manager(), |_| true, provider)
+        .local_registration(manager(), |_| true, provider, |_, _| {})
         .unwrap();
 
     assert_eq!(registration, registered(&provers, 2));
@@ -551,7 +551,7 @@ async fn a_member_whose_proof_system_changed_signer_sits_out() {
     );
 
     let registration = quorum
-        .local_registration(manager(), |_| true, provider)
+        .local_registration(manager(), |_| true, provider, |_, _| {})
         .unwrap();
 
     let mut expected = registered(&provers, 1).vkeys;
@@ -578,7 +578,7 @@ async fn a_member_whose_registration_cannot_be_read_sits_out() {
     );
 
     let error = quorum
-        .local_registration(manager(), |_| true, provider)
+        .local_registration(manager(), |_| true, provider, |_, _| {})
         .unwrap_err();
 
     assert_eq!(
@@ -602,7 +602,7 @@ async fn a_member_whose_registration_cannot_be_read_sits_out() {
         ],
     );
     let registration = quorum
-        .local_registration(manager(), |_| true, provider)
+        .local_registration(manager(), |_| true, provider, |_, _| {})
         .unwrap();
     let mut expected = registered(&provers, 1).vkeys;
     expected[0] = None;
@@ -622,7 +622,7 @@ async fn an_unregistered_member_sits_out() {
     );
 
     let registration = quorum
-        .local_registration(manager(), |_| true, provider)
+        .local_registration(manager(), |_| true, provider, |_, _| {})
         .unwrap();
 
     let mut expected = registered(&provers, 1).vkeys;
@@ -635,7 +635,12 @@ async fn a_failed_threshold_read_is_reported() {
     let (quorum, _) = quorum(&[(0, SIGN), (0, SIGN)]);
     assert_eq!(
         quorum
-            .local_registration(manager(), |_| true, |_, _| Err("unavailable".into()))
+            .local_registration(
+                manager(),
+                |_| true,
+                |_, _| Err("unavailable".into()),
+                |_, _| {}
+            )
             .unwrap_err(),
         RegistrationError::Threshold
     );
@@ -654,9 +659,24 @@ async fn a_registered_key_for_another_network_profile_sits_out() {
             answers_for(&provers[1]),
         ],
     );
+    let mut skipped = Vec::new();
     let registration = quorum
-        .local_registration(manager(), |_| true, provider)
+        .local_registration(
+            manager(),
+            |_| true,
+            provider,
+            |member, reason| {
+                skipped.push((member.proof_system, reason));
+            },
+        )
         .unwrap();
+    assert_eq!(
+        skipped,
+        [(
+            proof_system(1),
+            "its registered key does not match the configured network profile"
+        )]
+    );
     assert_eq!(registration.vkeys[0], None);
     assert_eq!(registration.vkeys[1], Some(provers[1].vkey()));
 }
@@ -753,13 +773,16 @@ fn estimation_excludes_wrong_profile_members_and_still_requires_the_threshold() 
         move |_, _| Ok(answers.pop_front().expect("bounded registration reads"))
     };
     assert_eq!(
-        quorum.usable_members(manager(), |_| true, read(2)).unwrap(),
-        vec![
-            (proof_system(1), provers[0].vkey()),
-            (proof_system(2), provers[1].vkey())
-        ]
+        quorum
+            .usable_proof_systems(manager(), |_| true, read(2))
+            .unwrap(),
+        vec![proof_system(1), proof_system(2)]
     );
-    assert!(quorum.usable_members(manager(), |_| true, read(3)).is_err());
+    assert!(
+        quorum
+            .usable_proof_systems(manager(), |_| true, read(3))
+            .is_err()
+    );
 }
 
 #[test]
@@ -767,7 +790,12 @@ fn registration_rejects_a_different_manager_before_reading_members() {
     let (quorum, _) = quorum(&[(0, SIGN)]);
     assert_eq!(
         quorum
-            .local_registration(Address::ZERO, |_| true, |_, _| panic!("unexpected read"))
+            .local_registration(
+                Address::ZERO,
+                |_| true,
+                |_, _| panic!("unexpected read"),
+                |_, _| {}
+            )
             .unwrap_err(),
         RegistrationError::ManagerMismatch
     );

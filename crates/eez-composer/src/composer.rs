@@ -7157,10 +7157,7 @@ where
         crate::attestation_quorum::assign_proof_systems(
             &mut batch,
             rollup_id,
-            self.inner.posting.quorum.as_ref().map_or_else(
-                || vec![ctx.ecdsa_proof_system_address],
-                |quorum| quorum.proof_systems().collect(),
-            ),
+            self.inner.posting.proof_systems.clone(),
         );
         // Encode the full L2 block range this batch covers, not just the
         // Sync block: the composer accumulates intermediate live blocks between
@@ -7466,14 +7463,8 @@ where
             .gas_budget(&header, bundle_target)
             .map_err(|error| error.to_string())?;
         let mut sized = batch.clone();
-        sized.proofs = vec![
-            Bytes::from(vec![0xffu8; MAX_PROOF_BYTES]);
-            self.inner
-                .posting
-                .quorum
-                .as_ref()
-                .map_or(1, crate::AttestationQuorum::len)
-        ];
+        sized.proofs =
+            vec![Bytes::from(vec![0xffu8; MAX_PROOF_BYTES]); posting.proof_systems.len()];
         let projected = postAndVerifyBatchCall { batch: sized }.abi_encode();
         // EIP-7623 charges max(standard, floor). Standard now covers the bytes the
         // drain could not see; floor is what a fat, entry-light batch hits.
@@ -7489,14 +7480,9 @@ where
                 projection.batch_gas(&batch, calldata_gas(&projected), outbound_target_gas)
             },
         );
-        projected_gas =
-            projected_gas.saturating_add(crate::attestation_quorum::additional_verifier_gas(
-                self.inner
-                    .posting
-                    .quorum
-                    .as_ref()
-                    .map_or(1, crate::AttestationQuorum::len),
-            ));
+        projected_gas = projected_gas.saturating_add(
+            crate::attestation_quorum::additional_verifier_gas(posting.proof_systems.len()),
+        );
         let floor_active = posting.calldata_floor_active(bundle_target);
         if floor_active {
             projected_gas = projected_gas.max(calldata_floor_gas(&projected));
