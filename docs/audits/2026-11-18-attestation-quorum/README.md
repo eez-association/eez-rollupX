@@ -2,7 +2,7 @@
 
 ## Revisions and scope
 
-Issue #149 was implemented on `codex/issue-149-quorum` from `81404f15e57c699c398538b54447817774c70c1f`. Core stayed at `84a5b5207880f192a6a5896cbfe0bac5249db47f`. The native reference was closed, unmerged rollupX #129 (`5cabdad9` to `c717f992`). The upstream reference was rollup0 #171 (`25aae562`, merged as `aa5341f8`). Runtime implementation began at `e8c1d293`. The fixture correction is `86895434`. The final tested implementation and catch-up fix is `c6c4e5d1fd61481e87f26be57beebb2a297a14ce`.
+Issue #149 was implemented on `codex/issue-149-quorum` from `81404f15e57c699c398538b54447817774c70c1f`. Core stayed at `84a5b5207880f192a6a5896cbfe0bac5249db47f`. The native reference was closed, unmerged rollupX #129 (`5cabdad9` to `c717f992`). The upstream reference was rollup0 #171 (`25aae562`, merged as `aa5341f8`). Runtime implementation began at `e8c1d293`. The fixture correction is `86895434`. The catch-up fix and its initial qualification are at `c6c4e5d1fd61481e87f26be57beebb2a297a14ce`.
 
 The [proposal](../../proposals/attestation-quorum.md), [operator procedure](../../runbooks/attestation-quorum.md) and [RPC contract](../../../crates/eez-control-rpc/SPEC.md#5-validating-and-using-the-response) define the behavior. Tests used Rust 1.96.0, LLVM 23.1.6, Foundry 1.7.1, Compose 5.5.1 and this checkout's locked dependencies.
 
@@ -22,7 +22,7 @@ The first run on `e8c1d293` passed two cases, including follower replay. The wro
 
 Commit `c6c4e5d1` removes the clamp. The same wrong-profile scenario reported a signer ceiling of 65,536 blocks with a five-block Sync interval, and successfully estimated and settled. All three cases passed on this revision (three selected, zero failed, zero ignored). See `target/quorum-catchup-e2e.log` and `artifacts/issue149-catchup/`.
 
-Reproduce the final process run with:
+Reproduce the catch-up process run with:
 
 ```bash
 unset EEZ_TEST_PREBUILT EEZ_TEST_RUNTIME_BIN_DIR EEZ_TEST_PROOF_SIGNER_BIN
@@ -41,3 +41,11 @@ cargo +1.96.0 test --locked -p eez-node-e2e --test node_e2e -- \
 - Compose rendered absent, explicitly empty and two-member environment values on all three supported profiles. Chiado and Ethereum configuration suites passed. CI tooling ran 607 tests with nine skips for opt-in Docker, Kurtosis, native archive and Gitleaks checks.
 - Opus 5.5 was consulted on simplification. Fable 5.2 reviewed the implementation and its revisions. Findings led to one embedded policy reader, a bounded registration worker, an absolute retry cutoff, separation of eager preparation from cold recovery, checks on queue accounting and real follower replay. After the native catch-up failure, Opus supported retaining the known cohort's capacity and Fable found no confirmed blocker in the correction. The per-client block-limit check runs before streaming an oversized request, and the final Clippy and process runs covered the exact revised code. Repeated unsigned member rejections can still delay independent work. The runbook describes the observable signal and recovery implications.
 - Evidence paths in this record are local and ignored by Git. This was local fixture qualification. No shared network was deployed or reconfigured, and release promotion, live Kurtosis scenarios and third-party signer interoperability were outside this run.
+
+## Pre-PR cleanup
+
+Commit `e006c2e44eb9bc71ad0a708d7a4924d2d0a46a57` reuses the configured proof-system list for gas sizing. Wallet and fee estimates select the first threshold of eligible verifiers and check their shared deployment contracts once per snapshot. Startup and submission emit `eez.composer.attestation.member_skipped` when a verifier is ineligible, including unrecognized bytecode. Quote requests perform the same eligibility checks silently.
+
+Fable 5.2 reviewed the full port and then the cleanup. Both static reviews reported no confirmed merge blocker. Source inspection confirmed that the singleton and quorum next-block paths use the remaining retry deadline, and that explicit-roster proving uses the selected members' clients.
+
+On this revision, formatting and strict workspace all-target Clippy passed. The Composer library passed 483 tests with one manual profiling test ignored. All three source-built quorum process tests passed, covering 2-of-2 outage recovery, 2-of-3 settlement with a suspended signer, and 2-of-3 estimation and settlement with a wrong-profile signer. The 2-of-2 case recovered the posted signatures and verified independent follower replay.
