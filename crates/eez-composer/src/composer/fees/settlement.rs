@@ -25,7 +25,7 @@ use reth_evm::{
 };
 use reth_evm_ethereum::EthEvmEnv;
 use reth_primitives_traits::SealedHeader;
-use reth_storage_api::EvmStateProviderAdapter;
+use reth_storage_api::{EvmStateProviderAdapter, StateProvider};
 
 use super::super::posting::{EffectInspector, PostingQuote, PostingRuntime};
 use super::quote::FeeQuoteError;
@@ -332,41 +332,20 @@ pub(in crate::composer) fn placeholder_proof() -> Bytes {
 }
 
 fn read_call<C: SolCall>(
-    runtime: &PostingRuntime,
-    posting: &PostingQuote,
+    read: impl FnOnce(Address, Vec<u8>) -> Result<Bytes, FeeQuoteError>,
     to: Address,
     call: C,
 ) -> Result<C::Return, FeeQuoteError> {
-    let output = read_bytes(runtime, posting, to, call.abi_encode())?;
-    C::abi_decode_returns(&output).map_err(unavailable)
-}
-
-fn read_bytes(
-    runtime: &PostingRuntime,
-    posting: &PostingQuote,
-    to: Address,
-    calldata: Vec<u8>,
-) -> Result<Bytes, FeeQuoteError> {
-    read_view(
-        &runtime.chain,
-        posting.quote.sample.hash,
-        &posting.env,
-        to,
-        calldata,
-    )
+    C::abi_decode_returns(&read(to, call.abi_encode())?).map_err(unavailable)
 }
 
 fn read_view(
     chain: &crate::local::provider::ChainProvider,
-    hash: B256,
+    provider: &dyn StateProvider,
     env: &reth_evm::EvmEnvFor<eez_evm::EezEvmConfig>,
     to: Address,
     calldata: Vec<u8>,
 ) -> Result<Bytes, FeeQuoteError> {
-    let provider = chain
-        .provider
-        .state_by_block_hash(hash)
-        .map_err(unavailable)?;
     let state = StateProviderDatabase::new(EvmStateProviderAdapter(provider));
     let mut env = EthEvmEnv::new_with_version(env.spec, env.block, env.version);
     let chain_id = env.version.chain_id;
@@ -407,11 +386,11 @@ pub(crate) fn proof_registration(
         .provider
         .state_by_block_hash(hash)
         .map_err(|_| missing())?;
+    let read = |to, input| read_view(chain, state.as_ref(), &env, to, input);
     let call = rollupsCall {
         rollupId: rollup_id,
     };
-    let output =
-        read_view(chain, hash, &env, registry, call.abi_encode()).map_err(|_| missing())?;
+    let output = read(registry, call.abi_encode()).map_err(|_| missing())?;
     let manager = rollupsCall::abi_decode_returns(&output)
         .map_err(|_| eez_prover::ProverError::Backend("invalid rollup registration".into()))?
         .rollupContract;
@@ -419,7 +398,7 @@ pub(crate) fn proof_registration(
         .local_registration(
             manager,
             |system| super::super::estimate::deployment::known_verifier(state.as_ref(), system),
-            |system, input| read_view(chain, hash, &env, system, input).map_err(|e| e.to_string()),
+            |system, input| read(system, input).map_err(|e| e.to_string()),
             |member, reason| {
                 tracing::warn!(
                     name: "eez.composer.attestation.member_skipped",
@@ -439,9 +418,14 @@ fn prepare_snapshot(
     rollup_id: u64,
     settled_root: B256,
 ) -> Result<SnapshotPreparation, FeeQuoteError> {
+    let provider = runtime
+        .chain
+        .provider
+        .state_by_block_hash(posting.quote.sample.hash)
+        .map_err(unavailable)?;
+    let read = |to, input| read_view(&runtime.chain, provider.as_ref(), &posting.env, to, input);
     let registry = read_call(
-        runtime,
-        posting,
+        read,
         runtime.registry,
         rollupsCall {
             rollupId: rollup_id,
@@ -450,11 +434,6 @@ fn prepare_snapshot(
     if registry.root != settled_root {
         return Err(FeeQuoteError::Stale);
     }
-    let provider = runtime
-        .chain
-        .provider
-        .state_by_block_hash(posting.quote.sample.hash)
-        .map_err(unavailable)?;
     let proof_systems = match &runtime.quorum {
         Some(quorum) => quorum
             .usable_proof_systems(
@@ -462,9 +441,7 @@ fn prepare_snapshot(
                 |system| {
                     super::super::estimate::deployment::known_verifier(provider.as_ref(), system)
                 },
-                |to, input| {
-                    read_bytes(runtime, posting, to, input).map_err(|error| error.to_string())
-                },
+                |to, input| read(to, input).map_err(|error| error.to_string()),
             )
             .map_err(unavailable)?,
         None => runtime.proof_systems.clone(),
@@ -478,8 +455,7 @@ fn prepare_snapshot(
     )
     .map_err(unavailable)?;
     let keys = read_call(
-        runtime,
-        posting,
+        read,
         registry.rollupContract,
         checkProofSystemsAndGetVkeysCall {
             proofSystems: proof_systems.clone(),

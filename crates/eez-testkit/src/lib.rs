@@ -2445,10 +2445,14 @@ pub async fn assert_latest_batch_signature(
     let tx_hash = log
         .transaction_hash
         .ok_or_else(|| anyhow!("BatchPosted log has no transaction hash"))?;
+    let transaction = provider
+        .get_transaction_by_hash(tx_hash)
+        .await?
+        .ok_or_else(|| anyhow!("postAndVerifyBatch transaction is missing"))?;
     verify_batch_signatures(
         &provider,
         dep,
-        tx_hash,
+        &transaction,
         &[(dep.proof_system_address, expected_attester)],
         1,
     )
@@ -2485,10 +2489,7 @@ pub async fn assert_quorum_batch_signatures(
                     .starts_with(&eez_protocol::abi::postAndVerifyBatchCall::SELECTOR)
             {
                 checked.insert(*tx.inner.tx_hash());
-                systems.push(
-                    verify_batch_signatures(&provider, dep, *tx.inner.tx_hash(), members, minimum)
-                        .await?,
-                );
+                systems.push(verify_batch_signatures(&provider, dep, tx, members, minimum).await?);
             }
         }
     }
@@ -2513,10 +2514,11 @@ pub async fn assert_quorum_batch_signatures(
 async fn verify_batch_signatures(
     provider: &impl alloy_provider::Provider,
     dep: &Deployment,
-    tx_hash: B256,
+    transaction: &alloy_rpc_types_eth::Transaction,
     members: &[(Address, Address)],
     minimum: usize,
 ) -> Result<Vec<Address>> {
+    let tx_hash = *transaction.inner.tx_hash();
     let receipt = provider
         .get_transaction_receipt(tx_hash)
         .await?
@@ -2533,10 +2535,6 @@ async fn verify_batch_signatures(
                 && log.topic0() == Some(&IEEZ::BatchPosted::SIGNATURE_HASH)),
         "successful postAndVerifyBatch {tx_hash} emitted no registry BatchPosted event"
     );
-    let transaction = provider
-        .get_transaction_by_hash(tx_hash)
-        .await?
-        .ok_or_else(|| anyhow!("postAndVerifyBatch transaction is missing"))?;
     let call = eez_protocol::abi::postAndVerifyBatchCall::abi_decode(transaction.inner.input())?;
     ensure!(
         call.batch.proofs.len() == call.batch.proofSystems.len()
@@ -2546,7 +2544,7 @@ async fn verify_batch_signatures(
     let transaction_blob_hashes = transaction
         .inner
         .blob_versioned_hashes()
-        .map_or_else(Vec::new, <[B256]>::to_vec);
+        .unwrap_or_default();
     let containing = provider
         .get_block_by_hash(
             receipt
@@ -2611,7 +2609,7 @@ async fn verify_batch_signatures(
             &call.batch,
             dep.profile
                 .verification_key(dep.eez_address, system, attester),
-            &transaction_blob_hashes,
+            transaction_blob_hashes,
             context,
         )?;
         let signature = Signature::try_from(proof.as_ref()).context("decode posted signature")?;
