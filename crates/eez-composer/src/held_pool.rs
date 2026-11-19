@@ -493,6 +493,7 @@ impl HeldPool {
     /// A recomposition-time nonce check is not finalized settlement evidence.
     /// Previously submitted users return to canonical reconciliation instead
     /// of losing their reorg history through an ordinary stale-pool eviction.
+    /// Never-submitted sources retain a bounded local removal observation.
     pub fn recheck_stale_sources(&self, txs: &[HeldTx]) -> Result<bool, String> {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
         let reopened = state.ledger.update(|data| {
@@ -518,6 +519,13 @@ impl HeldPool {
             Ok(reopened)
         })?;
         for tx in txs {
+            if let Some(identity) = state.in_flight.get(&tx.hash).copied()
+                && !state.ledger.read(|data| data.users.contains_key(&tx.hash))
+            {
+                state
+                    .telemetry
+                    .removed(tx.hash, identity, TerminalReason::PoolDiscarded, None);
+            }
             state.release_in_flight(tx);
         }
         state.apply_resolution(&[]);

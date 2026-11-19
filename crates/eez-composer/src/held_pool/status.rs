@@ -912,6 +912,46 @@ mod tests {
     }
 
     #[test]
+    fn never_submitted_spent_nonce_keeps_disposition_and_unblocks_successor() {
+        for direction in [Direction::Inbound, Direction::Outbound] {
+            let pool = HeldPool::new(Default::default());
+            let (mut root, mut suffix) = (rejected_user(1, 0), rejected_user(2, 1));
+            root.direction = direction;
+            suffix.direction = direction;
+            pool.push_contiguous(root.clone(), 0).unwrap();
+            pool.push_contiguous(suffix.clone(), 0).unwrap();
+            assert!(pool.claim(&root));
+            assert!(
+                !pool
+                    .recheck_stale_sources(std::slice::from_ref(&root))
+                    .unwrap()
+            );
+            let status = pool
+                .transaction_status(root.hash)
+                .expect("spent source needs a disposition");
+            assert_eq!(status["lifecycle"], "terminal");
+            assert_eq!(status["ownership"]["reason"], "PoolDiscarded");
+            assert!(status["ownership"]["canonical"].is_null());
+            assert!(pool.claim(&suffix));
+            pool.push_front_batch(vec![suffix]);
+            // A later rollback can permit explicit readmission of the same bytes.
+            pool.push_contiguous(root.clone(), 0).unwrap();
+            let readmitted = pool.transaction_status(root.hash).unwrap();
+            assert_eq!(readmitted["lifecycle"], "queued");
+            assert!(readmitted["ownership"].is_null());
+            assert!(
+                pool.state
+                    .lock()
+                    .unwrap()
+                    .telemetry
+                    .recent_removals
+                    .iter()
+                    .all(|removed| removed.hash != root.hash)
+            );
+        }
+    }
+
+    #[test]
     fn simulation_rejection_names_the_cause_and_keeps_diagnostics_until_readmission() {
         let pool = HeldPool::new(Default::default());
         let (root, suffix) = (rejected_user(1, 0), rejected_user(2, 1));

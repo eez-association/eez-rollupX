@@ -673,21 +673,21 @@ fn history_sizing_matches_encoding_and_refuses_unreconciled_native_blocks() {
 }
 
 #[test]
-fn outbound_quote_blob_backlog_reserves_a_full_post() {
+fn quote_blob_backlog_reserves_a_full_post() {
     let capacity = eez_blob_codec::DATA_BYTES_PER_BLOB;
     for maximum in [1, 2] {
         let operations = capacity * (maximum + 1);
-        let result = outbound_da_estimate(operations, 512, Address::ZERO, maximum).unwrap();
+        let result = da_estimate(operations, 512, Address::ZERO, maximum).unwrap();
         assert!(result.history_deferred);
         assert_eq!(result.blobs, maximum);
         assert!(result.bytes > operations);
     }
-    let small = outbound_da_estimate(100, 512, Address::ZERO, 2).unwrap();
+    let small = da_estimate(100, 512, Address::ZERO, 2).unwrap();
     assert_eq!((small.blobs, small.history_deferred), (1, false));
 }
 
 #[test]
-fn outbound_quote_individually_oversized_group_is_not_deferred() {
+fn quote_individually_oversized_group_is_not_deferred() {
     let capacity = eez_blob_codec::DATA_BYTES_PER_BLOB;
     let beneficiary = Address::repeat_byte(0x42);
     let terminal = eez_payload_codec::v0::encode_current(&[BlockRun {
@@ -702,14 +702,14 @@ fn outbound_quote_individually_oversized_group_is_not_deferred() {
     for maximum in [1, 2] {
         let semantics = maximum * capacity - overhead;
         for operations in [terminal, capacity * (maximum + 1)] {
-            let exact = outbound_da_estimate(operations, semantics, beneficiary, maximum).unwrap();
+            let exact = da_estimate(operations, semantics, beneficiary, maximum).unwrap();
             assert_eq!(exact.blobs, maximum);
             assert_eq!(exact.history_deferred, operations != terminal);
             if operations == terminal {
                 assert_eq!(exact.bytes, maximum * capacity);
             }
             assert!(matches!(
-                outbound_da_estimate(operations, semantics + 1, beneficiary, maximum),
+                da_estimate(operations, semantics + 1, beneficiary, maximum),
                 Err(FeeQuoteError::Limit("blob allowance"))
             ));
         }
@@ -717,16 +717,23 @@ fn outbound_quote_individually_oversized_group_is_not_deferred() {
 }
 
 #[test]
-fn outbound_quote_blob_budget_keeps_exact_fit_and_zero_limit() {
+fn quote_blob_budget_keeps_exact_fit_and_zero_limit() {
     let operations = 100;
     let overhead = eez_blob_codec::native_stream_len(operations, 0).unwrap();
     let capacity = eez_blob_codec::DATA_BYTES_PER_BLOB;
-    let exact = outbound_da_estimate(operations, capacity - overhead, Address::ZERO, 1).unwrap();
+    let exact = da_estimate(operations, capacity - overhead, Address::ZERO, 1).unwrap();
     assert_eq!(
         (exact.bytes, exact.blobs, exact.history_deferred),
         (capacity, 1, false)
     );
-    assert!(outbound_da_estimate(100, 100, Address::ZERO, 0).is_err());
+    assert!(da_estimate(100, 100, Address::ZERO, 0).is_err());
+}
+
+#[test]
+fn tariff_sizing_keeps_full_history_above_the_quote_work_bound() {
+    let estimate = da_estimate(MAX_DA_BYTES, 512, Address::ZERO, 1).unwrap();
+    assert!(estimate.bytes > MAX_DA_BYTES);
+    assert_eq!((estimate.blobs, estimate.history_deferred), (1, true));
 }
 
 #[derive(Clone, Default)]

@@ -852,19 +852,23 @@ impl GasEstimator {
                 };
                 let overhead = super::policy::semantic_overhead(self.rollup_id, &[semantic])
                     .map_err(unavailable)?;
-                let bytes = eez_blob_codec::native_stream_len(
+                let da = super::fees::quote::da_estimate(
                     pricing.operations,
                     overhead
                         .semantic_bytes
                         .checked_add(s.prefix_semantic_bytes)
                         .ok_or_else(|| unsupported("pending semantic bytes overflow"))?,
+                    self.recipient,
+                    pricing.maximum_blobs,
                 )
-                .map_err(unavailable)?;
-                let blobs = bytes.div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB).max(1);
-                if bytes > 2 * 1024 * 1024 || blobs > pricing.maximum_blobs {
-                    return Err(unsupported("quote DA capacity"));
+                .map_err(|error| match error {
+                    super::fees::quote::FeeQuoteError::Limit(reason) => unsupported(reason),
+                    error => unavailable(error),
+                })?;
+                if da.bytes > 2 * 1024 * 1024 {
+                    return Err(unsupported("DA bytes"));
                 }
-                (blobs, bytes)
+                (da.blobs, da.bytes)
             } else {
                 (0, 0)
             };
