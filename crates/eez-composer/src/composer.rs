@@ -529,7 +529,7 @@ fn calldata_floor_gas(calldata: &[u8]) -> u64 {
 }
 
 /// Exact standard-rate calldata gas: 4 per zero byte, 16 per non-zero byte.
-fn calldata_gas(bytes: &[u8]) -> u64 {
+pub(crate) fn calldata_gas(bytes: &[u8]) -> u64 {
     let nonzero = bytes.iter().filter(|byte| **byte != 0).count() as u64;
     let zero = bytes.len() as u64 - nonzero;
     4 * zero + 16 * nonzero
@@ -3297,11 +3297,52 @@ where
             .gas_budget(l1_state.anchor.header(), bundle_target)
             .map_err(|error| error.to_string())?;
         let estimated_budget = self.inner.posting.fees.estimate_budget(gas_budget);
+        let posting = &self.inner.posting;
+        let admission_registration = if let Some(quorum) = &posting.quorum {
+            // One policy read must not stall this slot beyond its local block interval.
+            let slot_interval = self.inner.emission.timing.l2_block_time();
+            let available = admission.deadline.map_or(slot_interval, |deadline| {
+                deadline.remaining().saturating_sub(admission.post_reserve)
+            });
+            let until = tokio::time::Instant::now() + available.min(slot_interval);
+            match quorum
+                .registration_at_parent(
+                    &posting.chain,
+                    posting.registry,
+                    rollup_id,
+                    l1_state.anchor.header(),
+                    None,
+                    until,
+                )
+                .await
+            {
+                Ok(registration) => Some((l1_state.anchor.hash(), registration)),
+                Err(error) => {
+                    if admission
+                        .deadline
+                        .is_some_and(|d| d.remaining() <= admission.post_reserve)
+                    {
+                        admission.window_exhausted();
+                    }
+                    event!(name: "eez.composer.prover.range_retained", Level::ERROR,
+                        event_name = "eez.composer.prover.range_retained", rollup_id, parent = %l1_state.anchor.hash(),
+                        selected_users = drained.len(), %error, "admission registration unavailable; retaining the complete drain");
+                    pool.requeue_composing(drained);
+                    return Ok(self.build_empty_slot_block(rollup, parent_header, timestamp));
+                }
+            }
+        } else {
+            None
+        };
         let mut budget = PostBatchGasBudget::with_calldata_limits(
             estimated_budget,
             self.posting_blob_allowance(bundle_target, 0)?,
             self.inner.posting.calldata_floor_active(bundle_target),
-            self.inner.posting.proof_systems.len(),
+            admission_registration
+                .as_ref()
+                .map_or(posting.proof_systems.len(), |(_, registration)| {
+                    registration.threshold
+                }),
         );
         // This separate view never receives accepted speculative effects.
         // Failed lookups or unsupported prior queues retain conservative pins.
@@ -5567,6 +5608,7 @@ where
                 &semantic_transactions,
                 outbound_target_gas,
                 gas_projection.as_ref(),
+                admission_registration,
                 bundle_target,
                 Some(admission),
                 Some(Arc::clone(&candidate)),
@@ -6150,6 +6192,7 @@ where
                 &[], // no cross-chain semantic transactions
                 0,   // no inline outbound target calls
                 None,
+                None,
                 bundle_target,
                 None,
                 None,
@@ -6385,6 +6428,7 @@ where
                     &[],
                     0, // no inline outbound target calls
                     None,
+                    None,
                     bundle_target,
                     None,
                     None,
@@ -6612,6 +6656,7 @@ where
         semantic_transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
         outbound_target_gas: u64,
         gas_projection: Option<&gas::Projection>,
+        admission_registration: Option<(B256, crate::attestation_quorum::QuorumRegistration)>,
         bundle_target: BundleTarget,
         admission: Option<&admission::Attempt>,
         candidate: Option<Arc<crate::admission_events::Candidate>>,
@@ -7154,11 +7199,6 @@ where
             rollupId: rollup_id,
             root: pre_block_hash,
         }];
-        crate::attestation_quorum::assign_proof_systems(
-            &mut batch,
-            rollup_id,
-            self.inner.posting.proof_systems.clone(),
-        );
         // Encode the full L2 block range this batch covers, not just the
         // Sync block: the composer accumulates intermediate live blocks between
         // Sync slots and the deriver must replay all of them. Range:
@@ -7449,6 +7489,55 @@ where
         )
         .map_err(|error| error.to_string())?;
         batch.blockNumber = proof_context.selector();
+        let workload = crate::prover_retry::Workload {
+            groups: semantic_transactions.len(),
+            blobs: transaction_blobs.len(),
+            witnesses: span_len,
+        };
+        let post_reserve = admission.map_or(crate::prover_retry::POST_PROOF_RESERVE, |attempt| {
+            attempt.timings.post_reserve(workload)
+        });
+        let quorum_policy = if let Some(quorum) = &posting.quorum {
+            let available = deadline.map_or(self.inner.emission.timing.l2_block_time(), |d| {
+                d.remaining().saturating_sub(post_reserve)
+            });
+            let until = tokio::time::Instant::now() + available;
+            let registration = quorum
+                .registration_at_parent(
+                    provider, posting.registry, rollup_id, &header, admission_registration, until,
+                )
+                .await
+                .map_err(|error| {
+                    if let Some(attempt) = admission
+                        && deadline.is_some_and(|d| d.remaining() <= post_reserve)
+                    {
+                        attempt.window_exhausted();
+                    }
+                    let detail = serde_json::json!({
+                        "reason": "prover_deadline", "cause": "registration_unavailable",
+                        "parent": l1_posting.parent_hash
+                    });
+                    if let Some(candidate) = &candidate {
+                        candidate.emit("proof_failed", detail.clone());
+                    }
+                    crate::posting_events::PostingEvents::new(
+                        ctx.l1_chain_id, posting.registry, rollup_id, 0, sync_block_hash,
+                        sync_block_number, None,
+                    )
+                    .with_target(bundle_target)
+                    .preparation_failed(detail);
+                    tracing::warn!(rollup_id, %error, parent = %l1_posting.parent_hash, "cannot size settlement at submission parent");
+                    PreparePostBatchError::Prover(crate::attestation_quorum::deadline_error())
+                })?;
+            Some((quorum, registration))
+        } else {
+            None
+        };
+        let systems = quorum_policy.as_ref().map_or_else(
+            || posting.proof_systems.clone(),
+            |(quorum, registration)| quorum.sizing_systems(registration),
+        );
+        crate::attestation_quorum::assign_proof_systems(&mut batch, rollup_id, systems);
         if gas_projection.is_none() && semantic_transactions.is_empty() {
             let hash = alloy_consensus::Sealable::hash_slow(&header);
             empty_projection = provider.provider.state_by_block_hash(hash)
@@ -7463,8 +7552,8 @@ where
             .gas_budget(&header, bundle_target)
             .map_err(|error| error.to_string())?;
         let mut sized = batch.clone();
-        sized.proofs =
-            vec![Bytes::from(vec![0xffu8; MAX_PROOF_BYTES]); posting.proof_systems.len()];
+        sized.proofs = vec![Bytes::from(vec![0xffu8; MAX_PROOF_BYTES]); batch.proofSystems.len()];
+        let priced_proofs = sized.proofs.len();
         let projected = postAndVerifyBatchCall { batch: sized }.abi_encode();
         // EIP-7623 charges max(standard, floor). Standard now covers the bytes the
         // drain could not see; floor is what a fat, entry-light batch hits.
@@ -7481,7 +7570,7 @@ where
             },
         );
         projected_gas = projected_gas.saturating_add(
-            crate::attestation_quorum::additional_verifier_gas(posting.proof_systems.len()),
+            crate::attestation_quorum::additional_verifier_gas(batch.proofSystems.len()),
         );
         let floor_active = posting.calldata_floor_active(bundle_target);
         if floor_active {
@@ -7493,7 +7582,7 @@ where
                 serde_json::json!({"projected_gas":projected_gas,
                 "calldata_bytes":projected.len(),"calldata_gas":calldata_gas(&projected),
                 "calldata_floor_gas":calldata_floor_gas(&projected),"gas_ceiling":ceiling,
-                "entries":batch.entries.len(),"blobs":blob_count}),
+                "entries":batch.entries.len(),"blobs":blob_count,"priced_proofs":priced_proofs}),
             );
         }
         match posting.fees.declared_gas(projected_gas, ceiling) {
@@ -7707,14 +7796,7 @@ where
         }
         let preparation_elapsed_ms = preparation_started.elapsed().as_secs_f64() * 1000.0;
         let proof_gate_ms = crate::prover_retry::unix_time_millis();
-        let workload = crate::prover_retry::Workload {
-            groups: semantic_transactions.len(),
-            blobs: proving_ctx.blobs.len(),
-            witnesses: proving_ctx.blocks.len(),
-        };
-        let post_reserve = admission.map_or(crate::prover_retry::POST_PROOF_RESERVE, |attempt| {
-            attempt.timings.post_reserve(workload)
-        });
+        debug_assert_eq!(workload.witnesses, proving_ctx.blocks.len());
         let proof_cutoff_ms = if deadline.is_some() {
             None
         } else {
@@ -7759,7 +7841,7 @@ where
             );
         }
         let proof_started = std::time::Instant::now();
-        let proof_result = if let Some(quorum) = &self.inner.posting.quorum {
+        let proof_result = if let Some((quorum, registration)) = quorum_policy {
             let budget = crate::prover_retry::ProofBudget::new(
                 self.inner.emission.timing,
                 bundle_target,
@@ -7767,21 +7849,12 @@ where
                 deadline,
                 post_reserve,
             );
-            Box::pin(async {
-                let policy = quorum.policy_at(&posting.chain, posting.registry, rollup_id, Some(header.clone()));
-                let registration = tokio::time::timeout_at(budget.expires_at(), policy)
-                    .await.map_err(|_| crate::attestation_quorum::deadline_error())?
-                    .inspect_err(|error| tracing::warn!(rollup_id, %error, "attestation registration unavailable at submission parent"))
-                    .map_err(|_| crate::attestation_quorum::deadline_error())?;
-                quorum
-                    .collect_proofs(
-                        &proving_ctx,
-                        prepared_blob_sidecar.versioned_hashes(),
-                        &registration,
-                        budget,
-                    )
-                    .await
-            })
+            Box::pin(quorum.collect_proofs(
+                &proving_ctx,
+                prepared_blob_sidecar.versioned_hashes(),
+                &registration,
+                budget,
+            ))
             .await
         } else {
             let result = if let Some(deadline) = deadline {

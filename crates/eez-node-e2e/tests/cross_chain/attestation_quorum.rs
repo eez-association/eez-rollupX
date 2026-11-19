@@ -6,7 +6,12 @@ use eez_testkit::{
 
 async fn exercise(config: TestQuorumConfig) {
     let pricing = crate::settlement_policy_cost::shadow_pricing_policy();
-    let settings = crate::settlement_policy_cost::fee_settings(&pricing, &[]);
+    let mut settings = crate::settlement_policy_cost::fee_settings(&pricing, &[]);
+    if config.additional_keys.len() == 2 {
+        // Outbound admission needs about 668k for two proofs and 686k for three
+        // before the fixture's 5% margin. Exercise both healthy and degraded rosters.
+        settings.push(("EEZ_MAX_POSTBATCH_GAS", "711000".into()));
+    }
     let world = setup_cross_chain_quorum(&config, &settings).await.unwrap();
     let quorum = world.network.quorum.as_ref().unwrap();
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
@@ -110,10 +115,40 @@ async fn exercise(config: TestQuorumConfig) {
         // Settlement completed with C still suspended.
         quorum.pause_member(1, false).await.unwrap();
     }
-    let dispatches = world
-        .node
-        .signals_since(cursor)
-        .unwrap()
+    let events = world.node.signals_since(cursor).unwrap();
+    if config.additional_keys.len() == 2 {
+        let observations: Vec<serde_json::Value> = events
+            .iter()
+            .filter(|event| event.name == "eez.composer.admission.v1")
+            .map(|event| {
+                serde_json::from_str(event.fields["admission_event"].as_str().unwrap()).unwrap()
+            })
+            .collect();
+        let priced: Vec<_> = observations
+            .iter()
+            .filter(|event| event["kind"] == "full_projection")
+            .collect();
+        assert!(
+            !priced.is_empty()
+                && priced
+                    .iter()
+                    .all(|event| event["detail"]["priced_proofs"] == 2)
+        );
+        assert!(
+            observations
+                .iter()
+                .filter(|event| event["kind"] == "summary")
+                .any(|event| {
+                    let detail = &event["detail"];
+                    let estimate = detail["full_estimate_gas"].as_u64().unwrap();
+                    let cap = detail["planning_cap"].as_u64().unwrap();
+                    // An extra verifier alone adds 14k execution gas, before its calldata.
+                    detail["accepted"] == 1 && estimate <= cap && estimate + 14_000 > cap
+                }),
+            "the admission cap must distinguish two proofs from the full roster"
+        );
+    }
+    let dispatches = events
         .into_iter()
         .filter(|e| e.name == "eez.composer.bundle.dispatched")
         .collect::<Vec<_>>();
@@ -128,10 +163,16 @@ async fn exercise(config: TestQuorumConfig) {
         !attempts.is_empty() && attempts.iter().all(|&n| n == 0),
         "expected zero attempts charged across actual user-bearing dispatches: {attempts:?}"
     );
-    let posts =
-        assert_quorum_batch_signatures(&world.l1_rpc(), &world.dep, &quorum.members, 2, from_block)
-            .await
-            .unwrap();
+    let posts = assert_quorum_batch_signatures(
+        &world.l1_rpc(),
+        &world.dep,
+        world.network.post_batch_target,
+        &quorum.members,
+        2,
+        from_block,
+    )
+    .await
+    .unwrap();
     assert!(
         posts.iter().all(|systems| systems.len() == 2),
         "every L1 post must carry two distinct native profile proofs"
@@ -198,6 +239,49 @@ async fn exercise(config: TestQuorumConfig) {
             U256::from(41)
         );
         follower.assert_no_process_death();
+
+        // A mined revert after the successful posts must fail the receipt audit
+        // even though its transaction produces no registry event.
+        let caller = eez_testkit::ANVIL_KEY_6;
+        let nonce = l1
+            .get_transaction_count(signer_address(caller).unwrap())
+            .await
+            .unwrap();
+        let hash = sign_and_send(
+            &world.l1_rpc(),
+            caller,
+            l1.get_chain_id().await.unwrap(),
+            nonce,
+            Some(world.network.post_batch_target),
+            U256::ZERO,
+            eez_protocol::abi::postAndVerifyBatchCall {
+                batch: Default::default(),
+            }
+            .abi_encode(),
+            250_000,
+        )
+        .await
+        .unwrap();
+        let receipt = wait_for(SETTLE_TIMEOUT, || async {
+            Ok(l1.get_transaction_receipt(hash).await?)
+        })
+        .await
+        .unwrap();
+        assert!(!receipt.status());
+        let error = assert_quorum_batch_signatures(
+            &world.l1_rpc(),
+            &world.dep,
+            world.network.post_batch_target,
+            &quorum.members,
+            2,
+            from_block,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("postAndVerifyBatch transaction {hash} reverted")
+        );
     }
     world.node.assert_no_process_death();
 }

@@ -2460,26 +2460,52 @@ pub async fn assert_latest_batch_signature(
 pub async fn assert_quorum_batch_signatures(
     l1_rpc: &str,
     dep: &Deployment,
+    post_batch_target: Address,
     members: &[(Address, Address)],
     minimum: usize,
     from_block: u64,
 ) -> Result<Vec<Vec<Address>>> {
     let provider = ProviderBuilder::new().connect_http(l1_rpc.parse()?);
+    let tip = provider.get_block_number().await?;
+    let mut systems = Vec::new();
+    let mut checked = HashSet::new();
+    // A reverted post emits no BatchPosted event. Enumerate calls to the actual
+    // submission destination, including a configured forwarding wrapper.
+    for height in from_block..=tip {
+        let block = provider
+            .get_block_by_number(height.into())
+            .full()
+            .await?
+            .with_context(|| format!("missing L1 block {height} while checking quorum receipts"))?;
+        for tx in block.transactions.txns() {
+            if tx.inner.to() == Some(post_batch_target)
+                && tx
+                    .inner
+                    .input()
+                    .starts_with(&eez_protocol::abi::postAndVerifyBatchCall::SELECTOR)
+            {
+                checked.insert(*tx.inner.tx_hash());
+                systems.push(
+                    verify_batch_signatures(&provider, dep, *tx.inner.tx_hash(), members, minimum)
+                        .await?,
+                );
+            }
+        }
+    }
+    ensure!(!systems.is_empty(), "no quorum settlement was posted");
     let filter = alloy_rpc_types_eth::Filter::new()
         .address(dep.eez_address)
         .event_signature(IEEZ::BatchPosted::SIGNATURE_HASH)
-        .from_block(from_block);
-    let logs = provider.get_logs(&filter).await?;
-    ensure!(!logs.is_empty(), "no quorum settlement was posted");
-    let mut checked = HashSet::new();
-    let mut systems = Vec::new();
-    for log in logs {
+        .from_block(from_block)
+        .to_block(tip);
+    for log in provider.get_logs(&filter).await? {
         let hash = log
             .transaction_hash
             .context("BatchPosted has no transaction hash")?;
-        if checked.insert(hash) {
-            systems.push(verify_batch_signatures(&provider, dep, hash, members, minimum).await?);
-        }
+        ensure!(
+            checked.contains(&hash),
+            "registry BatchPosted from an unexpected submission {hash}"
+        );
     }
     Ok(systems)
 }
@@ -2496,8 +2522,17 @@ async fn verify_batch_signatures(
         .await?
         .ok_or_else(|| anyhow!("postAndVerifyBatch receipt is missing"))?;
     if !receipt.status() {
-        bail!("postAndVerifyBatch transaction reverted");
+        bail!("postAndVerifyBatch transaction {tx_hash} reverted");
     }
+    ensure!(
+        receipt
+            .inner
+            .logs()
+            .iter()
+            .any(|log| log.address() == dep.eez_address
+                && log.topic0() == Some(&IEEZ::BatchPosted::SIGNATURE_HASH)),
+        "successful postAndVerifyBatch {tx_hash} emitted no registry BatchPosted event"
+    );
     let transaction = provider
         .get_transaction_by_hash(tx_hash)
         .await?

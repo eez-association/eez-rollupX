@@ -207,6 +207,43 @@ impl AttestationQuorum {
         self.members.iter().map(|m| m.proof_system)
     }
 
+    /// Price the most expensive address calldata any first-threshold response can carry.
+    /// The collector still dispatches to all usable members and selects by arrival.
+    pub(crate) fn sizing_systems(&self, registration: &QuorumRegistration) -> Vec<Address> {
+        let mut systems: Vec<_> = registration.usable_systems(&self.members).collect();
+        systems.sort_by_key(|address| {
+            std::cmp::Reverse(crate::composer::calldata_gas(address.as_slice()))
+        });
+        systems.truncate(registration.threshold);
+        systems.sort_unstable();
+        systems
+    }
+
+    pub(crate) async fn registration_at_parent(
+        &self,
+        chain: &crate::local::provider::ChainProvider,
+        registry: Address,
+        rollup_id: u64,
+        header: &alloy_consensus::Header,
+        prior: Option<(B256, QuorumRegistration)>,
+        expires_at: Instant,
+    ) -> Result<QuorumRegistration, ProverError> {
+        if let Some((hash, registration)) = prior
+            && hash == header.hash_slow()
+        {
+            return Ok(registration);
+        }
+        if Instant::now() >= expires_at {
+            return Err(deadline_error());
+        }
+        timeout_at(
+            expires_at,
+            self.policy_at(chain, registry, rollup_id, Some(header.clone())),
+        )
+        .await
+        .map_err(|_| deadline_error())?
+    }
+
     /// Resolve the same usable set in request-local native estimation state.
     /// The caller pins every read to one immutable L1 snapshot.
     pub(crate) fn usable_proof_systems(
@@ -482,7 +519,7 @@ impl AttestationQuorum {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct QuorumRegistration {
     /// Distinct proof systems a batch must carry.
-    threshold: usize,
+    pub(crate) threshold: usize,
     /// Parallel to the quorum's members: the verification key the manager
     /// registers for a usable member, `None` for one that sits this batch out.
     vkeys: Vec<Option<B256>>,

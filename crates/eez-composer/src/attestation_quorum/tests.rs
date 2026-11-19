@@ -1,3 +1,5 @@
+mod parent_sizing;
+
 use alloy_primitives::{Signature, U256, keccak256};
 use async_trait::async_trait;
 use eez_protocol::EcdsaProofSigner;
