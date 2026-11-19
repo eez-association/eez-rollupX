@@ -7492,7 +7492,7 @@ where
         let workload = crate::prover_retry::Workload {
             groups: semantic_transactions.len(),
             blobs: transaction_blobs.len(),
-            witnesses: span_len,
+            witnesses: self.inner.witness_source.as_ref().map_or(0, |_| span_len),
         };
         let post_reserve = admission.map_or(crate::prover_retry::POST_PROOF_RESERVE, |attempt| {
             attempt.timings.post_reserve(workload)
