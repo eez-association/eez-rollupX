@@ -17,8 +17,15 @@ async fn externally_spent_nonce_during_history_drain_has_terminal_status() {
     roundtrip(Scenario::NonceConsumed).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn gnosis_eip1559_is_held_through_multiple_history_posts_and_replays() {
+    roundtrip(Scenario::Gnosis).await;
+}
+
+#[derive(Debug)]
 enum Scenario {
     Eip1559,
+    Gnosis,
     LegacyReorg,
     NonceConsumed,
 }
@@ -51,6 +58,12 @@ async fn roundtrip(scenario: Scenario) {
     );
     let mut world = if legacy {
         eez_testkit::setup_cross_chain_with_l1_reorg(&settings).await
+    } else if matches!(scenario, Scenario::Gnosis) {
+        eez_testkit::setup_cross_chain_with_profile(
+            eez_testkit::NativeL1Profile::GnosisPrague,
+            &settings,
+        )
+        .await
     } else {
         setup_cross_chain_with_env(&settings).await
     }
@@ -104,7 +117,7 @@ async fn roundtrip(scenario: Scenario) {
             json!([{"from":signer.address(),"to":outer,"nonce":format!("{nonce:#x}"),"data":input}])).await?;
         Ok((!quote_retry(&response)).then_some(response))
     }).await.unwrap();
-    tracing::save_trace(&format!("inbound-backlog-{legacy}-{spend_nonce}"), &quote);
+    tracing::save_trace(&format!("inbound-backlog-{scenario:?}"), &quote);
     assert!(quote.get("error").is_none(), "{quote}");
     for option in quote["result"]["options"].as_array().unwrap() {
         assert!(
