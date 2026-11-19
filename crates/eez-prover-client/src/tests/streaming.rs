@@ -43,6 +43,7 @@ pub(super) struct StreamStub {
     unsupported: Option<&'static str>,
     corrupt: Option<&'static str>,
     stall: Option<&'static str>,
+    stall_first_ack: Option<Arc<tokio::sync::Notify>>,
     pipeline: bool,
     final_reply: Option<sf::Kind>,
 }
@@ -64,6 +65,7 @@ impl StreamStub {
             unsupported: None,
             corrupt: None,
             stall: None,
+            stall_first_ack: None,
             pipeline: false,
             final_reply: None,
         }
@@ -248,7 +250,13 @@ impl v2::prover_server::Prover for StreamStub {
                     }
                     cf::Kind::Cancel(_) => unreachable!(),
                 };
+                let first_ack = matches!(kind, sf::Kind::Validated(_)) && model.blocks == 1;
                 drop(model);
+                if first_ack && let Some(entered) = &this.stall_first_ack {
+                    entered.notify_one();
+                    tx.closed().await;
+                    return;
+                }
                 if this.stall == Some(phase) {
                     tx.closed().await;
                     return;
@@ -445,13 +453,135 @@ async fn prevalidation_after_proof_preserves_the_next_requested_predecessor() {
 }
 
 #[tokio::test]
+async fn proof_interrupts_preparation_and_preparation_reaches_its_original_tip() {
+    let ctx = context(10);
+    let mut stub = StreamStub::new(&ctx);
+    let first_ack = Arc::new(tokio::sync::Notify::new());
+    stub.stall_first_ack = Some(first_ack.clone());
+    let (prover, _server) = serve(stub).await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let prepare = prover.prevalidate_range(1, &ctx.blocks);
+        let prove = async {
+            first_ack.notified().await;
+            prover.prove(selected(&ctx, 1, 5)).await.unwrap();
+        };
+        let (progress, ()) = tokio::join!(prepare, prove);
+        assert_eq!(progress.unwrap(), Preparation::Interrupted);
+        assert_eq!(
+            prover.prevalidate_range(1, &ctx.blocks).await.unwrap(),
+            Preparation::Confirmed
+        );
+        prover.prove(ctx.clone()).await.unwrap();
+    })
+    .await
+    .expect("a stalled preparation ACK cannot hold the proof stream");
+}
+
+#[tokio::test]
+async fn cancelling_queued_proofs_releases_preparation_after_the_last_one() {
+    let ctx = context(1);
+    let stub = StreamStub::new(&ctx);
+    let (prover, _server) = serve(stub).await;
+    let stream = prover.inner.streaming.lock().await;
+    let mut demand = prover.inner.pending_proofs.subscribe();
+    let start_proof = || {
+        let (client, ctx) = (prover.clone(), ctx.clone());
+        tokio::spawn(async move { client.prove(ctx).await })
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let first = start_proof();
+        let second = start_proof();
+        demand.wait_for(|count| *count == 2).await.unwrap();
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        assert_eq!(*demand.borrow(), 1);
+        second.abort();
+        assert!(second.await.unwrap_err().is_cancelled());
+        assert_eq!(*demand.borrow(), 0);
+        drop(stream);
+        assert_eq!(
+            prover.prevalidate_range(1, &ctx.blocks).await.unwrap(),
+            Preparation::Confirmed
+        );
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn older_preparation_preserves_checked_progress_before_and_after_a_proof() {
+    let ctx = context(10);
+    let stub = StreamStub::new(&ctx);
+    let model = Arc::clone(&stub.model);
+    let (prover, _server) = serve(stub).await;
+    prover.prevalidate_range(1, &ctx.blocks).await.unwrap();
+    for _ in 0..2 {
+        let before = model.lock().await.blocks;
+        assert_eq!(
+            prover.prevalidate_range(1, &ctx.blocks[..5]).await.unwrap(),
+            Preparation::Superseded
+        );
+        assert_eq!(
+            prover.prevalidate_range(1, &ctx.blocks).await.unwrap(),
+            Preparation::Confirmed
+        );
+        prover.prove(ctx.clone()).await.unwrap();
+        let model = model.lock().await;
+        assert_eq!(model.begins, 1);
+        assert_eq!(
+            model.blocks,
+            before + 1,
+            "only the proof terminal needs replay"
+        );
+    }
+}
+
+#[tokio::test]
+async fn stale_chunks_and_equal_height_siblings_preserve_a_newer_cursor() {
+    let ctx = context(260);
+    let stub = StreamStub::new(&ctx);
+    let model = Arc::clone(&stub.model);
+    let (prover, _server) = serve(stub).await;
+    prover.prevalidate_range(1, &ctx.blocks).await.unwrap();
+    let resumes = model.lock().await.resumes;
+    assert_eq!(
+        prover
+            .prevalidate_range(1, &ctx.blocks[..200])
+            .await
+            .unwrap(),
+        Preparation::Superseded
+    );
+    assert_eq!(
+        model.lock().await.resumes,
+        resumes + 1,
+        "one Ready supersedes all older chunks"
+    );
+
+    let mut sibling = ctx.blocks[259].clone();
+    let mut block: eez_primitives::Block = alloy_rlp::decode_exact(&sibling.rlp).unwrap();
+    block.header.extra_data = Bytes::from_static(b"sibling");
+    sibling.hash = block.header.hash_slow();
+    sibling.rlp = alloy_rlp::encode(block).into();
+    assert_eq!(
+        prover.prevalidate_range(1, &[sibling]).await.unwrap(),
+        Preparation::Superseded
+    );
+    assert_eq!(model.lock().await.blocks, 260);
+    prover.prove(ctx).await.unwrap();
+    assert_eq!(model.lock().await.blocks, 261);
+}
+
+#[tokio::test]
 async fn skipped_prevalidation_keeps_prefix_and_final_proof_backfills_gap() {
     let ctx = context(3);
     let stub = StreamStub::new(&ctx);
     let model = Arc::clone(&stub.model);
     let (prover, _server) = serve(stub).await;
     prover.prevalidate_range(1, &ctx.blocks[..1]).await.unwrap();
-    prover.prevalidate_range(1, &ctx.blocks[2..]).await.unwrap();
+    assert_eq!(
+        prover.prevalidate_range(1, &ctx.blocks[2..]).await.unwrap(),
+        Preparation::Gap
+    );
     assert_eq!(model.lock().await.blocks, 1);
     prover.prove(ctx).await.unwrap();
     let model = model.lock().await;

@@ -82,6 +82,40 @@ struct StreamingSession {
     extended_at: Option<u64>,
 }
 
+/// What the preparation worker can infer about the supplied range.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Preparation {
+    /// The signer confirmed the requested tip's number and hash.
+    Confirmed,
+    /// An older or competing capture cannot replace the signer's retained tip.
+    Superseded,
+    /// The supplied range starts beyond the signer's next block.
+    Gap,
+    /// A proof interrupted the exchange. Reselect the latest durable target.
+    Interrupted,
+}
+
+pub(super) enum Exchange {
+    Prepared,
+    Cursor(u64),
+    Proof(Vec<u8>, Vec<u8>),
+}
+
+impl StreamingSession {
+    fn needs_new_anchor(
+        &self,
+        anchor: StreamAnchor,
+        first: Option<&BlockWitness>,
+        preparing: bool,
+    ) -> bool {
+        anchor.number < self.anchor.number
+            || (anchor.number == self.anchor.number && anchor.hash != self.anchor.hash)
+            || self
+                .extended_at
+                .is_some_and(|number| preparing || first.is_some_and(|block| block.number > number))
+    }
+}
+
 impl StreamingState {
     async fn send(
         &mut self,
@@ -190,26 +224,65 @@ fn rejection_error(response: &ServerFrame, from_block: u64, to_block: u64) -> Op
 }
 
 impl RemoteProver {
-    /// Best-effort v2 prevalidation using the caller's complete durable range.
-    /// A gap retains prior progress; final proving always backfills what is missing.
-    /// Unsupported peers fail explicitly.
+    /// Prepare a durable range. On interruption, wait for this member's pending
+    /// proof exchanges to finish so the worker can reselect its latest target.
     pub async fn prevalidate_range(
         &self,
         rollup_id: u64,
         blocks: &[BlockWitness],
-    ) -> ProverResult<()> {
-        let connection = self.connection().await?;
-        let chunk_size = (connection.capabilities.max_window_blocks as usize).min(64);
-        for chunk in blocks.chunks(chunk_size) {
-            self.prevalidate_chunk(rollup_id, chunk).await?;
+    ) -> ProverResult<Preparation> {
+        let mut proofs = self.inner.pending_proofs.subscribe();
+        tokio::select! {
+            biased;
+            _ = proofs.wait_for(|count| *count != 0) => {},
+            result = self.prepare_range(rollup_id, blocks) => return result,
         }
-        Ok(())
+        proofs
+            .wait_for(|count| *count == 0)
+            .await
+            .expect("this client owns the sender");
+        Ok(Preparation::Interrupted)
     }
 
-    async fn prevalidate_chunk(&self, rollup_id: u64, blocks: &[BlockWitness]) -> ProverResult<()> {
-        let Some(first) = blocks.first() else {
-            return Ok(());
-        };
+    async fn prepare_range(
+        &self,
+        rollup_id: u64,
+        blocks: &[BlockWitness],
+    ) -> ProverResult<Preparation> {
+        let connection = self.connection().await?;
+        let chunk_size = (connection.capabilities.max_window_blocks as usize).min(64);
+        let mut cursor = None;
+        let mut progress = Preparation::Superseded;
+        for chunk in blocks.chunks(chunk_size) {
+            // One Ready can supersede several complete chunks on a durable retry.
+            if cursor.is_some_and(|number| chunk.last().is_some_and(|tip| tip.number < number)) {
+                continue;
+            }
+            match self.prevalidate_chunk(rollup_id, chunk).await? {
+                Exchange::Prepared => progress = Preparation::Confirmed,
+                Exchange::Cursor(number) if number < chunk[0].number => {
+                    return Ok(Preparation::Gap);
+                }
+                Exchange::Cursor(number) => {
+                    progress = Preparation::Superseded;
+                    cursor = Some(number);
+                }
+                Exchange::Proof(..) => {
+                    return Err(ProverError::Backend(
+                        "unsolicited prevalidation proof".into(),
+                    ));
+                }
+            }
+        }
+        Ok(progress)
+    }
+
+    async fn prevalidate_chunk(
+        &self,
+        rollup_id: u64,
+        blocks: &[BlockWitness],
+    ) -> ProverResult<Exchange> {
+        let first = blocks.first().expect("chunks are nonempty");
         let mut parent = None;
         for bytes in &first.witness.headers {
             let header: alloy_consensus::Header = alloy_rlp::decode_exact(bytes)
@@ -225,13 +298,7 @@ impl RemoteProver {
             hash: first.parent_hash,
             state_root: parent.state_root,
         };
-        match self.stream_exchange(rollup_id, anchor, blocks, None).await {
-            Ok(None) => Ok(()),
-            Ok(Some(_)) => Err(ProverError::Backend(
-                "unsolicited prevalidation proof".into(),
-            )),
-            Err(error) => Err(error),
-        }
+        self.stream_exchange(rollup_id, anchor, blocks, None).await
     }
 
     async fn open_stream(
@@ -306,7 +373,7 @@ impl RemoteProver {
         anchor: StreamAnchor,
         blocks: &[BlockWitness],
         finalize: Option<(u64, u64, eez_control_rpc::v2::SettlementInput)>,
-    ) -> ProverResult<Option<(Vec<u8>, Vec<u8>)>> {
+    ) -> ProverResult<Exchange> {
         // One deadline covers lock acquisition, connect, both stream directions and EOF.
         // Dropping the exchange releases its lock; a later Resume recovers accepted work.
         tokio::time::timeout(
@@ -326,22 +393,12 @@ impl RemoteProver {
         anchor: StreamAnchor,
         blocks: &[BlockWitness],
         finalize: Option<(u64, u64, eez_control_rpc::v2::SettlementInput)>,
-    ) -> ProverResult<Option<(Vec<u8>, Vec<u8>)>> {
+    ) -> ProverResult<Exchange> {
         let mut state = self.inner.streaming.lock().await;
         if state.session.as_ref().is_some_and(|session| {
             session.rollup_id != rollup_id
-                || anchor.number < session.anchor.number
-                || (anchor.number == session.anchor.number && anchor.hash != session.anchor.hash)
+                || (finalize.is_some() && session.needs_new_anchor(anchor, blocks.first(), false))
         }) {
-            state.session = None;
-        }
-        if state.session.as_ref().is_some_and(|session| {
-            session.extended_at.is_some_and(|number| {
-                finalize.is_none() || blocks.first().is_some_and(|block| block.number > number)
-            })
-        }) {
-            // A previous proof's anchor bridge is not the next part's execution
-            // history. Begin from the supplied authenticated predecessor.
             state.session = None;
         }
         let range = finalize.as_ref().map_or_else(
@@ -448,6 +505,32 @@ impl RemoteProver {
                     extended_at,
                 });
 
+                if finalize.is_none() && !creating {
+                    let tip = blocks.last().expect("prevalidation chunks are nonempty");
+                    // Height alone cannot acknowledge an older hash. Leave that branch
+                    // choice to a proof and preserve the newer retained prefix.
+                    if tip.number <= ready.validated_through {
+                        return Ok(
+                            if tip.number == ready.validated_through
+                                && tip.hash.as_slice() == ready.validated_hash
+                            {
+                                Exchange::Prepared
+                            } else {
+                                Exchange::Cursor(ready.validated_through)
+                            },
+                        );
+                    }
+                    if state
+                        .session
+                        .as_ref()
+                        .expect("Ready established a session")
+                        .needs_new_anchor(anchor, blocks.first(), true)
+                    {
+                        state.session = None;
+                        continue;
+                    }
+                }
+
                 let mut skip = blocks
                     .iter()
                     .position(|block| {
@@ -481,7 +564,7 @@ impl RemoteProver {
                         // Keep the checked prefix; a complete prove() will backfill the gap.
                         drop(requests);
                         drop(responses);
-                        return Ok(None);
+                        return Ok(Exchange::Cursor(ready.validated_through));
                     }
                     // Without a matching cursor, try the retained predecessor. A
                     // missing ancestor requires a fresh session and complete backfill.
@@ -621,14 +704,14 @@ impl RemoteProver {
                     }
                 }
             }
-            if proof.is_none() {
+            let Some((hash, signature)) = proof else {
                 drop(requests);
                 drop(responses);
-                return Ok(None);
-            }
+                return Ok(Exchange::Prepared);
+            };
             drop(requests);
             return match responses.message().await {
-                Ok(None) => Ok(proof),
+                Ok(None) => Ok(Exchange::Proof(hash, signature)),
                 Ok(Some(_)) => Err(ProverError::Backend(
                     "ProveStream returned an unsolicited response".into(),
                 )),

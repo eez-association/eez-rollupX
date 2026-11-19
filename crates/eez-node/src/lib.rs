@@ -229,8 +229,17 @@ async fn run_preparation_worker(
     rollup_id: u64,
     l1_head: Arc<L1CanonicalHead>,
 ) {
+    use eez_prover_client::Preparation;
     let mut last_prepared = None;
-    while let Some(mut target) = receiver.recv().await {
+    let mut retry = None;
+    loop {
+        let mut target = if let Some(target) = retry.take() {
+            target
+        } else if let Some(target) = receiver.recv().await {
+            target
+        } else {
+            break;
+        };
         while let Ok(next) = receiver.try_recv() {
             target = next;
         }
@@ -255,15 +264,21 @@ async fn run_preparation_worker(
                 continue;
             }
         };
-        if !path.connected_to_stop {
-            last_prepared = None;
-        }
         match prover.prevalidate_range(rollup_id, &path.blocks).await {
-            Ok(()) => {
+            Ok(Preparation::Confirmed) => {
                 last_prepared = path.blocks.last().map(|block| eez_l1::L2Endpoint {
                     number: block.number,
                     hash: block.hash,
                 })
+            }
+            Ok(Preparation::Superseded) => {}
+            Ok(Preparation::Interrupted) => retry = Some(target),
+            Ok(Preparation::Gap) => {
+                // A proof may have rewound behind our remembered stop. Rewalk from
+                // the settlement floor once, coalescing newer notifications first.
+                if last_prepared.take().is_some() && path.connected_to_stop {
+                    retry = Some(target);
+                }
             }
             Err(error) => {
                 event!(name: "eez.node.witness_preparation.deferred", Level::WARN, retryable = ?error.retryable_kind(),

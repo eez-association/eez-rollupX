@@ -15,6 +15,8 @@ use std::sync::Arc;
 mod connection;
 mod streaming;
 
+pub use streaming::Preparation;
+
 use alloy_primitives::{Address, B256, Bytes};
 use alloy_sol_types::SolCall;
 use async_trait::async_trait;
@@ -38,6 +40,7 @@ pub struct RemoteProver {
 #[derive(Debug)]
 struct Inner {
     streaming: tokio::sync::Mutex<streaming::StreamingState>,
+    pending_proofs: tokio::sync::watch::Sender<usize>,
     exchange_timeout: std::time::Duration,
     /// The `eez-proof-signer` endpoint, e.g. `http://127.0.0.1:50061`.
     url: String,
@@ -49,6 +52,15 @@ struct Inner {
     vkey: B256,
     connection: tokio::sync::Mutex<Option<Arc<connection::Connection>>>,
     agreed_capabilities: tokio::sync::Mutex<Option<eez_control_rpc::v2::CapabilitiesResponse>>,
+}
+
+// A proof can be cancelled at any await, including while queued behind another proof.
+struct PendingProof<'a>(&'a tokio::sync::watch::Sender<usize>);
+
+impl Drop for PendingProof<'_> {
+    fn drop(&mut self) {
+        self.0.send_modify(|count| *count -= 1);
+    }
 }
 
 impl std::fmt::Debug for RemoteProver {
@@ -74,6 +86,7 @@ impl RemoteProver {
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
+                pending_proofs: tokio::sync::watch::Sender::new(0),
                 streaming: tokio::sync::Mutex::new(streaming::StreamingState::default()),
                 exchange_timeout: std::time::Duration::from_mins(10),
                 url: url.into(),
@@ -170,6 +183,8 @@ impl RemoteProver {
 #[async_trait]
 impl Prover for RemoteProver {
     async fn prove(&self, ctx: ProvingContext) -> ProverResult<Bytes> {
+        self.inner.pending_proofs.send_modify(|count| *count += 1);
+        let pending = PendingProof(&self.inner.pending_proofs);
         let connection = self.connection().await?;
         let count = ctx
             .to_block
@@ -206,17 +221,22 @@ impl Prover for RemoteProver {
                     parent_hash: posting.parent_hash.to_vec(),
                 }),
         };
-        match self
+        let exchange = self
             .stream_exchange(
                 ctx.rollup_id,
                 anchor,
                 &ctx.blocks,
                 Some((ctx.from_block, ctx.to_block, settlement)),
             )
-            .await
-        {
-            Ok(Some((hash, proof))) => self.verify_response(ctx, hash, proof).await,
-            Ok(None) => Err(ProverError::Backend("Finalize returned no proof".into())),
+            .await;
+        drop(pending);
+        match exchange {
+            Ok(streaming::Exchange::Proof(hash, proof)) => {
+                self.verify_response(ctx, hash, proof).await
+            }
+            Ok(streaming::Exchange::Prepared | streaming::Exchange::Cursor(_)) => {
+                Err(ProverError::Backend("Finalize returned no proof".into()))
+            }
             Err(error) => Err(error),
         }
     }
@@ -305,6 +325,7 @@ fn exact_hash(bytes: &[u8]) -> Option<B256> {
 #[cfg(test)]
 mod tests {
     mod streaming;
+
     use super::*;
     use alloy_primitives::address;
     use alloy_signer::SignerSync;
