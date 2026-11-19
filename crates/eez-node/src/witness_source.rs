@@ -505,7 +505,7 @@ pub async fn run_capture<P, F>(
     provider: P,
     evm_config: EezEvmConfig,
     settled_floor: F,
-    preparation: Option<PreparationNotifier>,
+    preparation: Vec<PreparationNotifier>,
 ) where
     P: BlockReader<Block = Block>
         + StateProviderFactory
@@ -575,7 +575,7 @@ pub async fn run_capture<P, F>(
                 }
                 Ok(Ok(Captured::Stored { purged })) => {
                     store.capture_status(None);
-                    if let Some(preparation) = &preparation {
+                    for preparation in &preparation {
                         preparation.notify(endpoint);
                     }
                     if purged > 0 {
@@ -740,7 +740,7 @@ mod tests {
                     ChainSpecBuilder::mainnet().shanghai_activated().build(),
                 )),
                 || 10,
-                None,
+                vec![],
             )
             .await;
             assert_eq!(store.ensure_ready().is_err(), must_fail);
@@ -808,7 +808,7 @@ mod tests {
                     ChainSpecBuilder::mainnet().shanghai_activated().build(),
                 )),
                 || 0,
-                Some(notifier),
+                vec![notifier],
             )
             .await;
             assert_eq!(store.ensure_ready().is_err(), must_fail);
@@ -946,7 +946,7 @@ mod tests {
                         assert_ne!(exit, "panic", "injected capture panic");
                         0
                     },
-                    None,
+                    vec![],
                 ),
             );
             runtime.handle().block_on(async {

@@ -12,7 +12,7 @@
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use alloy_primitives::{B256, Bytes};
+use alloy_primitives::{Address, B256, Bytes, Signature};
 use alloy_rpc_types_debug::ExecutionWitness;
 use async_trait::async_trait;
 use eez_protocol::EvmBatch;
@@ -20,6 +20,54 @@ use thiserror::Error;
 
 /// Result alias.
 pub type ProverResult<T> = Result<T, ProverError>;
+
+/// Verify a prover attestation: the 65-byte signature must recover to `attester`
+/// over the 32-byte `public_inputs_hash`. Returns the bound hash on success.
+///
+/// # Errors
+///
+/// [`ProverError::Backend`] on a wrong-length signature or hash, a malformed
+/// signature, non-canonical `s` or `v`, or a signer that isn't the registered attester.
+pub fn verify_attestation(
+    signature: &[u8],
+    public_inputs_hash: &[u8],
+    attester: Address,
+) -> ProverResult<B256> {
+    if signature.len() != 65 {
+        return Err(ProverError::Backend(format!(
+            "attestation is {} bytes, expected 65 (r||s||v)",
+            signature.len()
+        )));
+    }
+    if public_inputs_hash.len() != 32 {
+        return Err(ProverError::Backend(format!(
+            "publicInputsHash is {} bytes, expected 32",
+            public_inputs_hash.len()
+        )));
+    }
+    let hash = B256::from_slice(public_inputs_hash);
+    if !matches!(signature[64], 27 | 28) {
+        return Err(ProverError::Backend(
+            "attestation v must be 27 or 28".into(),
+        ));
+    }
+    let sig = Signature::try_from(signature)
+        .map_err(|e| ProverError::Backend(format!("malformed attestation signature: {e}")))?;
+    if sig.normalize_s().is_some() {
+        return Err(ProverError::Backend(
+            "attestation must use canonical low-s".into(),
+        ));
+    }
+    let recovered = sig
+        .recover_address_from_prehash(&hash)
+        .map_err(|e| ProverError::Backend(format!("attestation recover failed: {e}")))?;
+    if recovered != attester {
+        return Err(ProverError::Backend(format!(
+            "attestation signer {recovered} != registered attester {attester}"
+        )));
+    }
+    Ok(hash)
+}
 
 /// A transient proving failure for which the complete operation may be retried.
 ///

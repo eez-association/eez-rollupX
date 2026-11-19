@@ -28,10 +28,18 @@ pub struct ComposerSettings {
     /// `None` posts directly to the registry. A wrapper must expose EEZ's
     /// `postAndVerifyBatch` with identical calldata; registry reads never use it.
     pub(super) post_batch_target: Option<Address>,
+    pub(super) attestation_quorum: Option<crate::AttestationQuorum>,
     max_speculative_depth: u64,
 }
 
 impl ComposerSettings {
+    /// Enable native attestation collection with on-chain threshold policy.
+    #[must_use]
+    pub fn with_attestation_quorum(mut self, quorum: crate::AttestationQuorum) -> Self {
+        self.attestation_quorum = Some(quorum);
+        self
+    }
+
     /// Intersect local emission policy with the signer's advertised logical
     /// ceiling before runtime construction. Never round upward past its quota.
     pub fn with_prover_block_limit(mut self, maximum: u64) -> Result<Self, PolicyError> {
@@ -173,6 +181,7 @@ impl ComposerSettings {
         )
         .map_err(PolicyError::Config)?;
         Ok(Self {
+            attestation_quorum: None,
             timing,
             policy,
             max_blobs_per_batch,

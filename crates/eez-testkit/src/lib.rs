@@ -13,6 +13,9 @@ mod ports;
 pub mod signals;
 pub use l1_reorg::{L1ReorgControl, setup_cross_chain_with_l1_reorg};
 
+mod quorum;
+pub use quorum::{TestQuorum, TestQuorumConfig};
+
 use std::{
     collections::HashSet,
     convert::Infallible,
@@ -2442,27 +2445,106 @@ pub async fn assert_latest_batch_signature(
     let tx_hash = log
         .transaction_hash
         .ok_or_else(|| anyhow!("BatchPosted log has no transaction hash"))?;
+    let transaction = provider
+        .get_transaction_by_hash(tx_hash)
+        .await?
+        .ok_or_else(|| anyhow!("postAndVerifyBatch transaction is missing"))?;
+    verify_batch_signatures(
+        &provider,
+        dep,
+        &transaction,
+        &[(dep.proof_system_address, expected_attester)],
+        1,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Check every proof of every post after the test enables its quorum policy.
+pub async fn assert_quorum_batch_signatures(
+    l1_rpc: &str,
+    dep: &Deployment,
+    post_batch_target: Address,
+    members: &[(Address, Address)],
+    minimum: usize,
+    from_block: u64,
+) -> Result<Vec<Vec<Address>>> {
+    let provider = ProviderBuilder::new().connect_http(l1_rpc.parse()?);
+    let tip = provider.get_block_number().await?;
+    let mut systems = Vec::new();
+    let mut checked = HashSet::new();
+    // A reverted post emits no BatchPosted event. Enumerate calls to the actual
+    // submission destination, including a configured forwarding wrapper.
+    for height in from_block..=tip {
+        let block = provider
+            .get_block_by_number(height.into())
+            .full()
+            .await?
+            .with_context(|| format!("missing L1 block {height} while checking quorum receipts"))?;
+        for tx in block.transactions.txns() {
+            if tx.inner.to() == Some(post_batch_target)
+                && tx
+                    .inner
+                    .input()
+                    .starts_with(&eez_protocol::abi::postAndVerifyBatchCall::SELECTOR)
+            {
+                checked.insert(*tx.inner.tx_hash());
+                systems.push(verify_batch_signatures(&provider, dep, tx, members, minimum).await?);
+            }
+        }
+    }
+    ensure!(!systems.is_empty(), "no quorum settlement was posted");
+    let filter = alloy_rpc_types_eth::Filter::new()
+        .address(dep.eez_address)
+        .event_signature(IEEZ::BatchPosted::SIGNATURE_HASH)
+        .from_block(from_block)
+        .to_block(tip);
+    for log in provider.get_logs(&filter).await? {
+        let hash = log
+            .transaction_hash
+            .context("BatchPosted has no transaction hash")?;
+        ensure!(
+            checked.contains(&hash),
+            "registry BatchPosted from an unexpected submission {hash}"
+        );
+    }
+    Ok(systems)
+}
+
+async fn verify_batch_signatures(
+    provider: &impl alloy_provider::Provider,
+    dep: &Deployment,
+    transaction: &alloy_rpc_types_eth::Transaction,
+    members: &[(Address, Address)],
+    minimum: usize,
+) -> Result<Vec<Address>> {
+    let tx_hash = *transaction.inner.tx_hash();
     let receipt = provider
         .get_transaction_receipt(tx_hash)
         .await?
         .ok_or_else(|| anyhow!("postAndVerifyBatch receipt is missing"))?;
     if !receipt.status() {
-        bail!("postAndVerifyBatch transaction reverted");
+        bail!("postAndVerifyBatch transaction {tx_hash} reverted");
     }
-    let transaction = provider
-        .get_transaction_by_hash(tx_hash)
-        .await?
-        .ok_or_else(|| anyhow!("postAndVerifyBatch transaction is missing"))?;
+    ensure!(
+        receipt
+            .inner
+            .logs()
+            .iter()
+            .any(|log| log.address() == dep.eez_address
+                && log.topic0() == Some(&IEEZ::BatchPosted::SIGNATURE_HASH)),
+        "successful postAndVerifyBatch {tx_hash} emitted no registry BatchPosted event"
+    );
     let call = eez_protocol::abi::postAndVerifyBatchCall::abi_decode(transaction.inner.input())?;
-    let proof = call
-        .batch
-        .proofs
-        .first()
-        .ok_or_else(|| anyhow!("posted batch has no proof"))?;
+    ensure!(
+        call.batch.proofs.len() == call.batch.proofSystems.len()
+            && call.batch.proofs.len() >= minimum,
+        "posted batch did not meet its proof threshold"
+    );
     let transaction_blob_hashes = transaction
         .inner
         .blob_versioned_hashes()
-        .map_or_else(Vec::new, <[B256]>::to_vec);
+        .unwrap_or_default();
     let containing = provider
         .get_block_by_hash(
             receipt
@@ -2511,24 +2593,37 @@ pub async fn assert_latest_batch_signature(
         mode,
         anchor.header.timestamp,
     )?;
-    let public_inputs_hash = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
-        &call.batch,
-        dep.profile
-            .verification_key(dep.eez_address, dep.proof_system_address, expected_attester),
-        &transaction_blob_hashes,
-        context,
-    )?
-    .into_iter()
-    .next()
-    .ok_or_else(|| anyhow!("posted batch has no public-input hash"))?;
-    let signature = Signature::try_from(proof.as_ref()).context("decode posted signature")?;
-    let recovered = signature
-        .recover_address_from_prehash(&public_inputs_hash)
-        .context("recover posted signature")?;
-    if recovered != expected_attester {
-        bail!("posted proof recovered {recovered}, expected {expected_attester}");
+    for (index, (&system, proof)) in call
+        .batch
+        .proofSystems
+        .iter()
+        .zip(&call.batch.proofs)
+        .enumerate()
+    {
+        let attester = members
+            .iter()
+            .find(|(address, _)| *address == system)
+            .map(|(_, attester)| *attester)
+            .context("unrecognized posted verifier")?;
+        let hashes = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
+            &call.batch,
+            dep.profile
+                .verification_key(dep.eez_address, system, attester),
+            transaction_blob_hashes,
+            context,
+        )?;
+        let signature = Signature::try_from(proof.as_ref()).context("decode posted signature")?;
+        ensure!(
+            signature.normalize_s().is_none(),
+            "posted signature is high-s"
+        );
+        let recovered = signature.recover_address_from_prehash(&hashes[index])?;
+        ensure!(
+            recovered == attester,
+            "posted proof recovered an unexpected attester"
+        );
     }
-    Ok(())
+    Ok(call.batch.proofSystems)
 }
 
 async fn latest_l2_execution_state_at(
@@ -4105,6 +4200,7 @@ pub struct NativeWorld {
     /// Present only in signer-mutation tests.
     pub prover_proxy: Option<ProverProxyHandle>,
     pub proof_signer: ProofSignerHandle,
+    pub quorum: Option<Box<TestQuorum>>,
     /// Present only when the existing fixture uses controlled L1 consensus.
     pub l1_reorg_control: Option<L1ReorgControl>,
     builder_stub: BundleStub,
@@ -6085,6 +6181,7 @@ impl Drop for FixtureSetupDiagnostics<'_> {
 }
 
 async fn setup_native_inner(
+    quorum_config: Option<&TestQuorumConfig>,
     mutation: Option<ProverMutation>,
     attester_override: Option<Address>,
     extra_env: &[(&'static str, String)],
@@ -6277,6 +6374,10 @@ async fn setup_native_inner(
         .as_ref()
         .map_or(proof_signer.endpoint(), ProverProxyHandle::endpoint);
     let attester = attester_override.unwrap_or(signer_attester);
+    let quorum = match quorum_config {
+        Some(config) => Some(TestQuorum::start(&cfg, &network_profile, prover_url, config).await?),
+        None => None,
+    };
     let witness_dir = FailureDatadir::new("eez-native-witnesses")?;
     let datadir = FailureDatadir::new("eez-cross-chain")?;
     let builder_stub = BundleStub::spawn_passthrough(PortLease::tcp(), &cfg.l1_rpc_url()).await?;
@@ -6375,6 +6476,9 @@ async fn setup_native_inner(
             cfg.rollup_id
         );
     }
+    if let Some(quorum) = &quorum {
+        quorum.register(&l1_rpc, &dep, cfg.deployer_key).await?;
+    }
     if let Some(expected) = post_batcher {
         let deployed = deploy_post_batcher_fixture(
             &l1_rpc,
@@ -6415,6 +6519,7 @@ async fn setup_native_inner(
         post_batch_target,
         prover_proxy,
         proof_signer,
+        quorum: quorum.map(Box::new),
         l1_reorg_control,
         builder_stub,
         rejecting_builder,
@@ -6430,6 +6535,7 @@ async fn setup_native_inner(
 /// The caller owns catch-up settlement; no setup transaction waits for L2 now.
 pub async fn setup_native_history(extra_env: &[(&'static str, String)]) -> Result<NativeWorld> {
     let mut network = Box::pin(setup_native_inner(
+        None,
         None,
         None,
         extra_env,
@@ -6456,7 +6562,8 @@ async fn setup_cross_chain_inner(
     let setup_started = Instant::now();
     // Keep the expanded genesis/deployment setup off every scenario's future
     // stack; the resulting owned network still has the usual teardown lifetime.
-    let mut network = Box::pin(setup_native_inner(
+    let network = Box::pin(setup_native_inner(
+        None,
         mutation,
         attester_override,
         extra_env,
@@ -6466,6 +6573,40 @@ async fn setup_cross_chain_inner(
         controlled_consensus,
     ))
     .await?;
+    Box::pin(setup_cross_chain_applications(network, setup_started)).await
+}
+
+pub async fn setup_cross_chain_quorum(
+    config: &TestQuorumConfig,
+    extra_env: &[(&'static str, String)],
+) -> Result<CrossChainWorld> {
+    let mut network = Box::pin(setup_native_inner(
+        Some(config),
+        None,
+        None,
+        extra_env,
+        NativeL1Profile::default(),
+        false,
+        false,
+        false,
+    ))
+    .await?;
+    // The embedded L1 must be running to deploy and register the verifier contracts.
+    let roster = network
+        .quorum
+        .as_ref()
+        .context("missing fixture roster")?
+        .configuration();
+    network
+        .restart_composer_with_env(&[("EEZ_PROVERS", roster)])
+        .await?;
+    Box::pin(setup_cross_chain_applications(network, Instant::now())).await
+}
+
+async fn setup_cross_chain_applications(
+    mut network: NativeWorld,
+    setup_started: Instant,
+) -> Result<CrossChainWorld> {
     let cfg = &network.cfg;
     let node = &network.node;
     let l1_rpc = network.l1_rpc();
@@ -6539,7 +6680,8 @@ async fn setup_cross_chain_inner(
     wait_for_outbound_fixture_parent(node, &l2_rpc, outbound_wrapper, outbound_proxy).await?;
 
     eprintln!(
-        "Native {profile:?} fixture ready in {:.3}s",
+        "Native {:?} fixture ready in {:.3}s",
+        cfg.l1_profile,
         setup_started.elapsed().as_secs_f64()
     );
     setup_diagnostics.complete = true;

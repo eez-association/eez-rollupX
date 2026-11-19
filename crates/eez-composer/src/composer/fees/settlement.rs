@@ -8,10 +8,7 @@ use alloy_primitives::{Address, B256, Bytes, I256, TxKind, U256, b256};
 use alloy_sol_types::{SolCall, SolEvent};
 use eez_protocol::{
     EvmBatch,
-    abi::{
-        EtherDeltaSol, ExecutionEntrySol, RollupIdWithProofSystemsSol, RootUpdateSol,
-        postAndVerifyBatchCall, rollupsCall,
-    },
+    abi::{EtherDeltaSol, ExecutionEntrySol, RootUpdateSol, postAndVerifyBatchCall, rollupsCall},
     blob_semantics::SemanticTransaction,
     entries::EntryTrace,
     system_tx::OutboundSyncGroup,
@@ -28,7 +25,7 @@ use reth_evm::{
 };
 use reth_evm_ethereum::EthEvmEnv;
 use reth_primitives_traits::SealedHeader;
-use reth_storage_api::EvmStateProviderAdapter;
+use reth_storage_api::{EvmStateProviderAdapter, StateProvider};
 
 use super::super::posting::{EffectInspector, PostingQuote, PostingRuntime};
 use super::quote::FeeQuoteError;
@@ -139,7 +136,7 @@ impl<'a> Estimator<'a> {
 /// Validated deployment and account reads at the estimator's pinned L1 state.
 /// No simulated state, blob reservation or execution outcome belongs here.
 struct SnapshotPreparation {
-    vkey: B256,
+    members: Vec<(Address, B256)>,
     poster_nonce: u64,
     poster_balance: U256,
 }
@@ -183,7 +180,7 @@ impl PreparationCache {
 #[derive(Clone, PartialEq, Eq)]
 struct PreparedReplay {
     tx: Recovered<TxEip4844>,
-    verify_data: Bytes,
+    verify_data: Vec<(Address, Bytes)>,
     endpoint: B256,
     rollup_id: u64,
     effects: EffectInspector,
@@ -222,7 +219,10 @@ fn placeholder(index: usize) -> Result<B256, FeeQuoteError> {
     Ok(hash)
 }
 
-fn batch(runtime: &PostingRuntime, input: &SettlementInput<'_>) -> Result<EvmBatch, FeeQuoteError> {
+fn batch(
+    proof_systems: Vec<Address>,
+    input: &SettlementInput<'_>,
+) -> Result<EvmBatch, FeeQuoteError> {
     if input.entries.is_empty() || input.entries.len() != input.traces.len() {
         return Err(FeeQuoteError::Unsupported("settlement trace coverage"));
     }
@@ -312,13 +312,13 @@ fn batch(runtime: &PostingRuntime, input: &SettlementInput<'_>) -> Result<EvmBat
         rollupId: input.rollup_id,
         root: input.settled_root,
     }];
-    result.proofSystems = vec![runtime.ctx.ecdsa_proof_system_address];
-    result.rollupIdsWithProofSystems = vec![RollupIdWithProofSystemsSol {
-        rollupId: input.rollup_id,
-        proofSystemIndexes: vec![0],
-    }];
+    crate::attestation_quorum::assign_proof_systems(
+        &mut result,
+        input.rollup_id,
+        proof_systems.clone(),
+    );
     result.blobIndices = (0..input.blobs).map(U256::from).collect();
-    result.proofs = vec![placeholder_proof()];
+    result.proofs = vec![placeholder_proof(); proof_systems.len()];
     Ok(result)
 }
 
@@ -332,30 +332,34 @@ pub(in crate::composer) fn placeholder_proof() -> Bytes {
 }
 
 fn read_call<C: SolCall>(
-    runtime: &PostingRuntime,
-    posting: &PostingQuote,
+    read: impl FnOnce(Address, Vec<u8>) -> Result<Bytes, FeeQuoteError>,
     to: Address,
     call: C,
 ) -> Result<C::Return, FeeQuoteError> {
-    let provider = runtime
-        .chain
-        .provider
-        .state_by_block_hash(posting.quote.sample.hash)
-        .map_err(unavailable)?;
+    C::abi_decode_returns(&read(to, call.abi_encode())?).map_err(unavailable)
+}
+
+fn read_view(
+    chain: &crate::local::provider::ChainProvider,
+    provider: &dyn StateProvider,
+    env: &reth_evm::EvmEnvFor<eez_evm::EezEvmConfig>,
+    to: Address,
+    calldata: Vec<u8>,
+) -> Result<Bytes, FeeQuoteError> {
     let state = StateProviderDatabase::new(EvmStateProviderAdapter(provider));
-    let mut env =
-        EthEvmEnv::new_with_version(posting.env.spec, posting.env.block, posting.env.version);
+    let mut env = EthEvmEnv::new_with_version(env.spec, env.block, env.version);
+    let chain_id = env.version.chain_id;
     env.version
         .features
         .remove(EvmFeatures::NONCE_CHECK | EvmFeatures::BASE_FEE_CHECK);
     eez_evm::disable_fee_charging(&mut env.version);
-    let mut evm = runtime.chain.evm_config.evm_with_env(state, env);
+    let mut evm = chain.evm_config.evm_with_env(state, env);
     let tx = Recovered::new_unchecked(
         eez_evm::EezEvmTx::Ethereum(TxEnvelope::Legacy(TxLegacy {
             to: TxKind::Call(to),
-            input: call.abi_encode().into(),
+            input: calldata.into(),
             gas_limit: 1_000_000,
-            chain_id: Some(runtime.ctx.l1_chain_id),
+            chain_id: Some(chain_id),
             ..Default::default()
         })),
         Address::ZERO,
@@ -364,7 +368,48 @@ fn read_call<C: SolCall>(
     if !result.is_success() {
         return Err(FeeQuoteError::Unsupported("settlement deployment lookup"));
     }
-    C::abi_decode_returns(&result.output).map_err(unavailable)
+    Ok(result.output)
+}
+
+pub(crate) fn proof_registration(
+    chain: &crate::local::provider::ChainProvider,
+    quorum: &crate::AttestationQuorum,
+    registry: Address,
+    rollup_id: u64,
+    header: &alloy_consensus::Header,
+) -> Result<crate::attestation_quorum::QuorumRegistration, eez_prover::ProverError> {
+    let missing =
+        || eez_prover::ProverError::Backend("local registration state unavailable".into());
+    let hash = header.hash_slow();
+    let env = chain.evm_config.evm_env(header).map_err(|_| missing())?;
+    let state = chain
+        .provider
+        .state_by_block_hash(hash)
+        .map_err(|_| missing())?;
+    let read = |to, input| read_view(chain, state.as_ref(), &env, to, input);
+    let call = rollupsCall {
+        rollupId: rollup_id,
+    };
+    let output = read(registry, call.abi_encode()).map_err(|_| missing())?;
+    let manager = rollupsCall::abi_decode_returns(&output)
+        .map_err(|_| eez_prover::ProverError::Backend("invalid rollup registration".into()))?
+        .rollupContract;
+    quorum
+        .local_registration(
+            manager,
+            |system| super::super::estimate::deployment::known_verifier(state.as_ref(), system),
+            |system, input| read(system, input).map_err(|e| e.to_string()),
+            |member, reason| {
+                tracing::warn!(
+                    name: "eez.composer.attestation.member_skipped",
+                    event_name = "eez.composer.attestation.member_skipped",
+                    proof_system = %member.proof_system,
+                    attester = %member.attester,
+                    %manager, reason, "an attester is not asked for this batch"
+                );
+            },
+        )
+        .map_err(|error| eez_prover::ProverError::Backend(error.to_string()))
 }
 
 fn prepare_snapshot(
@@ -373,9 +418,14 @@ fn prepare_snapshot(
     rollup_id: u64,
     settled_root: B256,
 ) -> Result<SnapshotPreparation, FeeQuoteError> {
+    let provider = runtime
+        .chain
+        .provider
+        .state_by_block_hash(posting.quote.sample.hash)
+        .map_err(unavailable)?;
+    let read = |to, input| read_view(&runtime.chain, provider.as_ref(), &posting.env, to, input);
     let registry = read_call(
-        runtime,
-        posting,
+        read,
         runtime.registry,
         rollupsCall {
             rollupId: rollup_id,
@@ -384,36 +434,42 @@ fn prepare_snapshot(
     if registry.root != settled_root {
         return Err(FeeQuoteError::Stale);
     }
-    let provider = runtime
-        .chain
-        .provider
-        .state_by_block_hash(posting.quote.sample.hash)
-        .map_err(unavailable)?;
+    let proof_systems = match &runtime.quorum {
+        Some(quorum) => quorum
+            .usable_proof_systems(
+                registry.rollupContract,
+                |system| {
+                    super::super::estimate::deployment::known_verifier(provider.as_ref(), system)
+                },
+                |to, input| read(to, input).map_err(|error| error.to_string()),
+            )
+            .map_err(unavailable)?,
+        None => runtime.proof_systems.clone(),
+    };
     super::super::estimate::deployment::validate_at(
         provider.as_ref(),
         runtime.registry,
         registry.rollupContract,
-        runtime.ctx.ecdsa_proof_system_address,
+        &proof_systems,
         runtime.post_batch_target,
     )
     .map_err(unavailable)?;
     let keys = read_call(
-        runtime,
-        posting,
+        read,
         registry.rollupContract,
         checkProofSystemsAndGetVkeysCall {
-            proofSystems: vec![runtime.ctx.ecdsa_proof_system_address],
+            proofSystems: proof_systems.clone(),
         },
     )?;
-    let [vkey] = keys.as_slice() else {
+    if keys.len() != proof_systems.len() || keys.is_empty() {
         return Err(FeeQuoteError::Unsupported("settlement proof profile"));
-    };
+    }
     let account = provider
         .basic_account(&runtime.ctx.l1_poster_signer.address())
         .map_err(unavailable)?
         .unwrap_or_default();
     Ok(SnapshotPreparation {
-        vkey: *vkey,
+        members: proof_systems.into_iter().zip(keys).collect(),
         poster_nonce: account.nonce,
         poster_balance: account.balance,
     })
@@ -425,7 +481,10 @@ fn prepare(
     snapshot: &SnapshotPreparation,
     input: &SettlementInput<'_>,
 ) -> Result<(PreparedReplay, crate::PosterBalanceError), FeeQuoteError> {
-    let batch = batch(runtime, input)?;
+    let batch = batch(
+        snapshot.members.iter().map(|(system, _)| *system).collect(),
+        input,
+    )?;
     let hashes = (0..input.blobs)
         .map(|i| {
             let mut hash = placeholder(i)?;
@@ -444,22 +503,34 @@ fn prepare(
         posting.parent.timestamp,
     )
     .map_err(unavailable)?;
-    let digests = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
+    let digests = crate::attestation_quorum::member_digests(
         &batch,
-        snapshot.vkey,
+        &snapshot
+            .members
+            .iter()
+            .map(|(_, key)| *key)
+            .collect::<Vec<_>>(),
         &hashes,
         context,
     )
     .map_err(unavailable)?;
-    let [digest] = digests.as_slice() else {
-        return Err(FeeQuoteError::Unsupported("settlement proof digest"));
-    };
-    let verify_data: Bytes = verifyCall {
-        proof: batch.proofs[0].clone(),
-        publicInputsHash: *digest,
-    }
-    .abi_encode()
-    .into();
+    let verify_data = batch
+        .proofSystems
+        .iter()
+        .zip(&batch.proofs)
+        .zip(digests)
+        .map(|((&system, proof), digest)| {
+            (
+                system,
+                verifyCall {
+                    proof: proof.clone(),
+                    publicInputsHash: digest,
+                }
+                .abi_encode()
+                .into(),
+            )
+        })
+        .collect();
     let poster = runtime.ctx.l1_poster_signer.address();
     // Only the balance is immutable. A fee-dependent call can change the blob
     // count, so reserve blob fees and derive affordable gas for every candidate.
@@ -554,15 +625,12 @@ fn replay(
         .state_by_block_hash(posting.quote.sample.hash)
         .map_err(unavailable)?;
     let mut state = StateProviderDatabase::new(EvmStateProviderAdapter(provider));
-    let mut inspector = MeteredProof {
-        registry: runtime.registry,
-        verifier: runtime.ctx.ecdsa_proof_system_address,
-        calldata: prepared.verify_data.clone(),
-        matches: 0,
-        completed: 0,
-        invalid: false,
-        effects: prepared.effects.clone(),
-    };
+    let mut inspector = MeteredProofSet::new(
+        runtime.registry,
+        prepared.verify_data.clone(),
+        prepared.effects.clone(),
+    )
+    .map_err(unavailable)?;
     macro_rules! execute {
         ($config:expr, $parent:expr) => {{
             let config = $config;
@@ -620,15 +688,10 @@ fn replay(
     {
         return Err(FeeQuoteError::PosterFunds(Box::new(funding.clone())));
     }
-    if !result.is_success()
-        || inspector.invalid
-        || inspector.matches != 1
-        || inspector.completed != 1
-    {
+    if !result.is_success() || !inspector.valid() {
         tracing::debug!(
             ?result,
-            matches = inspector.matches,
-            completed = inspector.completed,
+            proofs = inspector.proofs.len(),
             "conditional settlement failed"
         );
         return Err(FeeQuoteError::Unsupported("conditional settlement failed"));
@@ -663,6 +726,42 @@ fn replay(
     Ok((gas.tx_gas_used(), gas.total_gas_spent.max(gas.floor_gas)))
 }
 
+/// Conditional estimation must observe every configured verifier exactly once.
+/// Each verifier still executes its real bytecode and gas path. This inspector
+/// is confined to disposable estimation state, never signed preflight.
+pub(in crate::composer) struct MeteredProofSet {
+    proofs: Vec<MeteredProof>,
+    effects: EffectInspector,
+}
+
+impl MeteredProofSet {
+    pub(in crate::composer) fn new(
+        registry: Address,
+        calls: Vec<(Address, Bytes)>,
+        effects: EffectInspector,
+    ) -> Result<Self, String> {
+        if calls.is_empty() || calls.len() > crate::attestation_quorum::MAX_ATTESTERS {
+            return Err("invalid estimation proof set".into());
+        }
+        let proofs = calls
+            .into_iter()
+            .map(|(verifier, calldata)| MeteredProof {
+                registry,
+                verifier,
+                calldata,
+                matches: 0,
+                completed: 0,
+                invalid: false,
+            })
+            .collect();
+        Ok(Self { proofs, effects })
+    }
+
+    pub(in crate::composer) fn valid(&self) -> bool {
+        self.proofs.iter().all(MeteredProof::valid)
+    }
+}
+
 /// Execute the actual verifier bytecode and preserve all its gas consumption.
 /// Only its final boolean is assumed valid, scoped to one exact registry call.
 /// This inspector is never installed on signed preflight or canonical execution.
@@ -673,27 +772,9 @@ pub(in crate::composer) struct MeteredProof {
     matches: usize,
     completed: usize,
     invalid: bool,
-    effects: EffectInspector,
 }
 
 impl MeteredProof {
-    pub(in crate::composer) fn setup(
-        registry: Address,
-        verifier: Address,
-        calldata: Bytes,
-        rollup_id: u64,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            registry,
-            verifier,
-            calldata,
-            matches: 0,
-            completed: 0,
-            invalid: false,
-            effects: EffectInspector::new(registry, rollup_id, &[]).map_err(|e| e.to_string())?,
-        })
-    }
-
     pub(in crate::composer) fn valid(&self) -> bool {
         !self.invalid && self.matches == 1 && self.completed == 1
     }
@@ -708,7 +789,7 @@ impl MeteredProof {
     }
 }
 
-impl<T: EvmTypes> Inspector<T> for MeteredProof {
+impl<T: EvmTypes> Inspector<T> for MeteredProofSet {
     fn inspector_config(&self) -> InspectorConfig {
         InspectorConfig::without_steps()
     }
@@ -734,8 +815,12 @@ impl<T: EvmTypes> Inspector<T> for MeteredProof {
         context: &mut Interpreter<'_, '_, T>,
         inputs: &mut Message<T>,
     ) -> Option<MessageResult<T>> {
-        if self.matches(context, inputs) {
-            self.matches += 1;
+        if let Some(proof) = self
+            .proofs
+            .iter_mut()
+            .find(|proof| proof.matches(context, inputs))
+        {
+            proof.matches += 1;
         }
         self.effects.call(context, inputs)
     }
@@ -746,16 +831,20 @@ impl<T: EvmTypes> Inspector<T> for MeteredProof {
         inputs: &Message<T>,
         outcome: &mut MessageResult<T>,
     ) {
-        if self.matches(context, inputs) {
-            self.completed += 1;
+        if let Some(proof) = self
+            .proofs
+            .iter_mut()
+            .find(|proof| proof.matches(context, inputs))
+        {
+            proof.completed += 1;
             let zero = U256::ZERO.to_be_bytes::<32>();
             let one = U256::from(1).to_be_bytes::<32>();
-            if self.matches != 1
-                || self.completed != 1
+            if proof.matches != 1
+                || proof.completed != 1
                 || !outcome.stop.is_success()
                 || (outcome.output.as_ref() != zero && outcome.output.as_ref() != one)
             {
-                self.invalid = true;
+                proof.invalid = true;
             } else {
                 outcome.output = one.to_vec().into();
             }
@@ -775,7 +864,7 @@ mod tests {
 
     fn snapshot_fixture(nonce: u64) -> SnapshotPreparation {
         SnapshotPreparation {
-            vkey: B256::repeat_byte(7),
+            members: vec![(Address::repeat_byte(2), B256::repeat_byte(7))],
             poster_nonce: nonce,
             poster_balance: U256::from(100),
         }
@@ -795,7 +884,10 @@ mod tests {
         let snapshot = cache
             .get_or_load(1, root, || panic!("same snapshot must reuse"))
             .unwrap();
-        assert_eq!(snapshot.vkey, B256::repeat_byte(7));
+        assert_eq!(
+            snapshot.members,
+            vec![(Address::repeat_byte(2), B256::repeat_byte(7))]
+        );
         assert_eq!(snapshot.poster_balance, U256::from(100));
 
         // Equal roots do not authorize using another rollup's deployment/vkey.
@@ -864,7 +956,7 @@ mod tests {
                 },
                 Address::ZERO,
             ),
-            verify_data: Bytes::from_static(&[4, 5, 6]),
+            verify_data: vec![(Address::repeat_byte(2), Bytes::from_static(&[4, 5, 6]))],
             endpoint: B256::repeat_byte(7),
             rollup_id: 1,
             effects: callback_expectations(1, true),
@@ -924,7 +1016,7 @@ mod tests {
                 }
                 7 => changed.tx.inner_mut().nonce += 1,
                 8 => changed.tx.inner_mut().to = Address::repeat_byte(9),
-                9 => changed.verify_data = Bytes::from_static(&[9]),
+                9 => changed.verify_data[0].1 = Bytes::from_static(&[9]),
                 10 => changed.endpoint = B256::repeat_byte(9),
                 11 => changed.rollup_id += 1,
                 // Even identical posting bytes cannot reuse validation of
@@ -979,7 +1071,7 @@ mod tests {
     }
 
     fn fixture() -> (
-        MeteredProof,
+        MeteredProofSet,
         Message<BaseEvmTypes>,
         MessageResult<BaseEvmTypes>,
     ) {
@@ -991,15 +1083,12 @@ mod tests {
         }
         .abi_encode()
         .into();
-        let inspector = MeteredProof {
+        let inspector = MeteredProofSet::new(
             registry,
-            verifier,
-            calldata: calldata.clone(),
-            matches: 0,
-            completed: 0,
-            invalid: false,
-            effects: EffectInspector::new(registry, 1, &[]).unwrap(),
-        };
+            vec![(verifier, calldata.clone())],
+            EffectInspector::new(registry, 1, &[]).unwrap(),
+        )
+        .unwrap();
         let input = Message::<BaseEvmTypes> {
             input: calldata.into(),
             gas_limit: 100_000,
@@ -1020,6 +1109,48 @@ mod tests {
             ..Default::default()
         };
         (inspector, input, outcome)
+    }
+
+    #[test]
+    fn conditional_quorum_requires_each_distinct_verifier_once() {
+        let mut host = evm2::Evm::<BaseEvmTypes>::new(
+            SpecId::OSAKA,
+            Default::default(),
+            ethereum_tx_registry(SpecId::OSAKA),
+            InMemoryDB::default(),
+            Precompiles::base(SpecId::OSAKA),
+        );
+        let frame = Message::<BaseEvmTypes>::default();
+        let mut context = Interpreter::<BaseEvmTypes>::new(&frame);
+        context.prepare_run(&mut host);
+        let (one, mut input, mut outcome) = fixture();
+        let other = Address::repeat_byte(3);
+        let mut inspector = MeteredProofSet::new(
+            one.proofs[0].registry,
+            vec![
+                (one.proofs[0].verifier, one.proofs[0].calldata.clone()),
+                (other, one.proofs[0].calldata.clone()),
+            ],
+            EffectInspector::new(one.proofs[0].registry, 1, &[]).unwrap(),
+        )
+        .unwrap();
+        assert!(inspector.call(&mut context, &mut input).is_none());
+        inspector.call_end(&mut context, &input, &mut outcome);
+        assert!(!inspector.valid(), "one proof cannot satisfy the whole set");
+        input.destination = other;
+        input.code_address = other;
+        assert!(inspector.call(&mut context, &mut input).is_none());
+        inspector.call_end(&mut context, &input, &mut outcome);
+        assert!(
+            inspector.valid(),
+            "every exact verifier call completed once"
+        );
+        inspector.call(&mut context, &mut input);
+        inspector.call_end(&mut context, &input, &mut outcome);
+        assert!(
+            !inspector.valid(),
+            "duplicate verifier execution must not count"
+        );
     }
 
     #[test]
@@ -1044,13 +1175,17 @@ mod tests {
         assert_eq!(outcome.output.as_ref(), U256::from(1).to_be_bytes::<32>());
         assert_eq!(outcome.gas, gas, "assumption cannot erase verifier cost");
         assert_eq!(
-            (inspector.matches, inspector.completed, inspector.invalid),
+            (
+                inspector.proofs[0].matches,
+                inspector.proofs[0].completed,
+                inspector.proofs[0].invalid
+            ),
             (1, 1, false)
         );
         assert!(inspector.call(&mut context, &mut input).is_none());
         inspector.call_end(&mut context, &input, &mut outcome);
         assert!(
-            inspector.invalid,
+            inspector.proofs[0].invalid,
             "repeated proof calls cannot authorize an estimate"
         );
     }
@@ -1079,11 +1214,11 @@ mod tests {
                     input.caller_is_static = false;
                 }
                 5 => input.input = Bytes::new().into(),
-                _ => inspector.calldata = Bytes::new(),
+                _ => inspector.proofs[0].calldata = Bytes::new(),
             }
             assert!(inspector.call(&mut context, &mut input).is_none());
             inspector.call_end(&mut context, &input, &mut outcome);
-            assert_eq!(inspector.matches, 0);
+            assert_eq!(inspector.proofs[0].matches, 0);
             assert_eq!(outcome.output.as_ref(), [0; 32]);
         }
         for variant in 0..3 {
@@ -1096,7 +1231,7 @@ mod tests {
             let original = outcome.clone();
             inspector.call(&mut context, &mut input);
             inspector.call_end(&mut context, &input, &mut outcome);
-            assert!(inspector.invalid);
+            assert!(inspector.proofs[0].invalid);
             assert_eq!(outcome, original);
         }
     }

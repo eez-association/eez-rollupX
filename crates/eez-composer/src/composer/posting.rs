@@ -64,6 +64,8 @@ pub(super) struct PostingRuntime {
     pub chain: ChainProvider,
     pub ctx: Arc<CrossChainExecCtx>,
     pub registry: Address,
+    pub proof_systems: Vec<Address>,
+    pub quorum: Option<crate::AttestationQuorum>,
     /// Destination of the postBatch transaction: the registry, or a wrapper
     /// validated at startup to forward `postAndVerifyBatch` to it. Preflight
     /// still observes registry calls and logs, which the wrapper performs.
@@ -1247,6 +1249,8 @@ mod tests {
             )
             .unwrap();
             let runtime = PostingRuntime {
+                quorum: None,
+                proof_systems: vec![Address::repeat_byte(3)],
                 fees: PostingFeeConfig::parse(|name| {
                     Ok(match name {
                         "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS"

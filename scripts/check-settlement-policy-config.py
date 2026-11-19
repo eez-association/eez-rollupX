@@ -65,7 +65,7 @@ def main():
             env_file = root / f".env.{profile}"
             env_file.write_text(fixture)
             env = os.environ.copy()
-            for key in (*policy, "EEZ_PREPARATION_TIME_MS", "EEZ_L1_POSTBATCH_PRIORITY_FEE",
+            for key in (*policy, "EEZ_PROVERS", "EEZ_PREPARATION_TIME_MS", "EEZ_L1_POSTBATCH_PRIORITY_FEE",
                         "EEZ_MAX_BLOCKS_PER_BATCH", "EEZ_MAX_POSTBATCH_GAS",
                         "EEZ_MAX_SPECULATIVE_DEPTH", "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP"):
                 env.pop(key, None)
@@ -87,6 +87,13 @@ def main():
                 ) from error
             services = json.loads(result.stdout)["services"]
             node = services["eez-node"]["environment"]
+            assert node.get("EEZ_PROVERS") is None, profile
+            for roster in ("", f"http://a=0x{'11' * 20}=0x{'22' * 20},http://b=0x{'33' * 20}=0x{'44' * 20}"):
+                rendered = subprocess.run(compose_command, env={**env, "EEZ_PROVERS": roster},
+                                          capture_output=True, text=True, check=True)
+                configured = json.loads(rendered.stdout)["services"]
+                assert configured["eez-node"]["environment"]["EEZ_PROVERS"] == roster, profile
+                assert "EEZ_PROVERS" not in configured["eez-proof-signer"]["environment"], profile
             mismatches = {
                 key: (node.get(key), value)
                 for key, value in policy.items()

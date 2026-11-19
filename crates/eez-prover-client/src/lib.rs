@@ -15,7 +15,9 @@ use std::sync::Arc;
 mod connection;
 mod streaming;
 
-use alloy_primitives::{Address, B256, Bytes, Signature};
+pub use streaming::Preparation;
+
+use alloy_primitives::{Address, B256, Bytes};
 use alloy_sol_types::SolCall;
 use async_trait::async_trait;
 use eez_control_rpc::v2::{
@@ -23,14 +25,14 @@ use eez_control_rpc::v2::{
 };
 use eez_prover::{
     ActionableProverFailure, Prover, ProverError, ProverResult, ProvingContext,
-    RetryableProverError,
+    RetryableProverError, verify_attestation,
 };
 use tonic::{Code, Status};
 use tracing::{Level, event};
 
 /// A [`Prover`] that proves a window on a remote `eez-proof-signer` over v2,
 /// with complete request-local evidence. Clones share checked session limits.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RemoteProver {
     inner: Arc<Inner>,
 }
@@ -38,6 +40,7 @@ pub struct RemoteProver {
 #[derive(Debug)]
 struct Inner {
     streaming: tokio::sync::Mutex<streaming::StreamingState>,
+    pending_proofs: tokio::sync::watch::Sender<usize>,
     exchange_timeout: std::time::Duration,
     /// The `eez-proof-signer` endpoint, e.g. `http://127.0.0.1:50061`.
     url: String,
@@ -49,6 +52,24 @@ struct Inner {
     vkey: B256,
     connection: tokio::sync::Mutex<Option<Arc<connection::Connection>>>,
     agreed_capabilities: tokio::sync::Mutex<Option<eez_control_rpc::v2::CapabilitiesResponse>>,
+}
+
+// A proof can be cancelled at any await, including while queued behind another proof.
+struct PendingProof<'a>(&'a tokio::sync::watch::Sender<usize>);
+
+impl Drop for PendingProof<'_> {
+    fn drop(&mut self) {
+        self.0.send_modify(|count| *count -= 1);
+    }
+}
+
+impl std::fmt::Debug for RemoteProver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Endpoint URLs and transport state can contain operator credentials.
+        f.debug_struct("RemoteProver")
+            .field("attester", &self.inner.attester)
+            .finish_non_exhaustive()
+    }
 }
 
 impl RemoteProver {
@@ -65,6 +86,7 @@ impl RemoteProver {
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
+                pending_proofs: tokio::sync::watch::Sender::new(0),
                 streaming: tokio::sync::Mutex::new(streaming::StreamingState::default()),
                 exchange_timeout: std::time::Duration::from_mins(10),
                 url: url.into(),
@@ -161,6 +183,8 @@ impl RemoteProver {
 #[async_trait]
 impl Prover for RemoteProver {
     async fn prove(&self, ctx: ProvingContext) -> ProverResult<Bytes> {
+        self.inner.pending_proofs.send_modify(|count| *count += 1);
+        let pending = PendingProof(&self.inner.pending_proofs);
         let connection = self.connection().await?;
         let count = ctx
             .to_block
@@ -197,17 +221,22 @@ impl Prover for RemoteProver {
                     parent_hash: posting.parent_hash.to_vec(),
                 }),
         };
-        match self
+        let exchange = self
             .stream_exchange(
                 ctx.rollup_id,
                 anchor,
                 &ctx.blocks,
                 Some((ctx.from_block, ctx.to_block, settlement)),
             )
-            .await
-        {
-            Ok(Some((hash, proof))) => self.verify_response(ctx, hash, proof).await,
-            Ok(None) => Err(ProverError::Backend("Finalize returned no proof".into())),
+            .await;
+        drop(pending);
+        match exchange {
+            Ok(streaming::Exchange::Proof(hash, proof)) => {
+                self.verify_response(ctx, hash, proof).await
+            }
+            Ok(streaming::Exchange::Prepared | streaming::Exchange::Cursor(_)) => {
+                Err(ProverError::Backend("Finalize returned no proof".into()))
+            }
             Err(error) => Err(error),
         }
     }
@@ -293,57 +322,10 @@ fn exact_hash(bytes: &[u8]) -> Option<B256> {
     (bytes.len() == B256::len_bytes()).then(|| B256::from_slice(bytes))
 }
 
-/// Verify a prover attestation: the 65-byte signature must recover to `attester`
-/// over the 32-byte `public_inputs_hash`. Returns the bound hash on success.
-///
-/// # Errors
-///
-/// [`ProverError::Backend`] on a wrong-length signature or hash, a malformed
-/// signature, non-canonical `s` or `v`, or a signer that isn't the registered attester.
-fn verify_attestation(
-    signature: &[u8],
-    public_inputs_hash: &[u8],
-    attester: Address,
-) -> ProverResult<B256> {
-    if signature.len() != 65 {
-        return Err(ProverError::Backend(format!(
-            "attestation is {} bytes, expected 65 (r||s||v)",
-            signature.len()
-        )));
-    }
-    if public_inputs_hash.len() != 32 {
-        return Err(ProverError::Backend(format!(
-            "publicInputsHash is {} bytes, expected 32",
-            public_inputs_hash.len()
-        )));
-    }
-    let hash = B256::from_slice(public_inputs_hash);
-    if !matches!(signature[64], 27 | 28) {
-        return Err(ProverError::Backend(
-            "attestation v must be 27 or 28".into(),
-        ));
-    }
-    let sig = Signature::try_from(signature)
-        .map_err(|e| ProverError::Backend(format!("malformed attestation signature: {e}")))?;
-    if sig.normalize_s().is_some() {
-        return Err(ProverError::Backend(
-            "attestation must use canonical low-s".into(),
-        ));
-    }
-    let recovered = sig
-        .recover_address_from_prehash(&hash)
-        .map_err(|e| ProverError::Backend(format!("attestation recover failed: {e}")))?;
-    if recovered != attester {
-        return Err(ProverError::Backend(format!(
-            "attestation signer {recovered} != registered attester {attester}"
-        )));
-    }
-    Ok(hash)
-}
-
 #[cfg(test)]
 mod tests {
     mod streaming;
+
     use super::*;
     use alloy_primitives::address;
     use alloy_signer::SignerSync;

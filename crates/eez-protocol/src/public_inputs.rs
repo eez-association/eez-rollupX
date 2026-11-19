@@ -251,6 +251,24 @@ pub fn public_inputs_hashes_with_blob_hashes(
     transaction_blob_hashes: &[B256],
     context: ProofContext,
 ) -> Result<Vec<B256>, PublicInputsError> {
+    public_inputs_hashes_with_keys(
+        batch,
+        &vec![vkey; batch.proofSystems.len()],
+        transaction_blob_hashes,
+        context,
+    )
+}
+
+/// Compute each posted system's digest using its key at the same index in the global verifier list.
+pub fn public_inputs_hashes_with_keys(
+    batch: &EvmBatch,
+    keys: &[B256],
+    transaction_blob_hashes: &[B256],
+    context: ProofContext,
+) -> Result<Vec<B256>, PublicInputsError> {
+    if keys.len() != batch.proofSystems.len() {
+        return Err(PublicInputsError::InvalidL1Context);
+    }
     if batch.blockNumber != context.selector() {
         return Err(PublicInputsError::UnsupportedBlockNumber {
             block_number: batch.blockNumber,
@@ -284,10 +302,6 @@ pub fn public_inputs_hashes_with_blob_hashes(
             proof_system_indexes: r.proofSystemIndexes.clone(),
         })
         .collect();
-    let vk_matrix: Vec<Vec<[u8; 32]>> = rollup_assignments
-        .iter()
-        .map(|a| vec![vkey.0; a.proof_system_indexes.len()])
-        .collect();
     if rollup_assignments.len() != 1
         || rollup_assignments[0].rollup_id.0 != context.rollup_id()
         || batch.expectedRootPerRollup.len() != 1
@@ -296,6 +310,18 @@ pub fn public_inputs_hashes_with_blob_hashes(
     {
         return Err(PublicInputsError::InvalidL1Context);
     }
+    let row = rollup_assignments[0]
+        .proof_system_indexes
+        .iter()
+        .map(|&index| {
+            usize::try_from(index)
+                .ok()
+                .and_then(|i| keys.get(i))
+                .map(|key| key.0)
+                .ok_or(PublicInputsError::InvalidL1Context)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let vk_matrix = vec![row];
     let plan = ProofPlan {
         proof_systems: batch.proofSystems.clone(),
         custom_data: vec![context.custom_data()],

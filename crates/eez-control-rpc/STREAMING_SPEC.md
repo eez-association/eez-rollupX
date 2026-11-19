@@ -333,6 +333,11 @@ their test harness separate from this protocol proposal.
 
 ## 6. RollupX runtime profile
 
+For an explicit Composer roster each endpoint has its own checked client, preparation
+notifications, retained prefix and session. A committed block may trigger independent
+preparation on each client. Finalize uses that client's singleton assignment. The
+[RPC contract](SPEC.md#5-validating-and-using-the-response) defines threshold collection.
+
 This profile is active from a new network's genesis. The signer serves only v2
 proving plus the shared capability query. Startup uses local L2 genesis, local
 L1 chain rules, registry/manager identities and proof policy. It has no L1/L2
@@ -404,7 +409,14 @@ terminate the ambiguous transport. A successful Finalize returns one Proof and
 EOF. Sessions are volatile; restart requires full witness backfill.
 
 Composer's existing bounded preparation worker prevalidates v2 blocks in chunks
-of at most 64 and releases the exchange lock between chunks. Failure defers this
+of at most 64 and releases the exchange lock between chunks. A pending final proof
+interrupts preparation on that member. Once its pending proofs finish or are
+cancelled, the worker checks the newest queued target and current settlement floor
+before rebuilding the path from durable witnesses. Older ranges and equal-height
+competing tips leave the retained cursor in place. If a reusable session reports
+a gap behind a remembered preparation stop, the worker rewalks from the floor once. Only a matching
+Ready or checked block acknowledgements can advance the local preparation cursor.
+Final proofs retain their usual rewind and backfill rules. Failure defers this
 optional work without blocking commitment or durable witness capture. Complete
 proving backfills missing blocks and final evidence. Each exchange opens a new
 transport and attempts Resume. Missing sessions or unsupported optional controls
