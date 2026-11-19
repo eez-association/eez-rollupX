@@ -1164,7 +1164,7 @@ where
                 Self::cross_chain_da_overhead(rollup_id, std::slice::from_ref(&semantic))
                     .map_err(|e| unavailable("semantic DA", e))?
                     .semantic_bytes;
-            let da = outbound_da_estimate(
+            let da = da_estimate(
                 operations,
                 semantics,
                 self.inner.fee_recipient,
@@ -1255,20 +1255,20 @@ where
     }
 }
 
-/// Blob pricing for an outbound candidate; actual encoding/admission remains authoritative.
-pub(in crate::composer) struct OutboundDaEstimate {
+/// Blob pricing for a complete candidate; actual encoding/admission remains authoritative.
+pub(in crate::composer) struct DaEstimate {
     /// Complete unsplit range, including ordinary history.
     pub bytes: usize,
     pub blobs: usize,
     pub history_deferred: bool,
 }
 
-pub(in crate::composer) fn outbound_da_estimate(
+pub(in crate::composer) fn da_estimate(
     operations: usize,
     semantics: usize,
     beneficiary: Address,
     maximum_blobs: usize,
-) -> Result<OutboundDaEstimate, FeeQuoteError> {
+) -> Result<DaEstimate, FeeQuoteError> {
     let terminal = PayloadSizer::run(&BlockRun {
         blocks: 1,
         beneficiary,
@@ -1294,12 +1294,8 @@ pub(in crate::composer) fn outbound_da_estimate(
     // Reserve the full allowed post, rather than guessing the residual history
     // or pricing an impossible oversized transaction. This sizes fees only;
     // canonical history, encoded payloads and final admission are unchanged.
-    let blobs = if history_deferred {
-        maximum_blobs
-    } else {
-        required
-    };
-    Ok(OutboundDaEstimate {
+    let blobs = required.min(maximum_blobs);
+    Ok(DaEstimate {
         bytes,
         blobs,
         history_deferred,

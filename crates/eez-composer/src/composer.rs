@@ -4143,7 +4143,7 @@ where
                                     .semantic_bytes;
                             let maximum_blobs =
                                 self.remaining_posting_blob_allowance(bundle_target, 0)?;
-                            let blobs = fees::quote::outbound_da_estimate(
+                            let blobs = fees::quote::da_estimate(
                                 operations,
                                 semantic_bytes,
                                 suggested_fee_recipient,

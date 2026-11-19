@@ -312,6 +312,11 @@ the envelope. Simulation rejections add a separately bounded diagnostic
 is a bounded diagnostic cache, not an ownership journal, admission limit, or
 source of recovery decisions.
 
+Nonce checks that remove a never-submitted source also retain a `PoolDiscarded`
+observation, without evicting its nonce successors. This is a local disposition,
+not evidence of source execution or canonical finality; previously submitted
+sources retain canonical reconciliation.
+
 Live pool and settlement-ledger records take precedence. Successful explicit
 readmission clears that hash's local terminal observation; rejected admission
 must not clear it. A delayed recovery callback cannot replay or reinstate an
