@@ -1446,7 +1446,7 @@ mod tests {
             // One original plus up to four deadline replacements. Priorities order
             // the canonical callbacks independently of submission order.
             priorities in proptest::collection::vec(proptest::num::u16::ANY, 1..=5),
-            pick in 0usize..5, prefix in 0usize..=3, charge in 0u8..3,
+            pick in 0usize..5, prefix in 0usize..=3, charge in 0u8..3, release in proptest::bool::ANY,
         ) {
             let (ledger, pool, users, original) = setup();
             let mut ids = vec![original];
@@ -1461,6 +1461,11 @@ mod tests {
                 }
             }
             let active = ids.len() - 1;
+            // A callback can arrive after the deadline but before recomposition starts.
+            let released = release && ids.len() < 5;
+            if released {
+                pool.release_for_replacement(ids[active]).unwrap();
+            }
             let winner = pick % ids.len();
             let mut callbacks: Vec<_> = (0..ids.len()).collect();
             callbacks.sort_by_key(|&i| priorities[i]);
@@ -1489,13 +1494,16 @@ mod tests {
                         proptest::prop_assert_eq!(user.owner, ids[if committed { winner } else { active }].generation);
                         let location = if committed {
                             UserLocation::Terminal { reason: TerminalReason::Committed, canonical: Some(block(100)) }
-                        } else if active_resolved { UserLocation::Queued } else { UserLocation::AwaitingEvidence };
+                        } else if active_resolved || released { UserLocation::Queued } else { UserLocation::AwaitingEvidence };
                         proptest::prop_assert_eq!(user.location, location);
                         proptest::prop_assert_eq!(user.tx.attempts, u32::from(charged && charge == 1));
                         proptest::prop_assert_eq!(user.tx.excluded_slots, u32::from(charged && charge == 2));
                     }
                 }
             }
+            let remaining: Vec<_> = pool.pop_all().into_iter().map(|tx| tx.hash).collect();
+            let suffix: Vec<_> = users[prefix..].iter().map(|tx| tx.hash).collect();
+            proptest::prop_assert_eq!(remaining, suffix);
         }
     }
 

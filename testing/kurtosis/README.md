@@ -1256,10 +1256,10 @@ Kurtosis assigns different host ports automatically. Remember that
 ### Queue and service recovery
 
 The CI runner uses the single-signer PBS network to stop the signer, relay API
-and bundle builder in turn. Each outage admits a fresh signed inbound source.
+and bundle builder in turn after a healthy inbound control. Each outage admits a fresh signed inbound source.
 Two more L1 blocks must arrive while the source remains owned and its safe
 destination stays unchanged. Recovery must commit that source, identify its
-winning attempt and reproduce the expected destination value at the registry's
+winning post and safe L2 delivery receipts, and reproduce the expected destination value at the registry's
 block hash. A clean node restart checks the settled prefix and bidirectional
 correlation before a fresh transaction advances the commitment. The runner
 records the source hashes, attempt references and safe blocks under

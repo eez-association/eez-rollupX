@@ -1403,6 +1403,11 @@ mod tests {
                         let on_chain = composing.iter().chain(&queued)
                             .filter(|tx| tx.sender == user.sender && tx.direction == direction)
                             .map(|tx| tx.nonce).min().unwrap_or(user.nonce);
+                        let mut gap = user.clone();
+                        gap.nonce += 1;
+                        proptest::prop_assert_eq!(pool.push_contiguous(gap, on_chain),
+                            Err(AdmissionError::Nonce { expected: user.nonce, on_chain }));
+                        pool.push_contiguous(user.clone(), on_chain).unwrap();
                         pool.push_contiguous(user.clone(), on_chain).unwrap();
                         next_nonce[chain] += 1;
                         queued.push_back(user);

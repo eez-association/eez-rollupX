@@ -3373,7 +3373,7 @@ mod producing_slice_tests {
         #[test]
         fn recovery_model_whole_group_replay(
             sizes in proptest::collection::vec(1usize..=4, 0..8),
-            inbound in 0usize..12, start in 0usize..42, len in 0usize..42,
+            inbound in 0usize..12, offset in 0usize..42, span in 0usize..42,
         ) {
             // In the claimed chain position zero is the anchor. Enumerate the
             // legal boundaries after each complete signed group and inbound effect.
@@ -3390,6 +3390,9 @@ mod producing_slice_tests {
             for effect in 1..=inbound {
                 boundaries.push(Some((sizes.len(), effect)));
             }
+            let start = offset % boundaries.len();
+            // Include exactly one end beyond the last available effect.
+            let len = span % (boundaries.len() - start + 1);
             let boundary = |position: usize| boundaries.get(position).copied().flatten();
             let selection = super::selected_replay_groups(settlement(start, len), &hosts, &roots, inbound);
             match (boundary(start), boundary(start + len)) {
@@ -3398,7 +3401,11 @@ mod producing_slice_tests {
                     proptest::prop_assert_eq!(selected.outbound_groups, a..c);
                     proptest::prop_assert_eq!(selected.inbound_effects, b..d);
                 }
-                _ => proptest::prop_assert!(selection.is_err()),
+                _ if start + len >= boundaries.len() => proptest::prop_assert_eq!(
+                    selection.unwrap_err(), "settlement exceeds available producing effects"),
+                _ => proptest::prop_assert_eq!(selection.unwrap_err(),
+                    "partial L1 settlement splits one multi-root outbound user transaction"),
+
             }
         }
     }

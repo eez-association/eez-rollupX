@@ -371,7 +371,6 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
     world.release_bundle(&held).unwrap();
     world.node.wait_for_reorg_seen(TIMEOUT).await.unwrap();
     follower.wait_for_reorg_seen(TIMEOUT).await.unwrap();
-    let mut covered = 0;
     let mut blocks = Vec::new();
     for (index, hash) in sources.iter().enumerate() {
         let repaired = wait_for(TIMEOUT, || async {
@@ -404,13 +403,13 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
             )
         });
         assert!(repaired.status());
-        covered = covered.max(repaired.block_number.unwrap());
-        blocks.push(repaired.block_number.unwrap());
+        blocks.push((repaired.block_number.unwrap(), repaired.block_hash.unwrap()));
     }
     assert!(
-        blocks.windows(2).all(|pair| pair[0] < pair[1]),
+        blocks.windows(2).all(|pair| pair[0].0 < pair[1].0),
         "limit-one sources must execute in nonce order"
     );
+    let &(covered, repaired_hash) = blocks.last().unwrap();
     wait_for_safe_prefix_convergence(&[&world.node, &follower], covered, TIMEOUT)
         .await
         .unwrap();
@@ -441,6 +440,15 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
     )
     .await
     .unwrap();
+    for rpc in [world.l2_rpc(), follower.l2_rpc_url()] {
+        let reader = ProviderBuilder::new().connect_http(rpc.parse().unwrap());
+        let block = reader
+            .get_block_by_number(covered.into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(block.header.hash, repaired_hash);
+    }
     for hash in sources {
         wait_for(TIMEOUT, || async {
             let status: serde_json::Value = composer
