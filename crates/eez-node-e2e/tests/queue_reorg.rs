@@ -238,6 +238,9 @@ async fn imported_history_reorg_recovers_twenty_ordinary_transactions_without_se
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order() {
+    use alloy_rpc_types_eth::BlockNumberOrTag::Finalized;
+    use eez_testkit::block_number_and_hash_at;
+
     let env = [
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "always".into()),
         ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "1800".into()),
@@ -425,6 +428,17 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
     );
     // Finalize the replacement branch only after the three sources settled.
     // Both consumers must move the repaired prefix from safe to finalized.
+    let readers = [world.l2_rpc(), follower.l2_rpc_url()];
+    for rpc in &readers {
+        let (height, _) = block_number_and_hash_at(rpc, Finalized)
+            .await
+            .unwrap()
+            .expect("fixture must expose its initial finalized L2 head");
+        assert!(
+            height < covered,
+            "{rpc} finalized {height} before L1 finality advanced to cover {covered}"
+        );
+    }
     world
         .l1_reorg_control
         .as_mut()
@@ -434,20 +448,17 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
         .unwrap();
     eez_testkit::wait_for_tag_prefix_convergence(
         &[&world.node, &follower],
-        alloy_rpc_types_eth::BlockNumberOrTag::Finalized,
+        Finalized,
         covered,
         TIMEOUT,
     )
     .await
     .unwrap();
-    for rpc in [world.l2_rpc(), follower.l2_rpc_url()] {
-        let reader = ProviderBuilder::new().connect_http(rpc.parse().unwrap());
-        let block = reader
-            .get_block_by_number(covered.into())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(block.header.hash, repaired_hash);
+    for rpc in &readers {
+        assert_eq!(
+            block_number_and_hash_at(rpc, covered.into()).await.unwrap(),
+            Some((covered, repaired_hash)),
+        );
     }
     for hash in sources {
         wait_for(TIMEOUT, || async {

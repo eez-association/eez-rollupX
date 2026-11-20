@@ -39,6 +39,7 @@ target=$(forge_deploy "$L2" "$deploy_key" DeployValueL2.s.sol:DeployValueL2 'run
 proxy=$(forge_deploy "$L1" "${EEZ_L1_SETUP_KEY:-$funding_key}" CreateValueProxy.s.sol:CreateValueProxy \
     'run(address,address,uint64)' "$EEZ_REGISTRY_ADDRESS" "$target" "$EEZ_ROLLUP_ID" | grab_address EEZ_VALUE_PROXY)
 chain=$(cast chain-id --rpc-url "$L1")
+value_set_topic=$(cast keccak 'ValueSet(address,uint256)')
 
 prepare_source() {
     local value="$1" nonce
@@ -79,8 +80,7 @@ verify_recovery() {
     while (( SECONDS < deadline )); do
         if status=$(cast rpc --rpc-url "$L1F" eez_getCrossChainTransaction "$hash") &&
             jq -e --arg h "$hash" '.hash == $h and .ownership.reason == "Committed" and
-                .transactions.complete and .transactions.l1.hash == $h and
-                (.transactions.l2 | length > 0)' <<<"$status" >/dev/null; then
+                .transactions.complete and .transactions.l1.hash == $h' <<<"$status" >/dev/null; then
             wait_committed_value "$value"
             post_hash=$(jq -er .transactions.postBatch.hash <<<"$status")
             source=$(retry cast receipt "$hash" --json --rpc-url "$L1")
@@ -88,15 +88,20 @@ verify_recovery() {
             jq -en --argjson source "$source" --argjson post "$post" '
                 $source.status == "0x1" and $post.status == "0x1" and
                 $source.blockHash == $post.blockHash and $source.transactionHash != $post.transactionHash' >/dev/null
-            while read -r delivery; do
-                receipt=$(retry cast receipt "$delivery" --json --rpc-url "$L2")
-                number=$(jq -er .blockNumber <<<"$receipt")
-                (( number <= safe_height ))
-                lookup=$(retry cast rpc --rpc-url "$L1F" eez_getSettlementByL2Block "$number")
-                jq -en --argjson r "$receipt" --argjson batch "$lookup" --arg post "$post_hash" '
-                    $r.status == "0x1" and $batch.canonicalL2 and
-                    $r.blockHash == $batch.matchedL2Block.hash and $post == $batch.l1TransactionHash' >/dev/null
-            done < <(jq -r '.transactions.l2[].hash' <<<"$status")
+            # Each fixture source makes one call. Bind its reference to the target's event.
+            delivery=$(jq -er '.transactions.l2 | select(type == "array" and length == 1)
+                | .[0].hash | select(type == "string" and test("^0x[0-9a-fA-F]{64}$"))' <<<"$status")
+            receipt=$(retry cast receipt "$delivery" --json --rpc-url "$L2")
+            number=$(jq -er .blockNumber <<<"$receipt")
+            (( number <= safe_height ))
+            lookup=$(retry cast rpc --rpc-url "$L1F" eez_getSettlementByL2Block "$number")
+            jq -en --argjson r "$receipt" --argjson batch "$lookup" --arg post "$post_hash" \
+                --arg delivery "$delivery" --arg target "${target,,}" --arg topic "$value_set_topic" \
+                --arg data "$(cast abi-encode 'setValue(uint256)' "$value")" '
+                $r.transactionHash == $delivery and $r.status == "0x1" and $batch.canonicalL2 and
+                $r.blockHash == $batch.matchedL2Block.hash and $post == $batch.l1TransactionHash and
+                any($r.logs[]; (.address | ascii_downcase) == $target and
+                    .topics[0] == $topic and .data == $data)' >/dev/null
             jq --arg block "$safe_hash" --argjson height "$safe_height" \
                 '{hash, ownership, transactions, safe: {hash: $block, height: $height}}' \
                 <<<"$status" | tee "$result/settled-$value.json"
