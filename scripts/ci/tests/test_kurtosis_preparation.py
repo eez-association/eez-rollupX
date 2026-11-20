@@ -59,6 +59,7 @@ class KurtosisPreparationTest(unittest.TestCase):
         (self.package / 'ports.sh').write_text('EEZ_DEVNET_L1_RPC=l1\nEEZ_DEVNET_L2_RPC=l2\n')
         (scripts / 'verify-eezl2-deployment.sh').write_text('exit 0\n')
         (scripts / 'verify-cross-chain-waves.sh').write_text('touch "$FIXTURE/waves-done"\n')
+        (scripts / 'verify-fault-recovery.sh').write_text('test -f "$FIXTURE/scenarios-started"\n')
         (scripts / 'run-protocol-e2e.sh').write_text('''set -e
 test -f "$FIXTURE/build-done"
 test -f "$FIXTURE/integration-done"
@@ -127,7 +128,7 @@ echo eez.prover_client.attested
         rows = [json.loads(row) for row in (self.root / 'results/timings.jsonl').read_text().splitlines()]
         self.assertEqual({row['phase'] for row in rows}, {
             'network-start', 'settlement-readiness', 'waves-and-state-chaining',
-            'network-checks', 'protocol-build', 'integration-build', 'protocol-suite'})
+            'network-checks', 'protocol-build', 'integration-build', 'protocol-suite', 'fault-recovery'})
         self.assertTrue(all(row['exit_code'] == 0 for row in rows))
 
     def test_build_failure_never_starts_network_or_scenarios(self):
