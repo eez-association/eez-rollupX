@@ -1438,6 +1438,67 @@ mod tests {
         );
     }
 
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(192))]
+
+        #[test]
+        fn recovery_model_retained_generations(
+            // One original plus up to four deadline replacements. Priorities order
+            // the canonical callbacks independently of submission order.
+            priorities in proptest::collection::vec(proptest::num::u16::ANY, 1..=5),
+            pick in 0usize..5, prefix in 0usize..=3, charge in 0u8..3,
+        ) {
+            let (ledger, pool, users, original) = setup();
+            let mut ids = vec![original];
+            for index in 0..priorities.len() {
+                let active = ids[index];
+                ledger.observe(active, SubmissionObservation::Dispatched {
+                    block: 100, timestamp: 1000 + 5 * index as u64,
+                }).unwrap();
+                if index + 1 < priorities.len() {
+                    pool.release_for_replacement(active).unwrap();
+                    ids.push(begin(&ledger, pool.pop_all(), 11 + index as u8));
+                }
+            }
+            let active = ids.len() - 1;
+            let winner = pick % ids.len();
+            let mut callbacks: Vec<_> = (0..ids.len()).collect();
+            callbacks.sort_by_key(|&i| priorities[i]);
+            let fee = [AttemptCharge::None, AttemptCharge::Settlement, AttemptCharge::ExcludedSlot][usize::from(charge)];
+            let mut won = false;
+            let mut active_resolved = false;
+            let mut charged_prefix = false;
+            for index in callbacks {
+                let mut outcomes = [SourceOutcome::Retryable { source_nonce: 0 }; 3];
+                if index == winner {
+                    outcomes[..prefix].fill(SourceOutcome::Applied);
+                    won = true;
+                }
+                if index == active {
+                    active_resolved = true;
+                    charged_prefix = !won;
+                }
+                // Repeated canonical evidence must not increment either retry counter twice.
+                for _ in 0..2 {
+                    pool.resolve_attempt(ids[index], block(100), &outcomes, fee, 3, || true).unwrap();
+                    for (position, source) in users.iter().enumerate() {
+                        let committed = won && position < prefix;
+                        let charged = if position < prefix { charged_prefix } else { active_resolved };
+                        let user = ledger.read(|state| state.users[&source.hash].clone());
+                        proptest::prop_assert_eq!(pool.owns(source.hash), !committed);
+                        proptest::prop_assert_eq!(user.owner, ids[if committed { winner } else { active }].generation);
+                        let location = if committed {
+                            UserLocation::Terminal { reason: TerminalReason::Committed, canonical: Some(block(100)) }
+                        } else if active_resolved { UserLocation::Queued } else { UserLocation::AwaitingEvidence };
+                        proptest::prop_assert_eq!(user.location, location);
+                        proptest::prop_assert_eq!(user.tx.attempts, u32::from(charged && charge == 1));
+                        proptest::prop_assert_eq!(user.tx.excluded_slots, u32::from(charged && charge == 2));
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn late_original_commit_reports_settled_references_after_replacement() {
         for replacement_first in [false, true] {

@@ -3367,6 +3367,42 @@ mod producing_slice_tests {
     use alloy_primitives::B256;
     use eez_l1::Settlement;
 
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(256))]
+
+        #[test]
+        fn recovery_model_whole_group_replay(
+            sizes in proptest::collection::vec(1usize..=4, 0..8),
+            inbound in 0usize..12, start in 0usize..42, len in 0usize..42,
+        ) {
+            // In the claimed chain position zero is the anchor. Enumerate the
+            // legal boundaries after each complete signed group and inbound effect.
+            let mut boundaries = vec![Some((0, 0)), Some((0, 0))];
+            let mut hosts = Vec::new();
+            let mut roots = Vec::new();
+            for (group, size) in sizes.iter().enumerate() {
+                for host in 1..=*size {
+                    hosts.push(host);
+                    boundaries.push((host == *size).then_some((group + 1, 0)));
+                }
+                roots.push((1..=*size).sum());
+            }
+            for effect in 1..=inbound {
+                boundaries.push(Some((sizes.len(), effect)));
+            }
+            let boundary = |position: usize| boundaries.get(position).copied().flatten();
+            let selection = super::selected_replay_groups(settlement(start, len), &hosts, &roots, inbound);
+            match (boundary(start), boundary(start + len)) {
+                (Some((a, b)), Some((c, d))) => {
+                    let selected = selection.unwrap();
+                    proptest::prop_assert_eq!(selected.outbound_groups, a..c);
+                    proptest::prop_assert_eq!(selected.inbound_effects, b..d);
+                }
+                _ => proptest::prop_assert!(selection.is_err()),
+            }
+        }
+    }
+
     #[test]
     fn replay_selection_requires_whole_outbound_groups_and_bounded_effects() {
         use super::selected_replay_groups;

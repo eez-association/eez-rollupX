@@ -330,6 +330,7 @@ jq -e '.suite.complete == true and .suite.excluded_from_all == [] and
 capture_service_log eez-proof-signer
 capture_service_log eez-node
 verify_real_proof_path
+timed_phase fault-recovery bash "$HERE/scripts/verify-fault-recovery.sh"
 write_result pass 0
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then

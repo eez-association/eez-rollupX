@@ -424,6 +424,23 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
             .unwrap(),
         U256::from(33)
     );
+    // Finalize the replacement branch only after the three sources settled.
+    // Both consumers must move the repaired prefix from safe to finalized.
+    world
+        .l1_reorg_control
+        .as_mut()
+        .unwrap()
+        .finalize_head()
+        .await
+        .unwrap();
+    eez_testkit::wait_for_tag_prefix_convergence(
+        &[&world.node, &follower],
+        alloy_rpc_types_eth::BlockNumberOrTag::Finalized,
+        covered,
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
     for hash in sources {
         wait_for(TIMEOUT, || async {
             let status: serde_json::Value = composer

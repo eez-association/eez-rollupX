@@ -1381,6 +1381,56 @@ mod tests {
         });
     }
 
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(192))]
+
+        #[test]
+        fn recovery_model_held_pool(
+            commands in proptest::collection::vec((0u8..4, 0usize..8, 0usize..8), 1..160),
+        ) {
+            let pool = HeldPool::new(Default::default());
+            let mut next_nonce = [0u64; 8];
+            let mut queued = VecDeque::<HeldTx>::new();
+            let mut composing = Vec::new();
+            for (step, (command, chain, count)) in commands.into_iter().enumerate() {
+                match command {
+                    0 => {
+                        let direction = if chain < 4 { Direction::Inbound } else { Direction::Outbound };
+                        let mut user = tx_dir(u8::try_from(step).unwrap(), direction);
+                        user.sender = Address::repeat_byte(u8::try_from(chain % 4).unwrap());
+                        user.nonce = next_nonce[chain];
+                        // Released prefixes are mined. Every lower live nonce is still reserved.
+                        let on_chain = composing.iter().chain(&queued)
+                            .filter(|tx| tx.sender == user.sender && tx.direction == direction)
+                            .map(|tx| tx.nonce).min().unwrap_or(user.nonce);
+                        pool.push_contiguous(user.clone(), on_chain).unwrap();
+                        next_nonce[chain] += 1;
+                        queued.push_back(user);
+                    }
+                    1 => {
+                        let expected: Vec<_> = queued.drain(..count.min(queued.len())).collect();
+                        proptest::prop_assert_eq!(pool.pop_n(count), &expected[..]);
+                        composing.extend(expected);
+                    }
+                    2 => {
+                        pool.push_front_batch(composing.clone());
+                        for tx in composing.drain(..).rev() { queued.push_front(tx); }
+                    }
+                    _ => {
+                        pool.release_in_flight_batch(&composing);
+                        composing.clear();
+                    }
+                }
+                let state = pool.state.lock().unwrap();
+                proptest::prop_assert_eq!(&state.txs, &queued);
+                proptest::prop_assert_eq!(&state.by_hash, &queued.iter().map(|tx| tx.hash).collect::<HashSet<_>>());
+                let reservations: HashMap<_, _> = composing.iter()
+                    .map(|tx| (tx.hash, (tx.sender, tx.direction, tx.nonce))).collect();
+                proptest::prop_assert_eq!(&state.in_flight, &reservations);
+            }
+        }
+    }
+
     #[test]
     fn push_then_pop_returns_fifo() {
         let pool = HeldPool::new(Default::default());

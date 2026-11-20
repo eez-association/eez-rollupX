@@ -1865,12 +1865,14 @@ pub async fn wait_for_safe_prefix_convergence(
     wait_for_tag_prefix_convergence(nodes, BlockNumberOrTag::Safe, min_height, timeout).await
 }
 
-async fn wait_for_tag_prefix_convergence(
+/// Wait for all supplied nodes to agree on the common prefix through the lowest tagged head.
+pub async fn wait_for_tag_prefix_convergence(
     nodes: &[&NodeHandle],
     tag: BlockNumberOrTag,
     min_height: u64,
     timeout: Duration,
 ) -> Result<BlockNumHash> {
+    ensure!(!nodes.is_empty(), "prefix convergence requires a node");
     let result = wait_for(timeout, || async {
         let mut tag_blocks = Vec::with_capacity(nodes.len());
         for node in nodes {

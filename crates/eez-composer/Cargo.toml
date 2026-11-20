@@ -62,6 +62,7 @@ metrics.workspace     = true
 serde_json.workspace  = true
 
 [dev-dependencies]
+proptest = "1"
 # Trie types required by the fault-injecting StateProvider test fixture.
 reth-trie-common.workspace = true
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
