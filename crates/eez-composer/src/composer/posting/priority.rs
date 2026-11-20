@@ -1,7 +1,15 @@
 //! Canonical posting-price samples that do not feed service-recovery tips back
 //! into the next settlement bid. The cache is an optimization, never ownership.
 
-use std::collections::{HashSet, VecDeque};
+use crate::settlement_policy::DueReasons;
+use eez_l1::{L1BlockRef, l1_canonical_head::L1CanonicalHead};
+use reth_chainspec::EthChainSpec;
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::Arc,
+    time::Duration,
+};
+use tokio::{task::JoinSet, time::Instant};
 
 use alloy_primitives::{Address, B256};
 use alloy_provider::{Provider, RootProvider};
@@ -9,7 +17,7 @@ use alloy_rpc_types_eth::{Block, TransactionReceipt};
 use alloy_sol_types::SolEvent;
 use eez_l1::posting_fees::{PRIORITY_FEE_HISTORY_BLOCKS, estimate_next_block_priority_fee};
 
-use super::PostingError;
+use super::{FILTERED_HISTORY_TIMEOUT, PostingError, PostingRuntime};
 
 /// Covers the live 20-block window and recent advisory/reorg branches without
 /// retaining receipts, transaction bodies or an unbounded canonical journal.
@@ -42,6 +50,7 @@ impl Sample {
 #[derive(Default)]
 pub(in crate::composer) struct PriorityHistory {
     samples: VecDeque<Sample>,
+    pub(super) authoritative_loads: u64,
 }
 
 impl PriorityHistory {
@@ -66,69 +75,16 @@ impl PriorityHistory {
             let sample = if let Some(sample) = self.samples.iter().find(|s| s.hash == hash) {
                 sample.clone()
             } else {
-                let block = match supplied_head.take().filter(|b| b.header.hash == hash) {
-                    Some(block) => block,
-                    None => provider
-                        .get_block_by_hash(hash)
-                        .await
-                        .map_err(|e| {
-                            PostingError::Unavailable(format!(
-                                "fee sample block: {}",
-                                eez_l1::diagnostics::rpc_error(&e)
-                            ))
-                        })?
-                        .ok_or_else(|| {
-                            PostingError::Unavailable("fee sample block missing".into())
-                        })?,
-                };
-                if block.header.hash != hash || block.header.number != number {
-                    return Err(PostingError::Unavailable(
-                        "fee sample ancestry mismatch".into(),
-                    ));
-                }
-                let receipts = provider
-                    .get_block_receipts(hash.into())
-                    .await
-                    .map_err(|e| {
-                        PostingError::Unavailable(format!(
-                            "fee sample receipts: {}",
-                            eez_l1::diagnostics::rpc_error(&e)
-                        ))
-                    })?
-                    .ok_or_else(|| {
-                        PostingError::Unavailable("fee sample receipts missing".into())
-                    })?;
-                let mut sample = sample(&block, &receipts, poster, registry)?;
-                // Caught reverts erase registry logs, including in a successful
-                // source transaction. Inspect canonical call frames when a paid
-                // contract execution is not already identified by its receipt.
-                // Receipt gas alone cannot prove a plain transfer: execution
-                // refunds can reduce a contract call to the intrinsic floor.
-                if receipts.iter().any(|r| {
-                    r.effective_gas_price
-                        > u128::from(block.header.base_fee_per_gas.unwrap_or_default())
-                        && r.from != poster
-                        && !registry_log(r, registry)
-                }) {
-                    let traces: serde_json::Value = provider
-                        .client()
-                        .request(
-                            "debug_traceBlockByHash",
-                            (
-                                hash,
-                                serde_json::json!({"tracer":"callTracer","timeout":"4s"}),
-                            ),
-                        )
-                        .await
-                        .map_err(|e| {
-                            PostingError::Unavailable(format!(
-                                "fee sample call trace: {}",
-                                eez_l1::diagnostics::rpc_error(&e)
-                            ))
-                        })?;
-                    let touched = registry_calls(&block, &traces, registry)?;
-                    sample = sample_with_calls(&block, &receipts, poster, registry, &touched)?;
-                }
+                let sample = load_one(
+                    provider,
+                    hash,
+                    number,
+                    supplied_head.take().filter(|b| b.header.hash == hash),
+                    poster,
+                    registry,
+                )
+                .await?;
+                self.authoritative_loads = self.authoritative_loads.wrapping_add(1);
                 if self.samples.len() == MAX_CACHED_BLOCKS {
                     self.samples.pop_front();
                 }
@@ -285,6 +241,280 @@ fn sample_with_calls(
     }
     result.rewards.sort_unstable_by_key(|(tip, _)| *tip);
     Ok(result)
+}
+
+async fn load_one(
+    provider: &RootProvider,
+    hash: B256,
+    number: u64,
+    supplied: Option<Block>,
+    poster: Address,
+    registry: Address,
+) -> Result<Sample, PostingError> {
+    let block = match supplied {
+        Some(block) => block,
+        None => provider
+            .get_block_by_hash(hash)
+            .await
+            .map_err(|e| {
+                PostingError::Unavailable(format!(
+                    "fee sample block: {}",
+                    eez_l1::diagnostics::rpc_error(&e)
+                ))
+            })?
+            .ok_or_else(|| PostingError::Unavailable("fee sample block missing".into()))?,
+    };
+    if block.header.hash != hash || block.header.number != number {
+        return Err(PostingError::Unavailable(
+            "fee sample ancestry mismatch".into(),
+        ));
+    }
+    let receipts = provider
+        .get_block_receipts(hash.into())
+        .await
+        .map_err(|e| {
+            PostingError::Unavailable(format!(
+                "fee sample receipts: {}",
+                eez_l1::diagnostics::rpc_error(&e)
+            ))
+        })?
+        .ok_or_else(|| PostingError::Unavailable("fee sample receipts missing".into()))?;
+    let mut sample = sample(&block, &receipts, poster, registry)?;
+    // Caught reverts erase registry logs, including in a successful
+    // source transaction. Inspect canonical call frames when a paid
+    // contract execution is not already identified by its receipt.
+    // Receipt gas alone cannot prove a plain transfer: execution
+    // refunds can reduce a contract call to the intrinsic floor.
+    if receipts.iter().any(|r| {
+        r.effective_gas_price > u128::from(block.header.base_fee_per_gas.unwrap_or_default())
+            && r.from != poster
+            && !registry_log(r, registry)
+    }) {
+        let traces: serde_json::Value = provider
+            .client()
+            .request(
+                "debug_traceBlockByHash",
+                (
+                    hash,
+                    serde_json::json!({"tracer":"callTracer","timeout":"4s"}),
+                ),
+            )
+            .await
+            .map_err(|e| {
+                PostingError::Unavailable(format!(
+                    "fee sample call trace: {}",
+                    eez_l1::diagnostics::rpc_error(&e)
+                ))
+            })?;
+        let touched = registry_calls(&block, &traces, registry)?;
+        sample = sample_with_calls(&block, &receipts, poster, registry, &touched)?;
+    }
+
+    Ok(sample)
+}
+
+/// One speculative block per advancing head, shared across all rollups using
+/// this posting runtime. The quote never waits for this worker or its result.
+#[derive(Default)]
+pub(in crate::composer) struct FeeHistoryPrewarm {
+    jobs: JoinSet<Option<u64>>,
+    shutdown: tokio::sync::watch::Sender<()>,
+    last_height: Option<u64>,
+    refill_at: Option<Instant>,
+    credit: Duration,
+    consecutive_failures: u8,
+    paused_at_quote: u64,
+}
+
+impl FeeHistoryPrewarm {
+    pub(in crate::composer) fn start(
+        &mut self,
+        runtime: &Arc<PostingRuntime>,
+        canonical: &Arc<L1CanonicalHead>,
+        block: L1BlockRef,
+        reasons: DueReasons,
+        period: Duration,
+    ) -> bool {
+        if runtime.fees.priority_override.is_some()
+            || runtime.collection.l1_refund.is_none()
+            || runtime.ctx.l1_chain_id != runtime.chain.evm_config.chain_spec().chain().id()
+            || ![
+                DueReasons::GENERAL,
+                DueReasons::DRAIN,
+                DueReasons::WINDOW_LIMIT,
+            ]
+            .iter()
+            .any(|reason| reasons.contains(*reason))
+        {
+            return false;
+        }
+        if let Some(result) = self.jobs.try_join_next() {
+            if let Ok(Some(epoch)) = result {
+                self.consecutive_failures += 1;
+                self.paused_at_quote = epoch;
+            } else {
+                self.consecutive_failures = 0;
+            }
+        }
+        let quote = runtime
+            .provider_backed_quotes
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if self.consecutive_failures >= 2 {
+            if self.paused_at_quote == quote {
+                return false;
+            }
+            self.consecutive_failures = 0;
+        }
+        if !self.jobs.is_empty()
+            || self.last_height.is_some_and(|last| last >= block.number)
+            || canonical.policy_anchor_snapshot().through != Some(block)
+        {
+            return false;
+        }
+        // A two-slot burst tolerates normal planner jitter. A long gap never
+        // queues a historical sweep or permits an unbounded run of traces.
+        let now = Instant::now();
+        let capacity = period * 2;
+        self.credit = self.refill_at.map_or(capacity, |last| {
+            self.credit
+                .saturating_add(now.saturating_duration_since(last))
+                .min(capacity)
+        });
+        self.refill_at = Some(now);
+        if self.credit < period {
+            return false;
+        }
+        let Ok(history) = runtime.priority_history.try_lock() else {
+            return false;
+        };
+        if history.samples.iter().any(|row| row.hash == block.hash) {
+            return false;
+        }
+        drop(history);
+        self.last_height = Some(block.number);
+        self.credit -= period;
+        let runtime = Arc::clone(runtime);
+        let canonical = Arc::clone(canonical);
+        let executor = tokio::runtime::Handle::current();
+        let shutdown = self.shutdown.subscribe();
+        let deadline = now + period.min(FILTERED_HISTORY_TIMEOUT);
+        // Receipt and trace deserialization and validation run on the blocking
+        // pool. Dropping the owner closes the signal even for a started worker.
+        self.jobs.spawn_blocking(move || {
+            executor.block_on(prefetch_one(
+                &runtime, &canonical, block, shutdown, deadline,
+            ))
+        });
+        true
+    }
+}
+
+/// Return the foreground quote counter at the time of a provider failure.
+async fn prefetch_one(
+    runtime: &PostingRuntime,
+    canonical: &L1CanonicalHead,
+    block: L1BlockRef,
+    mut shutdown: tokio::sync::watch::Receiver<()>,
+    deadline: Instant,
+) -> Option<u64> {
+    let failure_epoch = || {
+        Some(
+            runtime
+                .provider_backed_quotes
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )
+    };
+    if Instant::now() >= deadline {
+        return failure_epoch();
+    }
+    let load = load_one(
+        &runtime.ctx.l1_provider,
+        block.hash,
+        block.number,
+        None,
+        runtime.ctx.l1_poster_signer.address(),
+        runtime.registry,
+    );
+    let result = tokio::select! {
+        biased;
+        _ = shutdown.changed() => return None,
+        result = tokio::time::timeout_at(deadline, load) => result,
+    };
+    // Synchronous decoding can finish after the timer while still in the same
+    // poll. Recheck before making the sample visible.
+    match result {
+        Err(_) => failure_epoch(),
+        Ok(Err(error)) => {
+            tracing::debug!(number = block.number, %error, "fee-history prewarm skipped");
+            failure_epoch()
+        }
+        Ok(Ok(_)) if Instant::now() >= deadline => failure_epoch(),
+        Ok(Ok(row)) => {
+            if shutdown.has_changed().is_ok() {
+                publish_prepared(&runtime.priority_history, canonical, row);
+            }
+            None
+        }
+    }
+}
+
+fn publish_prepared(
+    cache: &tokio::sync::Mutex<PriorityHistory>,
+    canonical: &L1CanonicalHead,
+    row: Sample,
+) {
+    let block = L1BlockRef {
+        number: row.number,
+        hash: row.hash,
+    };
+    let snapshot = canonical.policy_anchor_snapshot();
+    let Some(tip) = snapshot.through else {
+        return;
+    };
+    if tip != block {
+        if tip.number < block.number || tip.number - block.number >= PRIORITY_FEE_HISTORY_BLOCKS {
+            return;
+        }
+        let Some(history) = canonical.prepared_history() else {
+            return;
+        };
+        if history.through() != tip
+            || history
+                .chain()
+                .at(block.number)
+                .ok()
+                .map(eez_protocol::l1_history::CheckedHeader::hash)
+                != Some(block.hash)
+        {
+            return;
+        }
+    }
+    let Ok(mut history) = cache.try_lock() else {
+        return;
+    };
+    if canonical.generation_is(snapshot.generation) {
+        history.insert_prepared(row, tip.number);
+    }
+}
+
+impl PriorityHistory {
+    fn insert_prepared(&mut self, row: Sample, tip: u64) {
+        if self.samples.iter().any(|s| s.hash == row.hash) {
+            return;
+        }
+        if self.samples.len() == MAX_CACHED_BLOCKS {
+            // A speculative read must not evict a still-useful foreground sample.
+            if self
+                .samples
+                .front()
+                .is_some_and(|s| s.number >= tip.saturating_sub(PRIORITY_FEE_HISTORY_BLOCKS - 1))
+            {
+                return;
+            }
+            self.samples.pop_front();
+        }
+        self.samples.push_back(row);
+    }
 }
 
 #[cfg(test)]
@@ -619,6 +849,237 @@ mod tests {
                 .unwrap(),
             (30, 0)
         );
+    }
+
+    fn prewarm_fixture() -> (Arc<PostingRuntime>, Asserter) {
+        use super::super::tests::test_posting_runtime;
+        let replies = Asserter::new();
+        let provider = ProviderBuilder::new()
+            .disable_recommended_fillers()
+            .connect_mocked_client(replies.clone());
+        let mut runtime = test_posting_runtime(provider.clone(), 1, 1);
+        runtime.fees.priority_override = None;
+        runtime.collection.l1_refund = Some(crate::composer::fees::refund::Policy {
+            recipient: REGISTRY,
+            percent: 50,
+        });
+        runtime.registry = REGISTRY;
+        (Arc::new(runtime), replies)
+    }
+
+    #[tokio::test]
+    async fn preparation_hint_prefetches_one_filtered_sample_and_reorg_uses_new_hash() {
+        let (runtime, replies) = prewarm_fixture();
+        let provider = &runtime.ctx.l1_provider;
+        let canonical = Arc::new(L1CanonicalHead::default());
+        let mut worker = FeeHistoryPrewarm::default();
+        let period = Duration::from_secs(12);
+        let head = L1BlockRef {
+            number: 0,
+            hash: B256::repeat_byte(8),
+        };
+        let endpoint = eez_l1::L2Endpoint {
+            number: 0,
+            hash: B256::ZERO,
+        };
+        canonical.mark_scanned(head, endpoint);
+        let (body, receipts) = block(
+            0,
+            head.hash,
+            B256::ZERO,
+            &[row(1, 21_000, 10, None), row(2, 40_000, 20, None)],
+        );
+        let traces = json!([trace(B256::repeat_byte(1), Address::repeat_byte(7)),
+            {"txHash":B256::repeat_byte(2), "result":{"type":"CALL","calls":[{"type":"CALL","to":REGISTRY,"error":"execution reverted"}]}}]);
+        assert!(!worker.start(&runtime, &canonical, head, DueReasons::CROSS_CHAIN, period));
+        let held = runtime.priority_history.lock().await;
+        assert!(!worker.start(&runtime, &canonical, head, DueReasons::GENERAL, period));
+        drop(held);
+        replies.push_success(&body);
+        replies.push_success(&receipts);
+        replies.push_success(&traces);
+        assert!(worker.start(&runtime, &canonical, head, DueReasons::GENERAL, period));
+        assert_eq!(worker.jobs.join_next().await.unwrap().unwrap(), None);
+        assert!(replies.read_q().is_empty());
+        assert!(!worker.start(&runtime, &canonical, head, DueReasons::GENERAL, period));
+        let mut history = runtime.priority_history.lock().await;
+        assert_eq!(
+            history
+                .estimate(provider, body, POSTER, REGISTRY, 90)
+                .await
+                .unwrap(),
+            (10, 1)
+        );
+        assert_eq!(history.authoritative_loads, 0);
+        let old_sample = history.samples[0].clone();
+        let replacement = L1BlockRef {
+            number: 0,
+            hash: B256::repeat_byte(9),
+        };
+        canonical.mark_scanned(replacement, endpoint);
+        let empty = tokio::sync::Mutex::new(PriorityHistory::default());
+        publish_prepared(&empty, &canonical, old_sample);
+        assert!(empty.lock().await.samples.is_empty());
+        let (body, rs) = block(0, replacement.hash, B256::ZERO, &[row(3, 21_000, 30, None)]);
+        replies.push_success(&rs);
+        replies.push_success(&json!([trace(
+            B256::repeat_byte(3),
+            Address::repeat_byte(7)
+        )]));
+        assert_eq!(
+            history
+                .estimate(provider, body, POSTER, REGISTRY, 90)
+                .await
+                .unwrap(),
+            (30, 0)
+        );
+        assert_eq!(history.authoritative_loads, 1);
+        assert!(replies.read_q().is_empty());
+    }
+
+    #[tokio::test]
+    async fn prewarm_limits_bursts_and_drops_work_on_shutdown() {
+        let (runtime, replies) = prewarm_fixture();
+        let canonical = Arc::new(L1CanonicalHead::default());
+        let period = Duration::from_secs(12);
+        let mut worker = FeeHistoryPrewarm::default();
+        tokio::time::pause();
+        for n in 0..3 {
+            let head = L1BlockRef {
+                number: n,
+                hash: B256::with_last_byte(n as u8),
+            };
+            canonical.mark_scanned(
+                head,
+                eez_l1::L2Endpoint {
+                    number: 0,
+                    hash: B256::ZERO,
+                },
+            );
+            if n == 2 {
+                assert!(!worker.start(&runtime, &canonical, head, DueReasons::DRAIN, period));
+                tokio::time::advance(period).await;
+            }
+            let (body, receipts) = block(n, head.hash, B256::ZERO, &[]);
+            replies.push_success(&body);
+            replies.push_success(&receipts);
+            assert!(worker.start(&runtime, &canonical, head, DueReasons::DRAIN, period));
+            assert_eq!(worker.jobs.join_next().await.unwrap().unwrap(), None);
+        }
+        let head = canonical.policy_anchor_snapshot().through.unwrap();
+        let signal = worker.shutdown.subscribe();
+        drop(worker);
+        // Leave a reply queued so the assertion catches even one stray RPC.
+        replies.push_failure_msg("unexpected request after shutdown");
+        assert_eq!(
+            prefetch_one(&runtime, &canonical, head, signal, Instant::now() + period).await,
+            None
+        );
+        assert_eq!(replies.read_q().len(), 1);
+    }
+
+    #[test]
+    fn prefetch_at_capacity_preserves_the_recent_foreground_window() {
+        let make = |n: u64| {
+            let (body, receipts) = block(n, B256::with_last_byte(n as u8), B256::ZERO, &[]);
+            sample(&body, &receipts, POSTER, REGISTRY).unwrap()
+        };
+        let mut cache = PriorityHistory::default();
+        for n in (0..64).rev() {
+            cache.samples.push_back(make(n));
+        }
+        cache.insert_prepared(make(64), 64);
+        assert_eq!(cache.samples.len(), MAX_CACHED_BLOCKS);
+        assert_eq!(cache.samples.front().unwrap().number, 63);
+        assert!(!cache.samples.iter().any(|r| r.number == 64));
+        cache.insert_prepared(make(83), 83);
+        assert_eq!(cache.samples.len(), MAX_CACHED_BLOCKS);
+        assert!(cache.samples.iter().any(|r| r.number == 83));
+        assert!(!cache.samples.iter().any(|r| r.number == 63));
+    }
+
+    #[test]
+    fn expired_jobs_pause_until_a_successful_provider_backed_quote() {
+        // Occupy the only blocking thread so both deadlines expire before their
+        // jobs can read. Advance the Tokio clock without depending on wall time.
+        let executor = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .start_paused(true)
+            .build()
+            .unwrap();
+        executor.block_on(async {
+            let (runtime, replies) = prewarm_fixture();
+            let canonical = Arc::new(L1CanonicalHead::default());
+            let mut worker = FeeHistoryPrewarm::default();
+            let period = Duration::from_secs(12);
+            let endpoint = eez_l1::L2Endpoint {
+                number: 0,
+                hash: B256::ZERO,
+            };
+            for n in 1..=2 {
+                let head = L1BlockRef {
+                    number: n,
+                    hash: B256::with_last_byte(n as u8),
+                };
+                canonical.mark_scanned(head, endpoint);
+                let (release, hold) = std::sync::mpsc::channel::<()>();
+                let parked = tokio::task::spawn_blocking(move || hold.recv().unwrap());
+                assert!(worker.start(&runtime, &canonical, head, DueReasons::GENERAL, period));
+                tokio::time::advance(period).await;
+                release.send(()).unwrap();
+                parked.await.unwrap();
+                // FIFO blocking pool submits this barrier after the expired job.
+                tokio::task::spawn_blocking(|| {}).await.unwrap();
+            }
+            let head = L1BlockRef {
+                number: 3,
+                hash: B256::with_last_byte(3),
+            };
+            canonical.mark_scanned(head, endpoint);
+            assert!(!worker.start(&runtime, &canonical, head, DueReasons::GENERAL, period));
+            assert_eq!(worker.consecutive_failures, 2);
+            let (mut genesis, receipts) = block(0, B256::repeat_byte(88), B256::ZERO, &[]);
+            genesis.header.inner.timestamp = 1;
+            genesis.header.inner.gas_limit = 2_000_000;
+            genesis.header.inner.blob_gas_used = Some(0);
+            genesis.header.inner.excess_blob_gas = Some(0);
+            let target = eez_l1::BundleTarget::Exact {
+                block: 1,
+                timestamp: 2,
+            };
+            replies.push_success(&alloy_primitives::U64::from(2));
+            assert!(
+                runtime
+                    .quote(target, false, eez_l1::posting_fees::PriorityProfile::Base)
+                    .await
+                    .is_err()
+            );
+            assert!(!worker.start(&runtime, &canonical, head, DueReasons::GENERAL, period));
+            replies.push_success(&alloy_primitives::U64::from(1));
+            replies.push_success(&genesis);
+            replies.push_success(&receipts);
+            replies.push_success(&genesis);
+            runtime
+                .quote(target, false, eez_l1::posting_fees::PriorityProfile::Base)
+                .await
+                .unwrap();
+            let (body, receipts) = block(3, head.hash, B256::ZERO, &[]);
+            replies.push_success(&body);
+            replies.push_success(&receipts);
+            assert!(worker.start(&runtime, &canonical, head, DueReasons::GENERAL, period));
+            assert_eq!(worker.jobs.join_next().await.unwrap().unwrap(), None);
+            assert!(
+                runtime
+                    .priority_history
+                    .lock()
+                    .await
+                    .samples
+                    .iter()
+                    .any(|r| r.hash == head.hash)
+            );
+            assert!(replies.read_q().is_empty());
+        });
     }
 
     #[tokio::test]

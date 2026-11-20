@@ -40,7 +40,9 @@ use super::CrossChainExecCtx;
 use super::gas_trace;
 use crate::local::provider::ChainProvider;
 
-mod priority;
+pub(super) mod priority;
+
+const FILTERED_HISTORY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum PostingError {
@@ -76,6 +78,8 @@ pub(super) struct PostingRuntime {
     pub gas_trace: Option<gas_trace::Config>,
     /// Shared bounded canonical observations; never refund/queue ownership.
     pub priority_history: tokio::sync::Mutex<priority::PriorityHistory>,
+    /// Successful canonical quotes which loaded at least one missing filtered sample.
+    pub provider_backed_quotes: std::sync::atomic::AtomicU64,
 }
 
 /// Price a bundle as cross-chain when any of its users executes a cross-chain
@@ -268,6 +272,7 @@ impl PostingRuntime {
         pinned: Option<L1BlockRef>,
         slot_seconds: u64,
     ) -> Result<PostingQuote, PostingError> {
+        let quote_started = std::time::Instant::now();
         let percentile = self.fees.priority_percentile_for(profile);
         let provider = &self.ctx.l1_provider;
         let chain_id = provider
@@ -314,28 +319,32 @@ impl PostingRuntime {
                 "target's canonical parent is not yet available".into(),
             ));
         }
+        let mut history_lock_us = None;
+        let mut history_misses = None;
         let mut excluded_priority_transactions = 0;
         let filtered_priority = self.collection.l1_refund.is_some();
         let estimated_priority_fee = if self.fees.priority_override.is_none() && filtered_priority {
-            let (priority, excluded) =
-                tokio::time::timeout(std::time::Duration::from_secs(5), async {
-                    let mut history = self.priority_history.lock().await;
-                    // Receipt/trace RPC state is large. Keep it out of every
-                    // enclosing scheduler/quote future while retaining the
-                    // guard and cancellation in this request.
-                    Box::pin(history.estimate(
-                        provider,
-                        head,
-                        self.ctx.l1_poster_signer.address(),
-                        self.registry,
-                        percentile,
-                    ))
-                    .await
-                })
-                .await
-                .map_err(|_| {
-                    PostingError::Unavailable("filtered fee history timed out".into())
-                })??;
+            let (priority, excluded) = tokio::time::timeout(FILTERED_HISTORY_TIMEOUT, async {
+                let lock_started = std::time::Instant::now();
+                let mut history = self.priority_history.lock().await;
+                history_lock_us = Some(lock_started.elapsed().as_micros() as u64);
+                let before = history.authoritative_loads;
+                // Receipt/trace RPC state is large. Keep it out of every
+                // enclosing scheduler/quote future while retaining the
+                // guard and cancellation in this request.
+                let result = Box::pin(history.estimate(
+                    provider,
+                    head,
+                    self.ctx.l1_poster_signer.address(),
+                    self.registry,
+                    percentile,
+                ))
+                .await;
+                history_misses = Some(history.authoritative_loads.wrapping_sub(before));
+                result
+            })
+            .await
+            .map_err(|_| PostingError::Unavailable("filtered fee history timed out".into()))??;
             excluded_priority_transactions = excluded;
             Some(priority)
         } else if self.fees.priority_override.is_none() {
@@ -381,6 +390,10 @@ impl PostingRuntime {
                 "canonical head changed during fee estimation".into(),
             ));
         }
+        if history_misses.is_some_and(|misses| misses > 0) {
+            self.provider_backed_quotes
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         let gas_budget = env
             .version
             .tx_gas_limit_cap
@@ -392,6 +405,7 @@ impl PostingRuntime {
             network_transaction_gas_max = env.version.tx_gas_limit_cap, block_gas = parent.gas_limit,
             operator_gas_cap = self.operator_gas_cap, priority_source = if self.fees.priority_override.is_some() { "override" } else if filtered_priority { "filtered_receipts" } else { "fee_history" },
             excluded_priority_transactions,
+            quote_elapsed_us = quote_started.elapsed().as_micros() as u64, history_lock_us, history_misses,
             priority_history_blocks = PRIORITY_FEE_HISTORY_BLOCKS,
             priority_profile = ?profile, priority_reward_percentile = percentile,
             execution_base_fee = %env.block.basefee, blob_base_fee = quote.estimated_blob_gas_price,
@@ -1198,20 +1212,97 @@ mod tests {
         (config, parent, attributes)
     }
 
-    #[tokio::test]
-    async fn posting_quote_checks_rpc_signing_and_embedded_chain_ids() {
-        use alloy_provider::{ProviderBuilder, mock::Asserter};
+    pub(super) fn test_posting_runtime(
+        provider: alloy_provider::RootProvider,
+        signing_chain: u64,
+        embedded_chain: u64,
+    ) -> PostingRuntime {
         use eez_l1::{BuilderRelays, L1ReaderConfig, Submitter, SubmitterConfig};
         use reth_provider::test_utils::MockEthProvider;
         use std::time::Duration;
+        let mut spec = (**configuration(2_000_000).0.chain_spec()).clone();
+        spec.chain = embedded_chain.into();
+        spec.genesis.config.chain_id = embedded_chain;
+        let local: Arc<MockEthProvider> = Arc::new(MockEthProvider::new());
+        // Construction needs a submission handle, but quoting must use
+        // only the mocked canonical provider and never contact this URL.
+        let unused_url = "http://127.0.0.1:0".parse().unwrap();
+        let submitter = Submitter::new(
+            SubmitterConfig {
+                reader: L1ReaderConfig {
+                    rpc_url: unused_url,
+                    beacon_url: None,
+                    eez: REGISTRY,
+                    rollup_id: 1,
+                    deploy_block: 0,
+                },
+                builder_relays: BuilderRelays::new(vec!["http://127.0.0.1:0".parse().unwrap()])
+                    .unwrap(),
+                target_rpc_url: None,
+                poster: signer(),
+                bundle_signer: None,
+                bundle_capture_dir: None,
+                bundle_submission_lead: Duration::from_millis(7500),
+            },
+            Duration::from_secs(12),
+            Duration::from_millis(500),
+        )
+        .unwrap();
+        PostingRuntime {
+            quorum: None,
+            proof_systems: vec![Address::repeat_byte(3)],
+            fees: PostingFeeConfig::parse(|name| {
+                Ok(match name {
+                    "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS"
+                    | "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS" => Some("1000000000".into()),
+                    "EEZ_L1_POSTBATCH_PRIORITY_FEE" => Some("2".into()),
+                    _ => None,
+                })
+            })
+            .unwrap(),
+            collection: super::super::fees::config::RuntimeFees {
+                l2_to_l1_enabled: false,
+                pricing: None,
+                l1_refund: None,
+                quote_base_fee_percent: 150,
+            },
+            chain: ChainProvider {
+                provider: local.clone(),
+                headers: local,
+                evm_config: eez_evm::EezEvmConfig::for_l1_simulation(Arc::new(spec)),
+                gnosis_evm_config: None,
+            },
+            ctx: Arc::new(CrossChainExecCtx {
+                eezl2_address: eez_protocol::EEZL2_ADDRESS,
+                l2_chain_id: 90210,
+                l1_provider: provider,
+                submitter,
+                l1_poster_signer: signer(),
+                l1_chain_id: signing_chain,
+                blob_sidecar_encoding: eez_blob_codec::BlobSidecarEncoding::Eip4844,
+                ecdsa_proof_system_address: Address::repeat_byte(3),
+            }),
+            registry: REGISTRY,
+            post_batch_target: REGISTRY,
+            operator_gas_cap: 2_000_000,
+            operator_blob_cap: None,
+            costs: Default::default(),
+            gas_trace: None,
+            priority_history: Default::default(),
+            provider_backed_quotes: Default::default(),
+        }
+    }
 
+    #[tokio::test]
+    async fn posting_quote_checks_rpc_signing_and_embedded_chain_ids() {
+        use alloy_provider::{ProviderBuilder, mock::Asserter};
         for (rpc_chain, signing_chain, embedded_chain) in
             [(1_u64, 1_u64, 1_u64), (2, 1, 1), (1, 2, 1), (1, 1, 2)]
         {
             let matching = rpc_chain == signing_chain && rpc_chain == embedded_chain;
             let replies = Asserter::new();
             replies.push_success(&alloy_primitives::U64::from(rpc_chain));
-            let (config, parent, _) = configuration(2_000_000);
+            let (_, parent, _) = configuration(2_000_000);
             if matching {
                 let mut block: alloy_rpc_types_eth::Block = Default::default();
                 block.header.inner = parent.clone();
@@ -1220,76 +1311,8 @@ mod tests {
                 replies.push_success(&block);
             }
             let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
-            let mut spec = (**config.chain_spec()).clone();
-            spec.chain = embedded_chain.into();
-            spec.genesis.config.chain_id = embedded_chain;
-            let local: Arc<MockEthProvider> = Arc::new(MockEthProvider::new());
-            // Construction needs a submission handle, but quoting must use
-            // only the mocked canonical provider and never contact this URL.
-            let unused_url = "http://127.0.0.1:0".parse().unwrap();
-            let submitter = Submitter::new(
-                SubmitterConfig {
-                    reader: L1ReaderConfig {
-                        rpc_url: unused_url,
-                        beacon_url: None,
-                        eez: REGISTRY,
-                        rollup_id: 1,
-                        deploy_block: 0,
-                    },
-                    builder_relays: BuilderRelays::new(vec!["http://127.0.0.1:0".parse().unwrap()])
-                        .unwrap(),
-                    target_rpc_url: None,
-                    poster: signer(),
-                    bundle_signer: None,
-                    bundle_capture_dir: None,
-                    bundle_submission_lead: Duration::from_millis(7500),
-                },
-                Duration::from_secs(12),
-                Duration::from_millis(500),
-            )
-            .unwrap();
-            let runtime = PostingRuntime {
-                quorum: None,
-                proof_systems: vec![Address::repeat_byte(3)],
-                fees: PostingFeeConfig::parse(|name| {
-                    Ok(match name {
-                        "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS"
-                        | "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS" => Some("1000000000".into()),
-                        "EEZ_L1_POSTBATCH_PRIORITY_FEE" => Some("2".into()),
-                        _ => None,
-                    })
-                })
-                .unwrap(),
-                collection: super::super::fees::config::RuntimeFees {
-                    l2_to_l1_enabled: false,
-                    pricing: None,
-                    l1_refund: None,
-                    quote_base_fee_percent: 150,
-                },
-                chain: ChainProvider {
-                    provider: local.clone(),
-                    headers: local,
-                    evm_config: eez_evm::EezEvmConfig::for_l1_simulation(Arc::new(spec)),
-                    gnosis_evm_config: None,
-                },
-                ctx: Arc::new(CrossChainExecCtx {
-                    eezl2_address: eez_protocol::EEZL2_ADDRESS,
-                    l2_chain_id: 90210,
-                    l1_provider: provider.root().clone(),
-                    submitter,
-                    l1_poster_signer: signer(),
-                    l1_chain_id: signing_chain,
-                    blob_sidecar_encoding: eez_blob_codec::BlobSidecarEncoding::Eip4844,
-                    ecdsa_proof_system_address: Address::repeat_byte(3),
-                }),
-                registry: REGISTRY,
-                post_batch_target: REGISTRY,
-                operator_gas_cap: 2_000_000,
-                operator_blob_cap: None,
-                costs: Default::default(),
-                gas_trace: None,
-                priority_history: Default::default(),
-            };
+            let runtime =
+                test_posting_runtime(provider.root().clone(), signing_chain, embedded_chain);
             let result = runtime
                 .quote(
                     BundleTarget::Exact {
