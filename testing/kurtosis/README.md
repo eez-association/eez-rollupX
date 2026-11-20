@@ -1257,7 +1257,7 @@ Kurtosis assigns different host ports automatically. Remember that
 
 The CI runner uses the single-signer PBS network to stop the signer, relay API
 and bundle builder in turn after a healthy inbound control. Each outage admits a fresh signed inbound source.
-Two more L1 blocks must arrive while the source remains owned and its safe
+L1 must advance for longer than the control took to land (at least two blocks) while the source remains owned and its safe
 destination stays unchanged. Recovery must commit that source, identify its
 winning post and safe L2 delivery receipts, and reproduce the expected destination value at the registry's
 block hash. A clean node restart checks the settled prefix and bidirectional

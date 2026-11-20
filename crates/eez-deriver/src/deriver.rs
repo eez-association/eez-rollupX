@@ -3395,6 +3395,9 @@ mod producing_slice_tests {
             let len = span % (boundaries.len() - start + 1);
             let boundary = |position: usize| boundaries.get(position).copied().flatten();
             let selection = super::selected_replay_groups(settlement(start, len), &hosts, &roots, inbound);
+            let slice = ProducingSlice::split(settlement(start, len), hosts.len(), inbound);
+            proptest::prop_assert_eq!(slice.leaves_entries_unconsumed(hosts.len(), inbound),
+                (start + len).max(1) < boundaries.len() - 1);
             match (boundary(start), boundary(start + len)) {
                 (Some((a, b)), Some((c, d))) => {
                     let selected = selection.unwrap();

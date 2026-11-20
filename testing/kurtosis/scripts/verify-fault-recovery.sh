@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Rollup0 #155 service outages on the single-signer, real-PBS Kurtosis fixture.
-set -euo pipefail
+set -Eeuo pipefail
+export FOUNDRY_DISABLE_NIGHTLY_WARNING=1
+trap 'echo "fault recovery failed at line $LINENO (source ${hash:-setup})" >&2' ERR
 K="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="$(cd "$K/../.." && pwd)"
 ENCLAVE="${KURTOSIS_ENCLAVE:?select the disposable Kurtosis enclave}"
+[[ -r "${KURTOSIS_ARGS_FILE:?select the matching Kurtosis args file}" ]] || { echo "cannot read Kurtosis args" >&2; exit 1; }
 [[ "${EEZ_USE_LOCAL_DEPLOYMENTS:-0}" == 0 ]] || { echo "requires an enclave deployment" >&2; exit 1; }
 result="${EEZ_CI_RESULT_DIR:-$REPO/artifacts/kurtosis-e2e}/checks/fault-recovery"
 mkdir -p "$result"
@@ -110,7 +113,11 @@ prepare_source 40
 control_start=$(cast block-number --rpc-url "$L1")
 send_front "$L1F" "$raw" "$hash"
 verify_recovery 40
-echo "healthy source committed in $(( $(cast block-number --rpc-url "$L1") - control_start )) L1 blocks"
+control_receipt=$(retry cast receipt "$hash" --json --rpc-url "$L1")
+control_height=$(jq -er .blockNumber <<<"$control_receipt")
+outage_blocks=$((control_height - control_start + 1))
+if (( outage_blocks < 2 )); then outage_blocks=2; fi
+echo "requiring $outage_blocks advancing L1 blocks per outage"
 previous=40
 value=41
 for service in eez-proof-signer mev-relay-api "${KURTOSIS_BUILDER_SERVICE:-el-2-reth-builder-lighthouse}"; do
@@ -126,20 +133,20 @@ for service in eez-proof-signer mev-relay-api "${KURTOSIS_BUILDER_SERVICE:-el-2-
     probe=(timeout 3 bash -c 'exec 3<>"/dev/tcp/$1/$2"' _ "${endpoint%:*}" "${endpoint##*:}")
     "${probe[@]}" || { echo "$service was already unreachable" >&2; exit 1; }
     echo "==> stopping $service and admitting $hash"
-    kurtosis service stop "$ENCLAVE" "$service"
     stopped="$service"
+    kurtosis service stop "$ENCLAVE" "$service"
     if "${probe[@]}" 2>/dev/null; then echo "$service still accepts connections" >&2; exit 1; fi
     send_front "$L1F" "$raw" "$hash"
     start=$(cast block-number --rpc-url "$L1")
     deadline=$((SECONDS + 300))
-    until current=$(cast block-number --rpc-url "$L1") && (( current >= start + 2 )); do
+    until current=$(cast block-number --rpc-url "$L1") && (( current >= start + outage_blocks )); do
         (( SECONDS < deadline )) || { echo "canonical L1 stalled with $service down" >&2; exit 1; }
         sleep 2
     done
-    rpc_receipt=$(receipt_json "$hash" "$L1")
+    rpc_receipt=$(retry receipt_json "$hash" "$L1")
     jq -e 'has("result") and .result == null and .error == null' <<<"$rpc_receipt" >/dev/null
-    [[ "$(cast call "$target" 'value()(uint256)' --block safe --rpc-url "$L2")" == "$previous" ]]
-    cast rpc --rpc-url "$L1F" eez_getCrossChainTransaction "$hash" >"$result/outage-$value.json"
+    [[ "$(retry cast call "$target" 'value()(uint256)' --block safe --rpc-url "$L2")" == "$previous" ]]
+    retry cast rpc --rpc-url "$L1F" eez_getCrossChainTransaction "$hash" >"$result/outage-$value.json"
     jq -e --arg h "$hash" '.hash == $h and
         (.lifecycle == "queued" or .lifecycle == "in_flight" or .lifecycle == "awaiting_evidence"
          or .lifecycle == "composing")' "$result/outage-$value.json" >/dev/null

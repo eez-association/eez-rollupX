@@ -345,6 +345,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
         echo "- Inbound, outbound, mixed, and mixed-pure waves: pass"
         echo "- Inbound, outbound, and mixed-direction state chaining: pass"
         echo "- Complete pinned protocol network suite: pass"
+        echo "- Signer, relay and builder outages and clean node restart: pass"
         echo "- Signed windows observed: $signed_window_count"
         echo "- Remote attestations observed: $remote_attestation_count"
         echo "- L1/L2 root divergence: 0"
