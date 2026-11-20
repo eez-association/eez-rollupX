@@ -180,9 +180,19 @@ impl PoolState {
     }
 
     fn apply_resolution(&mut self, gaps: &[crate::optimistic::NonceGap]) {
-        let mut users = self
-            .ledger
-            .read(|data| data.users.values().cloned().collect::<Vec<_>>());
+        let mut users = self.ledger.read(|data| {
+            // A deadline can requeue a source before its attempt is reconciled.
+            // Keep its FIFO position and carry the ledger's charge into the next drain.
+            for queued in &mut self.txs {
+                if let Some(user) = data.users.get(&queued.hash)
+                    && user.location == UserLocation::Queued
+                {
+                    queued.attempts = user.tx.attempts;
+                    queued.excluded_slots = user.tx.excluded_slots;
+                }
+            }
+            data.users.values().cloned().collect::<Vec<_>>()
+        });
         users.sort_by_key(|user| (user.owner, user.fifo_position));
         // A repair boundary protects an unfinished FIFO head across retries.
         // Once that head is canonically consumed, a new snapshot can include

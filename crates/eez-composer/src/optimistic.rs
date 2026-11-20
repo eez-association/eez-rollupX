@@ -1501,8 +1501,10 @@ mod tests {
                     }
                 }
             }
-            let remaining: Vec<_> = pool.pop_all().into_iter().map(|tx| tx.hash).collect();
-            let suffix: Vec<_> = users[prefix..].iter().map(|tx| tx.hash).collect();
+            let remaining: Vec<_> = pool.pop_all().into_iter()
+                .map(|tx| (tx.hash, tx.attempts, tx.excluded_slots)).collect();
+            let suffix: Vec<_> = users[prefix..].iter()
+                .map(|tx| (tx.hash, u32::from(charge == 1), u32::from(charge == 2))).collect();
             proptest::prop_assert_eq!(remaining, suffix);
         }
     }
