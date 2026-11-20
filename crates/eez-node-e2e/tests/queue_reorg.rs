@@ -428,6 +428,7 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
     );
     // Finalize the replacement branch only after the three sources settled.
     // Both consumers must move the repaired prefix from safe to finalized.
+    let first_repaired_height = blocks[0].0;
     let readers = [world.l2_rpc(), follower.l2_rpc_url()];
     for rpc in &readers {
         let (height, _) = block_number_and_hash_at(rpc, Finalized)
@@ -435,8 +436,8 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
             .unwrap()
             .expect("fixture must expose its initial finalized L2 head");
         assert!(
-            height < covered,
-            "{rpc} finalized {height} before L1 finality advanced to cover {covered}"
+            height < first_repaired_height,
+            "{rpc} finalized {height} before L1 finalized the first repaired source at L2 height {first_repaired_height}"
         );
     }
     world

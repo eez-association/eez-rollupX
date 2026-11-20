@@ -77,6 +77,8 @@ wait_committed_value() {
 
 verify_recovery() {
     local value="$1" deadline=$((SECONDS + 300)) status source post post_hash delivery receipt lookup number
+    local value_data
+    value_data=$(cast abi-encode 'setValue(uint256)' "$value")
     while (( SECONDS < deadline )); do
         if status=$(cast rpc --rpc-url "$L1F" eez_getCrossChainTransaction "$hash") &&
             jq -e --arg h "$hash" '.hash == $h and .ownership.reason == "Committed" and
@@ -97,13 +99,13 @@ verify_recovery() {
             lookup=$(retry cast rpc --rpc-url "$L1F" eez_getSettlementByL2Block "$number")
             jq -en --argjson r "$receipt" --argjson batch "$lookup" --arg post "$post_hash" \
                 --arg delivery "$delivery" --arg target "${target,,}" --arg topic "$value_set_topic" \
-                --arg data "$(cast abi-encode 'setValue(uint256)' "$value")" '
+                --arg data "$value_data" '
                 $r.transactionHash == $delivery and $r.status == "0x1" and $batch.canonicalL2 and
                 $r.blockHash == $batch.matchedL2Block.hash and $post == $batch.l1TransactionHash and
                 any($r.logs[]; (.address | ascii_downcase) == $target and
                     .topics[0] == $topic and .data == $data)' >/dev/null
-            jq --arg block "$safe_hash" --argjson height "$safe_height" \
-                '{hash, ownership, transactions, safe: {hash: $block, height: $height}}' \
+            jq --arg block "$safe_hash" --argjson height "$safe_height" --arg data "$value_data" \
+                '{hash, ownership, transactions, valueSetData: $data, safe: {hash: $block, height: $height}}' \
                 <<<"$status" | tee "$result/settled-$value.json"
             return 0
         fi
@@ -114,6 +116,7 @@ verify_recovery() {
 }
 
 wait_committed_value 0
+first_height=$safe_height
 prepare_source 40
 control_start=$(cast block-number --rpc-url "$L1")
 send_front "$L1F" "$raw" "$hash"
@@ -176,3 +179,13 @@ prepare_source 47
 send_front "$L1F" "$raw" "$hash"
 verify_recovery 47
 (( safe_height > before_height ))
+
+# An unreported second execution can leave the setter's final value unchanged.
+retry cast logs --address "$target" --from-block "$first_height" --to-block "$safe_height" \
+    'ValueSet(address,uint256)' --rpc-url "$L2" --json >"$result/value-set-events.json"
+jq -se --slurpfile events "$result/value-set-events.json" '
+    map([.transactions.l2[0].hash, .valueSetData]) == ($events[0] | map([.transactionHash, .data]))
+    ' "$result"/settled-{40,41,42,43,47}.json >/dev/null || {
+    echo "canonical ValueSet events differ from the five expected deliveries through L2 block $safe_height" >&2
+    exit 1
+}
