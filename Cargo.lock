@@ -3379,6 +3379,7 @@ dependencies = [
  "alloy-signer-local",
  "alloy-sol-types",
  "alloy-transport",
+ "alloy-transport-http",
  "eez-blob-codec",
  "eez-evm",
  "eez-payload-codec",
