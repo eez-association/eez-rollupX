@@ -330,6 +330,7 @@ jq -e '.suite.complete == true and .suite.excluded_from_all == [] and
 capture_service_log eez-proof-signer
 capture_service_log eez-node
 verify_real_proof_path
+timed_phase fault-recovery bash "$HERE/scripts/verify-fault-recovery.sh"
 write_result pass 0
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
@@ -344,6 +345,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
         echo "- Inbound, outbound, mixed, and mixed-pure waves: pass"
         echo "- Inbound, outbound, and mixed-direction state chaining: pass"
         echo "- Complete pinned protocol network suite: pass"
+        echo "- Signer, relay and builder outages and clean node restart: pass"
         echo "- Signed windows observed: $signed_window_count"
         echo "- Remote attestations observed: $remote_attestation_count"
         echo "- L1/L2 root divergence: 0"
