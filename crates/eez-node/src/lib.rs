@@ -51,7 +51,7 @@ use reth_chainspec::EthChainSpec as _;
 use reth_ethereum_cli::chainspec::EthereumChainSpecParser;
 use reth_node_builder::components::BasicPayloadServiceBuilder;
 use reth_node_ethereum::EthereumNode;
-use reth_provider::CanonStateSubscriptions as _;
+use reth_provider::{CanonStateNotification, CanonStateSubscriptions};
 use tokio::sync::mpsc;
 use tracing::{Level, event};
 
@@ -815,22 +815,22 @@ async fn launch_composer(
     )?;
     // Handle only — polling starts after boot catch-up fixes the
     // seed and every consumer has subscribed.
-    let l1_watcher = L1Watcher::new_with_blob_rules(l1_watcher_config, blob_rules);
-    // Policy catch-up needs canonical settlement evidence before the next
-    // proof cutoff. Wake the existing scanner as soon as the embedded L1
-    // changes, retaining periodic HTTP scans for retries and recovery.
-    match &embedded_l1 {
-        EmbeddedL1::Ethereum(handle) => task_executor.spawn_task(
-            l1_watcher
-                .clone()
-                .wake_on_canonical_changes(handle.node.provider.subscribe_to_canonical_state()),
+    let l1_watcher = match &embedded_l1 {
+        EmbeddedL1::Ethereum(handle) => start_l1_watcher(
+            l1_watcher_config,
+            blob_rules,
+            handle.node.rpc_server_handle().http_local_addr(),
+            handle.node.provider.clone(),
+            &l1_runtime,
         ),
-        EmbeddedL1::Chiado(handle) => task_executor.spawn_task(
-            l1_watcher
-                .clone()
-                .wake_on_canonical_changes(handle.node.provider.subscribe_to_canonical_state()),
+        EmbeddedL1::Chiado(handle) => start_l1_watcher(
+            l1_watcher_config,
+            blob_rules,
+            handle.node.rpc_server_handle().http_local_addr(),
+            handle.node.provider.clone(),
+            &l1_runtime,
         ),
-    };
+    }?;
 
     // Build the Composer and Sequencer around the same binary-owned
     // BlockCommitter handle. The Deriver receives another clone below, so all
@@ -1311,6 +1311,43 @@ async fn launch_composer(
     xchain_ready.store(true, std::sync::atomic::Ordering::Relaxed);
 
     handle.wait_for_node_exit().await
+}
+
+/// Use the launched node's bound listener and provider together. A different
+/// submission endpoint still receives prompt HTTP scans on embedded changes.
+fn start_l1_watcher(
+    config: L1WatcherConfig,
+    rules: eez_l1::BlobRuleSource,
+    listener: Option<std::net::SocketAddr>,
+    provider: impl CanonStateSubscriptions + reth_storage_api::BlockNumReader + 'static,
+    executor: &reth_tasks::Runtime,
+) -> eez_l1::L1Result<L1Watcher> {
+    use futures_util::FutureExt as _;
+    let changes = provider.subscribe_to_canonical_state();
+    let shutdown = executor.on_shutdown_signal().clone();
+    let watcher = L1Watcher::with_embedded_listener(config, rules, listener, move || {
+        // The child can cancel its forwarder before it clears a pending header.
+        if shutdown.clone().now_or_never().is_some() {
+            return None;
+        }
+        let tip = provider.chain_info().ok()?;
+        Some((tip.best_number, tip.best_hash))
+    })?;
+    executor.spawn_task(
+        watcher
+            .clone()
+            .wake_on_canonical_headers(changes, |change| {
+                if !matches!(change, CanonStateNotification::Commit { .. }) {
+                    return None;
+                }
+                let tip = change.tip_checked()?;
+                Some(eez_l1::l1_watcher::BlockSnapshot::from_header(
+                    tip.hash(),
+                    tip.header(),
+                ))
+            }),
+    );
+    Ok(watcher)
 }
 
 /// Read the L1 rollup id from env. Defaults to `0` to match the bridge

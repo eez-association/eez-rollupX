@@ -2165,7 +2165,7 @@ fn dropped(tx_hash: TxHash, target_block: u64, reason: BundleDropReason) -> Send
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Duration;
@@ -2261,7 +2261,7 @@ mod tests {
         .unwrap()
     }
 
-    async fn rpc_server(
+    pub(crate) async fn rpc_server(
         responses: Vec<serde_json::Value>,
         keep_alive: bool,
     ) -> (url::Url, tokio::task::JoinHandle<Vec<serde_json::Value>>) {

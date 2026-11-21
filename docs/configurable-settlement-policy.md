@@ -624,7 +624,17 @@ execution gas, including the maximum gas refund. One async mutex shares a
 posting and quote requests; only validated samples enter it, keyed by block hash.
 The cache contains no queue ownership and is reconstructed after restart.
 The complete filtered read has a five-second timeout, including cache-lock
-waiting; cancellation releases the guard without leaving a background sampler.
+waiting. Cancellation releases the foreground guard. A general, drain or window-limit
+preparation hint can prefetch the reconciled parent into this same cache. One
+worker per Composer loads at most one new block per advancing head, with a
+two-slot burst allowance and one start per L1 slot on average. It drops busy
+hints and performs RPC work outside the cache lock. Two consecutive prefetch
+failures (including timeouts) pause the worker until a successful posting or
+advisory quote loads missing history from the provider. A restart, a missed hint or an unvalidated sample leaves the ordinary
+foreground lookup in charge. Each quote still checks its provider, canonical
+head and exact ancestry. The fee-quote event records total quote microseconds,
+filtered-history lock wait in microseconds and the number of foreground sample
+misses as `quote_elapsed_us`, `history_lock_us` and `history_misses`.
 Fixed priority overrides bypass sampling. Without L1 refund recovery the original
 fee-history path remains unchanged. Fee selection logs identify
 `priority_source=filtered_receipts` and `excluded_priority_transactions`.
