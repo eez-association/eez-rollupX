@@ -38,8 +38,8 @@ before choosing images or starting services.
 Run commands in Bash from the intended deployment checkout's root. Use a checkout
 path without whitespace or colons, and outside `/repo`: generated bindings contain
 unquoted paths, volume syntax uses colons, and the deploy image owns `/repo`.
-Examples below use the default ports. Substitute your deployment's ports when
-running manual checks. Use a clean shell without inherited `COMPOSE_*`, `EEZ_*`,
+Examples below use the default ports. Use your deployment's ports and container names
+for manual checks. Use a clean shell without inherited `COMPOSE_*`, `EEZ_*`,
 `L1_*`, `L2_*`, `LH_*` or data-path overrides, which can take precedence over
 the checkout's `.env`. Its `COMPOSE_FILE` selects
 `docker-compose.chiado-node.yml`. Stop at a failed command.
@@ -87,15 +87,17 @@ EEZ_STACK_NAME=${COMPOSE_PROJECT_NAME:-chiado}
 
 This selects project `devnet` and containers `eez-node-devnet`,
 `eez-proof-signer-devnet` and `eez-devnet-lighthouse`. Use a distinct lowercase
-Compose project name for each named stack. Existing deployments can keep their current `.env` to preserve their container
-names and project.
+Compose project name for each named stack. Existing deployments can keep their current `.env`
+to preserve their container names and project.
 Keep the same project for startup, checks and teardown, including manual Compose
-commands. On a checkout that used the three per-container overrides from #188,
-keep the old configuration for teardown before switching names.
+commands. Stop the stack under its old name and configuration before changing
+project or container names. This also applies to checkouts using the three
+per-container overrides from #188.
 
 Set disjoint host ports from the table, including the derived L1 WS and discv5
 ports (nonzero L1 HTTP ≤65534 and P2P ≤65525). Set the required
-`EEZ_L1_BEACON_URL` to the intended Beacon API. An explicit `LH_ENR_UDP_PORT`
+`EEZ_L1_BEACON_URL` to the second Lighthouse’s `LH_HTTP_PORT` when using the
+colocated Beacon API. An explicit `LH_ENR_UDP_PORT`
 advertises the externally mapped UDP port. Update any explicit prover roster
 or local target-RPC URLs. The startup and teardown scripts support named stacks.
 Workload helpers such as `scripts/xchain-test.sh` target default endpoints.
