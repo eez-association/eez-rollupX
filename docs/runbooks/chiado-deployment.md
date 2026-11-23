@@ -89,6 +89,8 @@ This selects project `devnet` and containers `eez-node-devnet`,
 `eez-proof-signer-devnet` and `eez-devnet-lighthouse`. Use a distinct lowercase
 Compose project name for each named stack. Existing deployments can keep their current `.env`
 to preserve their container names and project.
+With the default `.env`, `docker compose -p devnet` selects project `devnet`
+but keeps the three Chiado container names. Set the project in `.env` as shown above to rename them.
 Keep the same project for startup, checks and teardown, including manual Compose
 commands. Stop the stack under its old name and configuration before changing
 project or container names. This also applies to checkouts using the three
@@ -100,7 +102,13 @@ ports (nonzero L1 HTTP ≤65534 and P2P ≤65525). Set the required
 colocated Beacon API. An explicit `LH_ENR_UDP_PORT`
 advertises the externally mapped UDP port. Update any explicit prover roster
 or local target-RPC URLs. The startup and teardown scripts support named stacks.
-Workload helpers such as `scripts/xchain-test.sh` target default endpoints.
+
+| Workload helper | How it selects the deployment |
+| --- | --- |
+| [xchain-test.sh](../../scripts/xchain-test.sh) | Uses the default L1/L2 RPC and front ports even when `NODE_CONTAINER` is overridden. |
+| [run-chiado-mixed-validation.sh](../../scripts/run-chiado-mixed-validation.sh) and [run-chiado-fee-load.sh](../../scripts/run-chiado-fee-load.sh) | Use fixed default RPC/front ports and node/signer container names. Selecting another deployment directory alone still targets those endpoints. |
+| [devnet-test.sh](../../scripts/devnet-test.sh) | Defaults to the Chiado stack. For another stack, use its checkout and set `L1_RPC`, `L2_RPC`, `XCHAIN_L1` and `NODE_CONTAINER`. |
+| [run-chiado-staged-performance.sh](../../scripts/run-chiado-staged-performance.sh) | Reads RPCs, fronts and bindings from `DEVNET_ENV` (default `eez-core-protocol/chain.env`). Select the intended profile and matching `EEZ_STAGED_L2_CHAIN_ID`. |
 
 L2 HTTP, both fronts, and the L1 engine API bind all host interfaces. Restrict
 unintended access with the host firewall; host networking provides no Docker port
