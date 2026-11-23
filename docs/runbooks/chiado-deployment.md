@@ -38,14 +38,10 @@ before choosing images or starting services.
 Run commands in Bash from the intended deployment checkout's root. Use a checkout
 path without whitespace or colons, and outside `/repo`: generated bindings contain
 unquoted paths, volume syntax uses colons, and the deploy image owns `/repo`.
-Use the default paths and ports below. Custom layouts require adapting Compose,
-the startup script (which hardcodes the L1/L2 health-check ports), and the commands
-together.
-A worktree or `COMPOSE_PROJECT_NAME` does not isolate fixed container names,
-host-network ports, or bind-mounted databases.
-
-Use a fresh shell without inherited `EEZ_*`, `LH_*`, `COMPOSE_*`, or data-path
-overrides, which can take precedence over `.env`. Its `COMPOSE_FILE` selects
+Examples below use the default ports. Substitute your deployment's ports when
+running manual checks. Use a clean shell without inherited `COMPOSE_*`, `EEZ_*`,
+`L1_*`, `L2_*`, `LH_*` or data-path overrides, which can take precedence over
+the checkout's `.env`. Its `COMPOSE_FILE` selects
 `docker-compose.chiado-node.yml`. Stop at a failed command.
 
 | Requirement | Check/constraint |
@@ -77,13 +73,32 @@ The default containers are `eez-node-chiado`, `eez-proof-signer-chiado`, and
 | 30640 / 30641 | `L2_P2P_PORT` / `L2_DISCV5_PORT` | L2 P2P/discovery settings reserved by the profile; discovery disabled |
 | 19091 | `L2_METRICS_PORT` | L2 Reth metrics; loopback |
 
-To run a second, independent deployment on the same host, give it its own checkout
-or configuration directory, data paths, JWT, keys and compose project (`-p`), and
-override every port above plus the container names (`EEZ_NODE_CONTAINER_NAME`,
-`EEZ_SIGNER_CONTAINER_NAME`, `LH_CONTAINER_NAME`). Point `EEZ_L1_BEACON_URL` at its
-own `LH_HTTP_PORT` and set `LH_ENR_UDP_PORT` (if used) to its `LH_P2P_PORT`. Leaving
-these unset keeps the defaults above. Scripts that address containers by the default
-names (for example `scripts/teardown-chiado.sh`) only target the default deployment.
+Each deployment runs its own Composer in `eez-node`, proof signer and Lighthouse
+on the same Chiado L1. For a second deployment, use its own checkout with its
+own `.env`, `deployments.env`, genesis, writable data paths, JWT and keys.
+Uncomment `COMPOSE_PROJECT_NAME=devnet` in the second checkout's `.env` and
+choose a unique name. The example derives all three container names from that
+one value. When configuring a second stack with an older `.env`, add both lines:
+
+```bash
+COMPOSE_PROJECT_NAME=devnet
+EEZ_STACK_NAME=${COMPOSE_PROJECT_NAME:-chiado}
+```
+
+This selects project `devnet` and containers `eez-node-devnet`,
+`eez-proof-signer-devnet` and `eez-devnet-lighthouse`. Use a distinct lowercase
+Compose project name for each named stack. Existing deployments can keep their current `.env` to preserve their container
+names and project.
+Keep the same project for startup, checks and teardown, including manual Compose
+commands. On a checkout that used the three per-container overrides from #188,
+keep the old configuration for teardown before switching names.
+
+Set disjoint host ports from the table, including the derived L1 WS and discv5
+ports (nonzero L1 HTTP ≤65534 and P2P ≤65525). Set the required
+`EEZ_L1_BEACON_URL` to the intended Beacon API. An explicit `LH_ENR_UDP_PORT`
+advertises the externally mapped UDP port. Update any explicit prover roster
+or local target-RPC URLs. The startup and teardown scripts support named stacks.
+Workload helpers such as `scripts/xchain-test.sh` target default endpoints.
 
 L2 HTTP, both fronts, and the L1 engine API bind all host interfaces. Restrict
 unintended access with the host firewall; host networking provides no Docker port

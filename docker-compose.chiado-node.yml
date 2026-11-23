@@ -10,7 +10,7 @@ services:
   eez-proof-signer:
     image: "${EEZ_PROOF_SIGNER_IMAGE:-ghcr.io/eduadiez/rollupx-proof-signer:latest}"
     platform: linux/amd64
-    container_name: ${EEZ_SIGNER_CONTAINER_NAME:-eez-proof-signer-chiado}
+    container_name: eez-proof-signer-${EEZ_STACK_NAME:-chiado}
     network_mode: host
     restart: unless-stopped
     # Admitted proof requests can outlive this grace period and be killed.
@@ -37,7 +37,7 @@ services:
   eez-node:
     image: "${EEZ_NODE_IMAGE:-ghcr.io/eduadiez/rollupx-node:latest}"
     platform: linux/amd64
-    container_name: ${EEZ_NODE_CONTAINER_NAME:-eez-node-chiado}
+    container_name: eez-node-${EEZ_STACK_NAME:-chiado}
     network_mode: host
     restart: unless-stopped
     stop_grace_period: 30s
@@ -214,7 +214,7 @@ services:
     # v8.3.3; schema 32. Back up existing data before upgrading:
     # docs/runbooks/chiado-deployment.md#lighthouse-upgrades-and-checkpoint-boundary-pruning
     image: sigp/lighthouse@sha256:53f9063d98c3d3a2d290207873f019ea2298cfc02f8cd58d87c33b04aab856d1
-    container_name: ${LH_CONTAINER_NAME:-eez-chiado-lighthouse}
+    container_name: eez-${EEZ_STACK_NAME:-chiado}-lighthouse
     network_mode: host
     restart: unless-stopped
     stop_grace_period: 30s

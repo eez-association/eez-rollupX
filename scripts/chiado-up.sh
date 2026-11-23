@@ -10,7 +10,13 @@ for t in docker cast curl jq; do command -v "$t" >/dev/null || { echo "✗ $t no
 [[ -f .env ]] || { echo "✗ .env missing — cp .env.chiado.example .env and fill it in first"; exit 1; }
 
 [[ -s deployments.env ]] || { echo "✗ deployments.env missing — complete explicit deployment or restore the original bindings; startup never redeploys" >&2; exit 1; }
-set -a; source .env; set +a
+# Let Compose resolve stack identity from the original shell and .env, just as
+# it does for manual commands and teardown. Other host-side settings are shared.
+load_deployment_env() {
+    local COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME-}" EEZ_STACK_NAME="${EEZ_STACK_NAME-}"
+    set -a; source .env; set +a
+}
+load_deployment_env
 "${COMPOSE[@]}" config --quiet
 DEPLOY_RPC="$EEZ_L1_RPC_URL"
 for v in L1_SNAPSHOT_DIR JWT_FILE CHIADO_CONFIG_DIR FRESH_GENESIS; do
@@ -104,8 +110,8 @@ done
 
 # ── 4. Wait for a healthy pipeline ──────────────────────────────────────
 echo "==> [4/5] waiting for L1 catch-up + L2 production + first settle (up to ~15 min)"
-L1=http://localhost:18645
-L2=http://localhost:18688
+L1="http://localhost:${L1_HTTP_PORT:-18645}"
+L2="http://localhost:${L2_HTTP_PORT:-18688}"
 healthy=0
 for i in $(seq 1 90); do
     l2h=$(cast block-number --rpc-url "$L2" 2>/dev/null || echo 0)
@@ -181,8 +187,8 @@ echo "════════════════════════�
 echo " RPC endpoints:"
 echo "   L2 RPC                          $L2"
 echo "   Embedded chiado L1 RPC          $L1"
-echo "   L1→L2 front (Inbound)           http://localhost:18999"
-echo "   L2→L1 front (Outbound)          http://localhost:18998"
+echo "   L1→L2 front (Inbound)           http://localhost:${EEZ_L1_XCHAIN_PORT:-18999}"
+echo "   L2→L1 front (Outbound)          http://localhost:${EEZ_L2_XCHAIN_PORT:-18998}"
 echo
 echo " Deployment (rollupId ${EEZ_ROLLUP_ID:-1}, deploy block ${EEZ_REGISTRY_DEPLOY_BLOCK:-?}):"
 printf "   %-20s %s\n" "EEZ registry"      "$EEZ_REGISTRY_ADDRESS"
@@ -194,6 +200,5 @@ fi
 echo
 echo " Next:"
 echo "   ${COMPOSE[*]} logs -f eez-node          # follow the node"
-echo "   EEZ_WAVE_COUNT=5 bash scripts/xchain-test.sh   # exercise cross-chain"
 echo "   bash scripts/teardown-chiado.sh                # stop the stack"
 echo "════════════════════════════════════════════════════════════════"
