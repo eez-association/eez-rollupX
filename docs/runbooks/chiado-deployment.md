@@ -62,19 +62,28 @@ overrides, which can take precedence over `.env`. Its `COMPOSE_FILE` selects
 ### Ports and service ownership
 
 Run `ss -lntup` and `docker ps -a --format '{{.Names}}'` before first deployment.
-The fixed containers are `eez-node-chiado`, `eez-proof-signer-chiado`, and
+The default containers are `eez-node-chiado`, `eez-proof-signer-chiado`, and
 `eez-chiado-lighthouse`. Resolve existing owners before proceeding.
 
-| Default port | Service/access |
-| --- | --- |
-| 18645 / 18646 | Embedded Chiado L1 HTTP / WebSocket RPC |
-| 18688 / 18689 | L2 HTTP / WebSocket RPC |
-| 18999 / 18998 | Composer L1 / L2 fronts; all `eez_*` methods and wallet discovery; ordinary Ethereum RPC calls proxy to the source chain |
-| 18551 / 18684 | L1 / L2 engine APIs; shared JWT protects the L1 engine connection |
-| 50061 / 6152 | Proof signer gRPC / Beacon HTTP; loopback |
-| 30544 TCP/UDP, 30554 UDP | Embedded L1 P2P/discv4 and discv5 (`EEZ_L1_P2P_PORT + 10`) |
-| 9205 TCP/UDP, 9206 UDP | Lighthouse P2P/discovery and QUIC |
-| 30640 / 30641 | L2 P2P/discovery settings reserved by the profile; discovery disabled |
+| Default port | `.env` override | Service/access |
+| --- | --- | --- |
+| 18645 / 18646 | `L1_HTTP_PORT` (WebSocket is HTTP + 1) | Embedded Chiado L1 HTTP / WebSocket RPC |
+| 18688 / 18689 | `L2_HTTP_PORT` / `EEZ_L2_WS_PORT` | L2 HTTP / WebSocket RPC |
+| 18999 / 18998 | `EEZ_L1_XCHAIN_PORT` / `EEZ_L2_XCHAIN_PORT` | Composer L1 / L2 fronts; all `eez_*` methods and wallet discovery; ordinary Ethereum RPC calls proxy to the source chain |
+| 18551 / 18684 | `L1_AUTH_PORT` / `L2_AUTH_PORT` | L1 / L2 engine APIs; shared JWT protects the L1 engine connection |
+| 50061 / 6152 | `EEZ_SIGNER_PORT` / `LH_HTTP_PORT` | Proof signer gRPC / Beacon HTTP; loopback |
+| 30544 TCP/UDP, 30554 UDP | `L1_P2P_PORT` (discv5 is P2P + 10) | Embedded L1 P2P/discv4 and discv5 |
+| 9205 TCP/UDP, 9206 UDP | `LH_P2P_PORT` / `LH_QUIC_PORT` | Lighthouse P2P/discovery and QUIC |
+| 30640 / 30641 | `L2_P2P_PORT` / `L2_DISCV5_PORT` | L2 P2P/discovery settings reserved by the profile; discovery disabled |
+| 19091 | `L2_METRICS_PORT` | L2 Reth metrics; loopback |
+
+To run a second, independent deployment on the same host, give it its own checkout
+or configuration directory, data paths, JWT, keys and compose project (`-p`), and
+override every port above plus the container names (`EEZ_NODE_CONTAINER_NAME`,
+`EEZ_SIGNER_CONTAINER_NAME`, `LH_CONTAINER_NAME`). Point `EEZ_L1_BEACON_URL` at its
+own `LH_HTTP_PORT` and set `LH_ENR_UDP_PORT` (if used) to its `LH_P2P_PORT`. Leaving
+these unset keeps the defaults above. Scripts that address containers by the default
+names (for example `scripts/teardown-chiado.sh`) only target the default deployment.
 
 L2 HTTP, both fronts, and the L1 engine API bind all host interfaces. Restrict
 unintended access with the host firewall; host networking provides no Docker port
