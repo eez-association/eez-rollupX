@@ -108,19 +108,29 @@ class ChiadoConfigTest(unittest.TestCase):
         self.assertEqual(signer["environment"]["EEZ_PROOF_SIGNER_ADDR"], "127.0.0.1:51061")
         self.assertIn("/dev/tcp/127.0.0.1/51061", signer["healthcheck"]["test"][-1])
 
-    def test_teardown_checks_only_its_compose_services(self):
+    def test_teardown_checks_project_and_previous_checkout_identity(self):
         stub = self.root / "docker"
         log = self.root / "docker.log"
-        stub.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{log}"\n')
+        stub.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{log}"\n'
+                        'if [ "$1" = ps ]; then echo "$PREVIOUS_CONTAINER"; fi\n')
         stub.chmod(0o755)
-        result = subprocess.run(["bash", self.repo / "scripts/teardown-chiado.sh"],
-                                env={**os.environ, "PATH": f"{self.root}:{os.environ['PATH']}"},
-                                capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(log.read_text().splitlines(), [
-            "compose -f docker-compose.chiado-node.yml down",
-            "compose -f docker-compose.chiado-node.yml ps --all --quiet eez-node eez-proof-signer lighthouse",
-        ])
+        for previous in ("", "previous-project-container"):
+            with self.subTest(previous=previous):
+                log.write_text("")
+                result = subprocess.run(
+                    ["bash", self.repo / "scripts/teardown-chiado.sh"],
+                    env={**os.environ, "PATH": f"{self.root}:{os.environ['PATH']}",
+                         "PREVIOUS_CONTAINER": previous}, capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 1 if previous else 0, result.stderr)
+                if previous:
+                    self.assertIn(previous, result.stdout)
+                self.assertEqual(log.read_text().splitlines(), [
+                    "compose -f docker-compose.chiado-node.yml down",
+                    "compose -f docker-compose.chiado-node.yml ps --all --quiet eez-node eez-proof-signer lighthouse",
+                    f"ps --all --quiet --filter label=com.docker.compose.project.working_dir={self.repo} "
+                    f"--filter label=com.docker.compose.project.config_files={self.repo}/docker-compose.chiado-node.yml",
+                ])
 
     def test_offline_signer_has_local_profiles_and_no_chain_rpc(self):
         result = self.render()
