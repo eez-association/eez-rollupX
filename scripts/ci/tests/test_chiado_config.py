@@ -24,6 +24,7 @@ class ChiadoConfigTest(unittest.TestCase):
             "docker-compose.chiado-node.yml", "docker-compose.chiado.yml",
             "docker-compose.chiado-postings.yml",
             ".env.chiado.example", "scripts/chiado-up.sh", "scripts/builder-relays.sh",
+            "scripts/teardown-chiado.sh",
             "configs/chiado/bootnodes.yaml", "configs/chiado/bootstrap_nodes.yaml",
         ):
             target = self.repo / name
@@ -37,7 +38,7 @@ class ChiadoConfigTest(unittest.TestCase):
 
     def render(self, overrides=None, compose_file=None):
         environment = {k: v for k, v in os.environ.items()
-                       if not k.startswith(("EEZ_", "LH_", "COMPOSE_"))}
+                       if not k.startswith(("EEZ_", "LH_", "L1_", "L2_", "COMPOSE_"))}
         command = ["docker", "compose"]
         if compose_file:
             command += ["-f", compose_file]
@@ -46,6 +47,90 @@ class ChiadoConfigTest(unittest.TestCase):
             cwd=self.repo, env={**environment, **(overrides or {})},
             text=True, capture_output=True,
         )
+
+    def test_project_name_selects_all_three_containers(self):
+        env_file = self.repo / ".env"
+        preset = env_file.read_text()
+        for project in ("", "devnet", "testnet"):
+            with self.subTest(project=project):
+                env_file.write_text(preset.replace("# COMPOSE_PROJECT_NAME=devnet",
+                                                   f"COMPOSE_PROJECT_NAME={project}"))
+                result = self.render()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                config = json.loads(result.stdout)
+                self.assertEqual(config["name"], project or self.repo.name)
+                label = project or "chiado"
+                self.assertEqual(
+                    {service: spec["container_name"] for service, spec in config["services"].items()},
+                    {"eez-node": f"eez-node-{label}", "eez-proof-signer": f"eez-proof-signer-{label}",
+                     "lighthouse": f"eez-{label}-lighthouse"},
+                )
+        # An explicitly exported project has Compose's normal precedence over dotenv.
+        shell = self.render({"COMPOSE_PROJECT_NAME": "shell-project"})
+        self.assertEqual(shell.returncode, 0, shell.stderr)
+        config = json.loads(shell.stdout)
+        self.assertEqual(config["name"], "shell-project")
+        self.assertEqual(config["services"]["eez-node"]["container_name"], "eez-node-shell-project")
+        invalid = self.render({"COMPOSE_PROJECT_NAME": "Bad.Name"})
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertIn("invalid project name", invalid.stderr)
+
+        # Existing dotenv files can use a custom project with the historic names.
+        env_file.write_text(preset.replace("EEZ_STACK_NAME=${COMPOSE_PROJECT_NAME:-chiado}", ""))
+        legacy = self.render({"COMPOSE_PROJECT_NAME": "old-project"})
+        self.assertEqual(legacy.returncode, 0, legacy.stderr)
+        config = json.loads(legacy.stdout)
+        self.assertEqual(config["name"], "old-project")
+        self.assertEqual(config["services"]["eez-node"]["container_name"], "eez-node-chiado")
+
+    def test_alternate_ports_reach_local_clients_and_listeners(self):
+        result = self.render({
+            "L1_HTTP_PORT": "21645", "L1_AUTH_PORT": "21551", "L2_HTTP_PORT": "21688",
+            "EEZ_SIGNER_PORT": "51061", "LH_HTTP_PORT": "9152", "L2_METRICS_PORT": "22091",
+            "EEZ_L1_XCHAIN_PORT": "21999", "EEZ_L2_XCHAIN_PORT": "21998",
+            "EEZ_L1_BEACON_URL": "http://127.0.0.1:9152/",
+        })
+        self.assertEqual(result.returncode, 0, result.stderr)
+        services = json.loads(result.stdout)["services"]
+        node = services["eez-node"]
+        expected = {"EEZ_L1_HTTP_PORT": "21645", "EEZ_L1_RPC_URL": "http://127.0.0.1:21645",
+                    "EEZ_L2_RPC_URL": "http://127.0.0.1:21688", "EEZ_L1_AUTH_PORT": "21551",
+                    "EEZ_L1_XCHAIN_PORT": "21999", "EEZ_L2_XCHAIN_PORT": "21998",
+                    "EEZ_PROVER_URL": "http://127.0.0.1:51061",
+                    "EEZ_L1_BEACON_URL": "http://127.0.0.1:9152/"}
+        for key, value in expected.items():
+            self.assertEqual(node["environment"][key], value, key)
+        self.assertIn("--http.port=21688", node["command"])
+        self.assertIn("--metrics=127.0.0.1:22091", node["command"])
+        self.assertIn("--execution-endpoints=http://127.0.0.1:21551", services["lighthouse"]["command"])
+        self.assertIn("--http-port=9152", services["lighthouse"]["command"])
+        signer = services["eez-proof-signer"]
+        self.assertEqual(signer["environment"]["EEZ_PROOF_SIGNER_ADDR"], "127.0.0.1:51061")
+        self.assertIn("/dev/tcp/127.0.0.1/51061", signer["healthcheck"]["test"][-1])
+
+    def test_teardown_checks_project_and_previous_checkout_identity(self):
+        stub = self.root / "docker"
+        log = self.root / "docker.log"
+        stub.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{log}"\n'
+                        'if [ "$1" = ps ]; then echo "$PREVIOUS_CONTAINER"; fi\n')
+        stub.chmod(0o755)
+        for previous in ("", "previous-project-container"):
+            with self.subTest(previous=previous):
+                log.write_text("")
+                result = subprocess.run(
+                    ["bash", self.repo / "scripts/teardown-chiado.sh"],
+                    env={**os.environ, "PATH": f"{self.root}:{os.environ['PATH']}",
+                         "PREVIOUS_CONTAINER": previous}, capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 1 if previous else 0, result.stderr)
+                if previous:
+                    self.assertIn(previous, result.stdout)
+                self.assertEqual(log.read_text().splitlines(), [
+                    "compose -f docker-compose.chiado-node.yml down",
+                    "compose -f docker-compose.chiado-node.yml ps --all --quiet eez-node eez-proof-signer lighthouse",
+                    f"ps --all --quiet --filter label=com.docker.compose.project.working_dir={self.repo} "
+                    f"--filter label=com.docker.compose.project.config_files={self.repo}/docker-compose.chiado-node.yml",
+                ])
 
     def test_offline_signer_has_local_profiles_and_no_chain_rpc(self):
         result = self.render()
@@ -291,10 +376,15 @@ class ChiadoConfigTest(unittest.TestCase):
         tool_dir = self.root / "bin"
         tool_dir.mkdir()
         log = self.root / "docker.log"
+        env_file = self.repo / ".env"
+        env_file.write_text(env_file.read_text().replace("# COMPOSE_PROJECT_NAME=devnet",
+                                                         "COMPOSE_PROJECT_NAME=devnet"))
         stubs = {
             "docker": f'''printf '%s\\n' "$*" >> '{log}'
 case "$*" in
-    'compose -f docker-compose.chiado-node.yml config --quiet') exit 0 ;;
+    'compose -f docker-compose.chiado-node.yml config --quiet')
+        '{shutil.which("docker")}' compose -f docker-compose.chiado-node.yml config --format json |
+            jq -e '.name == "shell-project" and .services["eez-node"].container_name == "eez-node-shell-project"' ;;
     'compose -f docker-compose.chiado-node.yml up -d') exit 71 ;;
     *) exit 99 ;;
 esac
@@ -313,7 +403,7 @@ esac
             path.chmod(0o755)
         result = subprocess.run(
             ["bash", str(self.repo / "scripts/chiado-up.sh")],
-            env={**os.environ, "PATH": str(tool_dir) + os.pathsep + os.environ["PATH"]},
+            env={**os.environ, "COMPOSE_PROJECT_NAME": "shell-project", "PATH": str(tool_dir) + os.pathsep + os.environ["PATH"]},
             capture_output=True, text=True,
         )
         self.assertEqual(result.returncode, 71, result.stdout + result.stderr)
