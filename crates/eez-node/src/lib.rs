@@ -128,11 +128,12 @@ async fn composer_proving_from_env(
         .members
         .into_iter()
         .map(|member| {
-            let remote = eez_prover_client::RemoteProver::new(
+            let remote = eez_prover_client::RemoteProver::new_with_stream_max_in_flight(
                 member.url,
                 member.attester,
                 expected_identity,
                 profile.verification_key(validation.registry, member.proof_system, member.attester),
+                config.stream_max_in_flight,
             );
             provers.push((member.proof_system, remote.clone()));
             eez_composer::QuorumMember {
@@ -194,7 +195,7 @@ async fn composer_proving_from_env(
         .collect();
     event!(name: "eez.node.prover.ready", Level::INFO, event_name = "eez.node.prover.ready",
         validation_identity = %expected_identity, sync_interval_blocks = minimum_blocks,
-        maximum_blocks, attesters = provers.len(),
+        maximum_blocks, attesters = provers.len(), stream_max_in_flight = config.stream_max_in_flight.get(),
         "prover configuration agreement established");
     let (sender, receiver) = mpsc::unbounded_channel::<eez_l1::L2Endpoint>();
     let witness_db_path =
@@ -403,6 +404,7 @@ async fn launch_composer(
     timing.validate_schedule(&derivation_schedule)?;
     let composer_settings = ComposerSettings::from_env(timing)?;
     let rollup_config = RollupConfig::from_env()?;
+    let prover_config = attesters::Config::from_env()?;
     let depth = composer_settings.max_speculative_depth();
     let system_address = eez_primitives::SYSTEM_ADDRESS;
     validate_system_address(system_address)?;
@@ -636,7 +638,6 @@ async fn launch_composer(
             )
         }
     };
-    let prover_config = attesters::Config::from_env()?;
     let ecdsa_proof_system_address = prover_config.members[0].proof_system;
     let l1_rpc_url: reqwest::Url = env::var("EEZ_L1_RPC_URL")
         .map_err(|_| eyre::eyre!("EEZ_L1_RPC_URL required for L1 forwarding"))?

@@ -388,7 +388,8 @@ PERMISSION_DENIED without disclosing a cursor.
 | Incoming message | Configured signer decode ceiling; default 256 MiB |
 | Server frame | Client decodes at most 64 KiB of protobuf payload, including proof or rejection diagnostics; independent of witness upload limits |
 | Pending frames | At most block limit + 1, twice the byte limit and one witness-item limit per stream |
-| Response channel / client pipeline | 8 frames / at most 8 outstanding operations, draining both directions |
+| Signer response channel | 8 frames |
+| Composer client pipeline | `EEZ_PROVER_STREAM_MAX_IN_FLIGHT` unanswered Block or Finalize operations per stream (default 32). Each ordered reply frees one slot. See the [Composer configuration and upgrade notes](../../docs/runbooks/attestation-quorum.md). |
 | Expensive work | One shared validation worker; finalizations acquire the shared final-proof permit |
 | Deadlines | Configured absolute timeout for each ordered Block/Finalize, including worker admission; idle timeout bounds input silence and output backpressure |
 

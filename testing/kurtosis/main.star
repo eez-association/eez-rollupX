@@ -25,6 +25,7 @@ def settlement_environment(values):
     # Preserve the node's authoritative parsing and defaults. This layer only
     # transports explicit strings and catches misspelled deployment keys.
     allowed = [
+        "EEZ_PROVER_STREAM_MAX_IN_FLIGHT",
         "EEZ_SETTLEMENT_PURE_L2_MODE", "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS",
         "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
         "EEZ_SETTLEMENT_START_AFTER_BLOCK",

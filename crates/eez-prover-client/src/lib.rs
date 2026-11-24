@@ -10,7 +10,7 @@
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-use std::sync::Arc;
+use std::{num::NonZeroUsize, sync::Arc};
 
 mod connection;
 mod streaming;
@@ -30,6 +30,9 @@ use eez_prover::{
 use tonic::{Code, Status};
 use tracing::{Level, event};
 
+/// Default number of unanswered Block and Finalize operations per prover stream.
+pub const DEFAULT_STREAM_MAX_IN_FLIGHT: NonZeroUsize = NonZeroUsize::new(32).unwrap();
+
 /// A [`Prover`] that proves a window on a remote `eez-proof-signer` over v2,
 /// with complete request-local evidence. Clones share checked session limits.
 #[derive(Clone)]
@@ -42,6 +45,7 @@ struct Inner {
     streaming: tokio::sync::Mutex<streaming::StreamingState>,
     pending_proofs: tokio::sync::watch::Sender<usize>,
     exchange_timeout: std::time::Duration,
+    stream_max_in_flight: NonZeroUsize,
     /// The `eez-proof-signer` endpoint, e.g. `http://127.0.0.1:50061`.
     url: String,
     /// The proof system's registered attester. The returned signature MUST
@@ -77,6 +81,7 @@ impl RemoteProver {
     /// the registered `attester` and requiring agreement with locally computed
     /// `expected_identity` before any proof is dispatched. `vkey` must be derived
     /// locally from the network profile and registered deployment identities.
+    /// The stream permits [`DEFAULT_STREAM_MAX_IN_FLIGHT`] unanswered operations.
     #[must_use]
     pub fn new(
         url: impl Into<String>,
@@ -84,8 +89,28 @@ impl RemoteProver {
         expected_identity: B256,
         vkey: B256,
     ) -> Self {
+        Self::new_with_stream_max_in_flight(
+            url,
+            attester,
+            expected_identity,
+            vkey,
+            DEFAULT_STREAM_MAX_IN_FLIGHT,
+        )
+    }
+
+    /// Construct the same checked client as [`Self::new`] with an explicit
+    /// limit on unanswered Block and Finalize operations in its stream.
+    #[must_use]
+    pub fn new_with_stream_max_in_flight(
+        url: impl Into<String>,
+        attester: Address,
+        expected_identity: B256,
+        vkey: B256,
+        stream_max_in_flight: NonZeroUsize,
+    ) -> Self {
         Self {
             inner: Arc::new(Inner {
+                stream_max_in_flight,
                 pending_proofs: tokio::sync::watch::Sender::new(0),
                 streaming: tokio::sync::Mutex::new(streaming::StreamingState::default()),
                 exchange_timeout: std::time::Duration::from_mins(10),
