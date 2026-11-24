@@ -1,6 +1,6 @@
 //! Immutable prover selection at startup. Each endpoint owns one v2 session.
 
-use std::str::FromStr;
+use std::{num::NonZeroUsize, str::FromStr};
 
 use alloy_primitives::Address;
 
@@ -8,6 +8,7 @@ use alloy_primitives::Address;
 pub(super) struct Config {
     pub members: Vec<Member>,
     pub explicit: bool,
+    pub stream_max_in_flight: NonZeroUsize,
 }
 
 #[derive(Debug)]
@@ -70,7 +71,20 @@ impl Config {
                 )?,
             )?],
         };
-        Ok(Self { members, explicit })
+        let stream_max_in_flight = match read("EEZ_PROVER_STREAM_MAX_IN_FLIGHT")? {
+            Some(value) => value.parse::<NonZeroUsize>().map_err(|_| {
+                eyre::eyre!(
+                    "EEZ_PROVER_STREAM_MAX_IN_FLIGHT must be a positive integer from 1 through {}",
+                    usize::MAX
+                )
+            })?,
+            None => eez_prover_client::DEFAULT_STREAM_MAX_IN_FLIGHT,
+        };
+        Ok(Self {
+            members,
+            explicit,
+            stream_max_in_flight,
+        })
     }
 }
 
@@ -126,6 +140,7 @@ mod tests {
         ])
         .unwrap();
         assert!(config.explicit);
+        assert_eq!(config.stream_max_in_flight.get(), 32);
         assert_eq!(config.members[0].url, "https://host/prover?key=value");
         assert_eq!(
             config.members[0].proof_system,
@@ -155,7 +170,49 @@ mod tests {
             ("EEZ_PROVER_URL", "http://legacy"),
             ("EEZ_ATTESTER_ADDRESS", SIGNER),
         ];
-        assert!(!config(&legacy).unwrap().explicit);
+        let parsed = config(&legacy).unwrap();
+        assert!(!parsed.explicit);
+        assert_eq!(parsed.stream_max_in_flight.get(), 32);
         assert!(config(&[]).is_err());
+    }
+
+    #[test]
+    fn stream_window_accepts_positive_representable_counts() {
+        let list = format!("http://remote={SIGNER}={SYSTEM}");
+        let config_with_limit = |value| {
+            config(&[
+                ("EEZ_PROVERS", &list),
+                ("EEZ_PROVER_STREAM_MAX_IN_FLIGHT", value),
+            ])
+        };
+        let max = usize::MAX.to_string();
+        for (raw, expected) in [
+            ("1", 1),
+            ("8", 8),
+            ("32", 32),
+            ("128", 128),
+            (&max, usize::MAX),
+        ] {
+            assert_eq!(
+                config_with_limit(raw).unwrap().stream_max_in_flight.get(),
+                expected
+            );
+        }
+        for raw in [
+            "",
+            "0",
+            "eight",
+            "-1",
+            " 8",
+            "8 ",
+            "340282366920938463463374607431768211455",
+        ] {
+            let error = config_with_limit(raw).unwrap_err().to_string();
+            assert!(
+                error.contains("EEZ_PROVER_STREAM_MAX_IN_FLIGHT")
+                    && error.contains("positive integer"),
+                "{error}"
+            );
+        }
     }
 }

@@ -44,7 +44,7 @@ pub(super) struct StreamStub {
     corrupt: Option<&'static str>,
     stall: Option<&'static str>,
     stall_first_ack: Option<Arc<tokio::sync::Notify>>,
-    pipeline: bool,
+    pipeline: Option<(usize, Arc<tokio::sync::Barrier>)>,
     final_reply: Option<sf::Kind>,
 }
 impl StreamStub {
@@ -66,7 +66,7 @@ impl StreamStub {
             corrupt: None,
             stall: None,
             stall_first_ack: None,
-            pipeline: false,
+            pipeline: None,
             final_reply: None,
         }
     }
@@ -108,7 +108,8 @@ impl v2::prover_server::Prover for StreamStub {
         let this = self.clone();
         let (tx, rx) = tokio::sync::mpsc::channel(16);
         tokio::spawn(async move {
-            let mut staged = Vec::new();
+            let mut staged = std::collections::VecDeque::new();
+            let mut first_burst = true;
             while let Ok(Some(frame)) = input.message().await {
                 let mut model = this.model.lock().await;
                 let mut id = frame.session_id.clone();
@@ -271,18 +272,31 @@ impl v2::prover_server::Prover for StreamStub {
                         kind
                     }),
                 });
-                if this.pipeline && phase != "ready" {
-                    staged.push(response);
-                    if !done {
-                        continue;
-                    }
-                    assert_eq!(
-                        staged.len(),
-                        3,
-                        "two blocks and Finalize must arrive before their ACKs"
-                    );
-                    for reply in staged.drain(..) {
-                        if tx.send(reply).await.is_err() {
+                if let Some((limit, full)) = &this.pipeline
+                    && phase != "ready"
+                {
+                    staged.push_back(response);
+                    assert!(staged.len() <= *limit);
+                    if done {
+                        assert_eq!(staged.len(), *limit, "Finalize must occupy the last slot");
+                        for reply in staged.drain(..) {
+                            if tx.send(reply).await.is_err() {
+                                return;
+                            }
+                        }
+                    } else if staged.len() == *limit {
+                        if first_burst {
+                            // Each client must fill its own window before either gets a reply.
+                            full.wait().await;
+                            first_burst = false;
+                        }
+                        assert!(
+                            tokio::time::timeout(Duration::from_millis(200), input.message())
+                                .await
+                                .is_err(),
+                            "client sent another operation or closed while all {limit} slots were full"
+                        );
+                        if tx.send(staged.pop_front().unwrap()).await.is_err() {
                             return;
                         }
                     }
@@ -308,6 +322,13 @@ impl Drop for ServerTask {
     }
 }
 async fn serve(stub: StreamStub) -> (RemoteProver, ServerTask) {
+    serve_with_limit(stub, None).await
+}
+
+async fn serve_with_limit(
+    stub: StreamStub,
+    limit: Option<NonZeroUsize>,
+) -> (RemoteProver, ServerTask) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     let task = tokio::spawn(async move {
@@ -320,10 +341,18 @@ async fn serve(stub: StreamStub) -> (RemoteProver, ServerTask) {
             .await
             .unwrap();
     });
-    (
-        RemoteProver::new(endpoint, test_key().address(), TEST_IDENTITY, TEST_VKEY),
-        ServerTask(task),
-    )
+    let attester = test_key().address();
+    let prover = match limit {
+        None => RemoteProver::new(endpoint, attester, TEST_IDENTITY, TEST_VKEY),
+        Some(limit) => RemoteProver::new_with_stream_max_in_flight(
+            endpoint,
+            attester,
+            TEST_IDENTITY,
+            TEST_VKEY,
+            limit,
+        ),
+    };
+    (prover, ServerTask(task))
 }
 
 fn context(count: usize) -> ProvingContext {
@@ -650,15 +679,30 @@ async fn server_restart_loses_only_volatile_progress() {
 }
 
 #[tokio::test]
-async fn pipelining_drains_both_directions_before_first_ack() {
+async fn prover_streams_release_one_slot_per_reply() {
+    let full = Arc::new(tokio::sync::Barrier::new(2));
+    let exercise = |expected: usize, limit: Option<NonZeroUsize>| {
+        let full = Arc::clone(&full);
+        async move {
+            let ctx = context(expected + 1);
+            let mut stub = StreamStub::new(&ctx);
+            stub.pipeline = Some((expected, full));
+            let (prover, _server) = serve_with_limit(stub, limit).await;
+            prover.prove(ctx).await.unwrap();
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(15), async {
+        tokio::join!(exercise(32, None), exercise(8, NonZeroUsize::new(8)));
+    })
+    .await
+    .expect("each prover must fill its own window and finish after its replies");
+}
+
+#[tokio::test]
+async fn maximum_pipeline_limit_only_allocates_for_actual_operations() {
     let ctx = context(2);
-    let mut stub = StreamStub::new(&ctx);
-    stub.pipeline = true;
-    let (prover, _server) = serve(stub).await;
-    tokio::time::timeout(Duration::from_secs(5), prover.prove(ctx))
-        .await
-        .unwrap()
-        .unwrap();
+    let (prover, _server) = serve_with_limit(StreamStub::new(&ctx), Some(NonZeroUsize::MAX)).await;
+    prover.prove(ctx).await.unwrap();
 }
 
 #[tokio::test]

@@ -193,6 +193,17 @@ class FeeProfileTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "history_update_offset"):
                     self.runtime_services(args)
 
+    def test_prover_stream_window_reaches_only_composer(self):
+        key = "EEZ_PROVER_STREAM_MAX_IN_FLIGHT"
+        for value in (None, "8", "32", "", "invalid"):
+            with self.subTest(value=value):
+                args = yaml.safe_load((REPO / "testing/kurtosis/ci-args.yaml").read_text())
+                if value is not None:
+                    args["eez"]["settlement_env"][key] = value
+                services = self.runtime_services(args)
+                self.assertEqual(services["eez-node"]["env_vars"].get(key), value)
+                self.assertNotIn(key, services["eez-proof-signer"]["env_vars"])
+
     def test_removed_fee_expiry_reaches_node_for_startup_rejection(self):
         for value in ("2000000000", "", "0", "invalid"):
             with self.subTest(value=value):

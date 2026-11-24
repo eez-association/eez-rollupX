@@ -10,8 +10,6 @@ use eez_control_rpc::v2::{
 use eez_prover::{BlockWitness, ProverError, ProverResult, RetryableProverError};
 use tonic::{Code, Status};
 
-const MAX_IN_FLIGHT: usize = 8;
-
 #[derive(Debug, Clone, Copy)]
 pub(super) struct StreamAnchor {
     pub(super) number: u64,
@@ -644,7 +642,7 @@ impl RemoteProver {
             while next < total || !pending.is_empty() {
                 let request_id = pending.front().map_or(0, |&(id, _)| id);
                 tokio::select! {
-                    permit = requests.reserve(), if next < total && pending.len() < MAX_IN_FLIGHT => {
+                    permit = requests.reserve(), if next < total && pending.len() < self.inner.stream_max_in_flight.get() => {
                         let permit = permit.map_err(|_| ProverError::Retryable {
                             kind: RetryableProverError::Unavailable,
                             message: "ProveStream request stream closed".into(),
