@@ -10,7 +10,16 @@ Composer reads the effective threshold from the registered manager at startup an
 
 Composer gives each signer’s pending proofs priority over background witness preparation. A running signer validation can finish before the worker becomes available. Preparation resumes from durable witnesses after the member’s pending proofs finish.
 
-Set `EEZ_PROVER_STREAM_MAX_IN_FLIGHT` in the Composer environment or Compose env file to limit unanswered Block and Finalize operations on **each** prover stream. For native Kurtosis, pass it as a quoted string in `eez.settlement_env`. Both singleton and explicit rosters default to **32**. The value must be a positive integer that fits the platform’s `usize` (1 through 18446744073709551615 on 64-bit targets). Empty, zero, malformed and overflowing values fail startup. Restart Composer to apply an edit.
+Set `EEZ_PROVER_STREAM_MAX_IN_FLIGHT` in the Composer environment or Compose env file to limit unanswered Block and Finalize operations on **each** prover stream. For native Kurtosis, pass it as a quoted string in `eez.settlement_env`. Both singleton and explicit rosters default to **32**. The value must be a positive integer that fits the platform’s `usize` (1 through 18446744073709551615 on 64-bit targets). Empty, zero, malformed and overflowing values fail startup.
+
+For a Compose A/B comparison, use the same pinned Composer image, project, Compose files and env file for both runs. After editing the env file for each run, recreate `eez-node`. `docker compose restart` keeps the container’s old environment. Use the stack’s usual Compose options for both commands below.
+
+```bash
+docker compose up -d --no-deps --force-recreate eez-node
+docker compose logs --no-log-prefix eez-node | grep -F 'eez.node.prover.ready'
+```
+
+Wait for the recreated Composer’s ready event and check its `stream_max_in_flight` field before starting the workload. For an 8-versus-32 comparison, record **8** for the first run and **32** for the second. If the value differs, check for an exported `EEZ_PROVER_STREAM_MAX_IN_FLIGHT` overriding the env file, then recreate and verify again.
 
 Earlier Composer binaries use a fixed limit of 8. Set the value to `8` before upgrading to preserve that behavior. Rolling back the binary also restores 8. The setting is local to Composer and works with existing v2 signers. Larger values allow more witness data in transit. If queued frames exceed a Rust signer’s pending byte or witness-item quota, it closes the stream with `RESOURCE_EXHAUSTED`. Reducing the pipeline to `8` restores the previous depth. A proof window that exceeds the signer’s request limits must itself be reduced. Each member’s negotiated limits and the existing proof deadline still apply. There is no wire, storage or historical replay change.
 
