@@ -21,7 +21,7 @@ use eez_primitives::engine::EezEngineTypes;
 use eez_primitives::{Block, EezTxEnvelope as TransactionSigned, SYSTEM_TX_GAS_CAP};
 use eez_protocol::system_tx::{ExecutionGroupState, PlannedTransaction};
 use evm2::{
-    EvmFeatures, Inspector, TxResult, TxResultWithState,
+    EvmFeatures, Inspector, TxResult,
     evm::{Db, inspector::NoopInspector},
     registry::HandlerError,
 };
@@ -405,7 +405,9 @@ pub fn planned_group_gas(txs: &[PlannedTransaction]) -> u64 {
 /// tx is accepted only if its result and state changes equal those of the same
 /// tx under the full cap on the same pre-state; otherwise it is refused with
 /// [`BuildError::BlockCapacity`] and nothing is committed. Native txs pay no
-/// fees, so no balance depends on the budget and the comparison is exact. The
+/// fees, so no balance depends on the budget. When both runs fail, gas accounting
+/// differences are ignored so equivalent failures reach the caller's rejection
+/// path; all other result fields and state changes must still match. The
 /// reference run costs one extra execution, only for native txs placed after
 /// more than `block gas limit - cap` of gas.
 ///
@@ -519,12 +521,26 @@ where
                 msg: other.to_string(),
             });
         }
-        (Ok(clamped), Some(reference)) if !same_execution(&clamped, &reference) => {
-            return Err(BuildError::BlockCapacity {
-                idx,
-                available,
-                reason: "native execution under the remaining gas differs from the cap",
-            });
+        (Ok(clamped), Some(mut reference)) => {
+            // A halt can consume each run's entire budget without changing its
+            // failure. Normalize only the reference's gas accounting, retaining
+            // every other result/state check and the actual receipt's gas.
+            if !clamped.result.is_success() && !reference.result.is_success() {
+                reference.result.total_gas_spent = clamped.result.total_gas_spent;
+                reference.result.state_gas_spent = clamped.result.state_gas_spent;
+                reference.result.refunded = clamped.result.refunded;
+                reference.result.floor_gas = clamped.result.floor_gas;
+            }
+            if clamped.result != reference.result
+                || clamped.pending_state != reference.pending_state
+            {
+                return Err(BuildError::BlockCapacity {
+                    idx,
+                    available,
+                    reason: "native execution under the remaining gas differs from the cap",
+                });
+            }
+            clamped
         }
         (Ok(result), _) => result,
     };
@@ -536,14 +552,6 @@ where
     state.commit(&result.pending_state);
     *group_state = next_group;
     Ok(outcome)
-}
-
-/// Equal status, gas, output, logs and state changes.
-fn same_execution(
-    left: &TxResultWithState<EezEvmTypes>,
-    right: &TxResultWithState<EezEvmTypes>,
-) -> bool {
-    left.result == right.result && left.pending_state == right.pending_state
 }
 
 /// Live, incrementally extended execution state of the Sync block under
@@ -2471,11 +2479,67 @@ mod tests {
     }
 
     #[test]
+    fn clamped_native_failures_reach_rejection_without_changing_the_draft() {
+        for (name, code, burns_budget) in [
+            ("revert", bytes!("63deadbeef6000526004601cfd"), false),
+            ("invalid", bytes!("fe"), true),
+            // Write storage before looping forever; neither trial may retain it.
+            ("out of gas", bytes!("60015f555b600456"), true),
+        ] {
+            let f = native_fixture(code);
+            let mut draft = f.open(&heavy_prefix());
+            let gas_before = draft.gas_used();
+            let state_before = draft.state.snapshot();
+            let remaining = BUILDER_GAS_LIMIT - gas_before;
+            assert!(remaining < SYSTEM_TX_GAS_CAP);
+
+            let (at, error) = draft
+                .prepare_transactions(&[native_plan()], &native_sources(1))
+                .unwrap_err();
+            assert_eq!(at, 0, "{name}");
+            assert!(
+                matches!(error, BuildError::ExecuteTx { .. }),
+                "{name}: {error:?}"
+            );
+            assert_eq!(draft.gas_used(), gas_before, "{name}");
+            assert_eq!(
+                draft.state.snapshot(),
+                state_before,
+                "{name}: speculative state leaked"
+            );
+            // Rejection leaves room and state for independent work on this prefix.
+            assert!(
+                draft
+                    .execute_tx(&sign_tx(1, BOB, U256::from(1), 21_000))
+                    .unwrap()
+                    .success
+            );
+
+            // Direct execution reports the failed receipt, with the actual
+            // position's gas accounting rather than the reference run's gas.
+            let mut full = f.open(&[]);
+            let full = full.execute_tx(&native(full.gas_used())).unwrap();
+            let mut busy = f.open(&heavy_prefix());
+            let reduced = busy.execute_tx(&native(busy.gas_used())).unwrap();
+            assert!(!full.success && !reduced.success, "{name}");
+            if burns_budget {
+                assert_eq!(full.gas_used, SYSTEM_TX_GAS_CAP, "{name}");
+                assert_eq!(reduced.gas_used, remaining, "{name}");
+            } else {
+                assert_eq!(full.gas_used, reduced.gas_used, "{name}");
+            }
+        }
+    }
+
+    #[test]
     fn clamped_native_tx_whose_result_depends_on_the_budget_is_a_capacity_refusal() {
-        // An infinite loop halts at whatever budget it gets; `GAS; SSTORE`
-        // succeeds but stores the budget. Both would commit a packing-dependent
-        // effect, which consensus permits but the Composer must not choose.
-        for code in [bytes!("5b600056"), bytes!("5a60005500")] {
+        // Successful execution can depend on the budget through storage,
+        // output, or gas spent alone. All remain capacity refusals.
+        for code in [
+            bytes!("5a60005500"),
+            bytes!("5a5f5260205ff3"),
+            bytes!("5b6207a1205a1160005700"),
+        ] {
             let f = native_fixture(code.clone());
             let prefix = heavy_prefix();
             let mut draft = f.open(&prefix);
@@ -2502,6 +2566,54 @@ mod tests {
                 empty.execute_tx(&native(empty.gas_used())).is_ok(),
                 "{code}"
             );
+        }
+    }
+
+    #[test]
+    fn clamped_native_tx_with_different_failure_or_success_is_capacity() {
+        for (name, code, full_success) in [
+            // GAS > 16M stops; the reduced run loops until it exhausts its budget.
+            (
+                "full success, reduced out of gas",
+                bytes!("62f424005a11600d575b6009565b00"),
+                true,
+            ),
+            (
+                "full invalid, reduced success",
+                bytes!("62f424005a11600a57005bfe"),
+                false,
+            ),
+            // Both halt and consume their budgets, but with different stop reasons.
+            (
+                "full invalid, reduced stack underflow",
+                bytes!("62f424005a11600b5750005bfe"),
+                false,
+            ),
+            ("different revert output", bytes!("5a5f5260205ffd"), false),
+        ] {
+            let f = native_fixture(code);
+            let mut empty = f.open(&[]);
+            let full = empty.execute_tx(&native(empty.gas_used())).unwrap();
+            assert_eq!(full.success, full_success, "{name}");
+
+            let mut draft = f.open(&heavy_prefix());
+            let gas_before = draft.gas_used();
+            let state_before = draft.state.snapshot();
+            assert!(BUILDER_GAS_LIMIT - gas_before < 16_000_000);
+            let (at, error) = draft
+                .prepare_transactions(&[native_plan()], &native_sources(1))
+                .unwrap_err();
+            assert_eq!(at, 0, "{name}");
+            assert!(error.is_capacity(), "{name}: {error:?}");
+            assert_eq!(draft.gas_used(), gas_before, "{name}");
+            assert_eq!(
+                draft.state.snapshot(),
+                state_before,
+                "{name}: speculative state leaked"
+            );
+            let error = draft.execute_tx(&native(gas_before)).unwrap_err();
+            assert!(error.is_capacity(), "{name}: {error:?}");
+            assert_eq!(draft.gas_used(), gas_before, "{name}");
         }
     }
 
