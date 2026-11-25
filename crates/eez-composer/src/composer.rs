@@ -46,7 +46,9 @@ use crate::held_pool::{HeldPool, HeldTx};
 use crate::ingress::Direction;
 use crate::local::{
     BuildError, InboundL2TargetSession, L1SlotState, L1TargetSession,
-    build::{SyncBlockState, SyncPrefixHashes, declared_group_gas, replay_sync_block},
+    build::{
+        SyncBlockState, SyncPrefixHashes, declared_group_gas, replay_sync_block, truncated_hex,
+    },
     build_sync_block,
 };
 use crate::optimistic::AttemptId;
@@ -1534,19 +1536,6 @@ fn take_l1_cache(
         .downcast::<eez_evm_inspector::OverlaySnapshot>()
         .map(|cache| *cache)
         .map_err(|_e| "L1 session checkpoint payload is not an OverlaySnapshot".to_owned())
-}
-
-/// Hex of the first 32 bytes of a revert/return payload, for event messages.
-fn truncated_hex(data: &Bytes) -> String {
-    const MAX: usize = 32;
-    if data.len() <= MAX {
-        return alloy_primitives::hex::encode_prefixed(data);
-    }
-    format!(
-        "{}… ({} bytes)",
-        alloy_primitives::hex::encode_prefixed(&data[..MAX]),
-        data.len()
-    )
 }
 
 /// Composer umbrella. Cheaply [`Clone`]able (`Arc<Inner>`).
@@ -4427,9 +4416,9 @@ where
 
         // ── PHASE 2 — INBOUND (L1→L2) ────────────────────────────────
         // Source-sim runs the L1 user tx on a fork of the state; the L2 side
-        // probes the canonical delivery on a fork of the block and reads the
-        // claim off the real `EEZL2 → proxy` frame. On accept the delivery
-        // extends the block and the source fork's writes become the state.
+        // resolves destination calls on a disposable block fork. The finished
+        // native delivery then passes full-cap admission and the on-chain claim
+        // comparison before its effects or the source fork's writes are accepted.
         // A phase-1 abort already collected these txs into the re-queue set.
         let inbounds = if transient.is_some() {
             Vec::new()
