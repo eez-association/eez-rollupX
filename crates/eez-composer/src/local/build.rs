@@ -339,8 +339,9 @@ pub(crate) fn replay_sync_block<P: StateProviderFactory>(
 
 /// Outcome of one transaction executed on a live prefix state.
 ///
-/// A reverted tx is a successful *execution* with `success == false` — only a
-/// tx the engine refuses outright (nonce, balance, decode) is a [`BuildError`].
+/// A reverted tx normally returns `success == false`. A clamped native tx whose
+/// full-cap reference fails instead returns [`BuildError::ExecuteTx`] before
+/// either run commits, so the composer rejects it without a capacity retry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TxOutcome {
     /// Receipt-level status: false for a revert or a halt.
@@ -355,6 +356,19 @@ pub struct TxOutcome {
     /// Logs the tx emitted. The composer checks the outbound calls it actually
     /// made against the entries it composed.
     pub logs: Vec<alloy_primitives::Log>,
+}
+
+/// Hex of the first 32 bytes of a revert/return payload, for diagnostics.
+pub(crate) fn truncated_hex(data: &Bytes) -> String {
+    const MAX: usize = 32;
+    if data.len() <= MAX {
+        return alloy_primitives::hex::encode_prefixed(data);
+    }
+    format!(
+        "{}… ({} bytes)",
+        alloy_primitives::hex::encode_prefixed(&data[..MAX]),
+        data.len()
+    )
 }
 
 fn exec_outcome(result: &TxResult<EezEvmTypes>) -> TxOutcome {
@@ -404,12 +418,11 @@ pub fn planned_group_gas(txs: &[PlannedTransaction]) -> u64 {
 /// `GAS`. Cross-chain effects must not depend on packing, so a clamped native
 /// tx is accepted only if its result and state changes equal those of the same
 /// tx under the full cap on the same pre-state; otherwise it is refused with
-/// [`BuildError::BlockCapacity`] and nothing is committed. Native txs pay no
-/// fees, so no balance depends on the budget. When both runs fail, gas accounting
-/// differences are ignored so equivalent failures reach the caller's rejection
-/// path; all other result fields and state changes must still match. The
-/// reference run costs one extra execution, only for native txs placed after
-/// more than `block gas limit - cap` of gas.
+/// [`BuildError::BlockCapacity`] and nothing is committed. If the full-cap
+/// reference itself fails, reject with [`BuildError::ExecuteTx`] immediately:
+/// no roomier block can make it succeed. Native txs pay no fees, so no balance
+/// depends on the budget. The reference run costs one extra execution, only
+/// for native txs placed after more than `block gas limit - cap` of gas.
 ///
 /// The caller tracks cumulative block gas off [`TxOutcome::gas_used`] — the
 /// same per-tx figure the block executor adds to its own total.
@@ -465,19 +478,27 @@ where
                     unreachable!("decoded native transaction")
                 };
                 call.gas_limit = cap;
-                reference = Some(
-                    state
-                        .transact(evm_config, evm_env, &reference_env, None)
-                        .map_err(|error| match error {
-                            HandlerError::Database(err) => {
-                                BuildError::Provider(format!("execute tx #{idx}: {err}"))
-                            }
-                            other => BuildError::ExecuteTx {
-                                idx,
-                                msg: other.to_string(),
-                            },
-                        })?,
-                );
+                let full = state
+                    .transact(evm_config, evm_env, &reference_env, None)
+                    .map_err(|error| match error {
+                        HandlerError::Database(err) => {
+                            BuildError::Provider(format!("execute tx #{idx}: {err}"))
+                        }
+                        other => BuildError::ExecuteTx {
+                            idx,
+                            msg: other.to_string(),
+                        },
+                    })?;
+                if !full.result.is_success() {
+                    return Err(BuildError::ExecuteTx {
+                        idx,
+                        msg: format!(
+                            "native transaction failed at full gas cap: {}",
+                            truncated_hex(&full.result.output)
+                        ),
+                    });
+                }
+                reference = Some(full);
             }
         }
         TransactionSigned::Ethereum(tx) => {
@@ -521,16 +542,7 @@ where
                 msg: other.to_string(),
             });
         }
-        (Ok(clamped), Some(mut reference)) => {
-            // A halt can consume each run's entire budget without changing its
-            // failure. Normalize only the reference's gas accounting, retaining
-            // every other result/state check and the actual receipt's gas.
-            if !clamped.result.is_success() && !reference.result.is_success() {
-                reference.result.total_gas_spent = clamped.result.total_gas_spent;
-                reference.result.state_gas_spent = clamped.result.state_gas_spent;
-                reference.result.refunded = clamped.result.refunded;
-                reference.result.floor_gas = clamped.result.floor_gas;
-            }
+        (Ok(clamped), Some(reference)) => {
             if clamped.result != reference.result
                 || clamped.pending_state != reference.pending_state
             {
@@ -2479,59 +2491,6 @@ mod tests {
     }
 
     #[test]
-    fn clamped_native_failures_reach_rejection_without_changing_the_draft() {
-        for (name, code, burns_budget) in [
-            ("revert", bytes!("63deadbeef6000526004601cfd"), false),
-            ("invalid", bytes!("fe"), true),
-            // Write storage before looping forever; neither trial may retain it.
-            ("out of gas", bytes!("60015f555b600456"), true),
-        ] {
-            let f = native_fixture(code);
-            let mut draft = f.open(&heavy_prefix());
-            let gas_before = draft.gas_used();
-            let state_before = draft.state.snapshot();
-            let remaining = BUILDER_GAS_LIMIT - gas_before;
-            assert!(remaining < SYSTEM_TX_GAS_CAP);
-
-            let (at, error) = draft
-                .prepare_transactions(&[native_plan()], &native_sources(1))
-                .unwrap_err();
-            assert_eq!(at, 0, "{name}");
-            assert!(
-                matches!(error, BuildError::ExecuteTx { .. }),
-                "{name}: {error:?}"
-            );
-            assert_eq!(draft.gas_used(), gas_before, "{name}");
-            assert_eq!(
-                draft.state.snapshot(),
-                state_before,
-                "{name}: speculative state leaked"
-            );
-            // Rejection leaves room and state for independent work on this prefix.
-            assert!(
-                draft
-                    .execute_tx(&sign_tx(1, BOB, U256::from(1), 21_000))
-                    .unwrap()
-                    .success
-            );
-
-            // Direct execution reports the failed receipt, with the actual
-            // position's gas accounting rather than the reference run's gas.
-            let mut full = f.open(&[]);
-            let full = full.execute_tx(&native(full.gas_used())).unwrap();
-            let mut busy = f.open(&heavy_prefix());
-            let reduced = busy.execute_tx(&native(busy.gas_used())).unwrap();
-            assert!(!full.success && !reduced.success, "{name}");
-            if burns_budget {
-                assert_eq!(full.gas_used, SYSTEM_TX_GAS_CAP, "{name}");
-                assert_eq!(reduced.gas_used, remaining, "{name}");
-            } else {
-                assert_eq!(full.gas_used, reduced.gas_used, "{name}");
-            }
-        }
-    }
-
-    #[test]
     fn clamped_native_tx_whose_result_depends_on_the_budget_is_a_capacity_refusal() {
         // Successful execution can depend on the budget through storage,
         // output, or gas spent alone. All remain capacity refusals.
@@ -2570,8 +2529,15 @@ mod tests {
     }
 
     #[test]
-    fn clamped_native_tx_with_different_failure_or_success_is_capacity() {
+    fn clamped_native_outcomes_follow_full_cap_without_commit() {
+        use evm2::evm::Database as _;
+
         for (name, code, full_success) in [
+            // A long revert also exercises bounded failure diagnostics.
+            ("revert", bytes!("63deadbeef6000526101005ffd"), false),
+            ("invalid", bytes!("fe"), false),
+            // Write storage before looping forever; neither trial may retain it.
+            ("out of gas", bytes!("60015f555b600456"), false),
             // GAS > 16M stops; the reduced run loops until it exhausts its budget.
             (
                 "full success, reduced out of gas",
@@ -2580,7 +2546,7 @@ mod tests {
             ),
             (
                 "full invalid, reduced success",
-                bytes!("62f424005a11600a57005bfe"),
+                bytes!("62f424005a11600e5760015f55005bfe"),
                 false,
             ),
             // Both halt and consume their budgets, but with different stop reasons.
@@ -2599,22 +2565,197 @@ mod tests {
             let mut draft = f.open(&heavy_prefix());
             let gas_before = draft.gas_used();
             let state_before = draft.state.snapshot();
+            let group_before = draft.group_state;
             assert!(BUILDER_GAS_LIMIT - gas_before < 16_000_000);
             let (at, error) = draft
                 .prepare_transactions(&[native_plan()], &native_sources(1))
                 .unwrap_err();
             assert_eq!(at, 0, "{name}");
-            assert!(error.is_capacity(), "{name}: {error:?}");
-            assert_eq!(draft.gas_used(), gas_before, "{name}");
-            assert_eq!(
-                draft.state.snapshot(),
-                state_before,
-                "{name}: speculative state leaked"
+            assert!(
+                matches!(error, BuildError::BlockCapacity { .. } if full_success)
+                    || matches!(error, BuildError::ExecuteTx { .. } if !full_success),
+                "{name}: {error:?}",
             );
+            assert_eq!(draft.state.snapshot(), state_before, "{name}");
             let error = draft.execute_tx(&native(gas_before)).unwrap_err();
-            assert!(error.is_capacity(), "{name}: {error:?}");
+            assert!(
+                matches!(error, BuildError::BlockCapacity { .. } if full_success)
+                    || matches!(error, BuildError::ExecuteTx { .. } if !full_success),
+                "{name}: {error:?}",
+            );
+            if name == "revert" {
+                let BuildError::ExecuteTx { msg, .. } = error else {
+                    unreachable!()
+                };
+                assert!(msg.ends_with("… (256 bytes)"), "{msg}");
+                assert!(msg.len() < 150, "revert output was not truncated: {msg}");
+            }
             assert_eq!(draft.gas_used(), gas_before, "{name}");
+            assert_eq!(draft.group_state, group_before, "{name}");
+            assert_eq!(
+                draft.state.snapshot().statuses,
+                state_before.statuses,
+                "{name}"
+            );
+            assert_eq!(
+                draft
+                    .state
+                    .db
+                    .get_storage(&eez_primitives::EEZL2_ADDRESS, &U256::ZERO)
+                    .unwrap(),
+                U256::ZERO,
+                "{name}: speculative storage leaked",
+            );
+            // Rejection leaves room and state for independent work on this prefix.
+            assert!(
+                draft
+                    .execute_tx(&sign_tx(1, BOB, U256::from(1), 21_000))
+                    .unwrap()
+                    .success
+            );
         }
+    }
+
+    #[test]
+    fn inbound_preparation_rejects_full_cap_failure_then_accepts_independent_delivery() {
+        use crate::local::{InboundL2TargetSession, LocalChainClient};
+        use eez_protocol::{
+            CallMode, ChainDialect, CompositionBuilder, ExecutionOutcome, ExecutionRequest,
+            RollupId, TargetExecutionSession,
+            entries::{InboundSidecar, IncomingEntry},
+            system_tx::{SystemTxContext, build_inbound_system_txs},
+        };
+        use evm2::evm::Database as _;
+
+        // Real EEZL2 from this branch's genesis. At full cap the bad target hits
+        // INVALID; with less than 14.5M it writes storage and succeeds instead.
+        let f = native_fixture(Bytes::new());
+        for (address, account) in &f.evm_config.chain_spec().genesis().alloc {
+            f.provider.add_account(
+                *address,
+                ExtendedAccount::new(account.nonce.unwrap_or_default(), account.balance)
+                    .with_bytecode(account.code.clone().unwrap_or_default())
+                    .extend_storage(
+                        account
+                            .storage
+                            .iter()
+                            .flatten()
+                            .map(|(key, value)| (*key, U256::from_be_bytes(value.0))),
+                    ),
+            );
+        }
+        f.provider.add_account(
+            REVERTER,
+            ExtendedAccount::new(0, U256::ZERO)
+                .with_bytecode(bytes!("62dd40a05a11600e5760015f55005bfe")),
+        );
+        // Increment and return it. A leaked probe write would return two.
+        f.provider.add_account(
+            STORE,
+            ExtendedAccount::new(0, U256::ZERO)
+                .with_bytecode(bytes!("5f54600101805f555f5260205ff3")),
+        );
+        let mut txs = heavy_prefix();
+        let mut draft = f.open(&txs);
+        let gas_before = draft.gas_used();
+        let remaining = BUILDER_GAS_LIMIT - gas_before;
+        assert!(remaining < 14_500_000);
+        let cfg = SystemTxContext {
+            eezl2_address: eez_primitives::EEZL2_ADDRESS,
+            l2_chain_id: 1,
+            this_rollup_id: 1,
+        };
+        let delivery = |target, source, return_data| {
+            let entry = InboundSidecar::new(IncomingEntry {
+                target,
+                source,
+                value: U256::ZERO,
+                data: Bytes::new(),
+                source_rollup_id: RollupId::MAINNET,
+                l2_rollup_id: RollupId(1),
+                return_data,
+                success: true,
+            })
+            .unwrap();
+            PlannedTransaction::Native(build_inbound_system_txs(&[entry], &cfg).unwrap().remove(0))
+        };
+        let bad = delivery(REVERTER, BOB, Bytes::new());
+        // Bypass admission only to prove the real native delivery has the
+        // intended split; neither detached result is committed.
+        for (gas_limit, success) in [(SYSTEM_TX_GAS_CAP, false), (remaining, true)] {
+            let raw = bad
+                .at_position(BUILDER_GAS_LIMIT, gas_before, B256::ZERO)
+                .unwrap();
+            let mut tx = recover_tx(&raw, 0).unwrap().map(EezEvmTx::from);
+            let EezEvmTx::Native { call, .. } = tx.inner_mut() else {
+                unreachable!()
+            };
+            call.gas_limit = gas_limit;
+            let result = draft
+                .state
+                .transact(&f.evm_config, &draft.evm_env, &tx, None)
+                .unwrap();
+            assert_eq!(result.result.is_success(), success, "budget {gas_limit}");
+        }
+        let before = draft.state.snapshot();
+        let (_, error) = draft
+            .prepare_transactions(&[bad], &native_sources(1))
+            .unwrap_err();
+        assert!(matches!(error, BuildError::ExecuteTx { .. }), "{error:?}");
+        assert_eq!(draft.gas_used(), gas_before);
+        assert_eq!(draft.state.snapshot(), before);
+
+        // RollupX resolves claims directly on a disposable target fork, without
+        // running a placeholder native delivery through full-cap admission.
+        let client = LocalChainClient::new_entry(
+            f.provider.clone(),
+            f.evm_config.clone(),
+            RollupId(1),
+            cfg.eezl2_address,
+            ChainDialect::EvmL2Style,
+        );
+        let mut session = InboundL2TargetSession::new(draft.fork().unwrap(), client);
+        let ExecutionOutcome::Resolved {
+            return_data,
+            success,
+            ..
+        } = session
+            .execute(
+                ExecutionRequest {
+                    call_mode: CallMode::Mutable,
+                    target_address: STORE,
+                    data: Bytes::new(),
+                    value: U256::ZERO,
+                    source_address: FEE_RECIPIENT,
+                    source_rollup_id: RollupId::MAINNET,
+                },
+                &mut CompositionBuilder::new(RollupId::MAINNET, Default::default()),
+            )
+            .unwrap()
+        else {
+            panic!("local target must resolve")
+        };
+        assert!(success);
+        assert_eq!(U256::from_be_slice(&return_data), U256::from(1));
+        drop(session);
+        assert_eq!(draft.gas_used(), gas_before);
+        assert_eq!(draft.state.snapshot(), before, "target probe leaked state");
+        let good = delivery(STORE, FEE_RECIPIENT, return_data.into());
+        let prepared = draft
+            .prepare_transactions(&[good], &native_sources(1))
+            .unwrap();
+        assert_eq!(draft.state.snapshot(), before, "preparation leaked state");
+        assert!(draft.execute_tx(&prepared[0]).unwrap().success);
+        assert_eq!(
+            draft.state.db.get_storage(&REVERTER, &U256::ZERO).unwrap(),
+            U256::ZERO
+        );
+        assert_eq!(
+            draft.state.db.get_storage(&STORE, &U256::ZERO).unwrap(),
+            U256::from(1)
+        );
+        txs.extend(prepared);
+        assert_eq!(draft.gas_used(), f.build(&txs).header.gas_used());
     }
 
     #[test]
