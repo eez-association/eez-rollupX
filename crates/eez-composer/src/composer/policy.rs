@@ -201,7 +201,8 @@ where
         };
         // Database reads and ordinary encoding stay off the async executor.
         // The sequencer owns the wait; timeout leaves at most this one worker.
-        tokio::task::spawn_blocking(move || {
+        let parent_hash = parent.hash();
+        let (prepare, reasons) = tokio::task::spawn_blocking(move || {
             let _permit = permit;
             let rollup = composer
                 .inner
@@ -290,10 +291,23 @@ where
                     .unwrap_or(u64::MAX),
                 target_timestamp, prepare, ?reasons, queue_hint,
                 "preparation hint; final admission and canonical settlement remain authoritative");
-            Ok(prepare)
+            Ok((prepare, reasons))
         })
         .await
-        .map_err(|e| PolicyError::Unavailable(format!("preparation planner worker: {e}")))?
+        .map_err(|e| PolicyError::Unavailable(format!("preparation planner worker: {e}")))??;
+        if rollup.l1_head.generation_is(snapshot.generation)
+            && self.inner.committer.last_header().hash() == parent_hash
+            && let Ok(mut prewarm) = self.inner.fee_history_prewarm.try_lock()
+        {
+            prewarm.start(
+                &self.inner.posting,
+                &rollup.l1_head,
+                l1_parent,
+                reasons,
+                self.inner.emission.timing.l1_block_time(),
+            );
+        }
+        Ok(prepare)
     }
 
     /// Missing canonical registration/commitment evidence leaves readiness

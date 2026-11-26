@@ -20,6 +20,7 @@ reth-chainspec = { workspace = true, optional = true }
 reth_gnosis = { workspace = true, optional = true }
 
 # alloy
+alloy-transport-http = { version = "2", default-features = false, features = ["reqwest"] }
 alloy-transport = { version = "2", default-features = false }
 alloy-consensus.workspace     = true
 alloy-eips.workspace          = true

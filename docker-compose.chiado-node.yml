@@ -3,13 +3,14 @@
 # and EEZ_PROOF_SIGNER_IMAGE with a full commit tag or digest to pin a deployment.
 # This deployment definition never builds images.
 # Local development uses Dockerfile / Dockerfile.signer and explicit :local tags.
-# Services use host networking; container names, ports and datadirs are shared.
+# Services use host networking. Container names and ports keep the defaults below
+# unless overridden in .env (see docs/runbooks/chiado-deployment.md#ports-and-service-ownership).
 
 services:
   eez-proof-signer:
     image: "${EEZ_PROOF_SIGNER_IMAGE:-ghcr.io/eduadiez/rollupx-proof-signer:latest}"
     platform: linux/amd64
-    container_name: eez-proof-signer-chiado
+    container_name: eez-proof-signer-${EEZ_STACK_NAME:-chiado}
     network_mode: host
     restart: unless-stopped
     # Admitted proof requests can outlive this grace period and be killed.
@@ -36,7 +37,7 @@ services:
   eez-node:
     image: "${EEZ_NODE_IMAGE:-ghcr.io/eduadiez/rollupx-node:latest}"
     platform: linux/amd64
-    container_name: eez-node-chiado
+    container_name: eez-node-${EEZ_STACK_NAME:-chiado}
     network_mode: host
     restart: unless-stopped
     stop_grace_period: 30s
@@ -78,19 +79,20 @@ services:
       # eth_sendBundle requests; empty sends unsigned requests.
       EEZ_L1_BUNDLE_SIGNING_KEY: "${EEZ_L1_BUNDLE_SIGNING_KEY:-}"
       EEZ_PROVERS:
+      EEZ_PROVER_STREAM_MAX_IN_FLIGHT:
       EEZ_PROVER_URL: http://127.0.0.1:${EEZ_SIGNER_PORT:-50061}
       EEZ_WITNESS_DB_PATH: /l2/witnesses
       # Embedded chiado L1 (reth_gnosis) — single L1 for the whole node.
       EEZ_L1_CHAIN: chiado
       EEZ_L1_CHAIN_ID: "10200"
-      EEZ_L1_HTTP_PORT: "18645"
+      EEZ_L1_HTTP_PORT: "${L1_HTTP_PORT:-18645}"
       # Embedded-L1 engine-API port. Override (L1_AUTH_PORT) if the host
       # already runs a reth on 18551 (e.g. a standalone chiado-reth).
       EEZ_L1_AUTH_PORT: "${L1_AUTH_PORT:-18551}"
-      EEZ_L1_P2P_PORT: "30544"
+      EEZ_L1_P2P_PORT: "${L1_P2P_PORT:-30544}"
       EEZ_L1_DATADIR: /l1
       EEZ_L1_JWT_SECRET: /jwt/jwt.hex
-      EEZ_L1_RPC_URL: http://127.0.0.1:18645
+      EEZ_L1_RPC_URL: http://127.0.0.1:${L1_HTTP_PORT:-18645}
       # Chiado is post-Fulu: blob posting uses the EIP-7594 pooled wrapper and
       # derivation reads full blobs reconstructed by the colocated
       # semi-supernode Lighthouse.
@@ -107,12 +109,12 @@ services:
       EEZL2_ADDRESS: "0x4b2760f84b83d6b3829e30a7573b0172b6d6402c"
       EEZ_CROSS_CHAIN_SOURCE_CHAIN_IDS: "10200"
       # L2 RPC — outbound front upstream + composer L2 reads.
-      EEZ_L2_RPC_URL: http://127.0.0.1:18688
+      EEZ_L2_RPC_URL: http://127.0.0.1:${L2_HTTP_PORT:-18688}
       # Transparent cross-chain ingress fronts (both required in composer mode).
       # Send L1→L2 (Inbound) txs to :18999, L2→L1 (Outbound) txs to :18998; every
       # other eth_* is transparently forwarded to the matching source-chain RPC.
-      EEZ_L1_XCHAIN_PORT: "18999"
-      EEZ_L2_XCHAIN_PORT: "18998"
+      EEZ_L1_XCHAIN_PORT: "${EEZ_L1_XCHAIN_PORT:-18999}"
+      EEZ_L2_XCHAIN_PORT: "${EEZ_L2_XCHAIN_PORT:-18998}"
       # The Chiado env preset selects adaptive admission. The numeric fallback
       # keeps Compose rendering deterministic; runtime still requires the policy.
       EEZ_MAX_USER_TXS_PER_BUNDLE: "${EEZ_MAX_USER_TXS_PER_BUNDLE:-12}"
@@ -182,23 +184,23 @@ services:
       - --datadir=/l2
       - --http
       - --http.addr=0.0.0.0
-      - --http.port=18688
+      - --http.port=${L2_HTTP_PORT:-18688}
       - --http.api=eth,net,web3,debug,trace
       - --ws
       - --ws.addr=127.0.0.1
       - --ws.port=${EEZ_L2_WS_PORT:-18689}
       - --ws.api=eth,net,web3
       - --authrpc.addr=127.0.0.1
-      - --authrpc.port=18684
-      - --port=30640
-      - --discovery.port=30640
-      - --discovery.v5.port=30641
+      - --authrpc.port=${L2_AUTH_PORT:-18684}
+      - --port=${L2_P2P_PORT:-30640}
+      - --discovery.port=${L2_P2P_PORT:-30640}
+      - --discovery.v5.port=${L2_DISCV5_PORT:-30641}
       - --ipcdisable
       - --disable-discovery
       - --engine.persistence-threshold=256
       - --engine.memory-block-buffer-target=128
       # Existing Reth metrics, kept on localhost for the optional monitoring stack.
-      - --metrics=127.0.0.1:19091
+      - --metrics=127.0.0.1:${L2_METRICS_PORT:-19091}
       - --log.stdout.format=json
       - --log.file.format=json
       - --log.file.filter=off,eez_posting=info
@@ -213,7 +215,7 @@ services:
     # v8.3.3; schema 32. Back up existing data before upgrading:
     # docs/runbooks/chiado-deployment.md#lighthouse-upgrades-and-checkpoint-boundary-pruning
     image: sigp/lighthouse@sha256:53f9063d98c3d3a2d290207873f019ea2298cfc02f8cd58d87c33b04aab856d1
-    container_name: eez-chiado-lighthouse
+    container_name: eez-${EEZ_STACK_NAME:-chiado}-lighthouse
     network_mode: host
     restart: unless-stopped
     stop_grace_period: 30s
@@ -232,11 +234,11 @@ services:
       lighthouse beacon_node
       --testnet-dir=/config-dir
       --listen-address=0.0.0.0
-      --port=9205
-      --quic-port=9206
+      --port=${LH_P2P_PORT:-9205}
+      --quic-port=${LH_QUIC_PORT:-9206}
       --http
       --http-address=127.0.0.1
-      --http-port=6152
+      --http-port=${LH_HTTP_PORT:-6152}
       --execution-endpoints=http://127.0.0.1:${L1_AUTH_PORT:-18551}
       --jwt-secrets=/jwt/jwt.hex
       --datadir=/data

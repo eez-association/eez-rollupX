@@ -5,7 +5,7 @@ use alloy_consensus::transaction::TxHashRef;
 use alloy_eips::BlockNumberOrTag;
 use alloy_primitives::{Address, B256, Bytes, U256};
 use alloy_provider::Provider;
-use alloy_rpc_types_eth::Filter;
+use alloy_rpc_types_eth::{Filter, Log};
 use alloy_sol_types::{SolCall, SolEvent};
 use eez_protocol::abi::{
     BatchPosted, L2ExecutionPerformed, L2TxSkipped, ProofSystemBatchPerVerificationEntriesSol,
@@ -399,11 +399,28 @@ pub(crate) async fn scan_batch_logs_range(
     from_block: u64,
     to_block: u64,
 ) -> L1Result<Vec<ScannedBatch>> {
-    let filter = Filter::new()
-        .address(eez)
-        .event_signature(BatchPosted::SIGNATURE_HASH)
+    let scope = Filter::new()
         .from_block(from_block)
         .to_block(BlockNumberOrTag::Number(to_block));
+    let logs = read_batch_event_logs(provider, eez, scope).await?;
+    scan_observed_batch_logs(provider, rollup_id, logs).await
+}
+
+pub(crate) struct BatchEventLogs {
+    batches: Vec<Log>,
+    outcomes: Vec<Log>,
+}
+
+/// Both event queries must see the same block selector, including on a fork.
+pub(crate) async fn read_batch_event_logs(
+    provider: &impl Provider,
+    eez: Address,
+    scope: Filter,
+) -> L1Result<BatchEventLogs> {
+    let filter = scope
+        .clone()
+        .address(eez)
+        .event_signature(BatchPosted::SIGNATURE_HASH);
     let logs = provider.get_logs(&filter).await.map_err(|e| {
         L1Error::Provider(format!("get_logs(BatchPosted): {}", log_query_error(&e)))
     })?;
@@ -412,20 +429,30 @@ pub(crate) async fn scan_batch_logs_range(
     // this guarantees that performed and skipped entries are observed over the
     // same block range. `L2TxSkipped.topic1` is the transient entry index (not
     // the rollup id), so filter the performed events for our rollup locally.
-    let outcomes_filter = Filter::new()
-        .address(eez)
-        .event_signature(vec![
-            L2ExecutionPerformed::SIGNATURE_HASH,
-            L2TxSkipped::SIGNATURE_HASH,
-        ])
-        .from_block(from_block)
-        .to_block(BlockNumberOrTag::Number(to_block));
+    let outcomes_filter = scope.address(eez).event_signature(vec![
+        L2ExecutionPerformed::SIGNATURE_HASH,
+        L2TxSkipped::SIGNATURE_HASH,
+    ]);
     let outcome_logs = provider.get_logs(&outcomes_filter).await.map_err(|e| {
         L1Error::Provider(format!(
             "get_logs(settlement outcomes): {}",
             log_query_error(&e)
         ))
     })?;
+    Ok(BatchEventLogs {
+        batches: logs,
+        outcomes: outcome_logs,
+    })
+}
+
+pub(crate) async fn scan_observed_batch_logs(
+    provider: &impl Provider,
+    rollup_id: u64,
+    BatchEventLogs {
+        batches: logs,
+        outcomes: outcome_logs,
+    }: BatchEventLogs,
+) -> L1Result<Vec<ScannedBatch>> {
     let rollup_topic = B256::from(U256::from(rollup_id));
     let winner_logs = outcome_logs
         .iter()

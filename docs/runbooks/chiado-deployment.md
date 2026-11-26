@@ -38,14 +38,10 @@ before choosing images or starting services.
 Run commands in Bash from the intended deployment checkout's root. Use a checkout
 path without whitespace or colons, and outside `/repo`: generated bindings contain
 unquoted paths, volume syntax uses colons, and the deploy image owns `/repo`.
-Use the default paths and ports below. Custom layouts require adapting Compose,
-the startup script (which hardcodes the L1/L2 health-check ports), and the commands
-together.
-A worktree or `COMPOSE_PROJECT_NAME` does not isolate fixed container names,
-host-network ports, or bind-mounted databases.
-
-Use a fresh shell without inherited `EEZ_*`, `LH_*`, `COMPOSE_*`, or data-path
-overrides, which can take precedence over `.env`. Its `COMPOSE_FILE` selects
+Examples below use the default ports. Use your deployment's ports and container names
+for manual checks. Use a clean shell without inherited `COMPOSE_*`, `EEZ_*`,
+`L1_*`, `L2_*`, `LH_*` or data-path overrides, which can take precedence over
+the checkout's `.env`. Its `COMPOSE_FILE` selects
 `docker-compose.chiado-node.yml`. Stop at a failed command.
 
 | Requirement | Check/constraint |
@@ -62,19 +58,57 @@ overrides, which can take precedence over `.env`. Its `COMPOSE_FILE` selects
 ### Ports and service ownership
 
 Run `ss -lntup` and `docker ps -a --format '{{.Names}}'` before first deployment.
-The fixed containers are `eez-node-chiado`, `eez-proof-signer-chiado`, and
+The default containers are `eez-node-chiado`, `eez-proof-signer-chiado`, and
 `eez-chiado-lighthouse`. Resolve existing owners before proceeding.
 
-| Default port | Service/access |
+| Default port | `.env` override | Service/access |
+| --- | --- | --- |
+| 18645 / 18646 | `L1_HTTP_PORT` (WebSocket is HTTP + 1) | Embedded Chiado L1 HTTP / WebSocket RPC |
+| 18688 / 18689 | `L2_HTTP_PORT` / `EEZ_L2_WS_PORT` | L2 HTTP / WebSocket RPC |
+| 18999 / 18998 | `EEZ_L1_XCHAIN_PORT` / `EEZ_L2_XCHAIN_PORT` | Composer L1 / L2 fronts; all `eez_*` methods and wallet discovery; ordinary Ethereum RPC calls proxy to the source chain |
+| 18551 / 18684 | `L1_AUTH_PORT` / `L2_AUTH_PORT` | L1 / L2 engine APIs; shared JWT protects the L1 engine connection |
+| 50061 / 6152 | `EEZ_SIGNER_PORT` / `LH_HTTP_PORT` | Proof signer gRPC / Beacon HTTP; loopback |
+| 30544 TCP/UDP, 30554 UDP | `L1_P2P_PORT` (discv5 is P2P + 10) | Embedded L1 P2P/discv4 and discv5 |
+| 9205 TCP/UDP, 9206 UDP | `LH_P2P_PORT` / `LH_QUIC_PORT` | Lighthouse P2P/discovery and QUIC |
+| 30640 / 30641 | `L2_P2P_PORT` / `L2_DISCV5_PORT` | L2 P2P/discovery settings reserved by the profile; discovery disabled |
+| 19091 | `L2_METRICS_PORT` | L2 Reth metrics; loopback |
+
+Each deployment runs its own Composer in `eez-node`, proof signer and Lighthouse
+on the same Chiado L1. For a second deployment, use its own checkout with its
+own `.env`, `deployments.env`, genesis, writable data paths, JWT and keys.
+Uncomment `COMPOSE_PROJECT_NAME=devnet` in the second checkout's `.env` and
+choose a unique name. The example derives all three container names from that
+one value. When configuring a second stack with an older `.env`, add both lines:
+
+```bash
+COMPOSE_PROJECT_NAME=devnet
+EEZ_STACK_NAME=${COMPOSE_PROJECT_NAME:-chiado}
+```
+
+This selects project `devnet` and containers `eez-node-devnet`,
+`eez-proof-signer-devnet` and `eez-devnet-lighthouse`. Use a distinct lowercase
+Compose project name for each named stack. Existing deployments can keep their current `.env`
+to preserve their container names and project.
+With the default `.env`, `docker compose -p devnet` selects project `devnet`
+but keeps the three Chiado container names. Set the project in `.env` as shown above to rename them.
+Keep the same project for startup, checks and teardown, including manual Compose
+commands. Stop the stack under its old name and configuration before changing
+project or container names. This also applies to checkouts using the three
+per-container overrides from #188.
+
+Set disjoint host ports from the table, including the derived L1 WS and discv5
+ports (nonzero L1 HTTP ≤65534 and P2P ≤65525). Set the required
+`EEZ_L1_BEACON_URL` to the second Lighthouse’s `LH_HTTP_PORT` when using the
+colocated Beacon API. An explicit `LH_ENR_UDP_PORT`
+advertises the externally mapped UDP port. Update any explicit prover roster
+or local target-RPC URLs. The startup and teardown scripts support named stacks.
+
+| Workload helper | How it selects the deployment |
 | --- | --- |
-| 18645 / 18646 | Embedded Chiado L1 HTTP / WebSocket RPC |
-| 18688 / 18689 | L2 HTTP / WebSocket RPC |
-| 18999 / 18998 | Composer L1 / L2 fronts; all `eez_*` methods and wallet discovery; ordinary Ethereum RPC calls proxy to the source chain |
-| 18551 / 18684 | L1 / L2 engine APIs; shared JWT protects the L1 engine connection |
-| 50061 / 6152 | Proof signer gRPC / Beacon HTTP; loopback |
-| 30544 TCP/UDP, 30554 UDP | Embedded L1 P2P/discv4 and discv5 (`EEZ_L1_P2P_PORT + 10`) |
-| 9205 TCP/UDP, 9206 UDP | Lighthouse P2P/discovery and QUIC |
-| 30640 / 30641 | L2 P2P/discovery settings reserved by the profile; discovery disabled |
+| [xchain-test.sh](../../scripts/xchain-test.sh) | Uses the default L1/L2 RPC and front ports even when `NODE_CONTAINER` is overridden. |
+| [run-chiado-mixed-validation.sh](../../scripts/run-chiado-mixed-validation.sh) and [run-chiado-fee-load.sh](../../scripts/run-chiado-fee-load.sh) | Use fixed default RPC/front ports and node/signer container names. Selecting another deployment directory alone still targets those endpoints. |
+| [devnet-test.sh](../../scripts/devnet-test.sh) | Defaults to the Chiado stack. For another stack, use its checkout and set `L1_RPC`, `L2_RPC`, `XCHAIN_L1` and `NODE_CONTAINER`. |
+| [run-chiado-staged-performance.sh](../../scripts/run-chiado-staged-performance.sh) | Reads RPCs, fronts and bindings from `DEVNET_ENV` (default `eez-core-protocol/chain.env`). Select the intended profile and matching `EEZ_STAGED_L2_CHAIN_ID`. |
 
 L2 HTTP, both fronts, and the L1 engine API bind all host interfaces. Restrict
 unintended access with the host firewall; host networking provides no Docker port

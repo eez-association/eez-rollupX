@@ -35,8 +35,8 @@ handling also requires the
 
 Run commands in Bash from the deployment checkout root; stop on failure. Meet the shared
 [host, tools, ports, and network prerequisites](chiado-deployment.md#shell-host-and-network-prerequisites).
-Use independent writable databases and an available set of the profile's fixed
-ports/container names. A second worktree on the same host does not provide these.
+Use independent writable databases and distinct Compose projects, container names
+and host ports. A second worktree on the same host does not provide these.
 
 Obtain these inputs from the existing network's operator:
 

@@ -7,6 +7,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
+use alloy_eips::BlockNumHash;
 use alloy_eips::eip4844::kzg_to_versioned_hash;
 use alloy_primitives::{B256, Bytes, U256, hex};
 use alloy_provider::Provider;
@@ -39,6 +40,39 @@ struct BeaconTiming {
 struct AvailableBlob {
     versioned_hash: B256,
     bytes: Bytes,
+}
+
+/// Verified beacon bodies retained between a notified block and its same-wake
+/// canonical rescan. The watcher drops this value before waiting for another wake.
+pub(crate) struct ScanBlobs {
+    block: BlockNumHash,
+    available: Option<Vec<AvailableBlob>>,
+}
+
+impl ScanBlobs {
+    pub(crate) fn new(block: BlockNumHash) -> Self {
+        Self {
+            block,
+            available: None,
+        }
+    }
+
+    fn take_covering(
+        &mut self,
+        batches: &[ScannedBatch],
+    ) -> Option<(BlockNumHash, Vec<AvailableBlob>)> {
+        let available = self.available.take()?;
+        // A successful earlier scan may have observed fewer posts or only some
+        // of the slot's blobs. A missing hash must still get a fresh beacon read.
+        let covers = batches
+            .iter()
+            .filter(|batch| {
+                batch.l1_block_number == self.block.number && batch.l1_block_hash == self.block.hash
+            })
+            .flat_map(|batch| &batch.transaction_blob_hashes)
+            .all(|hash| available.iter().any(|blob| blob.versioned_hash == *hash));
+        covers.then_some((self.block, available))
+    }
 }
 
 /// Consensus-layer source shared by repeated scans. Chain timing is immutable
@@ -98,7 +132,21 @@ impl BeaconBlobSource {
         rollup_id: u64,
         batches: &mut [ScannedBatch],
     ) -> L1Result<()> {
-        let mut sidecars_by_block: HashMap<B256, (usize, Vec<AvailableBlob>)> = HashMap::new();
+        self.hydrate_for_scan(provider, rollup_id, batches, None)
+            .await
+    }
+
+    pub(crate) async fn hydrate_for_scan(
+        &self,
+        provider: &impl Provider,
+        rollup_id: u64,
+        batches: &mut [ScannedBatch],
+        mut reuse: Option<&mut ScanBlobs>,
+    ) -> L1Result<()> {
+        let mut prior = reuse
+            .as_deref_mut()
+            .and_then(|blobs| blobs.take_covering(batches));
+        let mut sidecars_by_block = HashMap::new();
 
         for scanned in batches {
             let posted =
@@ -115,9 +163,8 @@ impl BeaconBlobSource {
                 ));
             }
 
-            if let std::collections::hash_map::Entry::Vacant(entry) =
-                sidecars_by_block.entry(scanned.l1_block_hash)
-            {
+            let id = BlockNumHash::new(scanned.l1_block_number, scanned.l1_block_hash);
+            if let std::collections::hash_map::Entry::Vacant(entry) = sidecars_by_block.entry(id) {
                 let block = provider
                     .get_block_by_hash(scanned.l1_block_hash)
                     .await
@@ -152,18 +199,22 @@ impl BeaconBlobSource {
                     &scanned.transaction_blob_hashes,
                     maximum,
                 )?;
-                let available = self
-                    .fetch_slot_blobs(
-                        block.header.inner.timestamp,
-                        scanned.l1_block_number,
-                        scanned.tx_hash,
-                    )
-                    .await?;
+                let available = match prior.take_if(|(block, _)| *block == id) {
+                    Some((_, blobs)) => blobs,
+                    None => {
+                        self.fetch_slot_blobs(
+                            block.header.inner.timestamp,
+                            id.number,
+                            scanned.tx_hash,
+                        )
+                        .await?
+                    }
+                };
                 entry.insert((maximum, available));
             }
 
             let (maximum, available) = sidecars_by_block
-                .get(&scanned.l1_block_hash)
+                .get(&id)
                 .expect("inserted immediately above");
             // Every transaction in the block has its own carrier and indices.
             validate_blob_profile_with_limit(
@@ -216,6 +267,12 @@ impl BeaconBlobSource {
             scanned.semantic_transactions = semantic_transactions.into();
         }
 
+        // Transfer bytes only after every transaction hydrated successfully.
+        if let Some(reuse) = reuse
+            && let Some((_, blobs)) = sidecars_by_block.remove(&reuse.block)
+        {
+            reuse.available = Some(blobs);
+        }
         Ok(())
     }
 
@@ -570,6 +627,52 @@ mod tests {
             .unwrap_err();
         assert!(error.is_transport(), "{error}");
         assert!(!error.is_terminal());
+    }
+
+    #[tokio::test]
+    async fn same_block_rescan_refetches_when_a_later_post_needs_an_unseen_blob() {
+        use super::test_support::{BlobFixture, beacon, timing};
+        let fixture = BlobFixture::new();
+        let mut responses = timing();
+        for _ in 0..2 {
+            responses.push(("eth/v1/beacon/blobs/5", 200, fixture.blobs.clone()));
+        }
+        let (url, server) = beacon(responses).await;
+        let source = BeaconBlobSource::new(Some(url));
+        let replies = Asserter::new();
+        let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
+        fixture.scan_replies(&replies);
+        let mut scanned = crate::scan::scan_batch_logs_range(
+            &provider,
+            alloy_primitives::Address::ZERO,
+            1,
+            42,
+            42,
+        )
+        .await
+        .unwrap();
+        let mut reuse = ScanBlobs::new(BlockNumHash::new(42, fixture.block.header.hash));
+        replies.push_success(&fixture.block);
+        source
+            .hydrate_for_scan(&provider, 1, &mut scanned, Some(&mut reuse))
+            .await
+            .unwrap();
+
+        let mut later = scanned[0].clone();
+        later.tx_index += 1;
+        later.tx_hash = B256::repeat_byte(7);
+        later.transaction_blob_hashes[0] = B256::repeat_byte(8);
+        scanned.push(later);
+        replies.push_success(&fixture.block);
+        let err = source
+            .hydrate_for_scan(&provider, 1, &mut scanned, Some(&mut reuse))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, L1Error::SourceIncomplete {block:42, tx_hash, ..} if tx_hash==B256::repeat_byte(7))
+        );
+        assert!(reuse.available.is_none());
+        server.await.unwrap();
     }
 
     #[tokio::test]

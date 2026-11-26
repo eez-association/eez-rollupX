@@ -1611,6 +1611,7 @@ struct Inner<L2: BlockReader> {
     /// `prepare_post_batch_raw` can never disagree about the cap mid-run.
     emission: EmissionLimits,
     policy: policy::EnabledPolicy,
+    fee_history_prewarm: std::sync::Mutex<posting::priority::FeeHistoryPrewarm>,
     posting: Arc<posting::PostingRuntime>,
     gas_trace: Option<gas_trace::Config>,
     max_user_txs_per_bundle: Option<usize>,
@@ -1716,6 +1717,7 @@ where
             costs: std::sync::Mutex::default(),
             gas_trace: gas_trace.clone(),
             priority_history: Default::default(),
+            provider_backed_quotes: Default::default(),
         });
         if posting.collection.l1_refund.is_some() {
             for rollup in rollups.keys() {
@@ -1747,6 +1749,7 @@ where
                 emission,
                 policy,
                 posting,
+                fee_history_prewarm: Default::default(),
                 gas_trace,
                 max_user_txs_per_bundle,
                 fee_recipient,
@@ -7996,6 +7999,7 @@ where
         let post_batch_target = self.inner.posting.post_batch_target;
 
         let poster = ctx.l1_poster_signer.address();
+        let initial_pricing_started = std::time::Instant::now();
         let poster_nonce = ctx
             .l1_provider
             .get_transaction_count(poster)
@@ -8007,6 +8011,7 @@ where
                     eez_l1::diagnostics::rpc_error(&error)
                 )
             })?;
+        let pending_nonce_us = initial_pricing_started.elapsed().as_micros() as u64;
         // A timeout does not cancel the original postBatch. Reuse its nonce
         // for the replacement so both cannot execute on the same L1 branch,
         // even if a relay has exposed the first transaction to the pending pool.
@@ -8042,6 +8047,9 @@ where
             )
             .await
             .map_err(|error| error.to_string())?;
+        tracing::debug!(name: "eez.composer.postbatch.initial_pricing", pending_nonce_us,
+            elapsed_us = initial_pricing_started.elapsed().as_micros() as u64,
+            "initial posting nonce and quote ready");
         if quote.quote.sample
             != (eez_l1::L1BlockRef {
                 number: l1_posting.parent_number,

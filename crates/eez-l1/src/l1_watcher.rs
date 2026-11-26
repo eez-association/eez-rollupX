@@ -23,21 +23,24 @@
 //! [`L1Event::Reorg`] is emitted, never swallowed (invariant 7).
 
 use std::collections::VecDeque;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use alloy_eips::BlockNumberOrTag;
+use alloy_eips::{BlockNumHash, BlockNumberOrTag};
 use alloy_primitives::{Address, B256, Bytes};
 use alloy_provider::{Provider, ProviderBuilder};
-use tokio::sync::{Notify, broadcast};
+use alloy_rpc_types_eth::Filter;
+use alloy_transport_http::reqwest as rpc_http;
+use tokio::sync::{broadcast, watch};
 use tokio::time::{Instant, Interval, MissedTickBehavior, interval_at};
 use tracing::{Level, event};
 use url::Url;
 
-use crate::blob_source::BeaconBlobSource;
+use crate::blob_source::{BeaconBlobSource, ScanBlobs};
 use crate::diagnostics::{endpoint_host, rpc_error};
 use crate::error::{L1Error, L1Result};
-use crate::scan::ScannedBatch;
+use crate::scan::{BatchEventLogs, ScannedBatch};
 
 /// [`L1Watcher`] polling cadence. 2s gives prompt detection without
 /// burning RPC quota — half of gnosis's 5s L1 block time, a sixth of
@@ -242,13 +245,34 @@ impl L1WatcherConfig {
 #[derive(Clone)]
 pub struct L1Watcher {
     inner: Arc<Inner>,
+    wakes: watch::Receiver<Option<BlockSnapshot>>,
 }
 
 struct Inner {
     config: L1WatcherConfig,
     blob_source: BeaconBlobSource,
     event_tx: broadcast::Sender<L1Event>,
-    rescan: Notify,
+    rescan: watch::Sender<Option<BlockSnapshot>>,
+    embedded: Option<EmbeddedListener>,
+}
+
+struct EmbeddedListener {
+    client: rpc_http::Client,
+    current_tip: Box<dyn Fn() -> Option<(u64, B256)> + Send + Sync>,
+}
+
+fn owns_endpoint(listener: Option<SocketAddr>, url: &Url) -> bool {
+    listener.is_some_and(|addr| {
+        addr.ip().is_loopback()
+            && addr.port() != 0
+            && Url::parse(&format!("http://{addr}/")).is_ok_and(|direct| direct == *url)
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScanTrigger {
+    Timer,
+    Notification(Option<BlockSnapshot>),
 }
 
 impl std::fmt::Debug for L1Watcher {
@@ -265,27 +289,60 @@ impl L1Watcher {
     /// all subscribers exist.
     #[must_use]
     pub fn new(config: L1WatcherConfig) -> Self {
-        Self::new_inner(config, None)
+        Self::new_inner(config, None, None)
     }
 
     /// Apply the same containing-fork rules to live events as boot catch-up.
     #[must_use]
     pub fn new_with_blob_rules(config: L1WatcherConfig, rules: crate::BlobRuleSource) -> Self {
-        Self::new_inner(config, Some(rules))
+        Self::new_inner(config, Some(rules), None)
     }
 
-    fn new_inner(config: L1WatcherConfig, rules: Option<crate::BlobRuleSource>) -> Self {
+    /// Qualify notification headers only for the literal loopback HTTP listener
+    /// of the same running node that supplies `current_tip` and the notifications.
+    /// Other endpoints retain the ordinary wake-and-poll behavior.
+    pub fn with_embedded_listener(
+        config: L1WatcherConfig,
+        rules: crate::BlobRuleSource,
+        listener: Option<SocketAddr>,
+        current_tip: impl Fn() -> Option<(u64, B256)> + Send + Sync + 'static,
+    ) -> L1Result<Self> {
+        let embedded = if owns_endpoint(listener, &config.rpc_url) {
+            // A proxy or redirect would invalidate the ownership check for later reads.
+            let client = rpc_http::Client::builder()
+                .no_proxy()
+                .redirect(rpc_http::redirect::Policy::none())
+                .build()
+                .map_err(|e| L1Error::Config(format!("build embedded watcher HTTP client: {e}")))?;
+            Some(EmbeddedListener {
+                client,
+                current_tip: Box::new(current_tip),
+            })
+        } else {
+            None
+        };
+        Ok(Self::new_inner(config, Some(rules), embedded))
+    }
+
+    fn new_inner(
+        config: L1WatcherConfig,
+        rules: Option<crate::BlobRuleSource>,
+        embedded: Option<EmbeddedListener>,
+    ) -> Self {
         let (event_tx, _) = broadcast::channel(EVENT_BUFFER);
         let mut blob_source = BeaconBlobSource::new(config.beacon_url.clone());
         if let Some(rules) = rules {
             blob_source = blob_source.with_rules(rules);
         }
+        let (rescan, wakes) = watch::channel(None);
         Self {
+            wakes,
             inner: Arc::new(Inner {
                 config,
                 blob_source,
                 event_tx,
-                rescan: Notify::new(),
+                rescan,
+                embedded,
             }),
         }
     }
@@ -310,37 +367,58 @@ impl L1Watcher {
         self.inner.event_tx.subscribe()
     }
 
-    /// Wake the existing scanner on embedded canonical-chain changes. The
-    /// notification's contents are deliberately unused: the RPC scan remains
-    /// authoritative for hashes, reorgs, complete event ordering, and blob DA.
-    /// Lagged notifications coalesce into a scan of the latest canonical head;
-    /// a closed source leaves the periodic fallback running.
-    pub async fn wake_on_canonical_changes<T: Clone>(self, mut changes: broadcast::Receiver<T>) {
+    /// Wake the scanner without supplying a header. The HTTP read selects the head.
+    pub async fn wake_on_canonical_changes<T: Clone>(self, changes: broadcast::Receiver<T>) {
+        self.wake_on_canonical_headers(changes, |_| None).await;
+    }
+
+    /// Coalesce wakes into one pending scan. Only a commit from the qualified
+    /// listener can supply a candidate header. Reorgs and lag use HTTP.
+    pub async fn wake_on_canonical_headers<T: Clone>(
+        self,
+        mut changes: broadcast::Receiver<T>,
+        header: impl Fn(&T) -> Option<BlockSnapshot>,
+    ) {
         loop {
-            match changes.recv().await {
-                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {
-                    self.inner.rescan.notify_one();
+            let hint = match changes.recv().await {
+                Ok(change) => self.inner.embedded.as_ref().and_then(|_| header(&change)),
+                Err(broadcast::error::RecvError::Lagged(_)) => {
+                    // The full poll covers the buffered backlog, including reorgs.
+                    changes = changes.resubscribe();
+                    None
                 }
                 Err(broadcast::error::RecvError::Closed) => {
+                    self.inner
+                        .rescan
+                        .send_if_modified(|hint| hint.take().is_some());
                     event!(name: "eez.l1_watcher.notifications.closed", Level::WARN,
                         "canonical notifications closed; continuing periodic L1 scans");
                     return;
                 }
-            }
+            };
+            self.inner.rescan.send_replace(hint);
         }
     }
 
-    /// Return whether the periodic timer fired. Head notifications do not
-    /// consume finality-refresh ticks or replace retries after a failed scan.
-    async fn wait_for_scan(&self, ticker: &mut Interval) -> bool {
+    /// Only timer wakes count toward the periodic finalized-head refresh.
+    async fn wait_for_scan(&mut self, ticker: &mut Interval) -> ScanTrigger {
         tokio::select! {
-            _ = ticker.tick() => true,
-            () = self.inner.rescan.notified() => false,
+            _ = ticker.tick() => ScanTrigger::Timer,
+            // Inner owns the sender throughout polling.
+            Ok(()) = self.wakes.changed() => ScanTrigger::Notification(*self.wakes.borrow_and_update()),
         }
     }
 
-    async fn run(self, seed_number: u64, seed_hash: B256) {
-        let provider = ProviderBuilder::new().connect_http(self.inner.config.rpc_url.clone());
+    fn rpc_provider(&self) -> impl Provider + use<> {
+        let url = self.inner.config.rpc_url.clone();
+        match &self.inner.embedded {
+            Some(listener) => ProviderBuilder::new().connect_reqwest(listener.client.clone(), url),
+            None => ProviderBuilder::new().connect_http(url),
+        }
+    }
+
+    async fn run(mut self, seed_number: u64, seed_hash: B256) {
+        let provider = self.rpc_provider();
         let mut state = WatcherState::new(self.inner.config.reorg_max_depth);
         // Seed fully before polling: a one-entry ring can't walk back a
         // reorg, trading a retryable error now for ReorgTooDeep later.
@@ -403,11 +481,13 @@ impl L1Watcher {
         ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let mut tick_count: u64 = 0;
         let mut timer_ticks: u64 = 0;
+        let mut retry = false;
 
         event!(
             name: "eez.l1_watcher.started",
             Level::INFO,
             eez = %self.inner.config.eez,
+            embedded_header_hints = self.inner.embedded.is_some(),
             poll_interval_secs = POLL_INTERVAL.as_secs(),
             reorg_max_depth = self.inner.config.reorg_max_depth,
             seed_number,
@@ -416,16 +496,25 @@ impl L1Watcher {
         );
 
         loop {
-            let periodic = self.wait_for_scan(&mut ticker).await;
+            let trigger = self.wait_for_scan(&mut ticker).await;
+            let periodic = trigger == ScanTrigger::Timer;
             tick_count += 1;
             if periodic {
                 timer_ticks += 1;
             }
             let refresh_finalized = periodic && timer_ticks.is_multiple_of(FINALIZED_REFRESH_TICKS);
-            if let Err(err) = self
-                .poll_cycle(&provider, &mut state, tick_count, refresh_finalized)
-                .await
-            {
+            let result = self
+                .scan_on_trigger(
+                    &provider,
+                    &mut state,
+                    tick_count,
+                    refresh_finalized,
+                    trigger,
+                    retry,
+                )
+                .await;
+            retry = result.is_err();
+            if let Err(err) = result {
                 // Retrying a deterministic error is an infinite silent stall.
                 // PANIC, don't return: reth's critical-task wrapper reports
                 // only panics, so a return exits just as quietly.
@@ -450,6 +539,57 @@ impl L1Watcher {
         }
     }
 
+    async fn scan_on_trigger(
+        &self,
+        provider: &impl Provider,
+        state: &mut WatcherState,
+        tick: u64,
+        refresh_finalized: bool,
+        trigger: ScanTrigger,
+        retry: bool,
+    ) -> L1Result<()> {
+        if let ScanTrigger::Notification(Some(head)) = trigger
+            && !retry
+            && let Some(listener) = &self.inner.embedded
+            && state.tip().is_some_and(|(n, h)| {
+                n.checked_add(1) == Some(head.number) && h == head.parent_hash
+            })
+            && (listener.current_tip)() == Some((head.number, head.hash))
+        {
+            // Pin both log queries to the notified fork. Hydration may take long
+            // enough for the head to change; publish only after rechecking it.
+            match self
+                .read_block_logs(
+                    provider,
+                    head.number,
+                    Filter::new().at_block_hash(head.hash),
+                )
+                .await
+            {
+                Ok(logs) => {
+                    let mut blobs = ScanBlobs::new(BlockNumHash::new(head.number, head.hash));
+                    let scanned = self.hydrate_block(provider, logs, Some(&mut blobs)).await;
+                    if (listener.current_tip)() == Some((head.number, head.hash)) {
+                        // Retry incomplete transaction or blob data on the next wake.
+                        self.commit_extension(state, head, scanned?);
+                        return Ok(());
+                    }
+                    event!(name: "eez.l1_watcher.hint.superseded", Level::DEBUG,
+                        number = head.number, hash = %head.hash, "head changed during scan; polling the current head");
+                    return self
+                        .poll_cycle(provider, state, tick, refresh_finalized, Some(&mut blobs))
+                        .await;
+                }
+                Err(error) => {
+                    event!(name: "eez.l1_watcher.hash_query.failed", Level::DEBUG,
+                        block = head.number, error = %error, "hash-scoped log query failed; polling the current head");
+                }
+            }
+        }
+        self.poll_cycle(provider, state, tick, refresh_finalized, None)
+            .await
+    }
+
     /// One poll cycle. Idempotent on retry: far-behind catch-up advances
     /// the ring one scanned chunk at a time, so a transient failure
     /// costs at most one chunk and the next tick resumes from the ring
@@ -460,6 +600,7 @@ impl L1Watcher {
         state: &mut WatcherState,
         tick_count: u64,
         refresh_finalized: bool,
+        reuse: Option<&mut ScanBlobs>,
     ) -> L1Result<()> {
         let latest = fetch_block_by_tag(provider, BlockNumberOrTag::Latest).await?;
         let latest_number = latest.number;
@@ -482,20 +623,11 @@ impl L1Watcher {
         } else if tip_hash == latest_parent && latest_number == tip_number + 1 {
             // Normal extension by exactly one block — scan before the
             // ring advances so a failed scan retries this block.
-            let scanned = self
-                .fetch_batch_logs(provider, latest_number, latest_number)
+            let logs = self
+                .read_block_logs(provider, latest_number, Filter::new().select(latest_number))
                 .await?;
-            state.push_canonical(latest_number, latest_hash);
-            self.emit(L1Event::NewHead {
-                block_number: latest_number,
-                block_hash: latest_hash,
-                timestamp: latest.timestamp,
-            });
-            self.emit_scanned_batches(latest_number, latest_number, scanned);
-            self.emit(L1Event::ScanComplete {
-                block_number: latest_number,
-                block_hash: latest_hash,
-            });
+            let scanned = self.hydrate_block(provider, logs, reuse).await?;
+            self.commit_extension(state, latest, scanned);
         } else {
             // Either a reorg, a multi-block gap, or a far-behind tip.
             let (old_tip_number, old_tip_hash) = (tip_number, tip_hash);
@@ -592,7 +724,7 @@ impl L1Watcher {
                 // then be reseeded at the block actually reached, or we'd
                 // claim to have scanned blocks we never read.
                 let (scanned, reached) = self
-                    .scan_batch_logs_range_adaptive(provider, scan_from, chunk_to)
+                    .scan_batch_logs_range_adaptive(provider, scan_from, chunk_to, reuse)
                     .await?;
                 let boundary = if reached == chunk_to {
                     boundary
@@ -693,7 +825,7 @@ impl L1Watcher {
             // logs.
             let scan_from = common.number + 1;
             let (scanned, reached) = self
-                .scan_batch_logs_range_adaptive(provider, scan_from, latest_number)
+                .scan_batch_logs_range_adaptive(provider, scan_from, latest_number, reuse)
                 .await?;
             // Narrowed: commit only what was read; the next tick resumes there.
             let (to, to_hash) = if reached == latest_number {
@@ -717,6 +849,25 @@ impl L1Watcher {
         }
 
         Ok(())
+    }
+
+    fn commit_extension(
+        &self,
+        state: &mut WatcherState,
+        head: BlockSnapshot,
+        scanned: Vec<ScannedBatch>,
+    ) {
+        state.push_canonical(head.number, head.hash);
+        self.emit(L1Event::NewHead {
+            block_number: head.number,
+            block_hash: head.hash,
+            timestamp: head.timestamp,
+        });
+        self.emit_scanned_batches(head.number, head.number, scanned);
+        self.emit(L1Event::ScanComplete {
+            block_number: head.number,
+            block_hash: head.hash,
+        });
     }
 
     /// Walks blocks `from..=to` forward by hash chain (latest's
@@ -766,35 +917,34 @@ impl L1Watcher {
         Ok(())
     }
 
-    /// Fetches `BatchPosted` logs in `[from, to]` without emitting —
-    /// callers commit ring state only after this succeeds.
-    ///
-    /// Non-adaptive by design: the only caller passes a single block. Wider
-    /// ranges go through [`scan_batch_logs_range_adaptive`] instead.
-    async fn fetch_batch_logs(
+    async fn read_block_logs(
         &self,
         provider: &impl Provider,
-        from: u64,
-        to: u64,
-    ) -> L1Result<Vec<ScannedBatch>> {
+        number: u64,
+        scope: Filter,
+    ) -> L1Result<BatchEventLogs> {
         event!(
             name: "eez.l1_watcher.scan_batch_posted",
             Level::INFO,
-            from,
-            to,
+            from = number,
+            to = number,
             "scanning L1 range for BatchPosted logs",
         );
-        let mut scanned = crate::scan::scan_batch_logs_range(
-            provider,
-            self.inner.config.eez,
-            self.inner.config.rollup_id,
-            from,
-            to,
-        )
-        .await?;
+        crate::scan::read_batch_event_logs(provider, self.inner.config.eez, scope).await
+    }
+
+    async fn hydrate_block(
+        &self,
+        provider: &impl Provider,
+        logs: BatchEventLogs,
+        reuse: Option<&mut ScanBlobs>,
+    ) -> L1Result<Vec<ScannedBatch>> {
+        let mut scanned =
+            crate::scan::scan_observed_batch_logs(provider, self.inner.config.rollup_id, logs)
+                .await?;
         self.inner
             .blob_source
-            .hydrate_scanned_batches(provider, self.inner.config.rollup_id, &mut scanned)
+            .hydrate_for_scan(provider, self.inner.config.rollup_id, &mut scanned, reuse)
             .await?;
         Ok(scanned)
     }
@@ -804,6 +954,7 @@ impl L1Watcher {
         provider: &impl Provider,
         from: u64,
         to: u64,
+        reuse: Option<&mut ScanBlobs>,
     ) -> L1Result<(Vec<ScannedBatch>, u64)> {
         let (mut scanned, reached) = crate::scan::scan_batch_logs_range_adaptive(
             provider,
@@ -815,7 +966,7 @@ impl L1Watcher {
         .await?;
         self.inner
             .blob_source
-            .hydrate_scanned_batches(provider, self.inner.config.rollup_id, &mut scanned)
+            .hydrate_for_scan(provider, self.inner.config.rollup_id, &mut scanned, reuse)
             .await?;
         Ok((scanned, reached))
     }
@@ -1030,14 +1181,26 @@ async fn find_common_ancestor_by_height(
 
 /// Minimal block-header snapshot the watcher needs. Avoids the full
 /// `alloy_rpc_types_eth::Block` type at every call site.
-#[derive(Debug, Clone, Copy)]
-struct BlockSnapshot {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockSnapshot {
     number: u64,
     hash: B256,
     parent_hash: B256,
     /// Unix timestamp from `block.header.timestamp`. Used by downstream
     /// Schedulers to anchor proof-window triggers.
     timestamp: u64,
+}
+
+impl BlockSnapshot {
+    /// Copy only the fields needed by the watcher before releasing the notification.
+    pub fn from_header(hash: B256, header: &impl alloy_consensus::BlockHeader) -> Self {
+        Self {
+            number: header.number(),
+            hash,
+            parent_hash: header.parent_hash(),
+            timestamp: header.timestamp(),
+        }
+    }
 }
 
 async fn fetch_block_by_tag(
@@ -1049,12 +1212,10 @@ async fn fetch_block_by_tag(
         .await
         .map_err(|e| L1Error::Provider(format!("get_block({tag:?}): {}", rpc_error(&e))))?
         .ok_or_else(|| L1Error::Provider(format!("block({tag:?}) returned None")))?;
-    Ok(BlockSnapshot {
-        number: block.header.number,
-        hash: block.header.hash,
-        parent_hash: block.header.inner.parent_hash,
-        timestamp: block.header.inner.timestamp,
-    })
+    Ok(BlockSnapshot::from_header(
+        block.header.hash,
+        &block.header.inner,
+    ))
 }
 
 async fn fetch_block_by_hash(provider: &impl Provider, hash: B256) -> L1Result<BlockSnapshot> {
@@ -1063,12 +1224,10 @@ async fn fetch_block_by_hash(provider: &impl Provider, hash: B256) -> L1Result<B
         .await
         .map_err(|e| L1Error::Provider(format!("get_block_by_hash({hash}): {}", rpc_error(&e))))?
         .ok_or_else(|| L1Error::Provider(format!("block({hash}) returned None")))?;
-    Ok(BlockSnapshot {
-        number: block.header.number,
-        hash: block.header.hash,
-        parent_hash: block.header.inner.parent_hash,
-        timestamp: block.header.inner.timestamp,
-    })
+    Ok(BlockSnapshot::from_header(
+        block.header.hash,
+        &block.header.inner,
+    ))
 }
 
 #[cfg(test)]
@@ -1078,21 +1237,14 @@ mod tests {
     use alloy_transport::mock::Asserter;
 
     fn test_watcher() -> (L1Watcher, broadcast::Receiver<L1Event>) {
-        let (event_tx, rx) = broadcast::channel(256);
-        let watcher = L1Watcher {
-            inner: std::sync::Arc::new(Inner {
-                config: L1WatcherConfig {
-                    rpc_url: "http://127.0.0.1:0".parse().expect("static url"),
-                    beacon_url: None,
-                    eez: alloy_primitives::Address::ZERO,
-                    rollup_id: 1,
-                    reorg_max_depth: 3,
-                },
-                blob_source: BeaconBlobSource::new(None),
-                event_tx,
-                rescan: Notify::new(),
-            }),
-        };
+        let watcher = L1Watcher::new(L1WatcherConfig {
+            rpc_url: "http://127.0.0.1:0".parse().expect("static url"),
+            beacon_url: None,
+            eez: alloy_primitives::Address::ZERO,
+            rollup_id: 1,
+            reorg_max_depth: 3,
+        });
+        let rx = watcher.subscribe();
         (watcher, rx)
     }
 
@@ -1103,6 +1255,357 @@ mod tests {
         b.header.inner.parent_hash = parent;
         b.header.inner.timestamp = ts;
         b
+    }
+
+    #[test]
+    fn listener_guard_requires_the_bound_direct_loopback_url() {
+        let listener = "127.0.0.1:18645".parse().unwrap();
+        let direct = Url::parse("http://127.0.0.1:18645").unwrap();
+        assert!(owns_endpoint(Some(listener), &direct));
+        assert!(!owns_endpoint(None, &direct));
+        assert!(!owns_endpoint(
+            Some("0.0.0.0:18645".parse().unwrap()),
+            &direct
+        ));
+        for url in [
+            "http://localhost:18645",
+            "http://127.0.0.1:18646",
+            "http://[::1]:18645",
+            "https://127.0.0.1:18645",
+            "http://user@127.0.0.1:18645",
+            "http://127.0.0.1:18645/forward",
+            "http://127.0.0.1:18645/?upstream=other",
+            "http://127.0.0.1:18645/#fragment",
+        ] {
+            assert!(
+                !owns_endpoint(Some(listener), &url.parse().unwrap()),
+                "{url}"
+            );
+        }
+        let v6 = "[::1]:18645".parse().unwrap();
+        assert!(owns_endpoint(
+            Some(v6),
+            &"http://[::1]:18645".parse().unwrap()
+        ));
+    }
+
+    #[tokio::test]
+    async fn only_owned_listener_scans_the_notified_hash_and_timer_still_reads_latest() {
+        use serde_json::json;
+        let parent = B256::repeat_byte(1);
+        let hint = mock_block(42, B256::repeat_byte(2), parent, 1060);
+        let sibling = mock_block(42, B256::repeat_byte(3), parent, 1061);
+        for qualified in [true, false] {
+            let expected = if qualified { &hint } else { &sibling };
+            let mut replies = Vec::new();
+            if !qualified {
+                replies.push(json!({"result": sibling}));
+            }
+            replies.extend([
+                json!({"result":[]}),
+                json!({"result":[]}),
+                json!({"result":expected}),
+            ]);
+            let (url, server) = crate::submitter::tests::rpc_server(replies, false).await;
+            let listener =
+                qualified.then(|| SocketAddr::from(([127, 0, 0, 1], url.port().unwrap())));
+            let mut config = test_watcher().0.inner.config.clone();
+            config.rpc_url = url;
+            let tip = hint.header.hash;
+            let mut watcher = L1Watcher::with_embedded_listener(
+                config,
+                Arc::new(|_| None),
+                listener,
+                move || Some((42, tip)),
+            )
+            .unwrap();
+            let (tx, changes) = broadcast::channel(1);
+            let worker = tokio::spawn(watcher.clone().wake_on_canonical_headers(
+                changes,
+                |block: &alloy_rpc_types_eth::Block| {
+                    Some(BlockSnapshot::from_header(
+                        block.header.hash,
+                        &block.header.inner,
+                    ))
+                },
+            ));
+            let mut rx = watcher.subscribe();
+            let provider = watcher.rpc_provider();
+            let mut state = WatcherState::new(3);
+            state.push_canonical(41, parent);
+            let mut ticker = interval_at(Instant::now() + Duration::from_secs(30), POLL_INTERVAL);
+            tx.send(hint.clone()).unwrap();
+            let trigger = watcher.wait_for_scan(&mut ticker).await;
+            assert!(matches!(trigger, ScanTrigger::Notification(h) if h.is_some()==qualified));
+            watcher
+                .scan_on_trigger(&provider, &mut state, 1, false, trigger, false)
+                .await
+                .unwrap();
+            assert!(
+                matches!(rx.try_recv().unwrap(), L1Event::NewHead{block_hash,..} if block_hash==expected.header.hash)
+            );
+            assert!(
+                matches!(rx.try_recv().unwrap(), L1Event::ScanComplete{block_hash,..} if block_hash==expected.header.hash)
+            );
+            ticker.reset_immediately();
+            let trigger = watcher.wait_for_scan(&mut ticker).await;
+            assert_eq!(trigger, ScanTrigger::Timer);
+            watcher
+                .scan_on_trigger(&provider, &mut state, 2, false, trigger, false)
+                .await
+                .unwrap();
+            let calls = server.await.unwrap();
+            let (timer, wake) = calls.split_last().unwrap();
+            assert_eq!(timer["method"], "eth_getBlockByNumber");
+            assert_eq!(timer["params"][0], "latest");
+            let logs = if qualified {
+                wake
+            } else {
+                assert_eq!(wake[0]["method"], timer["method"]);
+                assert_eq!(wake[0]["params"], timer["params"]);
+                &wake[1..]
+            };
+            assert_eq!(logs.len(), 2);
+            for call in logs {
+                assert_eq!(call["method"], "eth_getLogs");
+                let filter = &call["params"][0];
+                if qualified {
+                    assert_eq!(filter["blockHash"], json!(tip));
+                    assert!(filter.get("fromBlock").is_none() && filter.get("toBlock").is_none());
+                } else {
+                    assert!(filter.get("blockHash").is_none());
+                    assert_eq!(filter["fromBlock"], "0x2a");
+                    assert_eq!(filter["toBlock"], "0x2a");
+                }
+            }
+            assert!(rx.try_recv().is_err());
+            drop(tx);
+            worker.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn owned_listener_refuses_redirects() {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = socket.local_addr().unwrap();
+        let mut config = test_watcher().0.inner.config.clone();
+        config.rpc_url = format!("http://{addr}/").parse().unwrap();
+        let url = config.rpc_url.clone();
+        let watcher =
+            L1Watcher::with_embedded_listener(config, Arc::new(|_| None), Some(addr), || None)
+                .unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = socket.accept().await.unwrap();
+            assert!(stream.read(&mut [0; 4096]).await.unwrap() > 0);
+            stream.write_all(b"HTTP/1.1 307 Temporary Redirect\r\nLocation: /forward\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+        });
+        let response = watcher
+            .inner
+            .embedded
+            .as_ref()
+            .unwrap()
+            .client
+            .get(url)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), rpc_http::StatusCode::TEMPORARY_REDIRECT);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn reorg_lag_and_closure_clear_owned_header_hints() {
+        let mut config = test_watcher().0.inner.config.clone();
+        let addr = SocketAddr::from(([127, 0, 0, 1], 18645));
+        config.rpc_url = format!("http://{addr}").parse().unwrap();
+        let watcher =
+            L1Watcher::with_embedded_listener(config, Arc::new(|_| None), Some(addr), || None)
+                .unwrap();
+        let block = mock_block(42, B256::repeat_byte(2), B256::repeat_byte(1), 1060);
+        let head = Some(BlockSnapshot::from_header(
+            block.header.hash,
+            &block.header.inner,
+        ));
+        for lagged in [false, true] {
+            let mut wakes = watcher.inner.rescan.subscribe();
+            let (tx, changes) = broadcast::channel(1);
+            watcher.inner.rescan.send_replace(head);
+            assert_eq!(*wakes.borrow_and_update(), head);
+            tx.send(if lagged { head } else { None }).unwrap();
+            if lagged {
+                tx.send(head).unwrap();
+            }
+            let worker = tokio::spawn(watcher.clone().wake_on_canonical_headers(changes, |h| *h));
+            wakes.changed().await.unwrap();
+            assert_eq!(*wakes.borrow_and_update(), None);
+            tx.send(head).unwrap();
+            wakes.changed().await.unwrap();
+            assert_eq!(*wakes.borrow_and_update(), head);
+            drop(tx);
+            worker.await.unwrap();
+            wakes.changed().await.unwrap();
+            assert_eq!(*wakes.borrow(), None);
+        }
+    }
+
+    #[tokio::test]
+    async fn hydration_rescan_reuses_parent_blobs_but_refetches_on_reinclusion() {
+        use crate::blob_source::test_support::{BlobFixture, beacon, timing};
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        for child in [true, false] {
+            let mut batch = BlobFixture::new();
+            let original = batch.block.clone();
+            let head = BlockSnapshot::from_header(original.header.hash, &original.header.inner);
+            let new_hash = B256::repeat_byte(0x77);
+            let latest = if child {
+                mock_block(43, new_hash, head.hash, head.timestamp + 12)
+            } else {
+                mock_block(42, new_hash, head.parent_hash, head.timestamp)
+            };
+            let latest_number = latest.header.number;
+            let mut responses = timing();
+            responses.push(("eth/v1/beacon/blobs/5", 200, batch.blobs.clone()));
+            if !child {
+                responses.push(("eth/v1/beacon/blobs/5", 200, batch.blobs.clone()));
+            }
+            let (url, server) = beacon(responses).await;
+            let mut config = test_watcher().0.inner.config.clone();
+            let addr = SocketAddr::from(([127, 0, 0, 1], 18645));
+            config.rpc_url = format!("http://{addr}").parse().unwrap();
+            config.beacon_url = Some(url);
+            let first_tip_read = AtomicBool::new(true);
+            let watcher = L1Watcher::with_embedded_listener(
+                config,
+                Arc::new(|_| Some(alloy_eips::eip7840::BlobParams::cancun())),
+                Some(addr),
+                move || {
+                    Some(if first_tip_read.swap(false, Ordering::Relaxed) {
+                        (head.number, head.hash)
+                    } else {
+                        (latest_number, new_hash)
+                    })
+                },
+            )
+            .unwrap();
+
+            let replies = Asserter::new();
+            let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
+            batch.scan_replies(&replies);
+            replies.push_success(&original);
+            replies.push_success(&latest);
+            if child {
+                replies.push_success(&original); // walk back to the seeded tip
+            } else {
+                batch.block.header.hash = new_hash;
+                batch.log.block_hash = Some(new_hash);
+                batch.tx.block_hash = Some(new_hash);
+            }
+            batch.scan_replies(&replies);
+            replies.push_success(&batch.block);
+            if child {
+                replies.push_success(&latest);
+                replies.push_success(&original);
+            }
+            let mut state = WatcherState::new(3);
+            state.push_canonical(41, head.parent_hash);
+            let mut events = watcher.subscribe();
+            watcher
+                .scan_on_trigger(
+                    &provider,
+                    &mut state,
+                    1,
+                    false,
+                    ScanTrigger::Notification(Some(head)),
+                    false,
+                )
+                .await
+                .unwrap();
+            if child {
+                assert!(
+                    matches!(events.try_recv().unwrap(), L1Event::NewHead {block_hash,..} if block_hash==head.hash)
+                );
+            }
+            assert!(
+                matches!(events.try_recv().unwrap(), L1Event::NewHead {block_hash,..} if block_hash==new_hash)
+            );
+            assert!(
+                matches!(events.try_recv().unwrap(), L1Event::BatchPosted {l1_block_hash,operations_payload,..} if l1_block_hash==batch.block.header.hash && operations_payload==batch.payload)
+            );
+            assert!(
+                matches!(events.try_recv().unwrap(), L1Event::ScanComplete {block_hash,..} if block_hash==new_hash)
+            );
+            assert_eq!(state.tip(), Some((latest_number, new_hash)));
+            assert!(events.try_recv().is_err());
+            assert!(replies.read_q().is_empty());
+            server.await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn incomplete_notified_batch_waits_for_retry_and_rereads_http_head() {
+        use crate::blob_source::test_support::{BlobFixture, beacon, timing};
+        use serde_json::json;
+
+        let fixture = BlobFixture::new();
+        let mut responses = timing();
+        responses.push(("eth/v1/beacon/blobs/5", 200, json!({"data":[]})));
+        let (beacon_url, beacon_server) = beacon(responses).await;
+        let header = &fixture.block.header;
+        let head = BlockSnapshot::from_header(header.hash, &header.inner);
+        let mut config = test_watcher().0.inner.config.clone();
+        let addr = SocketAddr::from(([127, 0, 0, 1], 18645));
+        config.rpc_url = format!("http://{addr}").parse().unwrap();
+        config.rollup_id = 1;
+        config.beacon_url = Some(beacon_url);
+        let watcher = L1Watcher::with_embedded_listener(
+            config,
+            Arc::new(|_| Some(alloy_eips::eip7840::BlobParams::cancun())),
+            Some(addr),
+            move || Some((head.number, head.hash)),
+        )
+        .unwrap();
+        let mut events = watcher.subscribe();
+        let replies = Asserter::new();
+        let provider = ProviderBuilder::new().connect_mocked_client(replies.clone());
+        let mut state = WatcherState::new(3);
+        state.push_canonical(41, head.parent_hash);
+        let hint = ScanTrigger::Notification(Some(head));
+        fixture.scan_replies(&replies);
+        replies.push_success(&fixture.block);
+        let error = watcher
+            .scan_on_trigger(&provider, &mut state, 1, false, hint, false)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, L1Error::SourceIncomplete { block: 42, .. }));
+        assert_eq!(state.tip(), Some((41, head.parent_hash)));
+        assert!(events.try_recv().is_err());
+        assert!(replies.read_q().is_empty());
+        beacon_server.await.unwrap();
+
+        // Supply the same eligible hint. Only HTTP sees the replacement sibling.
+        let sibling = mock_block(
+            42,
+            B256::repeat_byte(0x77),
+            head.parent_hash,
+            head.timestamp,
+        );
+        replies.push_success(&sibling);
+        replies.push_success(&Vec::<alloy_rpc_types_eth::Log>::new());
+        replies.push_success(&Vec::<alloy_rpc_types_eth::Log>::new());
+        watcher
+            .scan_on_trigger(&provider, &mut state, 2, false, hint, true)
+            .await
+            .unwrap();
+        assert!(
+            matches!(events.try_recv().unwrap(),L1Event::NewHead{block_hash,..} if block_hash==sibling.header.hash)
+        );
+        assert!(
+            matches!(events.try_recv().unwrap(),L1Event::ScanComplete{block_hash,..} if block_hash==sibling.header.hash)
+        );
+        assert!(events.try_recv().is_err());
+        assert!(replies.read_q().is_empty());
     }
 
     #[tokio::test]
@@ -1181,7 +1684,9 @@ mod tests {
                     replies.push_success(&fixture.block);
                     fixture.scan_replies(&replies);
                     replies.push_success(&fixture.block);
-                    let result = watcher.poll_cycle(&provider, &mut state, 1, false).await;
+                    let result = watcher
+                        .poll_cycle(&provider, &mut state, 1, false, None)
+                        .await;
                     if unavailable {
                         let error = result.unwrap_err();
                         assert!(
@@ -1229,14 +1734,18 @@ mod tests {
     #[tokio::test]
     async fn canonical_notification_wakes_scan_before_periodic_deadline() {
         use std::task::{Context, Poll, Waker};
-        let (watcher, mut events) = test_watcher();
+        let (mut watcher, mut events) = test_watcher();
         let mut ticker = interval_at(Instant::now() + Duration::from_secs(30), POLL_INTERVAL);
         let mut context = Context::from_waker(Waker::noop());
+        let wake = watcher.inner.rescan.clone();
         {
             let mut waiting = std::pin::pin!(watcher.wait_for_scan(&mut ticker));
             assert!(waiting.as_mut().poll(&mut context).is_pending());
-            watcher.inner.rescan.notify_one();
-            assert_eq!(waiting.as_mut().poll(&mut context), Poll::Ready(false));
+            wake.send_replace(None);
+            assert_eq!(
+                waiting.as_mut().poll(&mut context),
+                Poll::Ready(ScanTrigger::Notification(None))
+            );
         }
         assert!(
             events.try_recv().is_err(),
@@ -1244,21 +1753,24 @@ mod tests {
         );
         // A notification arriving during a scan remains available to the next
         // scan; repeated changes coalesce instead of creating concurrent scans.
-        watcher.inner.rescan.notify_one();
-        watcher.inner.rescan.notify_one();
-        assert!(!watcher.wait_for_scan(&mut ticker).await);
+        wake.send_replace(None);
+        wake.send_replace(None);
+        assert_eq!(
+            watcher.wait_for_scan(&mut ticker).await,
+            ScanTrigger::Notification(None)
+        );
         {
             let mut waiting = std::pin::pin!(watcher.wait_for_scan(&mut ticker));
             assert!(waiting.as_mut().poll(&mut context).is_pending());
         }
         ticker.reset_immediately();
-        assert!(watcher.wait_for_scan(&mut ticker).await);
+        assert_eq!(watcher.wait_for_scan(&mut ticker).await, ScanTrigger::Timer);
     }
 
     #[tokio::test]
     async fn lagged_and_closed_notifications_preserve_scan_and_timer_fallback() {
         use std::task::{Context, Waker};
-        let (watcher, mut events) = test_watcher();
+        let (mut watcher, mut events) = test_watcher();
         let (tx, changes) = broadcast::channel(1);
         for value in 0..4 {
             tx.send(value).unwrap();
@@ -1266,7 +1778,10 @@ mod tests {
         drop(tx);
         watcher.clone().wake_on_canonical_changes(changes).await;
         let mut ticker = interval_at(Instant::now() + Duration::from_secs(30), POLL_INTERVAL);
-        assert!(!watcher.wait_for_scan(&mut ticker).await);
+        assert_eq!(
+            watcher.wait_for_scan(&mut ticker).await,
+            ScanTrigger::Notification(None)
+        );
         {
             let mut waiting = std::pin::pin!(watcher.wait_for_scan(&mut ticker));
             assert!(
@@ -1279,7 +1794,7 @@ mod tests {
         }
         assert!(events.try_recv().is_err());
         ticker.reset_immediately();
-        assert!(watcher.wait_for_scan(&mut ticker).await);
+        assert_eq!(watcher.wait_for_scan(&mut ticker).await, ScanTrigger::Timer);
     }
 
     #[tokio::test]
@@ -1293,7 +1808,7 @@ mod tests {
         // Even the sixth scan must not refresh finality unless its timer is due.
         replies.push_success(&head);
         watcher
-            .poll_cycle(&provider, &mut state, 6, false)
+            .poll_cycle(&provider, &mut state, 6, false, None)
             .await
             .unwrap();
         assert!(events.try_recv().is_err());
@@ -1302,7 +1817,7 @@ mod tests {
         replies.push_success(&head);
         replies.push_success(&mock_block(5, B256::with_last_byte(5), B256::ZERO, 25));
         watcher
-            .poll_cycle(&provider, &mut state, 7, true)
+            .poll_cycle(&provider, &mut state, 7, true, None)
             .await
             .unwrap();
         assert!(matches!(
@@ -1347,7 +1862,7 @@ mod tests {
         asserter.push_success(&serde_json::json!([])); // winner logs
 
         watcher
-            .poll_cycle(&provider, &mut state, 1, false)
+            .poll_cycle(&provider, &mut state, 1, false, None)
             .await
             .expect("chunk step succeeds");
 
@@ -1397,7 +1912,7 @@ mod tests {
         asserter.push_success(&mock_block(199_998, ancestor2_hash, ancestor1_hash, 4_998));
 
         watcher
-            .poll_cycle(&provider, &mut state, 2, false)
+            .poll_cycle(&provider, &mut state, 2, false, None)
             .await
             .expect("final chunk succeeds");
 
@@ -1456,7 +1971,7 @@ mod tests {
         ));
 
         watcher
-            .poll_cycle(&provider, &mut state, 1, false)
+            .poll_cycle(&provider, &mut state, 1, false, None)
             .await
             .expect("catch-up chunk succeeds");
 
@@ -1490,7 +2005,7 @@ mod tests {
         asserter.push_success(&mock_block(50_000, replacement_hash, latest_parent, 5_001)); // fill_forward by-hash
 
         watcher
-            .poll_cycle(&provider, &mut state, 2, false)
+            .poll_cycle(&provider, &mut state, 2, false, None)
             .await
             .expect("shallow reorg recovers, not ReorgTooDeep");
 
@@ -1633,7 +2148,9 @@ mod tests {
                                 110,
                             ));
                         }
-                        let result = watcher.poll_cycle(&provider, &mut state, tick, false).await;
+                        let result = watcher
+                            .poll_cycle(&provider, &mut state, tick, false, None)
+                            .await;
                         if tick < 3 {
                             let error = result
                                 .expect_err("incomplete outcome must reach scanner rejection");
@@ -1723,7 +2240,7 @@ mod tests {
         asserter.push_failure_msg("injected: range scan failed"); // first get_logs
 
         watcher
-            .poll_cycle(&provider, &mut state, 1, false)
+            .poll_cycle(&provider, &mut state, 1, false, None)
             .await
             .expect_err("injected failure must propagate");
 
@@ -1766,7 +2283,7 @@ mod tests {
         asserter.push_success(&mock_block(9, ancestor_hash, B256::with_last_byte(8), 9));
 
         watcher
-            .poll_cycle(&provider, &mut state, 1, false)
+            .poll_cycle(&provider, &mut state, 1, false, None)
             .await
             .expect("reorg tick succeeds");
 
@@ -1813,7 +2330,7 @@ mod tests {
         asserter.push_failure_msg("injected: log scan failed"); // first get_logs
 
         watcher
-            .poll_cycle(&provider, &mut state, 1, false)
+            .poll_cycle(&provider, &mut state, 1, false, None)
             .await
             .expect_err("injected failure must propagate");
 
@@ -1830,7 +2347,7 @@ mod tests {
         asserter.push_success(&serde_json::json!([])); // winner logs
 
         watcher
-            .poll_cycle(&provider, &mut state, 2, false)
+            .poll_cycle(&provider, &mut state, 2, false, None)
             .await
             .expect("retry succeeds");
 
@@ -1875,7 +2392,7 @@ mod tests {
         asserter.push_failure_msg("injected: log scan failed"); // first get_logs
 
         watcher
-            .poll_cycle(&provider, &mut state, 1, false)
+            .poll_cycle(&provider, &mut state, 1, false, None)
             .await
             .expect_err("injected failure must propagate");
 
@@ -1896,7 +2413,7 @@ mod tests {
         asserter.push_success(&mock_block(11, h11, tip_hash, 110)); // fill_forward: by-hash h11
 
         watcher
-            .poll_cycle(&provider, &mut state, 2, false)
+            .poll_cycle(&provider, &mut state, 2, false, None)
             .await
             .expect("retry succeeds");
 
@@ -1943,7 +2460,7 @@ mod tests {
         asserter.push_success(&mock_block(11, h11, tip_hash, 1_100)); // fill_forward: by-hash h11
 
         watcher
-            .poll_cycle(&provider, &mut state, 1, false)
+            .poll_cycle(&provider, &mut state, 1, false, None)
             .await
             .expect("narrowed scan must not propagate — reseeding at reached is the remedy");
 
@@ -1985,7 +2502,7 @@ mod tests {
         asserter.push_success(&mock_block(100, hash, B256::with_last_byte(0x63), 1_000));
 
         watcher
-            .poll_cycle(&provider, &mut state, 1, false)
+            .poll_cycle(&provider, &mut state, 1, false, None)
             .await
             .expect("no-op cycle succeeds");
 

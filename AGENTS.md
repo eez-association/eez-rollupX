@@ -23,7 +23,8 @@ For backport reviews or implementation, follow the
   authorization. Reading a runbook does not authorize those operations.
 - Worktrees do not isolate container names, ports, databases, or wallets. Identify
   existing resources before lifecycle operations and clean up only owned resources.
-  Chiado uses fixed container names and host ports; never share its writable datadirs.
+  For cohosted Chiado Composers, use the
+  [stack naming and port settings](docs/runbooks/chiado-deployment.md#ports-and-service-ownership) and independent writable datadirs.
 - For commands that use `KURTOSIS_ENCLAVE` to select a Kurtosis enclave, export
   the intended value in each shell that runs them; choose an unused name for a
   new enclave. Ordinary Chiado Docker Compose operations do not require this

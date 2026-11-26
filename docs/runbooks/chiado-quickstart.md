@@ -102,7 +102,7 @@ Optional stop, retaining chain data:
 bash scripts/teardown-chiado.sh
 ```
 
-RPC ports: L2 `18688`, embedded L1 `18645`, inbound front `18999`, outbound front
+Default RPC ports: L2 `18688`, embedded L1 `18645`, inbound front `18999`, outbound front
 `18998`. Preserve `.env`, `deployments.env`, `datadir/`, `data/`,
 receipts, and image references/digests. Use the detailed runbook for
 [failures](chiado-deployment.md#troubleshooting) and
