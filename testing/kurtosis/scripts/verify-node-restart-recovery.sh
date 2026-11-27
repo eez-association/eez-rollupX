@@ -134,6 +134,14 @@ fi
     exit 1
 }
 
+# The canonical EL is a separate service and must keep building during the outage.
+outage_l1=$(cast block-number --rpc-url "$L1_RPC")
+deadline=$((SECONDS + TIMEOUT))
+until current=$(cast block-number --rpc-url "$L1_RPC") && (( current > outage_l1 )); do
+    (( SECONDS < deadline )) || { echo "L1 stalled during the node outage" >&2; exit 1; }
+    sleep 2
+done
+
 echo "==> starting eez-node and waiting for recovery"
 kurtosis service start "$ENCLAVE" eez-node >/dev/null
 node_stopped=false

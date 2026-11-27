@@ -238,6 +238,9 @@ async fn imported_history_reorg_recovers_twenty_ordinary_transactions_without_se
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order() {
+    use alloy_rpc_types_eth::BlockNumberOrTag::Finalized;
+    use eez_testkit::block_number_and_hash_at;
+
     let env = [
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "always".into()),
         ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "1800".into()),
@@ -371,7 +374,6 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
     world.release_bundle(&held).unwrap();
     world.node.wait_for_reorg_seen(TIMEOUT).await.unwrap();
     follower.wait_for_reorg_seen(TIMEOUT).await.unwrap();
-    let mut covered = 0;
     let mut blocks = Vec::new();
     for (index, hash) in sources.iter().enumerate() {
         let repaired = wait_for(TIMEOUT, || async {
@@ -404,13 +406,13 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
             )
         });
         assert!(repaired.status());
-        covered = covered.max(repaired.block_number.unwrap());
-        blocks.push(repaired.block_number.unwrap());
+        blocks.push((repaired.block_number.unwrap(), repaired.block_hash.unwrap()));
     }
     assert!(
-        blocks.windows(2).all(|pair| pair[0] < pair[1]),
+        blocks.windows(2).all(|pair| pair[0].0 < pair[1].0),
         "limit-one sources must execute in nonce order"
     );
+    let &(covered, repaired_hash) = blocks.last().unwrap();
     wait_for_safe_prefix_convergence(&[&world.node, &follower], covered, TIMEOUT)
         .await
         .unwrap();
@@ -424,6 +426,41 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
             .unwrap(),
         U256::from(33)
     );
+    // Finalize the replacement branch only after the three sources settled.
+    // Both consumers must move the repaired prefix from safe to finalized.
+    let first_repaired_height = blocks[0].0;
+    let readers = [world.l2_rpc(), follower.l2_rpc_url()];
+    for rpc in &readers {
+        let (height, _) = block_number_and_hash_at(rpc, Finalized)
+            .await
+            .unwrap()
+            .expect("fixture must expose its initial finalized L2 head");
+        assert!(
+            height < first_repaired_height,
+            "{rpc} finalized {height} before L1 finalized the first repaired source at L2 height {first_repaired_height}"
+        );
+    }
+    world
+        .l1_reorg_control
+        .as_mut()
+        .unwrap()
+        .finalize_head()
+        .await
+        .unwrap();
+    eez_testkit::wait_for_tag_prefix_convergence(
+        &[&world.node, &follower],
+        Finalized,
+        covered,
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    for rpc in &readers {
+        assert_eq!(
+            block_number_and_hash_at(rpc, covered.into()).await.unwrap(),
+            Some((covered, repaired_hash)),
+        );
+    }
     for hash in sources {
         wait_for(TIMEOUT, || async {
             let status: serde_json::Value = composer

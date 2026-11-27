@@ -1865,12 +1865,14 @@ pub async fn wait_for_safe_prefix_convergence(
     wait_for_tag_prefix_convergence(nodes, BlockNumberOrTag::Safe, min_height, timeout).await
 }
 
-async fn wait_for_tag_prefix_convergence(
+/// Wait for canonical tagged heads that agree through the lowest tagged height.
+pub async fn wait_for_tag_prefix_convergence(
     nodes: &[&NodeHandle],
     tag: BlockNumberOrTag,
     min_height: u64,
     timeout: Duration,
 ) -> Result<BlockNumHash> {
+    ensure!(!nodes.is_empty(), "prefix convergence requires a node");
     let result = wait_for(timeout, || async {
         let mut tag_blocks = Vec::with_capacity(nodes.len());
         for node in nodes {
@@ -1890,10 +1892,18 @@ async fn wait_for_tag_prefix_convergence(
         }
 
         let mut blocks = Vec::with_capacity(nodes.len());
-        for node in nodes {
+        for (node, tagged) in nodes.iter().zip(tag_blocks) {
             let Some(block) = l2_block_by_number(&node.l2_rpc_url(), target).await? else {
                 return Ok(None);
             };
+            let canonical_tag = if tagged.number == target {
+                Some(block)
+            } else {
+                l2_block_by_number(&node.l2_rpc_url(), tagged.number).await?
+            };
+            if canonical_tag != Some(tagged) {
+                return Ok(None);
+            }
             blocks.push(block);
         }
         let first = blocks[0];

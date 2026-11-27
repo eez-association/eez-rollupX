@@ -3367,6 +3367,52 @@ mod producing_slice_tests {
     use alloy_primitives::B256;
     use eez_l1::Settlement;
 
+    proptest::proptest! {
+        #![proptest_config(proptest::test_runner::Config::with_cases(256))]
+
+        #[test]
+        fn recovery_model_whole_group_replay(
+            sizes in proptest::collection::vec(1usize..=4, 0..8),
+            inbound in 0usize..12, offset in 0usize..42, span in 0usize..42,
+        ) {
+            // In the claimed chain position zero is the anchor. Enumerate the
+            // legal boundaries after each complete signed group and inbound effect.
+            let mut boundaries = vec![Some((0, 0)), Some((0, 0))];
+            let mut hosts = Vec::new();
+            let mut roots = Vec::new();
+            for (group, size) in sizes.iter().enumerate() {
+                for host in 1..=*size {
+                    hosts.push(host);
+                    boundaries.push((host == *size).then_some((group + 1, 0)));
+                }
+                roots.push((1..=*size).sum());
+            }
+            for effect in 1..=inbound {
+                boundaries.push(Some((sizes.len(), effect)));
+            }
+            let start = offset % boundaries.len();
+            // Include exactly one end beyond the last available effect.
+            let len = span % (boundaries.len() - start + 1);
+            let boundary = |position: usize| boundaries.get(position).copied().flatten();
+            let selection = super::selected_replay_groups(settlement(start, len), &hosts, &roots, inbound);
+            let slice = ProducingSlice::split(settlement(start, len), hosts.len(), inbound);
+            proptest::prop_assert_eq!(slice.leaves_entries_unconsumed(hosts.len(), inbound),
+                (start + len).max(1) < boundaries.len() - 1);
+            match (boundary(start), boundary(start + len)) {
+                (Some((a, b)), Some((c, d))) => {
+                    let selected = selection.unwrap();
+                    proptest::prop_assert_eq!(selected.outbound_groups, a..c);
+                    proptest::prop_assert_eq!(selected.inbound_effects, b..d);
+                }
+                _ if start + len >= boundaries.len() => proptest::prop_assert_eq!(
+                    selection.unwrap_err(), "settlement exceeds available producing effects"),
+                _ => proptest::prop_assert_eq!(selection.unwrap_err(),
+                    "partial L1 settlement splits one multi-root outbound user transaction"),
+
+            }
+        }
+    }
+
     #[test]
     fn replay_selection_requires_whole_outbound_groups_and_bounded_effects() {
         use super::selected_replay_groups;

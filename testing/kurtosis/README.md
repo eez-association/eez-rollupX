@@ -1252,3 +1252,23 @@ Kurtosis assigns different host ports automatically. Remember that
   evidence check.
 - `scripts/verify-cross-chain-waves.sh`: complete workload suite.
 - `scripts/verify-state-chaining.sh`: ordered same-Sync-block state-chaining regression.
+
+### Queue and service recovery
+
+The CI runner uses the single-signer PBS network to stop the signer, relay API
+and bundle builder in turn after a healthy inbound control. Each outage admits a fresh signed inbound source.
+L1 must advance for longer than the control took to land (at least two blocks) while the source remains owned and its safe
+destination stays unchanged. Recovery must commit that source, identify its
+winning post and safe L2 delivery receipt, and reproduce the expected destination value at the registry's
+block hash. A clean node restart checks the settled prefix and bidirectional
+correlation before a fresh transaction advances the commitment. Through that final safe height,
+the target must emit exactly five ordered `ValueSet` events with the expected values and delivery hashes. The runner
+records the source hashes, attempt references and safe blocks under
+`checks/fault-recovery/` in its result directory.
+
+To repeat the scenario, use an owned disposable CI-profile enclave with matching
+candidate images, test funding and compiled integration contracts. Export its
+`KURTOSIS_ENCLAVE` and rendered `KURTOSIS_ARGS_FILE`, then run
+`bash testing/kurtosis/scripts/verify-fault-recovery.sh`. The native
+`queue_reorg` and `partial_consumption` tests cover controlled forkchoice,
+finality, abrupt Composer restart and independent RollupX follower replay.
