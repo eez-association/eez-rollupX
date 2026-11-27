@@ -98,9 +98,12 @@ jobs:
           enabled: ${{ vars.CI_COMPILER_CACHE != 'false' }}
       - name: Install system dependencies
         if: ${{ runner.environment == 'github-hosted' }}
+        # Bound a stuck mirror: fail fast and retry instead of spending the job budget.
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bc jq libclang-dev pkg-config libssl-dev cmake protobuf-compiler
+          APT_OPTS=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          sudo apt-get "${APT_OPTS[@]}" update
+          sudo apt-get "${APT_OPTS[@]}" install -y bc jq libclang-dev pkg-config libssl-dev cmake protobuf-compiler
       - name: Install LLVM 23 for upstream Reth
         run: |
           sudo bash scripts/ci/install-llvm.sh
@@ -192,9 +195,12 @@ jobs:
           enabled: ${{ vars.CI_COMPILER_CACHE != 'false' }}
       - name: Install system dependencies
         if: ${{ runner.environment == 'github-hosted' }}
+        # Bound a stuck mirror: fail fast and retry instead of spending the job budget.
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq libclang-dev pkg-config libssl-dev cmake protobuf-compiler
+          APT_OPTS=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          sudo apt-get "${APT_OPTS[@]}" update
+          sudo apt-get "${APT_OPTS[@]}" install -y jq libclang-dev pkg-config libssl-dev cmake protobuf-compiler
       - name: Install LLVM 23 for upstream Reth
         run: |
           sudo bash scripts/ci/install-llvm.sh
@@ -287,9 +293,12 @@ jobs:
           version: v1.7.1
       - name: Install system dependencies
         if: ${{ runner.environment == 'github-hosted' }}
+        # Bound a stuck mirror: fail fast and retry instead of spending the job budget.
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
+          APT_OPTS=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          sudo apt-get "${APT_OPTS[@]}" update
+          sudo apt-get "${APT_OPTS[@]}" install -y jq
       - name: Integration tests (e2e, serial within shard)
         env:
           NEXTEST_PARTITION: ${{ matrix.partition }}
