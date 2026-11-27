@@ -83,7 +83,7 @@ and `datadir/genesis.profile.json`.
 
 ## 4. Start and check
 
-For a remote prover, finish the [provider and Composer setup](attestation-quorum.md#share-a-pool-of-remote-provers) using the newly generated bindings. Use `--remote-provers` with the startup and teardown commands. Follow the local-signer instructions below when running the packaged signer.
+For a remote prover, finish the [provider and Composer setup](attestation-quorum.md#share-a-pool-of-remote-provers) using the newly generated bindings. Use `--remote-provers` with the startup and teardown commands. To share the packaged signer with other Composers, follow the [co-hosted setup](attestation-quorum.md#host-the-shared-signer-and-a-composer-on-one-chiado-host) and use `--share-prover`. The commands below start a loopback-only signer.
 
 ```bash
 bash scripts/chiado-up.sh

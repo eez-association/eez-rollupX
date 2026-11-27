@@ -1,0 +1,38 @@
+# Add to docker-compose.chiado-node.yml on the host that operates the shared signer.
+services:
+  eez-proof-signer:
+    environment:
+      EEZ_PROOF_SIGNER_ADDR: ${EEZ_PROOF_SIGNER_ADDR:?set the shared signer IP and port}
+      EEZ_PROOF_SIGNER_TLS_DIR: /run/eez/signer-tls
+      EEZ_PROOF_SIGNER_KEY: ${EEZ_PROOF_SIGNER_KEY:?set the registered signer key}
+    volumes:
+      - type: bind
+        source: ${EEZ_PROOF_SIGNER_TLS_DIR:?set the signer credential directory}
+        target: /run/eez/signer-tls
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - |
+          addr=$$EEZ_PROOF_SIGNER_ADDR
+          host=$${addr%:*}
+          case "$$host" in
+            0.0.0.0) host=127.0.0.1 ;;
+            '[::]') host=::1 ;;
+            '['*) host=$${host#\[}; host=$${host%\]} ;;
+          esac
+          exec nc -z "$$host" "$${addr##*:}"
+  eez-node:
+    environment:
+      # Singleton origin; an explicit EEZ_PROVERS roster takes precedence.
+      EEZ_PROVER_URL:
+      EEZ_PROVER_TLS_DIR: /run/eez/prover-tls
+    volumes:
+      - type: bind
+        source: ${EEZ_PROVER_TLS_DIR:?set the Composer credential directory}
+        target: /run/eez/prover-tls
+        read_only: true
+        bind:
+          create_host_path: false

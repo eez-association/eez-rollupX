@@ -82,6 +82,29 @@ Create one subdirectory per **exact URL authority**, including the port when spe
 
 A standalone Composer uses those settings directly.
 
+### Host the shared signer and a Composer on one Chiado host
+
+Keep the local signer’s attestation key in its usual setting. Provision the server directory from [the prover steps](#on-each-prover-host) and a separate client directory for the co-hosted Composer. Grant a distinct leaf to each Composer, including the co-hosted one. Keep server and client credential directories disjoint, including after symlink resolution. On the provider host set these values in the stack’s `.env`, replacing the example socket and DNS name:
+
+```dotenv
+COMPOSE_FILE=docker-compose.chiado-node.yml:docker-compose.chiado-shared-prover.yml
+EEZ_PROOF_SIGNER_ADDR=192.0.2.10:50061
+EEZ_PROOF_SIGNER_TLS_DIR=/srv/eez/signer-tls
+EEZ_PROVER_TLS_DIR=/srv/eez/composer-tls
+EEZ_PROVER_URL=https://prover.example:50061
+```
+
+Choose an IP and port available on this host. The provider hostname must resolve to a reachable listener from each Composer and match the server certificate. This example’s co-hosted Composer reads its client credentials from `/srv/eez/composer-tls/prover.example:50061/`. To use several provers, set the normal HTTPS `EEZ_PROVERS` roster instead of the singleton URL. Each selected provider needs its own credential subdirectory.
+
+Use the [shared-signer overlay](../../docker-compose.chiado-shared-prover.yml) for this stack. From the repo root:
+
+```bash
+docker compose -f docker-compose.chiado-node.yml -f docker-compose.chiado-shared-prover.yml config --services
+bash scripts/chiado-up.sh --share-prover
+```
+
+Expect `eez-proof-signer`, `eez-node` and `lighthouse`. The co-hosted and remote Composers use one mTLS listener. The signer health check confirms that its configured socket accepts TCP. Verify admission on each Composer using [Verify the pool](#verify-the-pool). Keep both Compose files selected for subsequent manual commands as well. For an existing stack, schedule the signer and Composer recreation within the [rotation and cutover limits](#rotation-withdrawal-and-rollback) and preserve the project, keys and datadirs. Use `bash scripts/teardown-chiado.sh --share-prover` to stop it. Hosts that only consume the pool use the remote-provers overlay below.
+
 ### Run a packaged Composer without a local signer
 
 Omit the local signer key and image from the new configuration. **When converting an existing stack**, first verify the old project and services with the original env and base file. During the scheduled cutover stop and remove just that project’s local signer before changing its env or file selection. For a Chiado stack running from this checkout:

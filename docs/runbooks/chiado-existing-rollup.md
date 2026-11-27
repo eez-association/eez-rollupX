@@ -142,7 +142,7 @@ bash scripts/chiado-up.sh --remote-provers
 docker compose -f docker-compose.chiado-node.yml -f docker-compose.remote-provers.yml logs -f --tail=100 eez-node lighthouse
 ```
 
-With a local signer, run `bash scripts/chiado-up.sh` and follow `docker compose logs -f --tail=100 eez-node eez-proof-signer lighthouse`.
+If sharing this host’s signer with other Composers, follow the [shared-signer setup](attestation-quorum.md#host-the-shared-signer-and-a-composer-on-one-chiado-host) and use `--share-prover` for startup and teardown. With a loopback-only local signer, run `bash scripts/chiado-up.sh` and follow `docker compose logs -f --tail=100 eez-node eez-proof-signer lighthouse`.
 
 Verify these stages:
 

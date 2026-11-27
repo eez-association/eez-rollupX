@@ -7,13 +7,15 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"; cd "$REPO"
 COMPOSE=(docker compose -f docker-compose.chiado-node.yml)
 
 teardown=(bash scripts/teardown-chiado.sh "$@")
-remote_provers=false
-if [[ ${1:-} == --remote-provers ]]; then
-    remote_provers=true
+prover_option="${1:-}"
+if [[ $prover_option == --remote-provers ]]; then
     COMPOSE+=(-f docker-compose.remote-provers.yml)
     shift
+elif [[ $prover_option == --share-prover ]]; then
+    COMPOSE+=(-f docker-compose.chiado-shared-prover.yml)
+    shift
 fi
-[[ $# == 0 ]] || { echo "usage: $0 [--remote-provers]" >&2; exit 2; }
+[[ $# == 0 ]] || { echo "usage: $0 [--remote-provers | --share-prover]" >&2; exit 2; }
 
 for t in docker cast curl jq; do command -v "$t" >/dev/null || { echo "✗ $t not in PATH"; exit 1; }; done
 [[ -f .env ]] || { echo "✗ .env missing — cp .env.chiado.example .env and fill it in first"; exit 1; }
@@ -26,7 +28,7 @@ load_deployment_env() {
     set -a; source .env; set +a
 }
 load_deployment_env
-if "$remote_provers"; then
+if [[ $prover_option == --remote-provers ]]; then
     rendered=$("${COMPOSE[@]}" config --services)
     if grep -Fxq eez-proof-signer <<< "$rendered"; then
         echo "Remote prover configuration still contains a local signer. Check the Compose version and overlay." >&2
@@ -38,6 +40,27 @@ if "$remote_provers"; then
         exit 1
     fi
 else
+    if [[ $prover_option == --share-prover ]]; then
+        if [[ -v EEZ_PROVERS ]]; then
+            : "${EEZ_PROVERS:?set the HTTPS roster or unset it for a singleton prover}"
+        elif [[ ${EEZ_PROVER_URL:-} != https://* ]]; then
+            echo "Set EEZ_PROVER_URL to the signer's HTTPS origin or supply an EEZ_PROVERS roster." >&2
+            exit 1
+        fi
+        for setting in EEZ_PROOF_SIGNER_TLS_DIR EEZ_PROVER_TLS_DIR; do
+            [[ ${!setting:-} == /* && -d ${!setting} ]] || {
+                echo "$setting must be an existing absolute directory." >&2; exit 1; }
+        done
+        server_dir=$(realpath -e -- "$EEZ_PROOF_SIGNER_TLS_DIR")
+        client_dir=$(realpath -e -- "$EEZ_PROVER_TLS_DIR")
+        if [[ ${server_dir%/}/ == "${client_dir%/}/"* || ${client_dir%/}/ == "${server_dir%/}/"* ]]; then
+            echo "Use disjoint signer and Composer TLS directories to isolate their private keys." >&2
+            exit 1
+        fi
+    elif [[ -n ${EEZ_PROOF_SIGNER_TLS_DIR:-} || -n ${EEZ_PROVER_TLS_DIR:-} ]]; then
+        echo "TLS credentials configured. Select --share-prover or --remote-provers." >&2
+        exit 1
+    fi
     : "${EEZ_PROOF_SIGNER_KEY:?set the local attestation key or select --remote-provers}"
     "${COMPOSE[@]}" config --quiet
 fi

@@ -117,6 +117,8 @@ isolation. Permit required P2P traffic and configure NAT where needed. Public
 HTTPS, explorers, and UI routing are separate; see the
 [gateway's Chiado notes](../../testing/public-gateway/README.md#chiado-deployment).
 
+With `--share-prover`, `EEZ_PROOF_SIGNER_ADDR` selects the full host socket, including the port. Reserve it separately for each shared signer on the host. `EEZ_SIGNER_PORT` selects the loopback-only stack’s port.
+
 ### Keys, funding, and files
 
 | Key | Purpose | Funding |
@@ -371,7 +373,7 @@ deployer nonce before deciding how to continue. Do not blindly rerun.
 
 Required: completed bindings and genesis/profile, L1 snapshot, JWT, configuration,
 and funded poster. For an existing rollup, first follow [restart](#restart-and-stop).
-Startup can recreate services and begin spending poster funds. For a remote prover, [configure the roster and TLS credentials](attestation-quorum.md#share-a-pool-of-remote-provers) and add `--remote-provers` to the startup command below.
+Startup can recreate services and begin spending poster funds. To host the signer for both this Composer and remote Composers, follow the [shared-signer setup](attestation-quorum.md#host-the-shared-signer-and-a-composer-on-one-chiado-host) and use `--share-prover` for startup and teardown. For a remote prover, [configure the roster and TLS credentials](attestation-quorum.md#share-a-pool-of-remote-provers) and add `--remote-provers` to the startup command below.
 
 ```bash
 bash scripts/chiado-up.sh

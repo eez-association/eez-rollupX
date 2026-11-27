@@ -15,8 +15,12 @@ if [[ ${1:-} == --remote-provers ]]; then
     services=(--orphans)
     config_files+=",$REPO/docker-compose.remote-provers.yml"
     shift
+elif [[ ${1:-} == --share-prover ]]; then
+    COMPOSE+=(-f docker-compose.chiado-shared-prover.yml)
+    config_files+=",$REPO/docker-compose.chiado-shared-prover.yml"
+    shift
 fi
-[[ $# == 0 ]] || { echo "usage: $0 [--remote-provers]" >&2; exit 2; }
+[[ $# == 0 ]] || { echo "usage: $0 [--remote-provers | --share-prover]" >&2; exit 2; }
 "${COMPOSE[@]}" down || {
     echo "ERROR: compose teardown failed"; exit 1; }
 
