@@ -49,6 +49,7 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
+tempfile = "3"
 reth-db.workspace = true
 reth-prune = { git = "https://github.com/paradigmxyz/reth", tag = "v2.11.0" }
 reth-engine-tree.workspace = true

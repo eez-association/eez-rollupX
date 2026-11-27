@@ -13,6 +13,8 @@ signs the independently recomputed public-input hash.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) records contributor constraints and verification
   commands.
 
+To offer this prover to other Composer operators, follow the [remote prover setup and credential rotation procedure](../../docs/runbooks/attestation-quorum.md#on-each-prover-host).
+
 The current production backend is in-process Stateless. The service is
 bounded and fails closed: any admission, validation, settlement,
 deadline, or signing failure returns no signature.

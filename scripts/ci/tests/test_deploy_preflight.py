@@ -31,6 +31,14 @@ class DeployPreflightTest(unittest.TestCase):
             "EEZ_L1_BLOCK_TIME_MS=5000\nEEZ_L2_BLOCK_TIME_MS=1000\n"
         )
         self.tool("bin/cast", '''
+if [[ "$1" == to-check-sum-address ]]; then
+    if [[ -n "${REAL_CAST:-}" ]]; then exec "$REAL_CAST" "$@"; fi
+    case "${2,,}" in
+        0xabcd000000000000000000000000000000000001) echo 0xaBcd000000000000000000000000000000000001 ;;
+        *) echo "$2" ;;
+    esac
+    exit
+fi
 if [[ "$1" == chain-id ]]; then echo "${CHAIN_ID:-10200}"; exit; fi
 if [[ "$1 $2" == "block finalized" ]]; then
     if [[ "$FAIL_STAGE" == reference ]]; then echo null; exit; fi
@@ -43,7 +51,7 @@ if [[ "$1 $2" == "block 0" ]]; then
 fi
 [[ "$1 $2" == "wallet address" ]] || exit 91
 case "${@: -1}" in
-    attester) echo 0x1111111111111111111111111111111111111111 ;;
+    attester) echo 0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA ;;
     poster) echo 0x3333333333333333333333333333333333333333 ;;
     *) exit 92 ;;
 esac
@@ -168,7 +176,7 @@ if [[ "$1" == abi-encode ]]; then
     [[ "$3" == "$(printf '0x%064x' 2)" && "$4" == "$(printf '0x%064x' 1)" ]]
     [[ "$5" == 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ]]
     [[ "$6" == 0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ]]
-    [[ "$7" == 0x1111111111111111111111111111111111111111 ]]
+    [[ "$7" == "$EXPECTED_ATTESTER" ]]
     echo 0xabcdef; exit
 fi
 if [[ "$1" == chain-id ]]'''))
@@ -182,6 +190,7 @@ case "$2" in
             echo "$key=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         done ;;
     script/DeployECDSAProofSystem.s.sol:DeployECDSAProofSystem)
+        [[ "$4" == 'run(address)' && "$5" == "$EXPECTED_ATTESTER" ]]
         echo ECDSA_PS=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ;;
     script/DeployRollup.s.sol:DeployRollup)
         [[ "$4" == 'run(address,address,bytes32,address,address)' ]]
@@ -193,15 +202,31 @@ case "$2" in
     *) exit 95 ;;
 esac
 ''')
-        result = self.run_deploy("")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        bindings = (self.root / "deployments.env").read_text()
-        self.assertIn(f"EEZ_VKEY=0x{3:064x}\n", bindings)
-        self.assertIn("EEZ_ATTESTER_ADDRESS=0x" + "11" * 20 + "\n", bindings)
-        shutil.rmtree(self.root / "datadir")
-        (self.root / "deployments.env").unlink()
-        (self.root / "broadcast.log").unlink()
-        result = self.run_deploy("key")
+        path = self.root / ".env"
+        original = path.read_text()
+        local = "0x" + "AA" * 20
+        remote = "0xaBcd000000000000000000000000000000000001"
+        address_config = original.replace("EEZ_PROOF_SIGNER_KEY=attester", f"EEZ_DEPLOY_ATTESTER_ADDRESS={remote.lower()}")
+        image_env = dict(line.split("=", 1) for line in address_config.splitlines())
+        for mode, config, injected, expected in (
+            ("key", original, {}, local),
+            ("address", address_config, {}, remote),
+            ("image environment", "", image_env, remote),
+            ("both", original + f"EEZ_DEPLOY_ATTESTER_ADDRESS={local.lower()}\n", {}, local),
+        ):
+            with self.subTest(mode=mode):
+                path.write_text(config)
+                result = self.run_deploy("", EXPECTED_ATTESTER=expected,
+                                         EEZ_ATTESTER_ADDRESS="0x" + "cc" * 20, **injected)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                bindings = (self.root / "deployments.env").read_text()
+                self.assertIn(f"EEZ_VKEY=0x{3:064x}\n", bindings)
+                self.assertIn(f"EEZ_ATTESTER_ADDRESS={expected}\n", bindings)
+            shutil.rmtree(self.root / "datadir", ignore_errors=True)
+            (self.root / "deployments.env").unlink(missing_ok=True)
+            (self.root / "broadcast.log").unlink(missing_ok=True)
+        path.write_text(original)
+        result = self.run_deploy("key", EXPECTED_ATTESTER=local)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("key encoding failed", result.stderr)
         self.assertNotIn("DeployRollup", (self.root / "broadcast.log").read_text())
@@ -213,10 +238,53 @@ esac
 if [[ "${2-}" == --network-profile && -f "$BROADCAST_LOG" ]]; then
     printf '0x%064x\\n' 4; exit
 fi'''))
-        result = self.run_deploy("")
+        result = self.run_deploy("", EXPECTED_ATTESTER=local)
         self.assertIn("network profile changed", result.stderr)
         self.assertNotIn("RegisterRollup", (self.root / "broadcast.log").read_text())
         self.assertFalse((self.root / "deployments.env").exists())
+
+    @unittest.skipUnless(shutil.which("cast"), "requires Foundry cast")
+    def test_real_cast_checks_and_normalizes_public_attester(self):
+        path = self.root / ".env"
+        path.write_text(path.read_text().replace("EEZ_PROOF_SIGNER_KEY=attester\n", ""))
+        canonical = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+        for address in (canonical, canonical.lower(), "0x" + canonical[2:].upper()):
+            with self.subTest(address=address):
+                result = self.run_deploy("reference", EEZ_DEPLOY_ATTESTER_ADDRESS=address,
+                                         REAL_CAST=shutil.which("cast"))
+                self.assertIn("authorized signer    = " + canonical, result.stdout)
+                self.assertIn("finalized reference is unavailable", result.stderr)
+        result = self.run_deploy("", EEZ_DEPLOY_ATTESTER_ADDRESS=canonical.replace("5aA", "5aa"),
+                                 REAL_CAST=shutil.which("cast"))
+        self.assertIn("invalid EIP-55 checksum", result.stderr)
+        self.assertFalse((self.root / "broadcast.log").exists())
+
+    def test_invalid_attester_is_rejected_before_genesis_or_broadcast(self):
+        path = self.root / ".env"
+        base = path.read_text().replace("EEZ_PROOF_SIGNER_KEY=attester\n", "")
+        for address, key, message in (
+            (None, "", "EEZ_DEPLOY_ATTESTER_ADDRESS or EEZ_PROOF_SIGNER_KEY"),
+            ("", "attester", "20-byte"),
+            (None, "invalid-private-fixture", "invalid EEZ_PROOF_SIGNER_KEY"),
+            ("0x" + "22" * 20, "0xCHANGE_ME", "invalid EEZ_PROOF_SIGNER_KEY"),
+            ("0xABcd000000000000000000000000000000000001", "", "EIP-55 checksum"),
+            ("0x1234", "", "20-byte"),
+            ("0x" + "11" * 32, "", "20-byte"),
+            ("0x" + "gg" * 20, "", "20-byte"),
+            ("0x" + "00" * 20, "", "nonzero"),
+            ("0x" + "FF" * 19 + "FE", "", "reserved"),
+            ("0x" + "22" * 20, "attester", "does not match"),
+        ):
+            with self.subTest(address=address, key=key):
+                path.write_text(base + f"EEZ_PROOF_SIGNER_KEY={key}\n"
+                                + (f"EEZ_DEPLOY_ATTESTER_ADDRESS={address}\n" if address is not None else ""))
+                result = self.run_deploy("", EEZ_ATTESTER_ADDRESS="0x" + "cc" * 20)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertNotIn("invalid-private-fixture", result.stdout + result.stderr)
+                self.assertFalse((self.root / "datadir").exists())
+                self.assertFalse((self.root / "broadcast.log").exists())
+                self.assertFalse((self.root / "deployments.env").exists())
 
     def test_timestamped_base_preserves_genesis_read_permissions_for_renderer(self):
         for mode in (0o644, 0o664, 0o640, 0o600):

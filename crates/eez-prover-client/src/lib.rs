@@ -47,7 +47,7 @@ struct Inner {
     exchange_timeout: std::time::Duration,
     stream_max_in_flight: NonZeroUsize,
     /// The `eez-proof-signer` endpoint, e.g. `http://127.0.0.1:50061`.
-    url: String,
+    endpoint: Result<tonic::transport::Endpoint, String>,
     /// The proof system's registered attester. The returned signature MUST
     /// recover to this over the returned `publicInputsHash`, or the proof is
     /// rejected (a wrong/malicious prover cannot forge an attestation).
@@ -108,13 +108,52 @@ impl RemoteProver {
         vkey: B256,
         stream_max_in_flight: NonZeroUsize,
     ) -> Self {
+        let endpoint = eez_control_rpc::transport::client_endpoint(&url.into(), None)
+            .map_err(|error| error.to_string());
+        Self::from_endpoint(
+            endpoint,
+            attester,
+            expected_identity,
+            vkey,
+            stream_max_in_flight,
+        )
+    }
+
+    /// Read the member's credentials and verify its transport configuration
+    /// before startup decides which members qualify for the quorum.
+    pub fn configured(
+        url: &str,
+        tls_root: Option<&std::path::Path>,
+        attester: Address,
+        expected_identity: B256,
+        vkey: B256,
+        stream_max_in_flight: NonZeroUsize,
+    ) -> ProverResult<Self> {
+        let endpoint = eez_control_rpc::transport::client_endpoint(url, tls_root)
+            .map_err(|error| ProverError::Backend(format!("prover transport: {error:#}")))?;
+        Ok(Self::from_endpoint(
+            Ok(endpoint),
+            attester,
+            expected_identity,
+            vkey,
+            stream_max_in_flight,
+        ))
+    }
+
+    fn from_endpoint(
+        endpoint: Result<tonic::transport::Endpoint, String>,
+        attester: Address,
+        expected_identity: B256,
+        vkey: B256,
+        stream_max_in_flight: NonZeroUsize,
+    ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 stream_max_in_flight,
                 pending_proofs: tokio::sync::watch::Sender::new(0),
                 streaming: tokio::sync::Mutex::new(streaming::StreamingState::default()),
                 exchange_timeout: std::time::Duration::from_mins(10),
-                url: url.into(),
+                endpoint,
                 attester,
                 expected_identity,
                 vkey,

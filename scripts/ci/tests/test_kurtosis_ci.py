@@ -165,7 +165,7 @@ class FeeProfileTest(unittest.TestCase):
         def run_sh(**kwargs):
             if kwargs["description"].startswith("deploy EEZ contracts"):
                 services["deployment"] = kwargs
-            return SimpleNamespace(files_artifacts=["fixture"])
+            return SimpleNamespace(files_artifacts=[spec["name"] for spec in kwargs["store"]])
 
         plan = SimpleNamespace(add_service=add_service, wait=lambda **_: None, run_sh=run_sh)
         with self.assertRaises(RuntimeReached):
@@ -178,14 +178,18 @@ class FeeProfileTest(unittest.TestCase):
         self.assertNotIn("EEZ_L2_HISTORY_UPDATE_OFFSET", services["deployment"]["env_vars"])
         self.assertNotIn("eez-prove-capture", services)
         self.assertEqual(services["eez-node"]["env_vars"]["EEZ_PROVER_URL"],
-                         "http://eez-proof-signer:50061")
+                         "https://eez-proof-signer:50061")
         args["eez"].update(history_update_offset=5, prove_capture_image="fixture:capture")
         services = self.runtime_services(args)
         self.assertEqual(services["deployment"]["env_vars"]["EEZ_L2_HISTORY_UPDATE_OFFSET"], "5")
         self.assertEqual(services["eez-node"]["env_vars"]["EEZ_PROVER_URL"],
-                         "http://eez-prove-capture:50061")
+                         "https://eez-prove-capture:50061")
         self.assertEqual(services["eez-prove-capture"]["cmd"],
-                         ["0.0.0.0:50061", "http://eez-proof-signer:50061", "/data/captures"])
+                         ["0.0.0.0:50061", "https://eez-proof-signer:50061", "/data/captures"])
+        self.assertEqual(services["eez-node"]["files"]["/tls/client"], "eez-composer-tls")
+        self.assertEqual(services["eez-proof-signer"]["files"]["/tls/server"], "eez-signer-tls")
+        self.assertEqual(services["eez-prove-capture"]["files"],
+                         {"/tls/server": "eez-capture-server-tls", "/tls/client": "eez-capture-client-tls"})
         self.assertNotIn("EEZ_L2_HISTORY_UPDATE_OFFSET", services["eez-proof-signer"]["env_vars"])
         for invalid in (-1, "5", "", None, True):
             with self.subTest(offset=invalid):

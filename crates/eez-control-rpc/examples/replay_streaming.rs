@@ -19,9 +19,10 @@ async fn main() -> Result<(), replay::Error> {
         "Required fixture/profile: {} / {}",
         vector["fixture"], vector["server_profile"]
     );
+    let root = std::env::var_os("EEZ_PROVER_TLS_DIR").map(std::path::PathBuf::from);
     tokio::time::timeout(
         std::time::Duration::from_mins(2),
-        replay::replay(&vector, &endpoint, identity),
+        replay::replay(&vector, &endpoint, identity, root.as_deref()),
     )
     .await??;
     println!("PASS {}", vector["case"]);

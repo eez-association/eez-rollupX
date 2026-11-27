@@ -25,8 +25,7 @@ cp .env.chiado.example .env
 chmod 600 .env
 ```
 
-Edit `.env`: set a synchronized Chiado `EEZ_L1_RPC_URL` and dedicated poster,
-proof-signer keys. Keep the poster separate from the proof signer. Native L2
+Set a synchronized Chiado `EEZ_L1_RPC_URL` and a dedicated poster key in `.env`. For a remote prover, remove `EEZ_PROOF_SIGNER_KEY` and set `EEZ_DEPLOY_ATTESTER_ADDRESS` to the provider’s confirmed public Ethereum address. For a local signer, set its separate `EEZ_PROOF_SIGNER_KEY`. Native L2
 transactions use a fixed address and need no key. Fund the poster with test xDAI; it also deploys
 unless you set and fund a separate `EEZ_DEPLOY_KEY`.
 
@@ -83,6 +82,8 @@ Require a successful exit and completed `deployments.env`, `datadir/genesis.json
 and `datadir/genesis.profile.json`.
 
 ## 4. Start and check
+
+For a remote prover, finish the [provider and Composer setup](attestation-quorum.md#share-a-pool-of-remote-provers) using the newly generated bindings. Use `--remote-provers` with the startup and teardown commands. Follow the local-signer instructions below when running the packaged signer.
 
 ```bash
 bash scripts/chiado-up.sh

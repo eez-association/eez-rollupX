@@ -80,9 +80,10 @@ test workloads, and lifecycle commands.
 
 ## Run a chiado L2 (Docker)
 
-Runs three containers: `eez-node` (whose entrypoint is the `eez-composer`
+By default the stack runs three containers: `eez-node` (whose entrypoint is the `eez-composer`
 binary, embedding a Chiado L1 node alongside the L2), `eez-proof-signer`, and a
 **lighthouse** consensus client that drives the L1.
+To delegate proving, use the [remote prover setup](docs/runbooks/attestation-quorum.md#share-a-pool-of-remote-provers). Each Composer can share the same provider pool and run without a local signer or attestation key.
 There's no separate L1 node to run. Cross-chain batches are submitted to
 Chiado's block builder; the L1 block to aim them at is read from the embedded
 L1 once it has caught up to the chain tip.

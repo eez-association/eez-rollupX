@@ -6,6 +6,15 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"; cd "$REPO"
 COMPOSE=(docker compose -f docker-compose.chiado-node.yml)
 
+teardown=(bash scripts/teardown-chiado.sh "$@")
+remote_provers=false
+if [[ ${1:-} == --remote-provers ]]; then
+    remote_provers=true
+    COMPOSE+=(-f docker-compose.remote-provers.yml)
+    shift
+fi
+[[ $# == 0 ]] || { echo "usage: $0 [--remote-provers]" >&2; exit 2; }
+
 for t in docker cast curl jq; do command -v "$t" >/dev/null || { echo "✗ $t not in PATH"; exit 1; }; done
 [[ -f .env ]] || { echo "✗ .env missing — cp .env.chiado.example .env and fill it in first"; exit 1; }
 
@@ -17,7 +26,21 @@ load_deployment_env() {
     set -a; source .env; set +a
 }
 load_deployment_env
-"${COMPOSE[@]}" config --quiet
+if "$remote_provers"; then
+    rendered=$("${COMPOSE[@]}" config --services)
+    if grep -Fxq eez-proof-signer <<< "$rendered"; then
+        echo "Remote prover configuration still contains a local signer. Check the Compose version and overlay." >&2
+        exit 1
+    fi
+    existing=$("${COMPOSE[@]}" ps --all --orphans --services)
+    if grep -Fxq eez-proof-signer <<< "$existing"; then
+        echo "Retire the previous local signer in this Compose project before switching to remote provers." >&2
+        exit 1
+    fi
+else
+    : "${EEZ_PROOF_SIGNER_KEY:?set the local attestation key or select --remote-provers}"
+    "${COMPOSE[@]}" config --quiet
+fi
 DEPLOY_RPC="$EEZ_L1_RPC_URL"
 for v in L1_SNAPSHOT_DIR JWT_FILE CHIADO_CONFIG_DIR FRESH_GENESIS; do
     [[ -e "${!v:-}" ]] || { echo "✗ $v=${!v:-<unset>} missing — finish the One-time setup steps first"; exit 1; }
@@ -74,7 +97,7 @@ echo "==> [2/5] preparing datadirs"
 mkdir -p "$L2_DATA_DIR" "$LIGHTHOUSE_DATA"
 
 # ── 3. Start the stack ──────────────────────────────────────────────────
-echo "==> [3/5] docker compose up (eez-node + eez-proof-signer + lighthouse)"
+echo "==> [3/5] starting configured Composer stack"
 "${COMPOSE[@]}" up -d
 "${COMPOSE[@]}" ps
 
@@ -200,5 +223,5 @@ fi
 echo
 echo " Next:"
 echo "   ${COMPOSE[*]} logs -f eez-node          # follow the node"
-echo "   bash scripts/teardown-chiado.sh                # stop the stack"
+echo "   ${teardown[*]}          # stop the stack"
 echo "════════════════════════════════════════════════════════════════"

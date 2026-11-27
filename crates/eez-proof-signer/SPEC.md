@@ -191,6 +191,7 @@ The CLI value takes precedence.
 | CLI flag | Environment variable | Default | Requirement |
 | --- | --- | --- | --- |
 | `--listen-addr` | `EEZ_PROOF_SIGNER_ADDR` | `127.0.0.1:50061` | Valid socket address. |
+| `--tls-dir` | `EEZ_PROOF_SIGNER_TLS_DIR` | unset | Absolute server credential and client grant directory. Required on non-loopback sockets. Setting this option also enables mTLS on loopback. See the [credential layout and restart procedure](../../docs/runbooks/attestation-quorum.md#share-a-pool-of-remote-provers). |
 | `--chain-config` | `EEZ_CHAIN_CONFIG` | none | Path to the complete, strict L2 `Genesis` document. |
 | `--l1-chain-config` | `EEZ_L1_CHAIN_CONFIG` | none | Required local L1 profile: supported named preset or complete Genesis path, binding the actual L1 genesis and effective fork/blob rules. |
 | `--registry-address` | `EEZ_REGISTRY_ADDRESS` | none | Required nonzero deployed EEZ registry. |

@@ -75,8 +75,7 @@ below.
 
 ## P1 — signer and service hardening
 
-- [ ] Put the proof-signer gRPC service behind mTLS or an equivalent
-  authenticated private transport; do not expose it directly to the Internet.
+- [ ] Qualify the deployed [prover mTLS configuration](docs/runbooks/attestation-quorum.md#share-a-pool-of-remote-provers), including removal of old listeners and withdrawal of an active caller. Keep the listener off the public Internet.
 - [ ] Move attester keys to an HSM or production secret manager and document
   generation, access control, backup, rotation, revocation, and emergency
   replacement.

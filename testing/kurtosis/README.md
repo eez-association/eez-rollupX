@@ -1036,8 +1036,12 @@ transaction zero of Sync. The default offset remains unchanged. Set
 `eez.prove_capture_image` to an image containing the `eez-testkit` example
 `capture_prover`; the package inserts that bounded test adapter between Composer
 and the unchanged signer. It retains only acknowledged v2 evidence and successful
-proof requests in the adapter's `/data/captures` directory. This unauthenticated
-adapter is for private test networks only.
+proof requests in the adapter's `/data/captures` directory. Use matching deploy,
+capture, signer and Composer images. The deploy image mints short-lived enclave
+identities. Each of the two mTLS connections has its own client grant. The
+adapter grants exactly one Composer because it presents one upstream identity.
+The enclave fixture generator makes role artifacts readable across container
+UIDs and is only for disposable tests.
 
 With the integration contracts built, run:
 

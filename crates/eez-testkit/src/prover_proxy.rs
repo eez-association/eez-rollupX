@@ -1,9 +1,11 @@
 //! Bounded v2 mutation/capture adapter for the real signer process tests.
 use super::*;
+use eez_control_rpc::transport::{CallerPolicy, client_endpoint, server_transport};
 use eez_control_rpc::v2::{Begin, ClientFrame, Finalize, ServerFrame, client_frame, server_frame};
 use prost::Message as _;
 use std::collections::{BTreeMap, VecDeque};
 use tokio_stream::wrappers::ReceiverStream;
+use tonic::transport::Endpoint;
 
 const CAPTURE_BYTES: usize = 256 * 1024 * 1024;
 const CAPTURE_BLOCKS: usize = 4096;
@@ -271,7 +273,8 @@ impl Capture {
 
 #[derive(Clone, Debug)]
 struct ProverProxyService {
-    upstream: Arc<Mutex<String>>,
+    callers: CallerPolicy,
+    upstream: Arc<Mutex<Endpoint>>,
     fixture_directory: Option<PathBuf>,
     captures: Arc<Mutex<CaptureBook>>,
     mutation: Arc<Mutex<ProverMutation>>,
@@ -292,7 +295,7 @@ impl ProverProxyService {
         Ok(())
     }
 
-    fn upstream(&self) -> Result<String, Status> {
+    fn upstream(&self) -> Result<Endpoint, Status> {
         self.upstream
             .lock()
             .map(|url| url.clone())
@@ -387,33 +390,41 @@ impl Prover for ProverProxyService {
         &self,
         request: Request<eez_control_rpc::v2::CapabilitiesRequest>,
     ) -> Result<Response<eez_control_rpc::v2::CapabilitiesResponse>, Status> {
-        ProverClient::connect(self.upstream()?)
-            .await
-            .map_err(|error| Status::unavailable(error.to_string()))?
-            .capabilities(request)
-            .await
+        self.callers.authenticate(&request)?;
+        ProverClient::new(
+            self.upstream()?
+                .connect()
+                .await
+                .map_err(|error| Status::unavailable(error.to_string()))?,
+        )
+        .capabilities(request)
+        .await
     }
     type ProveStreamStream = ReceiverStream<Result<ServerFrame, Status>>;
     async fn prove_stream(
         &self,
         request: Request<Streaming<ClientFrame>>,
     ) -> Result<Response<Self::ProveStreamStream>, Status> {
-        let (metadata, extensions, mut input) = request.into_parts();
+        self.callers.authenticate(&request)?;
+        let (metadata, _, mut input) = request.into_parts();
         let transport = self.counters.streams.fetch_add(1, Ordering::Relaxed) + 1;
         let (up_tx, up_rx) = tokio::sync::mpsc::channel(8);
-        let mut client = ProverClient::connect(self.upstream()?)
-            .await
-            .map_err(|error| Status::unavailable(error.to_string()))?
-            .max_encoding_message_size(MAX_MESSAGE_BYTES)
-            .max_decoding_message_size(if self.observations.is_some() {
-                eez_control_rpc::MAX_STREAMING_RESPONSE_BYTES
-            } else {
-                MAX_MESSAGE_BYTES
-            });
+        let mut client = ProverClient::new(
+            self.upstream()?
+                .connect()
+                .await
+                .map_err(|error| Status::unavailable(error.to_string()))?,
+        )
+        .max_encoding_message_size(MAX_MESSAGE_BYTES)
+        .max_decoding_message_size(if self.observations.is_some() {
+            eez_control_rpc::MAX_STREAMING_RESPONSE_BYTES
+        } else {
+            MAX_MESSAGE_BYTES
+        });
         let mut upstream = client
             .prove_stream(Request::from_parts(
                 metadata,
-                extensions,
+                Default::default(),
                 ReceiverStream::new(up_rx),
             ))
             .await?
@@ -534,7 +545,7 @@ pub struct ProverProxyHandle {
     counters: Arc<ProxyCounters>,
     mutation: Arc<Mutex<ProverMutation>>,
     task: JoinHandle<()>,
-    upstream: Arc<Mutex<String>>,
+    upstream: Arc<Mutex<Endpoint>>,
     observations: Option<Arc<Mutex<Observations>>>,
 }
 impl ProverProxyHandle {
@@ -544,11 +555,20 @@ impl ProverProxyHandle {
         fixture_directory: Option<PathBuf>,
     ) -> Result<Self> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-        Self::spawn_with_listener(listener, upstream, mutation, fixture_directory, false)
+        Self::spawn_with_listener(
+            listener,
+            upstream,
+            mutation,
+            fixture_directory,
+            false,
+            None,
+            None,
+        )
     }
 
     /// Capture acknowledged v2 requests from an owned development network.
-    /// Bind only on a private test interface: this adapter has no authentication.
+    /// A remote fixture must grant exactly one client because all captured RPCs
+    /// share a single upstream Composer identity.
     /// Every returned proof still comes from the unmodified upstream signer.
     pub async fn capture_on(
         address: std::net::SocketAddr,
@@ -563,6 +583,12 @@ impl ProverProxyHandle {
             ProverMutation::None,
             Some(directory),
             false,
+            std::env::var_os("EEZ_PROOF_SIGNER_TLS_DIR")
+                .as_deref()
+                .map(Path::new),
+            std::env::var_os("EEZ_PROVER_TLS_DIR")
+                .as_deref()
+                .map(Path::new),
         )
     }
 
@@ -570,12 +596,21 @@ impl ProverProxyHandle {
     /// loopback hop and instrumentation cost; it is not a production latency probe.
     pub async fn observe(upstream: String) -> Result<Self> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-        Self::spawn_with_listener(listener, upstream, ProverMutation::None, None, true)
+        Self::spawn_with_listener(
+            listener,
+            upstream,
+            ProverMutation::None,
+            None,
+            true,
+            None,
+            None,
+        )
     }
 
     /// Retarget subsequent transports after restarting only the owned test signer.
     /// Existing transports keep their original upstream connection.
     pub fn set_upstream(&self, upstream: String) -> Result<()> {
+        let upstream = client_endpoint(&upstream, None).map_err(|err| anyhow!("{err:#}"))?;
         *self
             .upstream
             .lock()
@@ -600,13 +635,31 @@ impl ProverProxyHandle {
         mutation: ProverMutation,
         fixture_directory: Option<PathBuf>,
         observe: bool,
+        listener_tls: Option<&Path>,
+        upstream_tls: Option<&Path>,
     ) -> Result<Self> {
         let addr = listener.local_addr()?;
+        let (mut server, callers) =
+            server_transport(addr, listener_tls).map_err(|err| anyhow!("{err:#}"))?;
+        if let CallerPolicy::Certificates(grants) = &callers {
+            ensure!(
+                grants.len() == 1,
+                "capture proxy requires exactly one authorized Composer"
+            );
+        }
+        let scheme = if listener_tls.is_some() {
+            "https"
+        } else {
+            "http"
+        };
+        let upstream =
+            client_endpoint(&upstream, upstream_tls).map_err(|err| anyhow!("{err:#}"))?;
         let counters = Arc::new(ProxyCounters::default());
         let mutation = Arc::new(Mutex::new(mutation));
         let upstream = Arc::new(Mutex::new(upstream));
         let observations = observe.then(|| Arc::new(Mutex::new(Observations::default())));
         let service = ProverProxyService {
+            callers,
             upstream: Arc::clone(&upstream),
             fixture_directory,
             captures: Arc::default(),
@@ -616,7 +669,7 @@ impl ProverProxyHandle {
             started: Instant::now(),
         };
         let task = tokio::spawn(async move {
-            let _ = tonic::transport::Server::builder()
+            let _ = server
                 .add_service(
                     ProverServer::new(service)
                         .max_decoding_message_size(MAX_MESSAGE_BYTES)
@@ -626,7 +679,7 @@ impl ProverProxyHandle {
                 .await;
         });
         Ok(Self {
-            endpoint: format!("http://{addr}"),
+            endpoint: format!("{scheme}://{addr}"),
             counters,
             mutation,
             task,

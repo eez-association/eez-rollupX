@@ -10,6 +10,7 @@ use tokio_stream::wrappers::TcpListenerStream;
 #[path = "../../../../eez-control-rpc/conformance/replay.rs"]
 mod replay;
 
+mod transport;
 mod vectors;
 
 fn fixture_state(name: &str) -> Arc<ServiceState> {
@@ -95,7 +96,7 @@ async fn vector(name: &str) {
     });
     let result = timeout(
         Duration::from_secs(90),
-        replay::replay(&vector, &endpoint, service.state.validation_identity),
+        replay::replay(&vector, &endpoint, service.state.validation_identity, None),
     )
     .await;
     stop.send(()).unwrap();
@@ -177,7 +178,7 @@ async fn finalize_deadline_preserves_prefix_and_allows_retry_in_the_same_epoch()
         }
         service
             .sessions
-            .handle_frame(&mut bound, frame)
+            .handle_frame(Caller::Loopback, &mut bound, frame)
             .await
             .unwrap();
     }
@@ -197,7 +198,7 @@ async fn finalize_deadline_preserves_prefix_and_allows_retry_in_the_same_epoch()
         .request_timeout = Duration::from_millis(50);
     let (_, error) = service
         .sessions
-        .handle_frame(&mut bound, frame.clone())
+        .handle_frame(Caller::Loopback, &mut bound, frame.clone())
         .await
         .unwrap_err();
     assert_eq!(error.code(), tonic::Code::DeadlineExceeded);
@@ -212,7 +213,7 @@ async fn finalize_deadline_preserves_prefix_and_allows_retry_in_the_same_epoch()
     // Retry without Resume/Rewind: a failed attempt cannot poison its attachment.
     let (response, closed) = service
         .sessions
-        .handle_frame(&mut bound, frame)
+        .handle_frame(Caller::Loopback, &mut bound, frame)
         .await
         .unwrap();
     assert!(closed);
@@ -548,8 +549,14 @@ async fn resume_rewind_and_cancel_fence_running_validation_without_releasing_its
     for operation in ["resume", "rewind", "cancel"] {
         let fixture = controlled(Duration::from_secs(5));
         let runtime = Arc::clone(&fixture.service.sessions);
-        let (bound, _) = runtime.begin(fixture.begin.clone(), 74).await.unwrap();
-        let (peer, _) = runtime.begin(fixture.begin.clone(), 74).await.unwrap();
+        let (bound, _) = runtime
+            .begin(Caller::Loopback, fixture.begin.clone(), 74)
+            .await
+            .unwrap();
+        let (peer, _) = runtime
+            .begin(Caller::Loopback, fixture.begin.clone(), 74)
+            .await
+            .unwrap();
         let task_runtime = Arc::clone(&runtime);
         let work = tokio::spawn(async move {
             task_runtime
@@ -559,7 +566,7 @@ async fn resume_rewind_and_cancel_fence_running_validation_without_releasing_its
         fixture.started.await.unwrap();
         match operation {
             "resume" => {
-                runtime.resume(bound.id).await.unwrap();
+                runtime.resume(Caller::Loopback, bound.id).await.unwrap();
             }
             "rewind" => {
                 runtime
@@ -570,6 +577,7 @@ async fn resume_rewind_and_cancel_fence_running_validation_without_releasing_its
             "cancel" => {
                 runtime
                     .handle_frame(
+                        Caller::Loopback,
                         &mut Some(bound),
                         ClientFrame {
                             session_id: bound.id.to_vec(),
@@ -640,7 +648,10 @@ async fn active_block_uses_its_request_deadline_instead_of_the_input_idle_timeou
 async fn timed_out_stream_block_keeps_worker_and_never_advances_cursor() {
     let fixture = controlled(Duration::from_millis(50));
     let runtime = Arc::clone(&fixture.service.sessions);
-    let (bound, _) = runtime.begin(fixture.begin, 74).await.unwrap();
+    let (bound, _) = runtime
+        .begin(Caller::Loopback, fixture.begin, 74)
+        .await
+        .unwrap();
     let task_runtime = Arc::clone(&runtime);
     let work = tokio::spawn(async move {
         task_runtime
@@ -802,7 +813,10 @@ async fn shutdown_closes_live_rpc_but_waits_for_detached_execution() {
 async fn backpressured_publication_rechecks_epoch_and_shutdown_interrupts_output() {
     let fixture = controlled(Duration::from_secs(5));
     let runtime = Arc::clone(&fixture.service.sessions);
-    let (bound, ready) = runtime.begin(fixture.begin, 74).await.unwrap();
+    let (bound, ready) = runtime
+        .begin(Caller::Loopback, fixture.begin, 74)
+        .await
+        .unwrap();
     let (tx, mut rx) = mpsc::channel(1);
     tx.send(Ok(server_frame(bound, 1, server_frame::Kind::Ready(ready))))
         .await
@@ -823,7 +837,7 @@ async fn backpressured_publication_rechecks_epoch_and_shutdown_interrupts_output
     });
     tokio::task::yield_now().await;
     assert!(!pending.is_finished());
-    runtime.resume(bound.id).await.unwrap();
+    runtime.resume(Caller::Loopback, bound.id).await.unwrap();
     rx.recv().await.unwrap().unwrap();
     assert!(!pending.await.unwrap());
     assert!(rx.try_recv().is_err());
@@ -852,12 +866,19 @@ async fn backpressured_publication_rechecks_epoch_and_shutdown_interrupts_output
 async fn exhausted_epoch_rejects_controls_without_mutating_session() {
     let fixture = controlled(Duration::from_secs(5));
     let runtime = &fixture.service.sessions;
-    let (mut bound, _) = runtime.begin(fixture.begin, 74).await.unwrap();
+    let (mut bound, _) = runtime
+        .begin(Caller::Loopback, fixture.begin, 74)
+        .await
+        .unwrap();
     bound.epoch = u64::MAX;
     let retained = runtime.session(bound.id).await.unwrap();
     retained.lock().await.epoch = bound.epoch;
     assert_eq!(
-        runtime.resume(bound.id).await.unwrap_err().code(),
+        runtime
+            .resume(Caller::Loopback, bound.id)
+            .await
+            .unwrap_err()
+            .code(),
         tonic::Code::ResourceExhausted
     );
     let anchor = retained.lock().await.anchor.hash;
@@ -1001,7 +1022,7 @@ async fn wire_replayer_rejects_oversized_diagnostic_before_comparing_transcript(
     });
     let result = timeout(
         Duration::from_secs(10),
-        replay::replay(&vector, &endpoint, B256::ZERO),
+        replay::replay(&vector, &endpoint, B256::ZERO, None),
     )
     .await;
     server.abort();
@@ -1071,7 +1092,7 @@ async fn empty_code_counts_toward_session_quota_and_retry_remains_byte_exact() {
     let mut bound = None;
     service
         .sessions
-        .handle_frame(&mut bound, begin)
+        .handle_frame(Caller::Loopback, &mut bound, begin)
         .await
         .unwrap();
     let binding = bound.unwrap();
@@ -1203,7 +1224,7 @@ async fn stable_witness_bytes_preserve_quota_edges_and_exact_retry_identity() {
             let mut bound = None;
             service
                 .sessions
-                .handle_frame(&mut bound, begin.clone())
+                .handle_frame(Caller::Loopback, &mut bound, begin.clone())
                 .await
                 .unwrap();
             let binding = bound.unwrap();
@@ -1225,7 +1246,7 @@ async fn stable_witness_bytes_preserve_quota_edges_and_exact_retry_identity() {
                 assert!(extra.encoded_len() >= submitted.encoded_len() + 2);
                 let (_, error) = service
                     .sessions
-                    .handle_frame(&mut bound, extra)
+                    .handle_frame(Caller::Loopback, &mut bound, extra)
                     .await
                     .unwrap_err();
                 assert_eq!(error.code(), tonic::Code::ResourceExhausted);
@@ -1234,7 +1255,7 @@ async fn stable_witness_bytes_preserve_quota_edges_and_exact_retry_identity() {
             }
             let result = service
                 .sessions
-                .handle_frame(&mut bound, submitted.clone())
+                .handle_frame(Caller::Loopback, &mut bound, submitted.clone())
                 .await;
             if below {
                 let (_, error) = result.unwrap_err();
@@ -1269,7 +1290,7 @@ async fn stable_witness_bytes_preserve_quota_edges_and_exact_retry_identity() {
                     assert_ne!(changed, submitted, "mutation must change witness bytes");
                     let (_, error) = service
                         .sessions
-                        .handle_frame(&mut bound, changed)
+                        .handle_frame(Caller::Loopback, &mut bound, changed)
                         .await
                         .unwrap_err();
                     assert_eq!(error.code(), tonic::Code::FailedPrecondition);
@@ -1281,7 +1302,7 @@ async fn stable_witness_bytes_preserve_quota_edges_and_exact_retry_identity() {
                 }
                 let (response, _) = service
                     .sessions
-                    .handle_frame(&mut bound, submitted)
+                    .handle_frame(Caller::Loopback, &mut bound, submitted)
                     .await
                     .unwrap();
                 assert!(

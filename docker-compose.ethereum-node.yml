@@ -14,7 +14,7 @@
 
 services:
   eez-proof-signer:
-    image: "${EEZ_PROOF_SIGNER_IMAGE:?pin EEZ_PROOF_SIGNER_IMAGE to the node's commit tag or digest}"
+    image: "${EEZ_PROOF_SIGNER_IMAGE:-}"
     platform: linux/amd64
     container_name: eez-proof-signer-ethereum
     network_mode: host
@@ -28,7 +28,7 @@ services:
       EEZ_CHAIN_CONFIG: /app/genesis.json
       # Trusted L1 profile; must name the same network as the embedded L1.
       EEZ_L1_CHAIN_CONFIG: "${EEZ_L1_NETWORK:?set EEZ_L1_NETWORK (mainnet, hoodi or sepolia)}"
-      EEZ_PROOF_SIGNER_KEY: "${EEZ_PROOF_SIGNER_KEY:?set EEZ_PROOF_SIGNER_KEY}"
+      EEZ_PROOF_SIGNER_KEY: "${EEZ_PROOF_SIGNER_KEY:-}"
       EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS: "${EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS-2048}"
       RUST_LOG: "${EEZ_PROOF_SIGNER_RUST_LOG:-info}"
     volumes:

@@ -53,7 +53,7 @@ fmt:
 #
 #   1. DeployEEZ                 → EEZ_REGISTRY_ADDRESS (EEZProxy) + deploy block
 #   2. DeployECDSAProofSystem     → EEZ_ECDSA_PROOF_SYSTEM_ADDRESS
-#                                   (authorizedSigner derived from EEZ_PROOF_SIGNER_KEY)
+#                                   (EEZ_DEPLOY_ATTESTER_ADDRESS or address of the local signer key)
 #   3. DeployRollup              → Rollup manager (transparent proxy)
 #   4. RegisterRollup            → EEZ_ROLLUP_ID = 1
 #

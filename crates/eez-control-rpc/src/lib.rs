@@ -6,6 +6,7 @@
 
 mod generated;
 pub mod identity;
+pub mod transport;
 
 /// Shared streaming contract; execution and settlement profiles remain deployment-specific.
 pub use generated::v2;

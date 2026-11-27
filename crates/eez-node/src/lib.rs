@@ -124,25 +124,31 @@ async fn composer_proving_from_env(
     let expected_identity = validation.identity();
     let proof_system = config.members[0].proof_system;
     let mut provers = Vec::with_capacity(config.members.len());
-    let members = config
-        .members
-        .into_iter()
-        .map(|member| {
-            let remote = eez_prover_client::RemoteProver::new_with_stream_max_in_flight(
-                member.url,
-                member.attester,
+    let tls_root = std::env::var_os("EEZ_PROVER_TLS_DIR").map(std::path::PathBuf::from);
+    let mut members = Vec::with_capacity(config.members.len());
+    for member in config.members {
+        let proof_system = member.proof_system;
+        let attester = member.attester;
+        let vkey = profile.verification_key(validation.registry, proof_system, attester);
+        let root = tls_root.clone();
+        let remote = tokio::task::spawn_blocking(move || {
+            eez_prover_client::RemoteProver::configured(
+                &member.url,
+                root.as_deref(),
+                attester,
                 expected_identity,
-                profile.verification_key(validation.registry, member.proof_system, member.attester),
+                vkey,
                 config.stream_max_in_flight,
-            );
-            provers.push((member.proof_system, remote.clone()));
-            eez_composer::QuorumMember {
-                proof_system: member.proof_system,
-                attester: member.attester,
-                prover: Arc::new(remote),
-            }
+            )
         })
-        .collect();
+        .await??;
+        provers.push((proof_system, remote.clone()));
+        members.push(eez_composer::QuorumMember {
+            proof_system,
+            attester,
+            prover: Arc::new(remote),
+        });
+    }
     let quorum = eez_composer::AttestationQuorum::new(members, validation.manager, runtime)?;
     let (threshold, eligible) = if config.explicit {
         tokio::time::timeout(

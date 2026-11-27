@@ -18,6 +18,11 @@ These are the fixed contracts of one network profile, not selectable compatibili
 modes. The [compliance review](../../../docs/audits/2026-10-24-specs-compliance/README.md)
 records differences from the reference draft; it does not override these contracts.
 
+Remote RollupX deployments authenticate both sides of the HTTP/2 connection
+before exchanging v2 evidence. An external prover can use its native gRPC mTLS
+support and its own caller grant policy. Grant both methods and isolate retained
+sessions by authenticated caller when implementing Resume. [Operator procedure](../../../docs/runbooks/attestation-quorum.md#share-a-pool-of-remote-provers)
+
 ## Minimum service
 
 Generate messages/services from the single [prove.proto](../proto/prove.proto)

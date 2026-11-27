@@ -204,7 +204,7 @@ class EthereumConfigTest(unittest.TestCase):
                 with self.subTest(name=name, replacement=replacement):
                     result = self.render(dotenv=configured.replace(line, replacement))
                     self.assertNotEqual(result.returncode, 0)
-                    self.assertIn(name, result.stderr)
+                    self.assertIn("eez-proof-signer" if name == "EEZ_PROOF_SIGNER_IMAGE" else name, result.stderr)
         self.render(dotenv=configured)
 
 

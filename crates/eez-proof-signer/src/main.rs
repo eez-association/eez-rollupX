@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 use eyre::WrapErr as _;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 mod attest;
 mod cancel;
@@ -39,6 +39,8 @@ async fn main() -> eyre::Result<()> {
     let config = config::Config::load()?;
 
     let listen_addr = config.listen_addr;
+    let (mut server, callers) =
+        eez_control_rpc::transport::server_transport(listen_addr, config.tls_dir.as_deref())?;
     let limits = config.limits;
     let expected_l2_system_address = config.expected_l2_system_address;
     let validator =
@@ -60,12 +62,6 @@ async fn main() -> eyre::Result<()> {
         initialization_ms = kzg_started.elapsed().as_secs_f64() * 1_000.0,
         "default KZG settings initialized",
     );
-    if !listen_addr.ip().is_loopback() {
-        warn!(
-            listen = %listen_addr,
-            "Prove is binding beyond loopback; restrict this operator endpoint to authorized composers",
-        );
-    }
     let window_limits = limits.window_limits();
     info!(
         version = env!("CARGO_PKG_VERSION"),
@@ -92,7 +88,7 @@ async fn main() -> eyre::Result<()> {
         schedule.config().l1_reference.chain_id == l1_chain_spec.chain().id(),
         "L2 genesis reference and trusted L1 profile must identify the same chain"
     );
-    let svc = service::ProveSvc::new(
+    let svc = service::ProveSvc::with_callers(
         Arc::new(service::ServiceState::new(
             config.registry_address,
             config.manager_address,
@@ -102,9 +98,10 @@ async fn main() -> eyre::Result<()> {
             l1_chain_spec,
         )?),
         limits,
+        callers,
     );
     let shutdown_service = svc.clone();
-    let serve_result = tonic::transport::Server::builder()
+    let serve_result = server
         .add_service(svc.into_server())
         .serve_with_shutdown(listen_addr, async {
             shutdown_signal().await;

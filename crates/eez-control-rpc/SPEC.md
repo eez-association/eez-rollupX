@@ -281,6 +281,14 @@ rules are defined in the
 
 ## 4. Transport behavior
 
+Remote RollupX endpoints require mutual TLS on both methods. Composer verifies
+the member’s server name and configured CA before sending witnesses. The reference
+signer verifies the client chain and grants access by exact leaf fingerprint.
+A valid ungranted client receives PERMISSION_DENIED before discovery or stream
+admission. Local development permits plaintext only on literal loopback.
+Transport admission confers no authority to sign or bypass validation.
+See the [operator procedure](../../docs/runbooks/attestation-quorum.md#share-a-pool-of-remote-provers).
+
 The signer defaults to 65,536 blocks, 512 MiB of known protobuf fields and
 1,000,000 witness items per session; L1 evidence consumes both byte and item
 quotas. The decode ceiling is at most 256 MiB and never exceeds the aggregate

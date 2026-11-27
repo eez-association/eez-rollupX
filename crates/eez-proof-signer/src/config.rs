@@ -57,6 +57,10 @@ struct Args {
     #[arg(long, env = "EEZ_PROOF_SIGNER_ADDR", default_value = "127.0.0.1:50061")]
     listen_addr: SocketAddr,
 
+    /// PEM identity, client CA and allowed Composer leaf fingerprints.
+    #[arg(long, env = "EEZ_PROOF_SIGNER_TLS_DIR")]
+    tls_dir: Option<PathBuf>,
+
     /// Path to the complete operator-configured L2 `Genesis` document.
     #[arg(long = "chain-config", env = "EEZ_CHAIN_CONFIG")]
     chain_document_path: PathBuf,
@@ -153,6 +157,7 @@ struct Args {
 /// Runtime configuration assembled from CLI and environment input.
 pub(crate) struct Config {
     pub(crate) listen_addr: SocketAddr,
+    pub(crate) tls_dir: Option<PathBuf>,
     pub(crate) chain_document_path: PathBuf,
     pub(crate) l1_chain_document_path: PathBuf,
     pub(crate) registry_address: Address,
@@ -209,6 +214,7 @@ impl Config {
         );
         Ok(Self {
             listen_addr: args.listen_addr,
+            tls_dir: args.tls_dir,
             registry_address: args.registry_address,
             manager_address: args.manager_address,
             chain_document_path: args.chain_document_path,

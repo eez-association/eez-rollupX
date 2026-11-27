@@ -22,7 +22,7 @@ class ChiadoConfigTest(unittest.TestCase):
         self.repo = self.root / "repo"
         for name in (
             "docker-compose.chiado-node.yml", "docker-compose.chiado.yml",
-            "docker-compose.chiado-postings.yml",
+            "docker-compose.chiado-postings.yml", "docker-compose.remote-provers.yml",
             ".env.chiado.example", "scripts/chiado-up.sh", "scripts/builder-relays.sh",
             "scripts/teardown-chiado.sh",
             "configs/chiado/bootnodes.yaml", "configs/chiado/bootstrap_nodes.yaml",
@@ -108,6 +108,27 @@ class ChiadoConfigTest(unittest.TestCase):
         self.assertEqual(signer["environment"]["EEZ_PROOF_SIGNER_ADDR"], "127.0.0.1:51061")
         self.assertIn("/dev/tcp/127.0.0.1/51061", signer["healthcheck"]["test"][-1])
 
+    def test_local_startup_requires_key_and_remote_cutover_rejects_project_orphan(self):
+        for name in ("docker", "cast", "curl", "jq"):
+            stub = self.root / name
+            stub.write_text("#!/bin/sh\n" + (
+                'case "$*" in *"config --services") echo "$RENDERED";; *"ps --all --orphans --services") echo eez-proof-signer;; *) exit 99;; esac\n'
+                if name == "docker" else "exit 99\n"))
+            stub.chmod(0o755)
+        (self.repo / "deployments.env").write_text("EEZ_ROLLUP_ID=1\n")
+        dotenv = self.repo / ".env"
+        dotenv.write_text(dotenv.read_text().replace("EEZ_PROOF_SIGNER_KEY=0xCHANGE_ME", "EEZ_PROOF_SIGNER_KEY="))
+        for flags, rendered, expected in (([], "", "set the local attestation key"),
+                                          (["--remote-provers"], "eez-node", "Retire the previous local signer"),
+                                          (["--remote-provers"], "eez-proof-signer", "still contains a local signer")):
+            with self.subTest(flags=flags):
+                result = subprocess.run(
+                    ["bash", self.repo / "scripts/chiado-up.sh", *flags],
+                    env={**os.environ, "PATH": f"{self.root}:{os.environ['PATH']}", "RENDERED": rendered},
+                    capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(expected, result.stderr)
+
     def test_teardown_checks_project_and_previous_checkout_identity(self):
         stub = self.root / "docker"
         log = self.root / "docker.log"
@@ -131,6 +152,20 @@ class ChiadoConfigTest(unittest.TestCase):
                     f"ps --all --quiet --filter label=com.docker.compose.project.working_dir={self.repo} "
                     f"--filter label=com.docker.compose.project.config_files={self.repo}/docker-compose.chiado-node.yml",
                 ])
+
+        log.write_text("")
+        remote = subprocess.run(
+            ["bash", self.repo / "scripts/teardown-chiado.sh", "--remote-provers"],
+            env={**os.environ, "PATH": f"{self.root}:{os.environ['PATH']}", "PREVIOUS_CONTAINER": ""},
+            capture_output=True, text=True)
+        self.assertEqual(remote.returncode, 0, remote.stderr)
+        prefix = "compose -f docker-compose.chiado-node.yml -f docker-compose.remote-provers.yml"
+        self.assertEqual(log.read_text().splitlines(), [
+            f"{prefix} down", f"{prefix} ps --all --quiet --orphans",
+            f"ps --all --quiet --filter label=com.docker.compose.project.working_dir={self.repo} "
+            f"--filter label=com.docker.compose.project.config_files={self.repo}/docker-compose.chiado-node.yml,"
+            f"{self.repo}/docker-compose.remote-provers.yml",
+        ])
 
     def test_offline_signer_has_local_profiles_and_no_chain_rpc(self):
         result = self.render()
@@ -385,7 +420,9 @@ case "$*" in
     'compose -f docker-compose.chiado-node.yml config --quiet')
         '{shutil.which("docker")}' compose -f docker-compose.chiado-node.yml config --format json |
             jq -e '.name == "shell-project" and .services["eez-node"].container_name == "eez-node-shell-project"' ;;
-    'compose -f docker-compose.chiado-node.yml up -d') exit 71 ;;
+    *'config --services') '{shutil.which("docker")}' "$@" ;;
+    *'ps --all --orphans --services') exit 0 ;;
+    *'up -d') exit 71 ;;
     *) exit 99 ;;
 esac
 ''',
@@ -410,6 +447,20 @@ esac
         self.assertEqual(log.read_text().splitlines(), [
             "compose -f docker-compose.chiado-node.yml config --quiet",
             "compose -f docker-compose.chiado-node.yml up -d",
+        ])
+
+        env_file.write_text(env_file.read_text().replace("EEZ_PROOF_SIGNER_KEY=0xCHANGE_ME", ""))
+        log.write_text("")
+        remote = subprocess.run(
+            ["bash", self.repo / "scripts/chiado-up.sh", "--remote-provers"],
+            env={**os.environ, "PATH": f"{tool_dir}:{os.environ['PATH']}",
+                 "EEZ_PROVERS": "https://p.example:50061=0x" + "11"*20 + "=0x" + "22"*20,
+                 "EEZ_PROVER_TLS_DIR": "/fixture/tls"},
+            capture_output=True, text=True)
+        self.assertEqual(remote.returncode, 71, remote.stdout + remote.stderr)
+        prefix = "compose -f docker-compose.chiado-node.yml -f docker-compose.remote-provers.yml"
+        self.assertEqual(log.read_text().splitlines(), [
+            f"{prefix} config --services", f"{prefix} ps --all --orphans --services", f"{prefix} up -d",
         ])
 
     def test_bootstrap_seeds_match_the_canonical_list(self):

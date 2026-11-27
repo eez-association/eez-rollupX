@@ -2,7 +2,7 @@
 #
 # Deploys EEZ + ECDSAProofSystem + Rollup manager and registers the rollup.
 #
-# Reads from .env (poster key, proof signer key, RPC url, etc.).
+# Reads the RPC, poster and attester settings from .env or the deployment environment.
 # Writes deployments.env with the addresses + rollupId + deploy block.
 # `eez-node` auto-loads BOTH .env and deployments.env (via dotenvy at
 # startup), so a successful run of this script leaves the workspace
@@ -31,7 +31,6 @@ source "$ENV_FILE"
 
 : "${EEZ_L1_RPC_URL:?EEZ_L1_RPC_URL not set in .env}"
 : "${EEZ_L1_POSTER_KEY:?EEZ_L1_POSTER_KEY not set in .env}"
-: "${EEZ_PROOF_SIGNER_KEY:?EEZ_PROOF_SIGNER_KEY not set in .env}"
 : "${EEZ_L2_TREASURY_RECIPIENT:?EEZ_L2_TREASURY_RECIPIENT must select the initial L2 treasury recipient}"
 
 configured_initial_block_hash="${EEZ_INITIAL_BLOCK_HASH:-}"
@@ -40,8 +39,39 @@ configured_initial_block_hash="${EEZ_INITIAL_BLOCK_HASH:-}"
 # the deployer's nonce or shift the CREATE addresses. Defaults to the poster.
 EEZ_DEPLOY_KEY="${EEZ_DEPLOY_KEY:-$EEZ_L1_POSTER_KEY}"
 
-# Derive addresses from keys.
-AUTHORIZED_SIGNER="$(cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY")"
+# EEZ_ATTESTER_ADDRESS can be inherited from a previous deployments.env.
+# Only a fresh deployment input may select the immutable signer.
+command -v cast >/dev/null || { echo "deploy: Foundry cast is required" >&2; exit 1; }
+AUTHORIZED_SIGNER="${EEZ_DEPLOY_ATTESTER_ADDRESS-}"
+if [[ -v EEZ_DEPLOY_ATTESTER_ADDRESS ]]; then
+    if [[ ! "$AUTHORIZED_SIGNER" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
+        echo "deploy: EEZ_DEPLOY_ATTESTER_ADDRESS must be a 0x-prefixed 20-byte hex address" >&2
+        exit 1
+    fi
+    checksummed="$(cast to-check-sum-address "$AUTHORIZED_SIGNER")"
+    if [[ "$AUTHORIZED_SIGNER" =~ [a-f] && "$AUTHORIZED_SIGNER" =~ [A-F] &&
+          "$AUTHORIZED_SIGNER" != "$checksummed" ]]; then
+        echo "deploy: invalid EIP-55 checksum in EEZ_DEPLOY_ATTESTER_ADDRESS" >&2
+        exit 1
+    fi
+    AUTHORIZED_SIGNER="$checksummed"
+fi
+if [[ -n "${EEZ_PROOF_SIGNER_KEY:-}" ]]; then
+    local_attester="$(cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY" 2>/dev/null)" || {
+        echo "deploy: invalid EEZ_PROOF_SIGNER_KEY" >&2
+        exit 1
+    }
+    if [[ -n "$AUTHORIZED_SIGNER" && "${AUTHORIZED_SIGNER,,}" != "${local_attester,,}" ]]; then
+        echo "deploy: EEZ_DEPLOY_ATTESTER_ADDRESS does not match EEZ_PROOF_SIGNER_KEY" >&2
+        exit 1
+    fi
+    AUTHORIZED_SIGNER="$local_attester"
+fi
+: "${AUTHORIZED_SIGNER:?set EEZ_DEPLOY_ATTESTER_ADDRESS or EEZ_PROOF_SIGNER_KEY}"
+if [[ "$AUTHORIZED_SIGNER" == 0x0000000000000000000000000000000000000000 ]]; then
+    echo "deploy: proof attestation address must be nonzero" >&2
+    exit 1
+fi
 OWNER="$(cast wallet address --private-key "$EEZ_DEPLOY_KEY")"
 POSTER_ADDRESS="$(cast wallet address --private-key "$EEZ_L1_POSTER_KEY")"
 # EEZ, the Rollup and the EEZL2 genesis predeploy sit behind transparent

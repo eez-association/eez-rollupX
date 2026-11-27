@@ -10,9 +10,12 @@ description            = "Wire contract for the composer → prover `Prove` RPC 
 alloy-primitives = { workspace = true, features = ["rlp"] }
 alloy-rlp.workspace = true
 # tonic 0.14 split: "server" (the signer hosts Prove) + "channel" (the composer dials).
-tonic       = { workspace = true, features = ["server", "channel"] }
+tonic       = { workspace = true, features = ["server", "channel", "tls-ring"] }
 tonic-prost = { workspace = true }
 prost       = { workspace = true }
+eyre.workspace = true
+sha2 = "0.10"
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 
 [build-dependencies]
 # Compiles the single prove.v2 schema. Needs `protoc` on PATH.

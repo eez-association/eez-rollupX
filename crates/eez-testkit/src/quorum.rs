@@ -20,6 +20,7 @@ pub struct TestQuorumConfig {
 }
 
 pub struct TestQuorum {
+    pub(super) client_tls: Option<tempfile::TempDir>,
     pub members: Vec<(Address, Address)>,
     pub signers: Vec<ProofSignerHandle>,
     entries: Vec<String>,
@@ -33,6 +34,7 @@ impl TestQuorum {
         profile: &NetworkProfile,
         primary: &str,
         config: &TestQuorumConfig,
+        client_tls: Option<tempfile::TempDir>,
     ) -> Result<Self> {
         ensure!(
             !config.additional_keys.is_empty() && config.additional_keys.len() < 16,
@@ -44,6 +46,7 @@ impl TestQuorum {
         );
         let primary_attester = signer_address(cfg.attester_key)?;
         let mut fixture = Self {
+            client_tls,
             members: vec![(cfg.proof_system_address, primary_attester)],
             signers: Vec::new(),
             entries: vec![format!(
@@ -60,17 +63,20 @@ impl TestQuorum {
             let system = deployer.create(6 + index as u64);
             let attester = signer_address(key)?;
             let vkey = profile.verification_key(cfg.eez_address, system, attester);
-            let signer = ProofSignerHandle::spawn(&ProofSignerConfig {
-                rollup_manager_address: cfg.rollup_manager_address,
-                registry_address: cfg.eez_address,
-                chain_config: &cfg.l2_genesis.0,
-                l1_chain_config: cfg.l1_chain_config(),
-                rollup_id: cfg.rollup_id,
-                signer_key: key,
-                vkey,
-                proof_system: system,
-                max_request_blocks: None,
-            })
+            let signer = ProofSignerHandle::spawn_for_composer(
+                &ProofSignerConfig {
+                    rollup_manager_address: cfg.rollup_manager_address,
+                    registry_address: cfg.eez_address,
+                    chain_config: &cfg.l2_genesis.0,
+                    l1_chain_config: cfg.l1_chain_config(),
+                    rollup_id: cfg.rollup_id,
+                    signer_key: key,
+                    vkey,
+                    proof_system: system,
+                    max_request_blocks: None,
+                },
+                fixture.client_tls.as_ref().map(tempfile::TempDir::path),
+            )
             .await?;
             fixture
                 .entries
