@@ -3,7 +3,7 @@
 Use this procedure to add or replace a Composer for a Chiado L2 created with
 this revision's offline-history profile. It uses the
 [packaged profile](../../docker-compose.chiado-node.yml):
-embedded L1, Composer/L2, local proof signer, and Lighthouse. For an unchanged
+embedded L1, Composer/L2 and Lighthouse, with a local signer by default. For a shared remote pool, complete the [remote prover setup](attestation-quorum.md#share-a-pool-of-remote-provers) first. For an unchanged
 installation, use [restart](chiado-deployment.md#restart-and-stop).
 
 The original deployment must have the matching Core manager and network-bound vkey, history
@@ -44,7 +44,7 @@ Obtain these inputs from the existing network's operator:
 | --- | --- |
 | Deployment files | Original `deployments.env`, `datadir/genesis.json`, and `datadir/genesis.profile.json`. Keep registry/deployment block, rollup ID, proof-system/vkey/attester, Core manager/bridge addresses, system address, and initial block/state commitments. Preserve the complete history bootstrap, schedule and local L1 rules bound by the registered verification key. |
 | Runtime configuration | Matching offline-profile node/signer images, configuration checkout/protocol revision, and settlement/admission settings. The packaged timing is 5-second L1 / 1-second L2, with EEZL2 at proxy `0x4B2760F84B83d6b3829E30A7573B0172B6d6402C` and history at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077`. The genesis fixes the history delay; startup cannot override it. |
-| System and attester bindings | The deployed system address must be `0xfffffffffffffffffffffffffffffffffffffffe`; no system private key exists. Supply `EEZ_PROOF_SIGNER_KEY` for the registered attester privately. A fresh attestation key cannot replace that binding; this Compose profile runs a local signer. |
+| System and attester bindings | The deployed system address must be `0xfffffffffffffffffffffffffffffffffffffffe`; no system private key exists. Supply the registered attester’s key privately only when running the packaged local signer. With [remote provers](attestation-quorum.md#share-a-pool-of-remote-provers), each provider holds its own registered attestation key and each Composer holds its client TLS keys. |
 | Posting wallet | A dedicated `EEZ_L1_POSTER_KEY` funded with Chiado test xDAI. Do not share it with another active Composer or workload. No deployer key is needed. |
 | State/history source | Choose one L2 path below; obtain compatible L1 data and Beacon coverage for its replay range. Preserve the backup's source revision and last settled L1/L2 hashes. |
 
@@ -90,8 +90,7 @@ reconcile only the host paths
 locations. `FRESH_GENESIS=./datadir/genesis.json` must select that original genesis,
 despite the variable's name.
 
-Edit `.env` with the supplied attestation key, this Composer's poster key,
-a synchronized Chiado `EEZ_L1_RPC_URL`, and the existing settlement settings.
+Edit `.env` with this Composer’s poster key, a synchronized Chiado `EEZ_L1_RPC_URL`, and the existing settlement settings. For a local signer, supply the registered attestation key. For a remote pool, supply the public roster and this Composer’s TLS directory.
 Use compatible [image references](chiado-deployment.md#image-selection) and the
 matching checkout: the default `:latest` may select an upgrade. Preserve existing
 operator settings instead of replacing them with template defaults.
@@ -136,15 +135,14 @@ The profile accepts settlements from other Composers. For a replacement, coordin
 the handover and stop using the old posting wallet before reusing it; for an
 additional Composer, keep a separate poster and databases.
 
-```bash
-bash scripts/chiado-up.sh
-```
-
-Follow progress in another shell at the same checkout:
+For a remote pool, use the remote flag and follow the two local services:
 
 ```bash
-docker compose logs -f --tail=100 eez-node eez-proof-signer lighthouse
+bash scripts/chiado-up.sh --remote-provers
+docker compose -f docker-compose.chiado-node.yml -f docker-compose.remote-provers.yml logs -f --tail=100 eez-node lighthouse
 ```
+
+If sharing this host’s signer with other Composers, follow the [shared-signer setup](attestation-quorum.md#host-the-shared-signer-and-a-composer-on-one-chiado-host) and use `--share-prover` for startup and teardown. With a loopback-only local signer, run `bash scripts/chiado-up.sh` and follow `docker compose logs -f --tail=100 eez-node eez-proof-signer lighthouse`.
 
 Verify these stages:
 

@@ -333,6 +333,12 @@ their test harness separate from this protocol proposal.
 
 ## 6. RollupX runtime profile
 
+In the RollupX profile, the signer records the admitted client certificate
+fingerprint at Begin. Resume requires the same fingerprint before changing the
+epoch or reporting any retained cursor. Another caller receives the same unbound
+NOT_FOUND rejection as for an absent session. Plaintext loopback has one local
+trust domain. Stream, retention and worker limits remain shared across callers.
+
 For an explicit Composer roster each endpoint has its own checked client, preparation
 notifications, retained prefix and session. A committed block may trigger independent
 preparation on each client. Finalize uses that client's singleton assignment. The

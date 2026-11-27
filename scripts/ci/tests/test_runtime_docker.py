@@ -58,6 +58,7 @@ class RuntimeDockerTest(unittest.TestCase):
             for name in (
                 "Dockerfile.runtime", "Dockerfile.runtime.dockerignore", ".dockerignore",
                 "testing/kurtosis/Dockerfile.deploy", "testing/kurtosis/Dockerfile.deploy.dockerignore",
+                "testing/kurtosis/scripts/mint-prover-tls.sh",
                 "scripts/ci/build-runtime-artifacts.sh", "scripts/ci/prepare-runtime-artifacts.sh",
                 "scripts/ci/install-sccache.sh", "scripts/ci/with-compiler-cache.sh",
                 "scripts/ci/install-nextest.sh", "scripts/ci/install-llvm.sh", "scripts/ci/native-tests.py", ".config/nextest.toml",

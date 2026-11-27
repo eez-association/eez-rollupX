@@ -67,8 +67,8 @@ selected PREVRANDAO for stateful production and stateless replay.
 Composer-controlled headers, witnesses, ranges and ABI are untrusted input.
 Local profile documents and keys define deployment authority. Stateless, Reth
 and shared protocol code are part of the pinned implementation's trust base.
-Network access controls remain responsible for restricting a non-loopback RPC
-listener; session IDs are not authentication credentials.
+On non-loopback listeners the TLS peer certificate identifies each caller.
+Both RPCs require a granted leaf, and Resume requires the leaf recorded at Begin.
 
 The ECDSA signature attests execution and settlement consistency **conditional
 on the bound context**. It does not establish L1 consensus, future inclusion,

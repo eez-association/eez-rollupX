@@ -6,6 +6,17 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"; cd "$REPO"
 COMPOSE=(docker compose -f docker-compose.chiado-node.yml)
 
+teardown=(bash scripts/teardown-chiado.sh "$@")
+prover_option="${1:-}"
+if [[ $prover_option == --remote-provers ]]; then
+    COMPOSE+=(-f docker-compose.remote-provers.yml)
+    shift
+elif [[ $prover_option == --share-prover ]]; then
+    COMPOSE+=(-f docker-compose.chiado-shared-prover.yml)
+    shift
+fi
+[[ $# == 0 ]] || { echo "usage: $0 [--remote-provers | --share-prover]" >&2; exit 2; }
+
 for t in docker cast curl jq; do command -v "$t" >/dev/null || { echo "✗ $t not in PATH"; exit 1; }; done
 [[ -f .env ]] || { echo "✗ .env missing — cp .env.chiado.example .env and fill it in first"; exit 1; }
 
@@ -17,7 +28,42 @@ load_deployment_env() {
     set -a; source .env; set +a
 }
 load_deployment_env
-"${COMPOSE[@]}" config --quiet
+if [[ $prover_option == --remote-provers ]]; then
+    rendered=$("${COMPOSE[@]}" config --services)
+    if grep -Fxq eez-proof-signer <<< "$rendered"; then
+        echo "Remote prover configuration still contains a local signer. Check the Compose version and overlay." >&2
+        exit 1
+    fi
+    existing=$("${COMPOSE[@]}" ps --all --orphans --services)
+    if grep -Fxq eez-proof-signer <<< "$existing"; then
+        echo "Retire the previous local signer in this Compose project before switching to remote provers." >&2
+        exit 1
+    fi
+else
+    if [[ $prover_option == --share-prover ]]; then
+        if [[ -v EEZ_PROVERS ]]; then
+            : "${EEZ_PROVERS:?set the HTTPS roster or unset it for a singleton prover}"
+        elif [[ ${EEZ_PROVER_URL:-} != https://* ]]; then
+            echo "Set EEZ_PROVER_URL to the signer's HTTPS origin or supply an EEZ_PROVERS roster." >&2
+            exit 1
+        fi
+        for setting in EEZ_PROOF_SIGNER_TLS_DIR EEZ_PROVER_TLS_DIR; do
+            [[ ${!setting:-} == /* && -d ${!setting} ]] || {
+                echo "$setting must be an existing absolute directory." >&2; exit 1; }
+        done
+        server_dir=$(realpath -e -- "$EEZ_PROOF_SIGNER_TLS_DIR")
+        client_dir=$(realpath -e -- "$EEZ_PROVER_TLS_DIR")
+        if [[ ${server_dir%/}/ == "${client_dir%/}/"* || ${client_dir%/}/ == "${server_dir%/}/"* ]]; then
+            echo "Use disjoint signer and Composer TLS directories to isolate their private keys." >&2
+            exit 1
+        fi
+    elif [[ -n ${EEZ_PROOF_SIGNER_TLS_DIR:-} || -n ${EEZ_PROVER_TLS_DIR:-} ]]; then
+        echo "TLS credentials configured. Select --share-prover or --remote-provers." >&2
+        exit 1
+    fi
+    : "${EEZ_PROOF_SIGNER_KEY:?set the local attestation key or select --remote-provers}"
+    "${COMPOSE[@]}" config --quiet
+fi
 DEPLOY_RPC="$EEZ_L1_RPC_URL"
 for v in L1_SNAPSHOT_DIR JWT_FILE CHIADO_CONFIG_DIR FRESH_GENESIS; do
     [[ -e "${!v:-}" ]] || { echo "✗ $v=${!v:-<unset>} missing — finish the One-time setup steps first"; exit 1; }
@@ -74,7 +120,7 @@ echo "==> [2/5] preparing datadirs"
 mkdir -p "$L2_DATA_DIR" "$LIGHTHOUSE_DATA"
 
 # ── 3. Start the stack ──────────────────────────────────────────────────
-echo "==> [3/5] docker compose up (eez-node + eez-proof-signer + lighthouse)"
+echo "==> [3/5] starting configured Composer stack"
 "${COMPOSE[@]}" up -d
 "${COMPOSE[@]}" ps
 
@@ -200,5 +246,5 @@ fi
 echo
 echo " Next:"
 echo "   ${COMPOSE[*]} logs -f eez-node          # follow the node"
-echo "   bash scripts/teardown-chiado.sh                # stop the stack"
+echo "   ${teardown[*]}          # stop the stack"
 echo "════════════════════════════════════════════════════════════════"

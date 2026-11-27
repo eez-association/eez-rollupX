@@ -30,11 +30,10 @@ manager environment injection over command-line flags. The checked-in
 
 ## Network exposure
 
-Loopback is the safe default. The gRPC protocol does not authenticate peers, so
-a non-loopback listener needs an authenticated transport, private network,
-firewall, or equivalent control. Bounded admission limits concurrent
-work; it is not authentication and does not stop an authorized-but-buggy client
-from holding the slot with a slow stream.
+The default loopback listener trusts local processes. All wider binds require
+mutual TLS and an explicit grant for each Composer leaf. Each admitted caller
+can consume shared capacity. Keep the loopback development listener private to
+its host. See the [remote prover setup and rotation procedure](../../../docs/runbooks/attestation-quorum.md#share-a-pool-of-remote-provers).
 
 ## Capacity model
 
@@ -64,8 +63,7 @@ used by the blob codec. Allow this initialization in startup/readiness timeouts;
 per process in an awaited blocking worker and does not submit a calibration
 batch or skip proof validation. Initialization failure prevents readiness.
 The existing request deadlines and graceful shutdown rules begin after serving.
-Validation-contract version 3 and capability profile 2
-require exact agreement between Composer and signer before any work is dispatched.
+Composer checks the signer’s [validation identity](../../eez-control-rpc/VALIDATION_IDENTITY.md) and capability profile before dispatching work.
 The profile requires fresh contracts,
 genesis and datadirs. Do not attach these binaries to an existing network or
 reinterpret an old database. See the [fresh-network contract](../SPEC.md).

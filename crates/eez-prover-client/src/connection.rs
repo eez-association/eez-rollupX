@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use eez_control_rpc::v2::{CapabilitiesRequest, CapabilitiesResponse, prover_client::ProverClient};
 use eez_prover::{ProverError, ProverResult, RetryableProverError};
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::Channel;
 
 use super::RemoteProver;
 
@@ -27,9 +27,11 @@ impl RemoteProver {
         if let Some(connection) = slot.as_ref() {
             return Ok(Arc::clone(connection));
         }
-        let endpoint = Endpoint::from_shared(self.inner.url.clone())
-            .map_err(|error| ProverError::Backend(format!("invalid prover endpoint: {error}")))?
-            .connect_timeout(Duration::from_secs(10));
+        let endpoint = self
+            .inner
+            .endpoint
+            .as_ref()
+            .map_err(|e| ProverError::Backend(e.clone()))?;
         let channel = endpoint
             .connect()
             .await

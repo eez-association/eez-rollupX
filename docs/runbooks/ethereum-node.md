@@ -22,6 +22,8 @@ monitoring. Registration is irreversible: rehearse it on Hoodi first.
 selection unit tests, and builder acceptance probes (2026-10-02). Not yet run
 against a synced Ethereum node; no settlement on Ethereum has been observed.
 
+For a Composer using independent provers, follow the [remote prover setup](attestation-quorum.md#share-a-pool-of-remote-provers). On Linux, set `COMPOSE_FILE=docker-compose.ethereum-node.yml:docker-compose.remote-provers.yml` in the stack’s `.env` so the commands below select the Composer-only stack.
+
 ## Topology
 
 - `eez-node` embeds its own **reth v2.7** as the L1 execution client
@@ -73,8 +75,7 @@ Already accepted deposits are unaffected.
 3. **Lighthouse.** An empty `LIGHTHOUSE_DATA` checkpoint-syncs from
    `LH_CHECKPOINT_URL`. An existing datadir can be reused with its JWT. Switching a
    regular node to semi-supernode backfills data columns before blobs are complete.
-4. Keys: a funded poster, the registered proof signer, and a **dedicated unfunded**
-   `EEZ_L1_BUNDLE_SIGNING_KEY` (BuilderNet rejects unsigned bundles).
+4. Provide a funded poster key and a **dedicated unfunded** `EEZ_L1_BUNDLE_SIGNING_KEY` (BuilderNet rejects unsigned bundles). Supply the registered attestation key only for a local signer. A remote-only Composer needs its client TLS credentials.
 5. **Settlement policy and fee limits.** Review the example's starting values
    before deploying ([policy reference](../configurable-settlement-policy.md)):
    - **Price ceilings:** 10 gwei (base fee + tip) and 2 gwei (blob). A post above a ceiling waits and retries; it never pays more.
@@ -100,7 +101,7 @@ From the repository root, in a shell that has not exported another profile's
 ```bash
 test -f .env || cp .env.ethereum.example .env      # then edit every CHANGE_ME / <full-commit>
 openssl rand -hex 32 > data/jwt.hex                 # only if not reusing a Lighthouse JWT
-docker compose config --quiet                       # fails on any missing required value
+docker compose config --services                    # remote pool: expect eez-node and lighthouse
 docker compose pull
 docker compose up -d
 docker compose ps

@@ -22,7 +22,8 @@ class ChiadoConfigTest(unittest.TestCase):
         self.repo = self.root / "repo"
         for name in (
             "docker-compose.chiado-node.yml", "docker-compose.chiado.yml",
-            "docker-compose.chiado-postings.yml",
+            "docker-compose.chiado-postings.yml", "docker-compose.remote-provers.yml",
+            "docker-compose.chiado-shared-prover.yml",
             ".env.chiado.example", "scripts/chiado-up.sh", "scripts/builder-relays.sh",
             "scripts/teardown-chiado.sh",
             "configs/chiado/bootnodes.yaml", "configs/chiado/bootstrap_nodes.yaml",
@@ -47,6 +48,59 @@ class ChiadoConfigTest(unittest.TestCase):
             cwd=self.repo, env={**environment, **(overrides or {})},
             text=True, capture_output=True,
         )
+
+    def test_shared_prover_keeps_both_roles_and_isolates_their_credentials(self):
+        origin = "https://signer.example:51061"
+        env = {"COMPOSE_FILE": "docker-compose.chiado-node.yml:docker-compose.chiado-shared-prover.yml",
+               "EEZ_PROOF_SIGNER_ADDR": "192.0.2.10:51061", "EEZ_PROOF_SIGNER_TLS_DIR": "/fixture/server",
+               "EEZ_PROVER_TLS_DIR": "/fixture/client", "EEZ_PROVER_URL": origin}
+        roster = f"{origin}=0x{'11'*20}=0x{'22'*20},https://other.example=0x{'33'*20}=0x{'44'*20}"
+        for mode in ("singleton", "roster"):
+            with self.subTest(mode=mode):
+                options = dict(env)
+                if mode == "roster":
+                    del options["EEZ_PROVER_URL"]
+                    options["EEZ_PROVERS"] = roster
+                result = self.render(options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                services = json.loads(result.stdout)["services"]
+                self.assertEqual(set(services), {"eez-node", "eez-proof-signer", "lighthouse"})
+                node, signer = services["eez-node"], services["eez-proof-signer"]
+                self.assertEqual(node["depends_on"]["eez-proof-signer"]["condition"], "service_healthy")
+                self.assertEqual(signer["environment"]["EEZ_PROOF_SIGNER_ADDR"], env["EEZ_PROOF_SIGNER_ADDR"])
+                self.assertEqual(signer["environment"]["EEZ_PROOF_SIGNER_KEY"], "0xCHANGE_ME")
+                self.assertNotIn("EEZ_PROOF_SIGNER_KEY", node["environment"])
+                if mode == "singleton":
+                    self.assertEqual(node["environment"]["EEZ_PROVER_URL"], origin)
+                else:
+                    self.assertEqual(node["environment"]["EEZ_PROVERS"], roster)
+                    self.assertFalse(node["environment"].get("EEZ_PROVER_URL"))
+                for role, setting in ((node, "EEZ_PROVER_TLS_DIR"), (signer, "EEZ_PROOF_SIGNER_TLS_DIR")):
+                    mounts = {v["source"]: v for v in role["volumes"]}
+                    mount = mounts[env[setting]]
+                    self.assertEqual(mount["target"], role["environment"][setting])
+                    self.assertTrue(mount["read_only"])
+                    self.assertFalse(mount["bind"].get("create_host_path", False))
+                    other = "EEZ_PROOF_SIGNER_TLS_DIR" if role is node else "EEZ_PROVER_TLS_DIR"
+                    self.assertNotIn(env[other], mounts)
+        # Compose config escapes dollars for round-tripping the health check.
+        mode, probe = signer["healthcheck"]["test"]
+        self.assertEqual(mode, "CMD-SHELL")
+        nc = self.root / "nc"
+        nc.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+        nc.chmod(0o755)
+        for socket, target in (("192.0.2.10:51061", "192.0.2.10"), ("0.0.0.0:51061", "127.0.0.1"),
+                               ("[2001:db8::10]:51061", "2001:db8::10"), ("[::]:51061", "::1")):
+            with self.subTest(bind=socket):
+                result = subprocess.run(["/bin/sh", "-ec", probe.replace("$$", "$")],
+                                        env={"PATH": str(self.root), "EEZ_PROOF_SIGNER_ADDR": socket},
+                                        check=True, capture_output=True, text=True)
+                self.assertEqual(result.stdout.splitlines(), ["-z", target, "51061"])
+        for setting in ("EEZ_PROOF_SIGNER_ADDR", "EEZ_PROOF_SIGNER_TLS_DIR", "EEZ_PROVER_TLS_DIR", "EEZ_PROOF_SIGNER_KEY"):
+            with self.subTest(missing=setting):
+                result = self.render({**env, setting: ""})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(setting, result.stderr)
 
     def test_project_name_selects_all_three_containers(self):
         env_file = self.repo / ".env"
@@ -108,6 +162,27 @@ class ChiadoConfigTest(unittest.TestCase):
         self.assertEqual(signer["environment"]["EEZ_PROOF_SIGNER_ADDR"], "127.0.0.1:51061")
         self.assertIn("/dev/tcp/127.0.0.1/51061", signer["healthcheck"]["test"][-1])
 
+    def test_local_startup_requires_key_and_remote_cutover_rejects_project_orphan(self):
+        for name in ("docker", "cast", "curl", "jq"):
+            stub = self.root / name
+            stub.write_text("#!/bin/sh\n" + (
+                'case "$*" in *"config --services") echo "$RENDERED";; *"ps --all --orphans --services") echo eez-proof-signer;; *) exit 99;; esac\n'
+                if name == "docker" else "exit 99\n"))
+            stub.chmod(0o755)
+        (self.repo / "deployments.env").write_text("EEZ_ROLLUP_ID=1\n")
+        dotenv = self.repo / ".env"
+        dotenv.write_text(dotenv.read_text().replace("EEZ_PROOF_SIGNER_KEY=0xCHANGE_ME", "EEZ_PROOF_SIGNER_KEY="))
+        for flags, rendered, expected in (([], "", "set the local attestation key"),
+                                          (["--remote-provers"], "eez-node", "Retire the previous local signer"),
+                                          (["--remote-provers"], "eez-proof-signer", "still contains a local signer")):
+            with self.subTest(flags=flags):
+                result = subprocess.run(
+                    ["bash", self.repo / "scripts/chiado-up.sh", *flags],
+                    env={**os.environ, "PATH": f"{self.root}:{os.environ['PATH']}", "RENDERED": rendered},
+                    capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(expected, result.stderr)
+
     def test_teardown_checks_project_and_previous_checkout_identity(self):
         stub = self.root / "docker"
         log = self.root / "docker.log"
@@ -131,6 +206,35 @@ class ChiadoConfigTest(unittest.TestCase):
                     f"ps --all --quiet --filter label=com.docker.compose.project.working_dir={self.repo} "
                     f"--filter label=com.docker.compose.project.config_files={self.repo}/docker-compose.chiado-node.yml",
                 ])
+
+        log.write_text("")
+        remote = subprocess.run(
+            ["bash", self.repo / "scripts/teardown-chiado.sh", "--remote-provers"],
+            env={**os.environ, "PATH": f"{self.root}:{os.environ['PATH']}", "PREVIOUS_CONTAINER": ""},
+            capture_output=True, text=True)
+        self.assertEqual(remote.returncode, 0, remote.stderr)
+        prefix = "compose -f docker-compose.chiado-node.yml -f docker-compose.remote-provers.yml"
+        self.assertEqual(log.read_text().splitlines(), [
+            f"{prefix} down", f"{prefix} ps --all --quiet --orphans",
+            f"ps --all --quiet --filter label=com.docker.compose.project.working_dir={self.repo} "
+            f"--filter label=com.docker.compose.project.config_files={self.repo}/docker-compose.chiado-node.yml,"
+            f"{self.repo}/docker-compose.remote-provers.yml",
+        ])
+
+        log.write_text("")
+        shared = subprocess.run(
+            ["bash", self.repo / "scripts/teardown-chiado.sh", "--share-prover"],
+            env={**os.environ, "PATH": f"{self.root}:{os.environ['PATH']}", "PREVIOUS_CONTAINER": ""},
+            capture_output=True, text=True)
+        self.assertEqual(shared.returncode, 0, shared.stderr)
+        overlay = "docker-compose.chiado-shared-prover.yml"
+        prefix = f"compose -f docker-compose.chiado-node.yml -f {overlay}"
+        self.assertEqual(log.read_text().splitlines(), [
+            f"{prefix} down", f"{prefix} ps --all --quiet eez-node eez-proof-signer lighthouse",
+            f"ps --all --quiet --filter label=com.docker.compose.project.working_dir={self.repo} "
+            f"--filter label=com.docker.compose.project.config_files={self.repo}/docker-compose.chiado-node.yml,"
+            f"{self.repo}/{overlay}",
+        ])
 
     def test_offline_signer_has_local_profiles_and_no_chain_rpc(self):
         result = self.render()
@@ -385,7 +489,9 @@ case "$*" in
     'compose -f docker-compose.chiado-node.yml config --quiet')
         '{shutil.which("docker")}' compose -f docker-compose.chiado-node.yml config --format json |
             jq -e '.name == "shell-project" and .services["eez-node"].container_name == "eez-node-shell-project"' ;;
-    'compose -f docker-compose.chiado-node.yml up -d') exit 71 ;;
+    *'config --services'|*'config --quiet') '{shutil.which("docker")}' "$@" ;;
+    *'ps --all --orphans --services') exit 0 ;;
+    *'up -d') exit 71 ;;
     *) exit 99 ;;
 esac
 ''',
@@ -410,6 +516,54 @@ esac
         self.assertEqual(log.read_text().splitlines(), [
             "compose -f docker-compose.chiado-node.yml config --quiet",
             "compose -f docker-compose.chiado-node.yml up -d",
+        ])
+
+        log.write_text("")
+        server_dir = self.root / "server-tls"
+        client_dir = self.root / "client-tls"
+        server_dir.mkdir()
+        client_dir.mkdir()
+        alias = self.root / "client-alias"
+        alias.symlink_to(client_dir)
+        nested = server_dir / "nested"
+        nested.mkdir()
+        shared_env = {**os.environ, "PATH": f"{tool_dir}:{os.environ['PATH']}",
+                      "EEZ_PROOF_SIGNER_ADDR": "192.0.2.10:51061", "EEZ_PROOF_SIGNER_TLS_DIR": str(server_dir),
+                      "EEZ_PROVER_URL": "https://p.example:51061", "EEZ_PROVER_TLS_DIR": str(client_dir)}
+        for flags, overrides, error in (
+            ([], {}, "Select --share-prover"),
+            (["--share-prover"], {"EEZ_PROVER_URL": ""}, "HTTPS origin"),
+            (["--share-prover"], {"EEZ_PROVERS": ""}, "set the HTTPS roster"),
+            (["--share-prover"], {"EEZ_PROOF_SIGNER_TLS_DIR": str(alias)}, "disjoint"),
+            (["--share-prover"], {"EEZ_PROVER_TLS_DIR": str(nested)}, "disjoint"),
+            (["--share-prover"], {"EEZ_PROVER_TLS_DIR": str(self.root / "absent")}, "existing absolute"),
+        ):
+            with self.subTest(flags=flags, overrides=overrides):
+                bad = subprocess.run(["bash", self.repo / "scripts/chiado-up.sh", *flags],
+                                     env={**shared_env, **overrides}, capture_output=True, text=True)
+                self.assertNotEqual(bad.returncode, 0)
+                self.assertIn(error, bad.stderr)
+                self.assertEqual(log.read_text(), "")
+        shared = subprocess.run(
+            ["bash", self.repo / "scripts/chiado-up.sh", "--share-prover"],
+            env=shared_env,
+            capture_output=True, text=True)
+        self.assertEqual(shared.returncode, 71, shared.stdout + shared.stderr)
+        prefix = "compose -f docker-compose.chiado-node.yml -f docker-compose.chiado-shared-prover.yml"
+        self.assertEqual(log.read_text().splitlines(), [f"{prefix} config --quiet", f"{prefix} up -d"])
+
+        env_file.write_text(env_file.read_text().replace("EEZ_PROOF_SIGNER_KEY=0xCHANGE_ME", ""))
+        log.write_text("")
+        remote = subprocess.run(
+            ["bash", self.repo / "scripts/chiado-up.sh", "--remote-provers"],
+            env={**os.environ, "PATH": f"{tool_dir}:{os.environ['PATH']}",
+                 "EEZ_PROVERS": "https://p.example:50061=0x" + "11"*20 + "=0x" + "22"*20,
+                 "EEZ_PROVER_TLS_DIR": "/fixture/tls"},
+            capture_output=True, text=True)
+        self.assertEqual(remote.returncode, 71, remote.stdout + remote.stderr)
+        prefix = "compose -f docker-compose.chiado-node.yml -f docker-compose.remote-provers.yml"
+        self.assertEqual(log.read_text().splitlines(), [
+            f"{prefix} config --services", f"{prefix} ps --all --orphans --services", f"{prefix} up -d",
         ])
 
     def test_bootstrap_seeds_match_the_canonical_list(self):

@@ -218,6 +218,7 @@ impl ServiceState {
 /// The `Prove` service. All cheap clones share state and one active-request slot.
 #[derive(Debug, Clone)]
 pub(crate) struct ProveSvc {
+    callers: eez_control_rpc::transport::CallerPolicy,
     sessions: Arc<sessions::SessionRuntime>,
     state: Arc<ServiceState>,
     limits: ServiceLimits,
@@ -226,7 +227,20 @@ pub(crate) struct ProveSvc {
 }
 
 impl ProveSvc {
+    #[cfg(test)]
     pub(crate) fn new(state: Arc<ServiceState>, limits: ServiceLimits) -> Self {
+        Self::with_callers(
+            state,
+            limits,
+            eez_control_rpc::transport::CallerPolicy::Loopback,
+        )
+    }
+
+    pub(crate) fn with_callers(
+        state: Arc<ServiceState>,
+        limits: ServiceLimits,
+        callers: eez_control_rpc::transport::CallerPolicy,
+    ) -> Self {
         let validation_worker = Arc::new(Semaphore::new(1));
         let active_request_slot = Arc::new(Semaphore::new(1));
         let sessions = sessions::SessionRuntime::new(
@@ -236,6 +250,7 @@ impl ProveSvc {
             Arc::clone(&active_request_slot),
         );
         Self {
+            callers,
             sessions,
             state,
             limits,

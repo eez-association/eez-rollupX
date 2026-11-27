@@ -101,7 +101,9 @@ Use Rust 1.96.0, pinned dependencies and `protoc`. The wire-only client does not
 link Stateless or Reth. Set `VALIDATION_IDENTITY` to the 0x-prefixed hash
 independently computed from that fixture's local inputs using the
 [identity contract](../VALIDATION_IDENTITY.md), never a value copied from the server.
-Against an independently provisioned fixture service:
+For a remote fixture, use its HTTPS origin and set `EEZ_PROVER_TLS_DIR` as in the
+[prover operator procedure](../../../docs/runbooks/attestation-quorum.md#share-a-pool-of-remote-provers).
+For a loopback development fixture:
 
 ```bash
 cargo +1.96.0 run --locked -p eez-control-rpc --example replay_streaming -- \

@@ -1,0 +1,18 @@
+# Layer over a node stack when every prover is operated separately.
+services:
+  eez-proof-signer: !reset null
+  eez-node:
+    depends_on:
+      eez-proof-signer: !reset null
+    environment:
+      EEZ_PROVERS: ${EEZ_PROVERS:?set the remote prover roster}
+      EEZ_PROVER_TLS_DIR: /run/eez/prover-tls
+      # Mask even a stale host key in the external Kurtosis env_file.
+      EEZ_PROOF_SIGNER_KEY: ""
+    volumes:
+      - type: bind
+        source: ${EEZ_PROVER_TLS_DIR:?set the Composer credential directory}
+        target: /run/eez/prover-tls
+        read_only: true
+        bind:
+          create_host_path: false

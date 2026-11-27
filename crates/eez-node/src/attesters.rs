@@ -131,8 +131,8 @@ mod tests {
     }
 
     #[test]
-    fn explicit_list_overrides_legacy_and_preserves_url_equals() {
-        let list = format!("https://host/prover?key=value={SIGNER}={SYSTEM}");
+    fn explicit_list_overrides_legacy() {
+        let list = format!("https://host={SIGNER}={SYSTEM}");
         let config = config(&[
             ("EEZ_PROVERS", &list),
             ("EEZ_PROVER_URL", ""),
@@ -141,7 +141,7 @@ mod tests {
         .unwrap();
         assert!(config.explicit);
         assert_eq!(config.stream_max_in_flight.get(), 32);
-        assert_eq!(config.members[0].url, "https://host/prover?key=value");
+        assert_eq!(config.members[0].url, "https://host");
         assert_eq!(
             config.members[0].proof_system,
             SYSTEM.parse::<Address>().unwrap()

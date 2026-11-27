@@ -112,7 +112,12 @@ impl Bindings {
     }
 }
 
-pub async fn replay(vector: &Value, endpoint: &str, expected_identity: B256) -> Result<(), Error> {
+pub async fn replay(
+    vector: &Value,
+    endpoint: &str,
+    expected_identity: B256,
+    tls_root: Option<&std::path::Path>,
+) -> Result<(), Error> {
     if vector["format"] != 2 {
         return Err("unsupported vector format".into());
     }
@@ -124,12 +129,15 @@ pub async fn replay(vector: &Value, endpoint: &str, expected_identity: B256) -> 
     if events.is_empty() {
         return Err("empty transcript".into());
     }
-    let capabilities =
-        eez_control_rpc::v2::prover_client::ProverClient::connect(endpoint.to_owned())
-            .await?
-            .capabilities(eez_control_rpc::v2::CapabilitiesRequest {})
-            .await?
-            .into_inner();
+    let channel = eez_control_rpc::transport::client_endpoint(endpoint, tls_root)
+        .map_err(|err| format!("{err:#}"))?
+        .connect()
+        .await?;
+    let capabilities = ProverClient::new(channel.clone())
+        .max_decoding_message_size(1024)
+        .capabilities(eez_control_rpc::v2::CapabilitiesRequest {})
+        .await?
+        .into_inner();
     if capabilities.profile_id != eez_control_rpc::OFFLINE_PROFILE_ID
         || capabilities.validation_identity != expected_identity.as_slice()
     {
@@ -139,8 +147,7 @@ pub async fn replay(vector: &Value, endpoint: &str, expected_identity: B256) -> 
     }
     let mut streams = HashMap::new();
     let mut bindings = Bindings::default();
-    let mut client = ProverClient::connect(endpoint.to_owned())
-        .await?
+    let mut client = ProverClient::new(channel)
         .max_encoding_message_size(eez_control_rpc::MAX_MESSAGE_BYTES)
         .max_decoding_message_size(eez_control_rpc::MAX_STREAMING_RESPONSE_BYTES);
     for (index, row) in events.iter().enumerate() {

@@ -868,23 +868,31 @@ pub struct ProofSignerHandle {
 impl ProofSignerHandle {
     /// Start the configured signer on a leased loopback port and wait for readiness.
     pub async fn spawn(cfg: &ProofSignerConfig<'_>) -> Result<Self> {
+        Self::spawn_for_composer(cfg, None).await
+    }
+
+    async fn spawn_for_composer(
+        cfg: &ProofSignerConfig<'_>,
+        tls_root: Option<&Path>,
+    ) -> Result<Self> {
         let deny_network = match std::env::var("EEZ_TEST_PROOF_SIGNER_NO_NETWORK").as_deref() {
             Ok("1") => true,
             Err(std::env::VarError::NotPresent) => false,
             _ => bail!("EEZ_TEST_PROOF_SIGNER_NO_NETWORK must be absent or 1"),
         };
-        Self::spawn_with_network_policy(cfg, deny_network).await
+        Self::spawn_with_network_policy(cfg, deny_network, tls_root).await
     }
 
     /// Cold signer with outbound socket creation denied by the existing test
     /// seccomp launcher. Inbound v2 requests remain available on loopback.
     pub async fn spawn_network_denied(cfg: &ProofSignerConfig<'_>) -> Result<Self> {
-        Self::spawn_with_network_policy(cfg, true).await
+        Self::spawn_with_network_policy(cfg, true, None).await
     }
 
     async fn spawn_with_network_policy(
         cfg: &ProofSignerConfig<'_>,
         deny_network: bool,
+        tls_root: Option<&Path>,
     ) -> Result<Self> {
         let port_lease = PortLease::tcp();
         let listen = format!("127.0.0.1:{}", port_lease.port());
@@ -941,6 +949,27 @@ impl ProofSignerHandle {
             .env("RUST_LOG", "info")
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(err_log));
+        let endpoint = if let Some(root) = tls_root {
+            let authority = format!("localhost:{}", port_lease.port());
+            let dir = working_dir.path().join("tls");
+            let output = tokio::process::Command::new("bash")
+                .arg(repo_root().join("testing/kurtosis/scripts/mint-prover-tls.sh"))
+                .arg(&dir)
+                .arg("direct")
+                .arg(&authority)
+                .output()
+                .await?;
+            ensure!(
+                output.status.success(),
+                "minting fixture TLS credentials failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            std::fs::rename(dir.join("composer").join(&authority), root.join(&authority))?;
+            command.env("EEZ_PROOF_SIGNER_TLS_DIR", dir.join("signer"));
+            format!("https://{authority}")
+        } else {
+            format!("http://{listen}")
+        };
         if let Some(blocks) = cfg.max_request_blocks {
             command.env("EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS", blocks.to_string());
         }
@@ -952,7 +981,7 @@ impl ProofSignerHandle {
             if tokio::net::TcpStream::connect(&listen).await.is_ok() {
                 return Ok(Self {
                     child: std::sync::Mutex::new(child),
-                    endpoint: format!("http://{listen}"),
+                    endpoint,
                     log_path,
                     _log_dir: log_dir,
                     _working_dir: working_dir,
@@ -6356,17 +6385,26 @@ async fn setup_native_inner(
         .transpose()?
         .unwrap_or(cfg.rollup_id);
     let l2_http_lease = PortLease::tcp();
-    let proof_signer = ProofSignerHandle::spawn(&ProofSignerConfig {
-        rollup_manager_address: cfg.rollup_manager_address,
-        registry_address: cfg.eez_address,
-        chain_config: &cfg.l2_genesis.0,
-        l1_chain_config: cfg.l1_chain_config(),
-        rollup_id: signer_rollup_id,
-        signer_key: cfg.attester_key,
-        vkey: network_vkey,
-        proof_system: cfg.proof_system_address,
-        max_request_blocks,
-    })
+    // The optional mutation/capture fixture has two host-local legs and its
+    // own frozen transcript contract. Direct quorum fixtures exercise mTLS.
+    let client_tls = quorum_config
+        .filter(|_| mutation.is_none() && fixture_directory.is_none())
+        .map(|_| tempfile::tempdir())
+        .transpose()?;
+    let proof_signer = ProofSignerHandle::spawn_for_composer(
+        &ProofSignerConfig {
+            rollup_manager_address: cfg.rollup_manager_address,
+            registry_address: cfg.eez_address,
+            chain_config: &cfg.l2_genesis.0,
+            l1_chain_config: cfg.l1_chain_config(),
+            rollup_id: signer_rollup_id,
+            signer_key: cfg.attester_key,
+            vkey: network_vkey,
+            proof_system: cfg.proof_system_address,
+            max_request_blocks,
+        },
+        client_tls.as_ref().map(tempfile::TempDir::path),
+    )
     .await?;
     let mutation = mutation.or_else(|| fixture_directory.as_ref().map(|_| ProverMutation::None));
     let prover_proxy = match mutation {
@@ -6385,7 +6423,9 @@ async fn setup_native_inner(
         .map_or(proof_signer.endpoint(), ProverProxyHandle::endpoint);
     let attester = attester_override.unwrap_or(signer_attester);
     let quorum = match quorum_config {
-        Some(config) => Some(TestQuorum::start(&cfg, &network_profile, prover_url, config).await?),
+        Some(config) => {
+            Some(TestQuorum::start(&cfg, &network_profile, prover_url, config, client_tls).await?)
+        }
         None => None,
     };
     let witness_dir = FailureDatadir::new("eez-native-witnesses")?;
@@ -6401,6 +6441,12 @@ async fn setup_native_inner(
         .then(|| L1ReorgControl::prepare(&cfg, &builder_stub))
         .transpose()?;
     let mut env = cfg.env(&builder_stub.url, beacon.endpoint());
+    if let Some(root) = quorum.as_ref().and_then(|q| q.client_tls.as_ref()) {
+        env.push((
+            "EEZ_PROVER_TLS_DIR",
+            root.path().to_string_lossy().into_owned(),
+        ));
+    }
     if reader_faults {
         env.push(("EEZ_L1_RPC_URL", builder_stub.url.clone()));
     }

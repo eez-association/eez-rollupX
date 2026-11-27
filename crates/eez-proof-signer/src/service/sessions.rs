@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
 use alloy_primitives::B256;
+use eez_control_rpc::transport::Caller;
 use eez_control_rpc::v2::prover_server::Prover;
 use eez_control_rpc::v2::{
     Cancelled, ClientFrame, Proof, Ready, Rejected, ServerFrame, Validated, client_frame,
@@ -37,6 +38,7 @@ type FrameResult = Result<(ServerFrame, bool), FrameError>;
 
 #[derive(Debug)]
 struct Session {
+    owner: Caller,
     anchor: BlockAnchor,
     begin_bytes: usize,
     blocks: Vec<SessionBlock>,
@@ -171,6 +173,7 @@ impl SessionRuntime {
     /// Serve one RPC stream, sequencing block work while accepting control frames.
     async fn serve_stream(
         self: Arc<Self>,
+        caller: Caller,
         mut input: Streaming<ClientFrame>,
         output: mpsc::Sender<Result<ServerFrame, Status>>,
     ) {
@@ -201,7 +204,7 @@ impl SessionRuntime {
                 let request_id = frame.request_id;
                 let mut local_bound = bound_session;
                 operation = Some(tokio::spawn(async move {
-                    let result = runtime.handle_frame(&mut local_bound, frame).await;
+                    let result = runtime.handle_frame(caller, &mut local_bound, frame).await;
                     (request_id, result)
                 }));
                 continue;
@@ -304,7 +307,7 @@ impl SessionRuntime {
                 Event::Input(Ok(Some(message))) => {
                     let request_id = message.request_id;
                     let is_rewind = matches!(message.kind, Some(client_frame::Kind::Rewind(_)));
-                    let response = self.handle_frame(&mut bound_session, message).await;
+                    let response = self.handle_frame(caller, &mut bound_session, message).await;
                     outstanding.remove(&request_id);
                     let rewound = is_rewind && response.is_ok();
                     let should_close = matches!(response, Ok((_, true)));
@@ -456,6 +459,7 @@ impl SessionRuntime {
     /// Handle one request, updating its stream binding and returning a response plus a close flag.
     async fn handle_frame(
         &self,
+        caller: Caller,
         bound_session: &mut Option<BoundSession>,
         frame: ClientFrame,
     ) -> Result<(ServerFrame, bool), FrameError> {
@@ -485,7 +489,7 @@ impl SessionRuntime {
                     ));
                 }
                 let (bound, ready) = self
-                    .begin(begin, frame_bytes)
+                    .begin(caller, begin, frame_bytes)
                     .await
                     .map_err(|status| (None, status))?;
                 *bound_session = Some(bound);
@@ -503,7 +507,10 @@ impl SessionRuntime {
                     ));
                 }
                 let id = parse_session_id(&session_id).map_err(|status| (None, status))?;
-                let (bound, ready) = self.resume(id).await.map_err(|status| (None, status))?;
+                let (bound, ready) = self
+                    .resume(caller, id)
+                    .await
+                    .map_err(|status| (None, status))?;
                 *bound_session = Some(bound);
                 Ok((
                     server_frame(bound, request_id, server_frame::Kind::Ready(ready)),
@@ -602,6 +609,7 @@ impl SessionRuntime {
     /// Create a retained session at the supplied anchor and return its initial binding and cursor.
     async fn begin(
         &self,
+        owner: Caller,
         begin: eez_control_rpc::v2::Begin,
         frame_bytes: usize,
     ) -> Result<(BoundSession, Ready), Status> {
@@ -661,6 +669,7 @@ impl SessionRuntime {
         registry.sessions.insert(
             id,
             Arc::new(Mutex::new(Session {
+                owner,
                 anchor,
                 begin_bytes: frame_bytes,
                 blocks: Vec::new(),
@@ -684,7 +693,7 @@ impl SessionRuntime {
     }
 
     /// Reattach to retained progress with a new epoch, cancelling work from the previous attachment.
-    async fn resume(&self, id: SessionId) -> Result<(BoundSession, Ready), Status> {
+    async fn resume(&self, caller: Caller, id: SessionId) -> Result<(BoundSession, Ready), Status> {
         // Keep the registry locked until attachment so eviction cannot remove
         // a disconnected session while it is being resumed.
         let registry = self.registry.lock().await;
@@ -693,6 +702,11 @@ impl SessionRuntime {
             .get(&id)
             .ok_or_else(|| Status::not_found("prover session is not retained"))?;
         let mut session = session.lock().await;
+        // Check ownership while the registry and session are locked, before
+        // cancelling the current attachment or disclosing its cursor.
+        if session.owner != caller {
+            return Err(Status::not_found("prover session is not retained"));
+        }
         let epoch = next_epoch(session.epoch)?;
         session.cancellation.cancel();
         session.epoch = epoch;
@@ -1106,8 +1120,9 @@ impl Prover for ProveSvc {
 
     async fn capabilities(
         &self,
-        _request: Request<eez_control_rpc::v2::CapabilitiesRequest>,
+        request: Request<eez_control_rpc::v2::CapabilitiesRequest>,
     ) -> Result<Response<eez_control_rpc::v2::CapabilitiesResponse>, Status> {
+        self.callers.authenticate(&request)?;
         let limits = self.limits;
         let window = limits.window_limits();
         // Use the enforced limits, including the aggregate-byte reduction of
@@ -1133,6 +1148,7 @@ impl Prover for ProveSvc {
         &self,
         request: Request<Streaming<ClientFrame>>,
     ) -> Result<Response<Self::ProveStreamStream>, Status> {
+        let caller = self.callers.authenticate(&request)?;
         if *self.sessions.shutdown.borrow() {
             return Err(Status::unavailable("prover is shutting down"));
         }
@@ -1155,7 +1171,7 @@ impl Prover for ProveSvc {
             })
             .map_err(|_| Status::resource_exhausted("too many active prover streams"))?;
         let runtime = Arc::clone(&self.sessions);
-        tokio::spawn(runtime.serve_stream(request.into_inner(), sender));
+        tokio::spawn(runtime.serve_stream(caller, request.into_inner(), sender));
         Ok(Response::new(Box::pin(ReceiverStream::new(receiver))))
     }
 }

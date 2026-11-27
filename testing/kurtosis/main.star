@@ -220,6 +220,21 @@ def run(plan, args):
         wait="900s",
     )
 
+    capture = "prove_capture_image" in eez
+    tls_outputs = [StoreSpec(src="/tls/signer", name="eez-signer-tls"),
+                   StoreSpec(src="/tls/composer", name="eez-composer-tls")]
+    if capture:
+        tls_outputs.extend([StoreSpec(src="/tls/capture-server", name="eez-capture-server-tls"),
+                            StoreSpec(src="/tls/capture-client", name="eez-capture-client-tls")])
+    tls = plan.run_sh(
+        description="mint isolated prover transport identities",
+        image=eez.get("deploy_image", "eez-deploy:dev"),
+        # Shipping images can run under different UIDs. Each receives only its role artifact.
+        run="bash /usr/local/bin/mint-prover-tls.sh /tls {} eez-proof-signer:{} eez-prove-capture:{} && chmod -R a+rX /tls".format(
+            "capture" if capture else "direct", PROOF_SIGNER_GRPC_PORT, PROOF_SIGNER_GRPC_PORT,
+        ),
+        store=tls_outputs,
+    )
     signer_cmd = " ".join(
         [
             "set -eu;",
@@ -249,10 +264,12 @@ def run(plan, args):
                 ),
             },
             files={
+                "/tls/server": tls.files_artifacts[0],
                 "/out": deploy.files_artifacts[0],
                 "/genesis": "el_cl_genesis_data",
             },
             env_vars={
+                "EEZ_PROOF_SIGNER_TLS_DIR": "/tls/server",
                 "EEZ_PROOF_SIGNER_KEY": proof_signer_key,
                 "RUST_LOG": eez.get("proof_signer_rust_log", "info"),
             },
@@ -261,8 +278,8 @@ def run(plan, args):
         ),
     )
 
-    prover_url = "http://eez-proof-signer:{}".format(PROOF_SIGNER_GRPC_PORT)
-    if "prove_capture_image" in eez:
+    prover_url = "https://eez-proof-signer:{}".format(PROOF_SIGNER_GRPC_PORT)
+    if capture:
         # Explicit opt-in test adapter. Only ACKed evidence and successful
         # finalizations are retained; the real signer remains authoritative.
         plan.add_service(
@@ -270,11 +287,13 @@ def run(plan, args):
             config=ServiceConfig(
                 image=eez["prove_capture_image"],
                 ports={"grpc": PortSpec(number=PROOF_SIGNER_GRPC_PORT, transport_protocol="TCP")},
+                files={"/tls/server": tls.files_artifacts[2], "/tls/client": tls.files_artifacts[3]},
+                env_vars={"EEZ_PROOF_SIGNER_TLS_DIR": "/tls/server", "EEZ_PROVER_TLS_DIR": "/tls/client"},
                 entrypoint=["capture_prover"],
                 cmd=["0.0.0.0:{}".format(PROOF_SIGNER_GRPC_PORT), prover_url, "/data/captures"],
             ),
         )
-        prover_url = "http://eez-prove-capture:{}".format(PROOF_SIGNER_GRPC_PORT)
+        prover_url = "https://eez-prove-capture:{}".format(PROOF_SIGNER_GRPC_PORT)
 
     # eez-node: embedded L1, composer, L2, and cross-chain fronts.
     eez_env = {
@@ -304,6 +323,7 @@ def run(plan, args):
         "EEZ_L1_POSTER_KEY": poster_key,
         "EEZ_L1_BLOB_SIDECAR_ENCODING": blob_sidecar_encoding,
         "EEZ_PROVER_URL": prover_url,
+        "EEZ_PROVER_TLS_DIR": "/tls/client",
         "EEZ_WITNESS_DB_PATH": "/data/witnesses",
         "EEZ_L2_DATADIR": "/data/l2",
         "EEZ_L2_HTTP_PORT": str(L2_RPC_PORT),
@@ -365,6 +385,7 @@ def run(plan, args):
                 ),
             },
             files={
+                "/tls/client": tls.files_artifacts[1],
                 "/out": deploy.files_artifacts[0],
                 "/genesis": "el_cl_genesis_data",
                 "/jwt": jwt.files_artifacts[0],

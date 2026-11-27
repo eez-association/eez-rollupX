@@ -1,6 +1,8 @@
 # Composer attestation quorum
 
-Set `EEZ_PROVERS` in the Composer environment to a comma-separated list of `url=attester_address=proof_system_address` entries. Use one to sixteen distinct HTTP(S) endpoint origins, nonzero signing addresses and nonzero verifier addresses. Provision each signer's existing v2 configuration with its own key and locally derived network-profile vkey. Each signer receives the execution witnesses for its requests. Use trusted, access-controlled endpoints. Keep credentials out of shared configuration and logs.
+To connect two Composers to the same independent providers, start with [Share a pool of remote provers](#share-a-pool-of-remote-provers).
+
+Set `EEZ_PROVERS` in the Composer environment to a comma-separated list of `url=attester_address=proof_system_address` entries. Use one to sixteen distinct endpoint origins (HTTPS for remote provers, HTTP for literal loopback development), nonzero signing addresses and nonzero verifier addresses. Provision each signer's existing v2 configuration with its own key and locally derived network-profile vkey. Each signer receives the execution witnesses for its requests. Use trusted, access-controlled endpoints. Keep credentials out of shared configuration and logs.
 
 Quorum startup requires the embedded L1 to have imported the registry, manager and verifier registrations. For a fresh or restored L1 datadir, sync to the deployment first. The bootstrap Composer can run in singleton configuration while the embedded L1 imports history. Switch to the explicit roster after verifying its registrations on that node.
 
@@ -23,6 +25,118 @@ Wait for the recreated Composer’s ready event and check its `stream_max_in_fli
 
 Earlier Composer binaries use a fixed limit of 8. Set the value to `8` before upgrading to preserve that behavior. Rolling back the binary also restores 8. The setting is local to Composer and works with existing v2 signers. Larger values allow more witness data in transit. If queued frames exceed a Rust signer’s pending byte or witness-item quota, it closes the stream with `RESOURCE_EXHAUSTED`. Reducing the pipeline to `8` restores the previous depth. A proof window that exceeds the signer’s request limits must itself be reduced. Each member’s negotiated limits and the existing proof deadline still apply. There is no wire, storage or historical replay change.
 
-Omitting `EEZ_PROVERS` selects the existing singleton tuple from `EEZ_PROVER_URL`, `EEZ_ATTESTER_ADDRESS` and `EEZ_ECDSA_PROOF_SYSTEM_ADDRESS`. An explicitly empty or malformed roster fails startup. A valid explicit roster takes precedence over all three settings. Compose passes the roster through to the Composer service. A roster edit requires restarting Composer. Degraded startup uses the block ceilings of the admitted cohort. If a recovering member has a lower ceiling, it can serve requests that fit it. Provision comparable signer capacity for failover during a backlog. A smaller signer may be unable to restore quorum for a larger window until the cohort or planning limit is changed. If a previously admitted signer changes its limits, its client rejects the changed capabilities. Restore the agreed limits or restart Composer to plan against the new configuration. Queued work is in memory and clients may need to resubmit.
+Omitting `EEZ_PROVERS` selects the existing singleton tuple from `EEZ_PROVER_URL`, `EEZ_ATTESTER_ADDRESS` and `EEZ_ECDSA_PROOF_SYSTEM_ADDRESS`. An explicitly empty or malformed roster fails startup. A valid explicit roster takes precedence over all three settings. Compose passes the roster through to the Composer service. After editing a packaged roster in the env file, recreate the Composer with the same Compose files and project using `docker compose up -d --no-deps --force-recreate eez-node`. A plain container restart retains its old environment. Degraded startup uses the block ceilings of the admitted cohort. If a recovering member has a lower ceiling, it can serve requests that fit it. Provision comparable signer capacity for failover during a backlog. A smaller signer may be unable to restore quorum for a larger window until the cohort or planning limit is changed. If a previously admitted signer changes its limits, its client rejects the changed capabilities. Restore the agreed limits or restart Composer to plan against the new configuration. Queued work is in memory and clients may need to resubmit.
 
-The existing Core ABI, signer protocol, validation identity and historical batch format apply throughout. Existing v2 signer binaries can serve matching singleton views. Before rolling back to a singleton Composer, establish that one registered system can meet the active threshold and that the legacy tuple is valid. A threshold above one requires an authorized on-chain policy change or a quorum-capable Composer to resume settlement.
+The existing Core ABI, signer protocol, validation identity and historical batch format apply throughout. Older plaintext v2 signer binaries can serve matching singleton views on loopback. Before rolling back to a singleton Composer, establish that one registered system can meet the active threshold and that the legacy tuple is valid. A threshold above one requires an authorized on-chain policy change or a quorum-capable Composer to resume settlement.
+
+## Share a pool of remote provers
+
+Verified on an isolated rollup with two Composers sharing three provers at threshold two, using source built from the #151 candidate based on `5d8748da`. The three packaged stacks were rendered offline. Separate local Anvil deployments exercised both initial-attester inputs and verified the registered signer and vkey. Release-image and live Kurtosis qualification are pending.
+
+Each Composer connects directly to each provider using the existing RollupX v2 API. Each prover operator chooses which Composers can request work. The rollup manager's threshold determines how many verified proofs a batch needs. Two Composers can use the same roster with separate posting wallets, writable datadirs and client keys.
+
+**For a new rollup**, obtain the initial provider’s public Ethereum attester address through an authenticated handoff. Set `EEZ_DEPLOY_ATTESTER_ADDRESS` in the deployment env file and remove the `EEZ_PROOF_SIGNER_KEY` assignment. Use a deploy script or image containing this change. Verify the address with the provider before broadcasting. The verifier fixes it at construction. Use the checksummed address supplied by the provider when available. Mixed-case inputs must pass the EIP-55 checksum. The local-signer workflow can still supply the key alone. If both values are supplied they must identify the same address. An explicitly set address must contain `0x` followed by 40 hex digits and must be nonzero and distinct from the reserved native system address.
+
+The [deployment procedure](chiado-quickstart.md#3-deploy-contracts--once) creates the initial verifier and registers it at threshold one. Share the public bindings in `deployments.env` and the corresponding genesis/profile with the provider. Keep the deployment `.env` private. Use the emitted `EEZ_ECDSA_PROOF_SYSTEM_ADDRESS` and `EEZ_ATTESTER_ADDRESS` for the first roster entry. Before starting the Composer, confirm the verifier’s `signer()` matches the address the provider supplied and have the provider check its independently derived vkey against `EEZ_VKEY`. See the [deployment identity checks](chiado-deployment.md#deployment-identity) and [vkey derivation](chiado-deployment.md#rollup-manager-and-coordinated-upgrades). Register any additional providers with the manager before enabling their roster entries. Prover TLS certificates are provisioned separately.
+
+**For an existing rollup**, use the existing public registrations and compatible mTLS-enabled binaries. An additional Composer uses the network’s normal bootstrap procedure.
+
+### On each prover host
+
+1. Give both Composer operators the prover's HTTPS origin, server CA certificate, registered attester address and proof-system address. The server certificate needs a DNS or IP subject alternative name matching the origin and must permit server authentication.
+2. Have each Composer operator generate its client key locally and obtain a client-auth certificate from an issuer you trust. Have them return their public leaf and issuer chain. Verify the operator, leaf and any new trust anchor through your agreed handoff. Each issuer can sign other certificates, so grant the two specific leaves. Produce one line per leaf with the following command, substituting the public certificate filename. Put the lines in `allowed-clients.sha256` with no duplicates, comments or blank lines.
+
+   ```bash
+   set -o pipefail
+   openssl x509 -in composer-a.pem -noout -sha256 -fingerprint | cut -d= -f2 | tr -d ':'
+   ```
+
+3. Set `EEZ_PROOF_SIGNER_TLS_DIR` to an absolute directory with these files:
+
+   | File | Contents |
+   | --- | --- |
+   | `cert.pem`, `key.pem` | Server leaf followed by any intermediates, and its matching private key |
+   | `ca.pem` | Trusted issuers of Composer client certificates |
+   | `allowed-clients.sha256` | One granted client leaf fingerprint per line |
+
+   With the packaged signer image, mount the directory read-only. UID 65532 needs read access to the files and traversal access to the directories.
+
+4. Load the [normal chain and attestation settings](../../crates/eez-proof-signer/SPEC.md#3-startup-configuration). Start the standalone signer on its service IP, replacing the example address and directory:
+
+   ```bash
+   eez-proof-signer --listen-addr 192.0.2.10:50061 --tls-dir /srv/eez/prover-tls
+   ```
+
+To add another Composer to a running pool, add its leaf fingerprint to each provider’s grant file. Restart each granting prover in turn and verify it before moving on. A 2-of-2 pool can miss a settlement window while either member is down. Each signer shares its validation worker across callers, so one Composer’s load can delay the other.
+
+### On each Composer host
+
+Set the roster and the absolute host credential directory. For example, with two registered providers, substitute their public addresses in the four shell variables below. For a packaged stack, save the resulting two assignments with literal values in the stack env file so they survive a new shell. Repeat with the same roster on the other Composer host.
+
+```bash
+export EEZ_PROVERS="https://p1.example:50061=${ATTESTER_1:?}=${VERIFIER_1:?},https://p2.example:50061=${ATTESTER_2:?}=${VERIFIER_2:?}"
+export EEZ_PROVER_TLS_DIR=/srv/eez/composer-prover-tls
+```
+
+Create one subdirectory per **exact URL authority**, including the port when specified. For example, `p1.example:50061/` holds `ca.pem` (trusts that provider's server), `cert.pem` (this Composer's client leaf for that provider followed by any intermediates) and `key.pem` (matching client key). An IPv6 example is `[::1]:50061/`. Each Composer needs its own leaf at each provider so its sessions and grants are independent. Provision separate client keys when cloning a host. Reusing a leaf and key gives both instances the same session identity. Use restricted file permissions and mount the directory read-only. An unreachable provider may leave enough members for quorum. A missing or malformed local credential for any selected member prevents startup.
+
+A standalone Composer uses those settings directly.
+
+### Host the shared signer and a Composer on one Chiado host
+
+Keep the local signer’s attestation key in its usual setting. Provision the server directory from [the prover steps](#on-each-prover-host) and a separate client directory for the co-hosted Composer. Grant a distinct leaf to each Composer, including the co-hosted one. Keep server and client credential directories disjoint, including after symlink resolution. On the provider host set these values in the stack’s `.env`, replacing the example socket and DNS name:
+
+```dotenv
+COMPOSE_FILE=docker-compose.chiado-node.yml:docker-compose.chiado-shared-prover.yml
+EEZ_PROOF_SIGNER_ADDR=192.0.2.10:50061
+EEZ_PROOF_SIGNER_TLS_DIR=/srv/eez/signer-tls
+EEZ_PROVER_TLS_DIR=/srv/eez/composer-tls
+EEZ_PROVER_URL=https://prover.example:50061
+```
+
+Choose an IP and port available on this host. The provider hostname must resolve to a reachable listener from each Composer and match the server certificate. This example’s co-hosted Composer reads its client credentials from `/srv/eez/composer-tls/prover.example:50061/`. To use several provers, set the normal HTTPS `EEZ_PROVERS` roster instead of the singleton URL. Each selected provider needs its own credential subdirectory.
+
+Use the [shared-signer overlay](../../docker-compose.chiado-shared-prover.yml) for this stack. From the repo root:
+
+```bash
+docker compose -f docker-compose.chiado-node.yml -f docker-compose.chiado-shared-prover.yml config --services
+bash scripts/chiado-up.sh --share-prover
+```
+
+Expect `eez-proof-signer`, `eez-node` and `lighthouse`. The co-hosted and remote Composers use one mTLS listener. The signer health check confirms that its configured socket accepts TCP. Verify admission on each Composer using [Verify the pool](#verify-the-pool). Keep both Compose files selected for subsequent manual commands as well. For an existing stack, schedule the signer and Composer recreation within the [rotation and cutover limits](#rotation-withdrawal-and-rollback) and preserve the project, keys and datadirs. Use `bash scripts/teardown-chiado.sh --share-prover` to stop it. Hosts that only consume the pool use the remote-provers overlay below.
+
+### Run a packaged Composer without a local signer
+
+Omit the local signer key and image from the new configuration. **When converting an existing stack**, first verify the old project and services with the original env and base file. During the scheduled cutover stop and remove just that project’s local signer before changing its env or file selection. For a Chiado stack running from this checkout:
+
+```bash
+docker compose -f docker-compose.chiado-node.yml ps --all eez-proof-signer
+docker compose -f docker-compose.chiado-node.yml rm --stop --force eez-proof-signer
+```
+
+Use the original Ethereum or external Kurtosis base file, env file and project selection for the equivalent cutover. Preserve any unrelated services and all volumes.
+
+With Compose 5.5.1, load the base file first and [the remote-provers overlay](../../docker-compose.remote-provers.yml) second for **every** command. For the external Kurtosis stack also pass its usual `--env-file .env.kurtosis`. The overlay mounts the host credential directory at `/run/eez/prover-tls` inside the node. On Chiado, check the service list from the repository root:
+
+```bash
+docker compose -f docker-compose.chiado-node.yml -f docker-compose.remote-provers.yml config --services
+```
+
+Expect just `eez-node` and `lighthouse`. Use `bash scripts/chiado-up.sh --remote-provers` for startup and `bash scripts/teardown-chiado.sh --remote-provers` for teardown.
+
+### Verify the pool
+
+- On **each** Composer check the startup event `eez.node.prover.ready`. Its `attesters` count is the number admitted at startup. For a fully available three-provider roster expect three, even when two are enough to start. Compare the proof-system address on a member warning with the roster.
+- If the node reports `HTTPS prover requires EEZ_PROVER_TLS_DIR`, check the selected Compose files and client mount. A `read …/ca.pem` error points to a missing or unreadable file under the exact authority directory. If TLS is configured, any HTTP entry makes the whole roster invalid.
+- A TLS handshake failure can indicate an untrusted issuer, unsuitable certificate or mismatched server name. A gRPC `PERMISSION_DENIED` with `client certificate is not authorized` means the TLS handshake succeeded and the prover did not grant that leaf. Check its fingerprint against the running prover's grant set. A timeout alone cannot identify the cause.
+- Verify a canonically settled batch and its threshold of verified proofs. When testing two active Composers, attribute a post to each by its transaction sender. Both can observe the same settlement. The [existing-rollup verification procedure](chiado-existing-rollup.md#3-start-catch-up-and-verify) shows the check.
+
+For local development omit both TLS directory settings and use a literal loopback address such as `http://127.0.0.1:50061`. Older configurations using `http://localhost` must switch to a literal such as `127.0.0.1`. A prover addressed by container service name or private IP needs HTTPS and client credentials. Processes with access to the loopback socket are trusted. Keep it out of port forwards, proxies and published container ports. Setting a Composer TLS directory requires HTTPS for every member, including loopback.
+
+### Rotation, withdrawal and rollback
+
+Credentials and grants are snapshots loaded at startup. For a directory bind mount, replace files inside the mounted directory and restart the process. If you replace the bound directory itself or change its host path, recreate the container so it mounts the new directory. To renew a client, first provision both old and new fingerprints on each affected prover and restart those signers, preserving a viable quorum where possible. Switch the Composer to its new certificate and restart it. A new leaf owns new sessions. Then remove the old grant and restart every serving instance. For CA or server identity changes, stage the new trust anchors on the peer first and retain the previous valid chain during the transition. Verify the replacement name and issuer before removing old trust.
+
+For emergency withdrawal, stop every serving instance that still trusts the withdrawn leaf, allow owned workers to drain, and restart with the reduced grant set. File edits, certificate expiry and removing an issuer alone do not terminate established channels. Confirm the former caller is denied on existing/reconnected and fresh channels and a retained caller still obtains a proof. Downtime can cost a settlement window. Signer sessions are volatile, so clients may need to Begin again and backfill within the original deadline. Composer restart may require resubmission of unsettled requests. A signature already issued remains valid.
+
+Remote cutover requires compatible mTLS clients and servers. Stage a new endpoint with the intended grants, verify it, move the roster, and retire every old plaintext ingress. Roll back to a verified, protected pair or take the affected member offline. Never reduce the manager threshold to work around a transport failure.

@@ -15,6 +15,7 @@ before reconstructing a process from scripts, old logs, or an earlier conversati
 | Run a Nethermind L2 follower on an existing RollupX network | [Nethermind follower](nethermind-follower.md) | Operated on Chiado-backed and Ethereum-backed networks; see the exact source and topology limits |
 | Serve SNAP or bootstrap a fresh Nethermind RollupX follower | [Nethermind SNAP](nethermind-snap.md) | Exact Compose download/follow/restart passed across public discovery between Nethermind nodes on separate VMs |
 | Start and check a Composer on Ethereum mainnet, Hoodi or Sepolia | [Ethereum node](ethereum-node.md) | Static Compose checks, unit tests and builder acceptance probes; not yet run against a synced Ethereum node |
+| Share remote provers between Composers on the same rollup | [Remote prover setup and rotation](attestation-quorum.md#share-a-pool-of-remote-provers) | Two Composers and three provers exercised on an isolated rollup at threshold two. All three Compose stacks rendered. |
 | Trace Composer gas for selected source hashes or an address | [Composer gas traces](composer-gas-tracing.md) | Hash-mode Chiado evidence; address-mode local coverage |
 | Run L2 Blockscout, Chiado Blobscan, or both | [Optional explorers](explorers.md) | Compose/helper and isolated Blobscan source checks; full stack rehearsal pending; operated outside CI |
 
@@ -36,5 +37,3 @@ authoritative walkthrough and link it from the README and `AGENTS.md`. When
 an operation reveals a missing step, update the procedure after verifying it;
 record one-off observations and unverified hypotheses in the audit. Reading a
 runbook does not itself authorize deployment, funding, or destructive recovery.
-
-For several independent attesters, follow [Composer attestation quorum](attestation-quorum.md).

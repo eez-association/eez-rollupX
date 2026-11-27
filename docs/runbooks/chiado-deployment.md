@@ -30,6 +30,7 @@ before choosing images or starting services.
 | --- | --- | --- |
 | Create a new registry and rollup | [First deployment](#first-deployment), then [start and verify](#start-and-verify) | Unused deployment paths; no existing stack on these names/ports |
 | Add or replace a Composer on an offline-profile L2 | [Existing-rollup Composer](chiado-existing-rollup.md) | Original deployment files/keys, matching profile/runtime, and L2 backup or complete replay history |
+| Connect a Composer to a shared pool of provers | [Remote prover setup](attestation-quorum.md#share-a-pool-of-remote-provers) | Existing registered providers, HTTPS endpoints and a client certificate granted by each provider |
 | Start/restart the same rollup | [Restart and stop](#restart-and-stop), then [start and verify](#start-and-verify) | Original bindings, genesis, keys, JWT, images, and datadirs |
 | Move hosts, replace a compatible runtime, or recover state | [Recovery and upgrades](#recovery-and-upgrades) | Same offline profile, deployment inventory, preserved state, and an identified recovery source |
 
@@ -116,13 +117,15 @@ isolation. Permit required P2P traffic and configure NAT where needed. Public
 HTTPS, explorers, and UI routing are separate; see the
 [gateway's Chiado notes](../../testing/public-gateway/README.md#chiado-deployment).
 
+With `--share-prover`, `EEZ_PROOF_SIGNER_ADDR` selects the full host socket, including the port. Reserve it separately for each shared signer on the host. `EEZ_SIGNER_PORT` selects the loopback-only stack’s port.
+
 ### Keys, funding, and files
 
 | Key | Purpose | Funding |
 | --- | --- | --- |
 | `EEZ_L1_POSTER_KEY` | Settlement sender | Chiado native gas funds (test xDAI) |
 | `EEZ_DEPLOY_KEY` (optional) | Contract deployer/owner; defaults to poster | Chiado gas funds if separate |
-| `EEZ_PROOF_SIGNER_KEY` | Batch attestation; registered in proof system | No transaction funding needed for attestation |
+| `EEZ_PROOF_SIGNER_KEY` (local signer) or `EEZ_DEPLOY_ATTESTER_ADDRESS` (provider public address) | Initial ECDSA attester registered in the proof system | No transaction funding needed for attestation |
 
 Generate dedicated keys with your wallet tooling. Keep the poster separate from
 the proof signer. The L1 registry and Rollup are deployed behind transparent
@@ -183,7 +186,7 @@ cp .env.chiado.example .env
 chmod 600 .env
 ```
 
-Edit `.env`: set a synchronized external Chiado `EEZ_L1_RPC_URL`, the poster and proof-signer keys,
+Edit `.env`: set a synchronized external Chiado `EEZ_L1_RPC_URL`, the poster key, the provider’s `EEZ_DEPLOY_ATTESTER_ADDRESS` or a local `EEZ_PROOF_SIGNER_KEY`,
 and optionally `EEZ_DEPLOY_KEY`. The deployment RPC must remain external:
 startup queries it before starting the embedded L1.
 
@@ -370,7 +373,7 @@ deployer nonce before deciding how to continue. Do not blindly rerun.
 
 Required: completed bindings and genesis/profile, L1 snapshot, JWT, configuration,
 and funded poster. For an existing rollup, first follow [restart](#restart-and-stop).
-Startup can recreate services and begin spending poster funds.
+Startup can recreate services and begin spending poster funds. To host the signer for both this Composer and remote Composers, follow the [shared-signer setup](attestation-quorum.md#host-the-shared-signer-and-a-composer-on-one-chiado-host) and use `--share-prover` for startup and teardown. For a remote prover, [configure the roster and TLS credentials](attestation-quorum.md#share-a-pool-of-remote-provers) and add `--remote-provers` to the startup command below.
 
 ```bash
 bash scripts/chiado-up.sh
@@ -616,13 +619,13 @@ docker run --rm --platform linux/amd64 --entrypoint eez-genesis-block-hash \
   -v "$PWD/datadir/genesis.json:/genesis.json:ro" "$EEZ_DEPLOY_IMAGE" /genesis.json
 docker run --rm --platform linux/amd64 --entrypoint eez-genesis-state-root \
   -v "$PWD/datadir/genesis.json:/genesis.json:ro" "$EEZ_DEPLOY_IMAGE" /genesis.json
-cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY"
+if [[ -n "${EEZ_PROOF_SIGNER_KEY:-}" ]]; then cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY"; fi
 cast call "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" 'signer()(address)' --rpc-url "$EEZ_L1_RPC_URL"
 test "${EEZ_L2_SYSTEM_ADDRESS,,}" = 0xfffffffffffffffffffffffffffffffffffffffe
 ```
 
 The two hashes must equal `EEZ_INITIAL_BLOCK_HASH` and `EEZ_L2_GENESIS_STATE_ROOT`.
-Both the proof-key address and on-chain signer must equal `EEZ_ATTESTER_ADDRESS`;
+Compare the on-chain signer and the emitted `EEZ_ATTESTER_ADDRESS` with the address confirmed independently by the provider, or with the derived address for a local signer;
 `EEZ_L2_SYSTEM_ADDRESS` must equal the fixed native address (case-insensitive).
 Compare genesis/profile file digests with the [inventory](#handoff-record).
 If a restored root-owned public genesis is unreadable by signer UID 65532,
